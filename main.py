@@ -4696,6 +4696,53 @@ async def _nombres_leyes_federales() -> list:
     return _NOMBRES_FEDERALES["lista"]
 
 
+# ── Qué campos indexa cada colección, y los nombres de ley de cada una ──────
+# (27-sep-2026) Las 32 colecciones estatales tienen strict mode: un filtro por
+# un campo sin índice no filtra, da 400. Se pregunta una vez por colección y
+# se guarda: el esquema de payload no cambia entre consultas.
+_INDICES_POR_COLECCION: dict = {}
+_NOMBRES_POR_COLECCION: dict = {}
+
+
+async def _coleccion_indexa(coleccion: str, campo: str) -> bool:
+    """¿`coleccion` tiene índice de payload sobre `campo`? Si Qdrant no
+    contesta se responde que sí, sin guardarlo: se filtra como siempre y, si
+    no había índice, el reintento sin filtro de hybrid_search_single_silo lo
+    resuelve. Un «no» por un fallo pasajero le quitaría el filtro de materia
+    a lo federal, que sí lo tiene."""
+    if coleccion not in _INDICES_POR_COLECCION:
+        try:
+            async with QDRANT_SEM:
+                info = await qdrant_client.get_collection(coleccion)
+            _INDICES_POR_COLECCION[coleccion] = set((info.payload_schema or {}).keys())
+        except Exception as e:
+            print(f"   ⚠️ No pude leer los índices de {coleccion}: {err(e)}")
+            return True
+    return campo in _INDICES_POR_COLECCION[coleccion]
+
+
+async def _nombres_de_coleccion(coleccion: str) -> list:
+    """[(nombre normalizado, nombre exacto)] de las leyes de una colección, por
+    faceta sobre el campo que la nombra (`ley` en la federal, `origen` en las
+    estatales; los dos están indexados). Una hora de caché, como la federal."""
+    import time as _t
+    if coleccion == FIXED_SILOS["federal"]:
+        return await _nombres_leyes_federales()
+    c = _NOMBRES_POR_COLECCION.get(coleccion)
+    if c and _t.time() - c["ts"] < _NOMBRES_FEDERALES_TTL:
+        return c["lista"]
+    lista = (c or {}).get("lista", [])
+    try:
+        async with QDRANT_SEM:
+            r = await qdrant_client.facet(collection_name=coleccion, key="origen", limit=2000)
+        lista = sorted(((_normalizar_nombre_ley(h.value), h.value) for h in r.hits
+                        if isinstance(h.value, str) and h.value.strip()), key=lambda x: -len(x[0]))
+    except Exception as e:
+        print(f"   ⚠️ No pude leer los nombres de las leyes de {coleccion}: {err(e)}")
+    _NOMBRES_POR_COLECCION[coleccion] = {"lista": lista, "ts": _t.time()}
+    return lista
+
+
 def _ley_federal_de_pista(pista: str, permitir_prefijo: bool = False) -> Optional[str]:
     """La ley federal que nombra un texto, con su nombre exacto en Qdrant, o None.
 
@@ -5107,16 +5154,25 @@ async def expand_query_with_metadata(query: str) -> Dict[str, Any]:
 
 
 # Mapeo canónico: materia uppercase → valor lowercase almacenado en Qdrant
+#
+# EL CÓDIGO PROCESAL ES DE SU MATERIA (27-sep-2026). Este filtro sólo se aplica
+# a `leyes_federales` —la única colección de leyes con `materia` indexada— y
+# es un filtro DURO: un `Filter(should=[…])` exige que case al menos uno. Con
+# PENAL = ["penal"] el CNPP (materia `procesal_penal`, 499 puntos) quedaba
+# fuera de toda consulta penal; y con la ley detectada («filtro por campo
+# 'ley'» = CNPP) la búsqueda federal devolvía CERO: 233 veces en la semana del
+# 20 al 27-sep (Ley de Amparo 56, CNPP 39, CFPC 12, CNPCF 11). Vocabulario
+# medido con una faceta sobre `materia` de leyes_federales.
 _MATERIA_QDRANT_VALUES = {
-    "CIVIL": ["civil", "familiar"],          # CC frecuentemente agrupa civil y familia
-    "PENAL": ["penal"],
-    "FAMILIAR": ["familiar", "civil"],
-    "LABORAL": ["laboral"],
-    "ADMINISTRATIVO": ["administrativo", "administrativa"],
+    "CIVIL": ["civil", "familiar", "procesal_civil"],   # CC frecuentemente agrupa civil y familia
+    "PENAL": ["penal", "procesal_penal", "extincion_dominio", "trata_personas"],
+    "FAMILIAR": ["familiar", "civil", "procesal_civil"],
+    "LABORAL": ["laboral", "seguridad_social"],
+    "ADMINISTRATIVO": ["administrativo", "administrativa", "transparencia"],
     "FISCAL": ["fiscal", "administrativo", "administrativa"],
-    "MERCANTIL": ["mercantil"],
+    "MERCANTIL": ["mercantil", "consumidor"],
     "AGRARIO": ["agrario"],
-    "CONSTITUCIONAL": ["constitucional"],
+    "CONSTITUCIONAL": ["constitucional", "amparo"],
 }
 
 
@@ -5775,6 +5831,12 @@ _SOLO_CIVIL = re.compile(
     re.IGNORECASE)
 
 
+# Delitos cuyo NOMBRE lleva una palabra procesal: «¿qué pena tiene el fraude
+# procesal?» es una pregunta sustantiva (art. 310 del Código Penal del DF) y el
+# detector la leía como de procedimiento (27-sep-2026).
+_NO_ES_SENAL_PROCESAL = re.compile(r"\bfraude procesal\b", re.IGNORECASE)
+
+
 def _detectar_consulta_procesal(query: str) -> Optional[str]:
     """`procesal_penal`, `procesal_civil` o None.
 
@@ -5782,6 +5844,7 @@ def _detectar_consulta_procesal(query: str) -> Optional[str]:
     por la pena del robo no necesita el CNPP; una por el plazo de la
     vinculación a proceso no se responde sin él.
     """
+    query = _NO_ES_SENAL_PROCESAL.sub(" ", query or "")
     if not query or not _SENAL_PROCESAL.search(query):
         return None
     if _SOLO_PENAL.search(query):
@@ -5793,6 +5856,19 @@ def _detectar_consulta_procesal(query: str) -> Optional[str]:
     if penal == 0 and civil == 0:
         return None
     return "procesal_penal" if penal >= civil else "procesal_civil"
+
+
+def _consulta_procesal_fuerte(query: str) -> bool:
+    """¿La consulta es CLARAMENTE de procedimiento? Una figura que sólo existe
+    en el proceso (vinculación, imputación, carpeta de investigación…) o dos
+    señales procesales distintas. Decide cuánto lugar se lleva el código
+    nacional frente al código local de la materia (27-sep-2026): con una sola
+    señal débil —«audiencia» en un escrito sobre la pena— no se le quita
+    espacio al código penal."""
+    q = _NO_ES_SENAL_PROCESAL.sub(" ", query or "")
+    if _SOLO_PENAL.search(q) or _SOLO_CIVIL.search(q):
+        return True
+    return len({m.lower() for m in _SENAL_PROCESAL.findall(q)}) >= 2
 
 
 async def _traer_codigo_nacional(materia: str, dense_vector, limite: int = 6):
@@ -8289,9 +8365,14 @@ async def hybrid_search_single_silo(
                 print(f"   ❌ Dense-only fallback también falló en {collection}: {dense_e}")
                 return []
 
-        # Si el error es por índice faltante, reintentar SIN filtro de metadata
+        # Si el error es por índice faltante, reintentar SIN filtro de metadata.
+        # El mensaje dice el error REAL (27-sep-2026): «índice faltante» a
+        # secas llevó a buscar el fallo en el filtro por `ley` cuando era el de
+        # `materia` (2,160 veces en una semana, todas en colecciones estatales).
         if "400" in error_msg or "Index required" in error_msg:
-            print(f"   ⚠️  Filtro falló en {collection} (índice faltante), reintentando sin filtro...")
+            _motivo_400 = re.search(r'Index required[^"\]]{0,120}', error_msg)
+            print(f"   ⚠️  Filtro falló en {collection} "
+                  f"({_motivo_400.group(0) if _motivo_400 else error_msg[:120]}), reintentando sin filtro...")
             try:
                 results = await _do_search(None)  # Sin filtro
                 # El mismo conversor que el intento con filtro (25-sep-2026):
@@ -9381,6 +9462,119 @@ async def _federales_de_la_materia(query: str, materia: Optional[str], ya_presen
     return [r for r in resultados if r.id not in ya_presentes][:limite]
 
 
+# El código de cada materia y dónde vive (27-sep-2026): ver _inyectar_codigo_de_la_materia.
+_CODIGOS_DE_LA_MATERIA = {
+    # materia: (colección — None = la del estado —, patrones del nombre normalizado)
+    "penal": (None, [r"\bc\s?o?\s?digo penal\b"]),
+    "civil": (None, [r"\bc\s?o?\s?digo civil\b",
+                     r"\bc\s?o?\s?digo (?:de )?(?:procedimientos?|proceimientos) civil(?:es)?\b"]),
+    "familiar": (None, [r"\bc\s?o?\s?digo (?:familiar|de familia|para la familia)\b",
+                        r"\bc\s?o?\s?digo (?:de )?procedimientos? familiar(?:es)?\b",
+                        r"\bc\s?o?\s?digo civil\b",
+                        r"\bc\s?o?\s?digo (?:de )?(?:procedimientos?|proceimientos) civil(?:es)?\b"]),
+    "administrativo": (None, [r"\bley (?:de|del) (?:procedimiento|proceso|justicia) (?:contencioso )?administrativ[oa]\b"]),
+    "laboral": (FIXED_SILOS["federal"], [r"\bley federal del trabajo\b"]),
+}
+
+
+async def _inyectar_codigo_de_la_materia(merged: list, materia_key: str, _selected_state_silo: Optional[str],
+                                         estado: Optional[str], query: str, dense_vector, sparse_vector,
+                                         top_k: int, alpha: float) -> list:
+    """Los artículos del código de la materia (el penal, el civil… de la
+    entidad; la LFT en laboral), por NOMBRE EXACTO y con el mismo vector de
+    la consulta, al frente de `merged`. Ver el comentario en
+    hybrid_search_all_silos (27-sep-2026). Nunca lanza: si algo falla,
+    devuelve `merged` tal cual."""
+    _destino_codigo = _CODIGOS_DE_LA_MATERIA.get(materia_key)
+    _col_codigo = None
+    if _destino_codigo:
+        _col_codigo = _destino_codigo[0] or (_selected_state_silo if (_selected_state_silo and estado) else None)
+    if _destino_codigo and _col_codigo:
+        _patrones_codigo = _destino_codigo[1]
+        _campo_codigo = "ley" if _col_codigo == FIXED_SILOS["federal"] else "origen"
+        # Cuántos lugares se le reservan: seis con los top_k del chat (55-65) y
+        # del análisis de documentos (30); menos con los top_k chicos, para no
+        # desplazar a la jurisprudencia.
+        _n_codigo = max(2, min(6, top_k // 5))
+        # Una consulta CLARAMENTE de procedimiento penal (vinculación, no
+        # ejercicio de la acción, carpeta de investigación…) se contesta con el
+        # CNPP, que tiene su lugar garantizado más abajo; el código penal local
+        # entra con la mitad. Medido el 27-sep con el escrito del caso: con
+        # seis del Código Penal el CNPP bajaba de 6 artículos a 3. Con una
+        # señal débil, o con «fraude procesal», que es un delito, entra entero.
+        if (materia_key == "penal" and _detectar_consulta_procesal(query) == "procesal_penal"
+                and _consulta_procesal_fuerte(query)):
+            _n_codigo = max(2, _n_codigo // 2)
+        try:
+            _nombres_codigo = [orig for norm_, orig in await _nombres_de_coleccion(_col_codigo)
+                               if any(re.search(pt, norm_) for pt in _patrones_codigo)]
+        except Exception as _e_nom:
+            print(f"   ⚠️ CÓDIGO DE LA MATERIA: no pude leer los nombres de {_col_codigo}: {err(_e_nom)}")
+            _nombres_codigo = []
+        _norm_codigo = {_normalizar_nombre_ley(n) for n in _nombres_codigo}
+        print(f"\n   🎯 CÓDIGO DE LA MATERIA: materia='{materia_key}' → {_col_codigo}: {_nombres_codigo[:4]}")
+        if not _nombres_codigo:
+            print(f"   ⚠️ CÓDIGO DE LA MATERIA: {_col_codigo} no tiene un código de '{materia_key}'")
+        else:
+            _ya_codigo = [r for r in merged
+                          if r.silo == _col_codigo and _normalizar_nombre_ley(r.origen or "") in _norm_codigo]
+            if len(_ya_codigo) >= _n_codigo:
+                print(f"   ✅ CÓDIGO DE LA MATERIA: ya venían {len(_ya_codigo)} artículos en el contexto")
+            else:
+                try:
+                    _base_codigo = get_filter_for_silo(_col_codigo, estado)
+                    _must_codigo = list(_base_codigo.must) if (_base_codigo and _base_codigo.must) else []
+                    _must_codigo.append(FieldCondition(key=_campo_codigo, match=MatchAny(any=_nombres_codigo)))
+                    _res_codigo = await hybrid_search_single_silo(
+                        collection=_col_codigo,
+                        query=query,
+                        dense_vector=dense_vector,
+                        sparse_vector=sparse_vector,
+                        filter_=Filter(must=_must_codigo),
+                        top_k=_n_codigo * 3,
+                        alpha=alpha,
+                    )
+                except Exception as _e_cod:
+                    print(f"   ⚠️ CÓDIGO DE LA MATERIA: la búsqueda falló en {_col_codigo}: {err(_e_cod)}")
+                    _res_codigo = []
+                _existing_ids = {r.id for r in merged}
+                # Las colecciones traen versiones repetidas de un mismo código
+                # (en leyes_cdmx, dos del de Procedimientos Civiles): un mismo
+                # artículo entra una vez. La clave lleva el arranque del texto
+                # porque un artículo largo viene partido en trozos con la MISMA
+                # ref («Art. 365» dos veces): esas partes sí entran las dos.
+                def _clave_art(r):
+                    return (_normalizar_nombre_ley(r.origen or ""), (r.ref or "").strip().lower(),
+                            " ".join((r.texto or "").split())[:80].lower())
+                _vistos_codigo = {_clave_art(r) for r in merged}
+                _injected = []
+                for _ar in _res_codigo:
+                    if len(_ya_codigo) + len(_injected) >= _n_codigo:
+                        break
+                    if _ar.id in _existing_ids:
+                        continue
+                    _norm_ar = _normalizar_nombre_ley(_ar.origen or "")
+                    if _norm_ar and _norm_ar not in _norm_codigo:
+                        continue   # el filtro no se aplicó (reintento sin filtro): no es el código
+                    if not _ar.origen and len(_nombres_codigo) == 1:
+                        _ar.origen = _nombres_codigo[0]   # la federal guarda el nombre en `ley`
+                    _k = _clave_art(_ar)
+                    if _k in _vistos_codigo:
+                        continue
+                    _vistos_codigo.add(_k)
+                    _existing_ids.add(_ar.id)
+                    _ar.score = max(_ar.score, 0.90)   # score alto para encabezar y no caer en el recorte
+                    _injected.append(_ar)
+                    print(f"      ✅ INJECT: {_ar.ref} | {(_ar.origen or '')[:60]} | score→{_ar.score:.4f}")
+                if _injected:
+                    merged = _injected + merged
+                    print(f"   🚀 MATERIA INJECTION: {len(_injected)} artículos de {_nombres_codigo[0][:50]} "
+                          f"al frente del contexto (ya venían {len(_ya_codigo)})")
+                else:
+                    print(f"   ⚠️ MATERIA INJECTION: No se encontraron artículos del código ({_nombres_codigo[:2]})")
+    return merged
+
+
 async def hybrid_search_all_silos(
     query: str,
     estado: Optional[str],
@@ -9583,8 +9777,13 @@ async def hybrid_search_all_silos(
     def _combine_filters_for_silo(
         base: Optional[Filter], materia_should: Optional[Filter]
     ) -> Optional[Filter]:
-        """Combina filtro de estado (must) con materia (should) para soft boosting.
-        El should NO elimina resultados, solo sube el score de los que coinicden."""
+        """Combina filtro de estado (must) con materia (should).
+
+        OJO (27-sep-2026): en Qdrant el `should` NO es un boost. Si hay alguna
+        condición `should`, el punto tiene que cumplir al menos una: es un
+        filtro duro. Medido en leyes_federales: `should materia=penal` deja
+        2,155 de 30,050 puntos, y con `must ley=CNPP` deja cero. Por eso sólo
+        se aplica donde `materia` está indexada y nunca sobre el de ley."""
         if not materia_should:
             return base
         if not base:
@@ -9612,8 +9811,14 @@ async def hybrid_search_all_silos(
     _ley_federal_detectada = _detect_ley_federal_mencionada(query)
     _extra_federal_unfocused_task = None
     if _ley_federal_detectada:
-        print(f"   📜 LEY FEDERAL DETECTADA: '{_ley_federal_detectada}' → filtro por campo 'ley'")
-    
+        if "leyes_federales" in silos_to_search:
+            print(f"   📜 LEY FEDERAL DETECTADA: '{_ley_federal_detectada}' → filtro por campo 'ley'")
+        else:
+            # El aviso de siempre salía aunque la colección federal no se
+            # consultara y hacía buscar el fallo donde no estaba (27-sep-2026).
+            print(f"   📜 LEY FEDERAL DETECTADA: '{_ley_federal_detectada}' "
+                  f"(leyes_federales no está entre los silos de esta búsqueda)")
+
     for silo_name in silos_to_search:
         state_filter = get_filter_for_silo(
             silo_name, estado,
@@ -9630,7 +9835,19 @@ async def hybrid_search_all_silos(
             silo_top_k = top_k * 2  # Más resultados de la ley enfocada
         
         # Inyectar materia should-filter en silos de leyes (NO en juris/constitucional)
-        if _materia_should_filter and silo_name not in (*JURIS_SILOS, "bloque_constitucional"):
+        #
+        # SÓLO DONDE `materia` ESTÁ INDEXADA Y NUNCA SOBRE EL FILTRO POR LEY
+        # (27-sep-2026). Ninguna de las 32 colecciones estatales indexa
+        # `materia` y todas tienen strict mode: Qdrant contestaba 400 y
+        # hybrid_search_single_silo repetía la búsqueda sin filtro —2,160
+        # veces en la semana—, así que ahí el resultado es el mismo sin el
+        # viaje de ida y vuelta. Y en leyes_federales el `should` no es un
+        # «boost» sino un filtro duro: sobre «ley = CNPP» exigía además
+        # `materia = penal`, que el CNPP no tiene, y la búsqueda salía vacía.
+        # Con la ley ya detectada, la ley basta.
+        if (_materia_should_filter and silo_name not in (*JURIS_SILOS, "bloque_constitucional")
+                and not (silo_name == "leyes_federales" and _ley_federal_detectada)
+                and await _coleccion_indexa(silo_name, "materia")):
             combined_filter = _combine_filters_for_silo(state_filter, _materia_should_filter)
         else:
             combined_filter = state_filter
@@ -10112,94 +10329,28 @@ async def hybrid_search_all_silos(
     # con leyes administrativas (Transparencia, Servicios) que con el CPC local.
     # Solución: re-query usando el nombre del código procesal como ancla semántica.
     # ═══════════════════════════════════════════════════════════════════════════
-    _MATERIA_LAW_ANCHORS = {
-        "civil": [
-            "Código de Procedimientos Civiles",
-            "Código Civil",
-        ],
-        "penal": [
-            "Código Penal",
-            "Código Nacional de Procedimientos Penales",
-        ],
-        "familiar": [
-            "Código de Procedimientos Civiles",
-            "Código Familiar",
-            "Código Civil",
-        ],
-        "admin": [
-            "Ley de Procedimiento Contencioso Administrativo",
-            "Ley de Procedimientos Administrativos",
-        ],
-        "laboral": [
-            "Ley Federal del Trabajo",
-        ],
-    }
-    
-    if detected_materias and _selected_state_silo and estado:
-        _materia_key = detected_materias[0].lower()
-        _law_anchors = _MATERIA_LAW_ANCHORS.get(_materia_key, [])
-        
-        if _law_anchors:
-            print(f"\n   🎯 MATERIA-AWARE SECONDARY SEARCH: materia='{_materia_key}' → anclas: {_law_anchors}")
-            _existing_ids = {r.id for r in merged}
-            _injected = []
-            
-            for _anchor in _law_anchors[:2]:  # Max 2 anclas
-                # Construir query enriquecida con el nombre del código
-                _enriched_query = f"{_anchor} {query}"
-                try:
-                    _anchor_dense = await get_dense_embedding(_enriched_query)
-                    _anchor_sparse = get_sparse_embedding(_enriched_query)
-                    _anchor_results = await hybrid_search_single_silo(
-                        collection=_selected_state_silo,
-                        query=_enriched_query,
-                        dense_vector=_anchor_dense,
-                        sparse_vector=_anchor_sparse,
-                        filter_=get_filter_for_silo(_selected_state_silo, estado),
-                        top_k=8,
-                        alpha=alpha,
-                    )
-                    for _ar in _anchor_results:
-                        if _ar.id not in _existing_ids:
-                            # Verificar que el resultado es del código procesal correcto.
-                            # PROBLEMA: origen en Qdrant tiene mojibake (cp1252→utf-8) — letras
-                            # acentuadas se corrompen a U+FFFD y al eliminarse acortan la palabra
-                            # (ej: "Código"→"C\ufffddigo"→"Cdigo", nunca "Codigo").
-                            # SOLUCIÓN: usar SOLO palabras sin acento del anchor para el match.
-                            # "Código de Procedimientos Civiles" → ["procedimientos","civiles"]
-                            # "Código Penal" → ["penal"]  — palabras ASCII puras, inmunes a mojibake.
-                            _origen_lower = (_ar.origen or "").lower()
-                            # Extraer palabras discriminantes del anchor: ASCII puro, >3 chars,
-                            # excluyendo stopwords genéricas ("ley","codigo","del","para","los").
-                            # Esto es robusto contra mojibake (Código→C\ufffddigo→"cdigo")
-                            # porque las palabras acentuadas se omiten y las que identifican
-                            # el tipo de ley ("procedimientos","civiles","penal") son ASCII puras.
-                            _ANCHOR_STOPWORDS = {"codigo", "ley", "del", "para", "los", "las", "estado"}
-                            _anchor_words_key = [
-                                w.lower() for w in _anchor.split()
-                                if w.isascii() and len(w) > 3 and w.lower() not in _ANCHOR_STOPWORDS
-                            ]
-                            if _anchor_words_key:
-                                _is_target_law = all(w in _origen_lower for w in _anchor_words_key)
-                            else:
-                                # Fallback: si el anchor es solo palabras acentuadas (raro),
-                                # verificar que el silo sea el estatal correcto
-                                _is_target_law = True
-                            
-                            if _is_target_law:
-                                _ar.score = max(_ar.score, 0.90)  # Score alto para priorizar
-                                _injected.append(_ar)
-                                _existing_ids.add(_ar.id)
-                                print(f"      ✅ INJECT: {_ar.ref} | {_ar.origen[:60]} | score→{_ar.score:.4f}")
-                except Exception as e:
-                    print(f"      ⚠️ Materia secondary search falló para '{_anchor}': {err(e)}")
-            
-            if _injected:
-                # Insertar al INICIO del merged para máxima prioridad
-                merged = _injected + merged
-                print(f"   🚀 MATERIA INJECTION: {len(_injected)} chunks del código procesal inyectados al frente del contexto")
-            else:
-                print(f"   ⚠️ MATERIA INJECTION: No se encontraron chunks del código procesal (anclas: {_law_anchors})")
+    #
+    # POR NOMBRE EXACTO, NO POR ANCLA SEMÁNTICA (27-sep-2026). La versión
+    # anterior volvía a embeber «Código Penal + consulta» y buscaba SIN filtro
+    # en la colección estatal: con una consulta de 2,000 caracteres (la del
+    # análisis de documentos) dos palabras delante no mueven el vector, y en
+    # la semana del 20 al 27-sep falló 467 de 942 veces (laboral 91%, penal
+    # 53%): en un escrito penal de CDMX encabezaron el contexto el Código
+    # Fiscal y la Ley de Cultura Cívica mientras el Código Penal para el
+    # Distrito Federal —463 trozos en leyes_cdmx— no llegaba. Las anclas del
+    # CNPP y de la LFT eran además imposibles: son federales y se buscaban en
+    # la colección estatal.
+    #
+    # Ahora se filtra por el NOMBRE del código tal como está en la colección
+    # (faceta sobre `origen`, indexado en las 32; `ley` en la federal) con el
+    # MISMO vector de la consulta: cero embeddings nuevos (antes eran dos). El
+    # CNPP no va aquí: tiene su lugar en «códigos nacionales» (más abajo).
+    try:
+        merged = await _inyectar_codigo_de_la_materia(
+            merged, detected_materias[0].lower() if detected_materias else "",
+            _selected_state_silo, estado, query, dense_vector, sparse_vector, top_k, alpha)
+    except Exception as _e_inj:
+        print(f"   ⚠️ CÓDIGO DE LA MATERIA: se sigue sin inyección ({type(_e_inj).__name__}: {str(_e_inj)[:120]})")
     
     # === PRODUCTION LOGGING: qué documentos van al contexto ===
     print(f"\n   📋 MERGED RESULTS ({len(merged)} total):")
@@ -10459,9 +10610,25 @@ async def hybrid_search_all_silos(
         _nuevos = [r for r in _nacionales if r.id not in existing_ids]
         for r in _nuevos:
             existing_ids.add(r.id)
+        # GARANTIZADOS DE VERDAD (27-sep-2026). Entraban con su coseno crudo
+        # (0.5-0.65) y dos pasos más abajo todo se ordena por puntuación y se
+        # recorta a `top_k`, donde lo estatal compite multiplicado por 1.25:
+        # el «lugar garantizado» se podía caer en el recorte. Los más
+        # pertinentes reciben un piso que los mantiene dentro —por debajo del
+        # código local de la materia (0.90), para que éste encabece— y los
+        # demás compiten como siempre.
+        # Con el CNPP, que rige en todo el país, los lugares completos del
+        # código de la materia si la consulta es claramente procesal, y dos si
+        # la señal es débil (una «audiencia» en una pregunta por la pena); el
+        # CNPCF entra en vigor por entidades y compite como antes, sin piso.
+        _n_nac = ((max(2, min(6, top_k // 5)) if _consulta_procesal_fuerte(query) else 2)
+                  if _materia_procesal == "procesal_penal" else 0)
+        for r in sorted(_nuevos, key=lambda x: x.score, reverse=True)[:_n_nac]:
+            r.score = max(r.score, 0.86)
         merged.extend(_nuevos)
         print(f"   ⚖️ CÓDIGO NACIONAL ({_materia_procesal}): +{len(_nuevos)} "
-              f"artículos garantizados en {time.perf_counter()-_t_nac:.2f}s")
+              f"artículos ({min(_n_nac, len(_nuevos))} con lugar garantizado) "
+              f"en {time.perf_counter()-_t_nac:.2f}s")
 
     # ═══════════════════════════════════════════════════════════════════════════
     # MATERIA-AWARE RETRIEVAL — Capa 3: Post-Retrieval Threshold
