@@ -551,6 +551,62 @@ def cadena_competencia(tipo: str) -> str:
                                   CADENA_COMPETENCIA["amparo_directo"])
 
 
+# LA COMPETENCIA DE LA REVISIÓN DEPENDE DE LO QUE SE RECURRE (27-sep-2026).
+# El banco emite una sola fórmula —la de la sentencia de audiencia: 81, fr. I,
+# inciso e), y 84 de la Ley de Amparo; 35, fr. V, de la Ley Orgánica— y salía
+# también cuando lo recurrido era la interlocutoria de la suspensión
+# definitiva, que es el inciso a) (o el b), si se recurre lo que modificó o
+# revocó esa suspensión) y la fracción II del 35. Se decide por el PROEMIO de
+# la resolución recurrida —«VISTOS para resolver el incidente de suspensión…»—
+# y no por el expediente entero: una sentencia de audiencia menciona el
+# incidente de suspensión de pasada.
+_RX_PROEMIO_SUSPENSION = re.compile(
+    r"(?:resolver|interlocutoria)[^.]{0,160}incidente\s+de\s+suspensi[óo]n|"
+    r"incidente\s+de\s+suspensi[óo]n[^.]{0,120}(?:relativo|derivado|deducido)", re.I)
+_RX_AUDIENCIA = re.compile(r"audiencia\s+constitucional", re.I)
+_RX_MODIFICA_SUSP = re.compile(
+    r"(?:modific|revoc)\w*\s+(?:el\s+|la\s+)?(?:acuerdo|auto|interlocutoria|resoluci[óo]n)"
+    r"[^.]{0,120}suspensi[óo]n\s+definitiva", re.I)
+_RX_CONSTITUCIONALIDAD = re.compile(
+    r"inconstitucionalidad\s+de\s+(?:la|el|los|las)\s+(?:ley|art[íi]culo|norma|decreto|reglamento)|"
+    r"(?:expedici[óo]n|promulgaci[óo]n|aprobaci[óo]n)[^.]{0,80}(?:ley|decreto|reglamento)", re.I)
+
+
+def competencia_revision(texto_comp: str, proemio: str, fuente: str = "") -> tuple:
+    """(competencia, avisos) para la revisión, según lo recurrido."""
+    avisos = []
+    t = texto_comp or ""
+    if (proemio and _RX_PROEMIO_SUSPENSION.search(proemio)
+            and not _RX_AUDIENCIA.search(proemio)):
+        inciso = "b" if _RX_MODIFICA_SUSP.search(proemio) else "a"
+        nuevo = t
+        nuevo = re.sub(r"una\s+sentencia\s+dictada\s+en\s+un\s+juicio\s+de\s+amparo\s+indirecto",
+                       "una resolución dictada en el incidente de suspensión de un juicio de amparo indirecto",
+                       nuevo, count=1)
+        nuevo = nuevo.replace("81, fracción I, inciso e) y 84",
+                              f"81, fracción I, inciso {inciso}), y 84")
+        nuevo = nuevo.replace("35, fracción V y 210", "35, fracción II y 210")
+        if nuevo != t:
+            avisos.append(
+                "LO RECURRIDO ES LA INTERLOCUTORIA DE SUSPENSIÓN: la competencia "
+                f"se fundó en el artículo 81, fracción I, inciso {inciso}), de la "
+                "Ley de Amparo y en la fracción II del 35 de la Ley Orgánica, no "
+                "en los de la sentencia de audiencia. Compruébalo.")
+            t = nuevo
+    elif fuente and _RX_CONSTITUCIONALIDAD.search(fuente):
+        avisos.append(
+            "SE IMPUGNÓ LA CONSTITUCIONALIDAD DE UNA NORMA. Si el problema "
+            "subsiste en la revisión, este tribunal conoce por DELEGACIÓN de la "
+            "SCJN y la competencia cambia: artículo 83 de la Ley de Amparo en "
+            "relación con el punto cuarto, fracción I, inciso que corresponda, "
+            "del Acuerdo General 2/2025 (12a.) y el punto segundo del 11/2025 "
+            "(12a.), ambos del Pleno de la SCJN (DOF 19 y 22-09-2025), y la "
+            "fracción V del 35 de la Ley Orgánica («remitidos por la Suprema "
+            "Corte»). Si la norma es federal y no hay jurisprudencia, no hay "
+            "delegación: se remite a la SCJN.")
+    return t, avisos
+
+
 def competencia_de(tipo: str) -> dict:
     """La cadena propia del tipo, o {} si la toma del banco."""
     return COMPETENCIA.get(normalizar(tipo), {})

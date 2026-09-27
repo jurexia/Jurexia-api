@@ -4454,6 +4454,13 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
 
 
     _comp = _del_banco("competencia", estructura.competencia)
+    if _ta.normalizar(tipo_asunto) == "amparo_revision" and (_comp or "").strip():
+        _comp, _av_comp = _ta.competencia_revision(
+            _comp, str(datos.get("acto") or "")[:1500],
+            " ".join([str(datos.get("antecedentes") or ""),
+                      " ".join(str(r.get("texto") or "")
+                               for r in (estructura.resultandos or []))]))
+        _avisos_bk.extend(_av_comp)
     if (_comp or "").strip():
         con_apartados.append((_bk.rotulo_de(tipo_asunto, "competencia", "Competencia."),
                               (lambda c: lambda p: _texto_en(p, c))(_comp)))

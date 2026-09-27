@@ -48,6 +48,17 @@ ok("35, fracción I," in ta.cadena_competencia("amparo_directo")
 _p = dg.prompt_estructura({"tipo_asunto": "queja"})
 ok("37 de la Ley" not in _p and "35, fracción III" in _p, "el prompt de la estructura de una queja ya no da la cadena del amparo directo")
 
+_c_rv, _ = banco.texto_de("amparo_revision", "competencia", {"materia": "administrativa"})
+_n, _a = ta.competencia_revision(_c_rv, "V I S T O S para resolver el incidente de suspensión relativo "
+                                        "al juicio de amparo 123/2026")
+ok("inciso a), y 84" in _n and "35, fracción II y 210" in _n and "incidente de suspensión" in _n and _a,
+   "revisión de la suspensión definitiva: 81-I-a) y 35-II, no los de la sentencia de audiencia")
+_n2, _a2 = ta.competencia_revision(_c_rv, "VISTOS para resolver los autos del juicio de amparo; audiencia "
+                                          "constitucional", "reclamó la expedición y promulgación de la Ley de "
+                                          "Ingresos del Municipio de Querétaro")
+ok(_n2 == _c_rv and any("2/2025 (12a.)" in x for x in _a2),
+   "constitucionalidad: la fórmula no se toca a ciegas y se avisa de la delegación (AG 2/2025 y 11/2025, 12a.)")
+
 print("\n2 · CONSTITUCIÓN")
 ok("I-B" not in ta.TECNICA_RESOLUCION["revision_fiscal_reenvio"]["fuente"]
    and "104, fracción III" in ta.TECNICA_RESOLUCION["revision_fiscal_reenvio"]["fuente"],
