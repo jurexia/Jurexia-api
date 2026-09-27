@@ -115,7 +115,7 @@
      },
      {
       "id": "ad-r4-turno-embebido",
-      "texto": "Finalmente, el {fecha_turno}, se turnó el asunto al Magistrado {magistrado}, para la elaboración del proyecto de resolución correspondiente, acorde a lo previsto en los artículos 183 de la Ley de Amparo y 41, fracción II, de la Ley Orgánica del Poder Judicial de la Federación.",
+      "texto": "Finalmente, el {fecha_turno}, se turnó el asunto al Magistrado {magistrado}, para la elaboración del proyecto de resolución correspondiente, acorde a lo previsto en los artículos 183 de la Ley de Amparo y 24, fracción II, de la Ley Orgánica del Poder Judicial de la Federación.",
       "frecuencia": "19/44",
       "cuando": "Cuando el turno NO va como resultando propio, se ahoga al final del CUARTO. Ojo: entonces el resultando de sesión remota sube un ordinal."
      }
@@ -126,8 +126,8 @@
     "rotulo": "QUINTO. Turno del asunto.",
     "fijo": false,
     "frecuencia": "25/44",
-    "plantilla": "QUINTO. Turno del asunto. El {fecha_turno}, se turnó el asunto al Magistrado {magistrado}, para la elaboración del proyecto de resolución correspondiente, acorde a lo previsto en los artículos 183 de la Ley de Amparo y 41, fracción II, de la Ley Orgánica del Poder Judicial de la Federación.",
-    "cuando": "Resultando propio en 25/44 («QUINTO. Turno del asunto.» 16/44, «QUINTO. Turno.» 9/44). En el resto va dentro del CUARTO. La coletilla «y 41, fracción II, de la Ley Orgánica del Poder Judicial de la Federación» sólo en 10/44; 7/44 cortan en «acorde a lo previsto en los artículos 183 de la Ley de Amparo.» (en plural «los artículos» aunque cite uno solo).",
+    "plantilla": "QUINTO. Turno del asunto. El {fecha_turno}, se turnó el asunto al Magistrado {magistrado}, para la elaboración del proyecto de resolución correspondiente, acorde a lo previsto en los artículos 183 de la Ley de Amparo y 24, fracción II, de la Ley Orgánica del Poder Judicial de la Federación.",
+    "cuando": "Resultando propio en 25/44 («QUINTO. Turno del asunto.» 16/44, «QUINTO. Turno.» 9/44). En el resto va dentro del CUARTO. La coletilla «y 24, fracción II, de la Ley Orgánica del Poder Judicial de la Federación» sólo en 10/44; 7/44 cortan en «acorde a lo previsto en los artículos 183 de la Ley de Amparo.» (en plural «los artículos» aunque cite uno solo).",
     "variantes": [
      {
       "id": "ad-r5-returno-101",
@@ -179,7 +179,7 @@
     "fijo": true,
     "frecuencia": "52/62",
     "plantilla": "PRIMERO. Competencia. Este Tercer Tribunal Colegiado en Materias Administrativa y Civil del Vigésimo Segundo Circuito es competente para conocer y resolver el presente juicio de amparo directo, por haberse promovido en contra de {objeto}, dictada por {juzgado}, {concordancia} en la circunscripción territorial en la que este órgano colegiado ejerce jurisdicción, con fundamento en los artículos 103, fracción I y 107, fracción V, inciso {inciso}), de la Constitución Federal; 33, fracción II, 34 y 170, fracción I, párrafo primero, de la Ley de Amparo; 35, fracción I, inciso {inciso}) y 210 de la Ley Orgánica del Poder Judicial de la Federación; así como el punto tercero, fracción {fraccion_acuerdo}, del Acuerdo General 3/2013, en relación con el artículo 1 del diverso 28/2017, ambos del Pleno del otrora Consejo de la Judicatura Federal.",
-    "cuando": "Fórmula VIGENTE y por defecto: la única en asuntos recientes (2024-2026); es la que debe salir en el adelanto salvo indicación en contrario. UN SOLO párrafo, sin nota al pie, inmediatamente después de «C O N S I D E R A N D O:». Se cita «Constitución Federal» (no «Política de los Estados Unidos Mexicanos»); el 170 lleva «párrafo primero»; el orgánico es el 210 (no 124 ni 211); el Consejo es el «otrora» Consejo de la Judicatura Federal.",
+    "cuando": "Fórmula VIGENTE y por defecto: la única en asuntos recientes (2024-2026); es la que debe salir en el adelanto salvo indicación en contrario. UN SOLO párrafo, sin nota al pie, inmediatamente después de «C O N S I D E R A N D O:». Se cita «Constitución Federal» (no «Política de los Estados Unidos Mexicanos»); el 170 lleva «párrafo primero»; el orgánico es el 210 (no 124 —LOPJF de 2021, abrogada— ni 211, que son los distritos); el Consejo es el «otrora» Consejo de la Judicatura Federal.",
     "nota_al_pie": "",
     "variantes": [
      {
@@ -190,9 +190,9 @@
      },
      {
       "id": "ad-c1-residual",
-      "texto": "PRIMERO. Competencia. Este Tercer Tribunal Colegiado en Materias Administrativa y Civil del Vigésimo Segundo Circuito, es legalmente competente para conocer y resolver el presente juicio de amparo directo, de conformidad con los artículos 103, fracción I y 107, fracción V, inciso {inciso}), de la Constitución Federal; 33, fracción II, 34 y 170, fracción I, de la Ley de Amparo; 35, fracción I, inciso {inciso}) y 124 de la Ley Orgánica del Poder Judicial de la Federación vigente; así como en los Acuerdos Generales 3/2013 y 28/2017, ambos del Pleno del Consejo de la Judicatura Federal, ya que se promovió contra una sentencia, dictada por {responsable}, con residencia en esta ciudad, materia y territorio sobre los que este órgano colegiado ejerce jurisdicción.",
+      "texto": "PRIMERO. Competencia. Este Tercer Tribunal Colegiado en Materias Administrativa y Civil del Vigésimo Segundo Circuito, es legalmente competente para conocer y resolver el presente juicio de amparo directo, de conformidad con los artículos 103, fracción I y 107, fracción V, inciso {inciso}), de la Constitución Federal; 33, fracción II, 34 y 170, fracción I, de la Ley de Amparo; 35, fracción I, inciso {inciso}) y 210 de la Ley Orgánica del Poder Judicial de la Federación vigente; así como en los Acuerdos Generales 3/2013 y 28/2017, ambos del Pleno del Consejo de la Judicatura Federal, ya que se promovió contra una sentencia, dictada por {responsable}, con residencia en esta ciudad, materia y territorio sobre los que este órgano colegiado ejerce jurisdicción.",
       "frecuencia": "3/62",
-      "cuando": "Residual: «es LEGALMENTE competente» y cierre por doble vínculo. Aparece en agrario (Tribunal Unitario Agrario, Distrito 42) y en un engrose civil de 2023. Ahí el orgánico es 124 (no 210) y el 170 va sin «párrafo primero». Subvariante 2023: abre «de conformidad con lo preceptuado por los artículos ... en relación con los artículos 33, fracción II, 34 y 170, fracción I, de la Ley de Amparo» y cierra «... publicados en el Diario Oficial de la Federación el quince de febrero de dos mil trece y trece de noviembre de dos mil diecisiete, respectivamente, ya que se promovió en contra de una sentencia definitiva dictada por {responsable}, lugar en donde este órgano colegiado ejerce jurisdicción»."
+      "cuando": "Residual: «es LEGALMENTE competente» y cierre por doble vínculo. Aparece en agrario (Tribunal Unitario Agrario, Distrito 42) y en un engrose civil de 2023. Ahí el orgánico es 124 (no 210) y el 170 va sin «párrafo primero». Subvariante 2023: abre «de conformidad con lo preceptuado por los artículos ... en relación con los artículos 33, fracción II, 34 y 170, fracción I, de la Ley de Amparo» y cierra «... publicados en el Diario Oficial de la Federación el quince de febrero de dos mil trece y trece de noviembre de dos mil diecisiete, respectivamente, ya que se promovió en contra de una sentencia definitiva dictada por {responsable}, lugar en donde este órgano colegiado ejerce jurisdicción». OJO (verificación de normas, 27-sep-2026): el 124 era el de los circuitos en la LOPJF de 2021, abrogada el 20-12-2024; en la vigente el 124 es la Unidad de Administración de la SCJN. Con «vigente» la cita es falsa: el orgánico es el 210."
      },
      {
       "id": "ad-c1-coletilla-oral-mercantil",
@@ -213,13 +213,13 @@
     "rotulo": "SEGUNDO. Existencia del acto reclamado.",
     "fijo": true,
     "frecuencia": "38/86",
-    "plantilla": "SEGUNDO. Existencia del acto reclamado. La existencia del acto reclamado está acreditada con el informe justificado rendido por {juzgado}, certeza que se corrobora con los autos del expediente {expediente}, que acompañó al referido informe. Documentales que en términos de los artículos 129 y 202 del Código Federal de Procedimientos Civiles, de aplicación supletoria a la Ley de Amparo, merecen eficacia probatoria plena.",
+    "plantilla": "SEGUNDO. Existencia del acto reclamado. La existencia del acto reclamado está acreditada con el informe justificado rendido por {juzgado}, certeza que se corrobora con los autos del expediente {expediente}, que acompañó al referido informe. Documentales que en términos de los artículos 312, fracciones II y VIII, y 344 del Código Nacional de Procedimientos Civiles y Familiares, de aplicación supletoria a la Ley de Amparo conforme a su artículo 2o., merecen eficacia probatoria plena.",
     "cuando": "Regla general y única variante en ADMINISTRATIVO. La autoridad se nombra completa y con su cargo («la Magistrada Titular del Tribunal Unitario Agrario, Distrito Cuarenta y Dos», «el Juez Primero Administrativo en Querétaro del Tribunal de Justicia Administrativa del Estado de Querétaro»); sólo se escribe «la autoridad responsable» a secas cuando ya quedó identificada en el resultando. Si además del expediente se remitió el toca, se encadenan: «con los autos del {toca} y del expediente {expediente}».",
     "nota_al_pie": "",
     "variantes": [
      {
       "id": "ad-c2-civil",
-      "texto": "SEGUNDO. Existencia del acto reclamado. La existencia de la sentencia reclamada, materia del presente juicio, está acreditada con el informe justificado rendido por la Sala responsable, certeza que se corrobora con los autos del {toca} y del expediente {expediente}, que acompañó a tal informe. Documentales que en términos de los artículos 129 y 202 del Código Federal de Procedimientos Civiles, de aplicación supletoria a la Ley de Amparo, merecen eficacia probatoria plena.",
+      "texto": "SEGUNDO. Existencia del acto reclamado. La existencia de la sentencia reclamada, materia del presente juicio, está acreditada con el informe justificado rendido por la Sala responsable, certeza que se corrobora con los autos del {toca} y del expediente {expediente}, que acompañó a tal informe. Documentales que en términos de los artículos 312, fracciones II y VIII, y 344 del Código Nacional de Procedimientos Civiles y Familiares, de aplicación supletoria a la Ley de Amparo conforme a su artículo 2o., merecen eficacia probatoria plena.",
       "frecuencia": "32/86",
       "cuando": "Materia CIVIL con Sala responsable del TSJ. La fórmula más estable del corpus: en los 32 sólo cambian toca y expediente. Aquí se dice «sentencia reclamada» y no «acto reclamado»; el cierre es «que acompañó a tal informe» (2/32 escriben «que acompañan a tal informe» cuando enumeran toca y expediente)."
      },
@@ -396,7 +396,7 @@
   "marcadores": {
    "{materia}": "materia de la sentencia reclamada, en minúscula y femenino singular concordando con «materia»: civil (34 de 50 con dato), administrativa (13), mercantil (3). Es el dato que MANDA sobre el inciso.",
    "{responsable}": "autoridad que dictó el acto, con artículo incluido y denominación completa. Usados: «la Segunda Sala Civil del Tribunal Superior de Justicia del Estado de Querétaro» (10), «la Primera Sala Civil…» (8), «la Sala Familiar…» (8), «el Tribunal Unitario Agrario, Distrito 42», «la Sala Regional en Querétaro del Tribunal Federal de Justicia Administrativa», «el Juez Primero de Primera Instancia Especializado en Oralidad Mercantil del Distrito Judicial de Querétaro», «la Segunda Sección de la Sala Superior del Tribunal de Justicia Administrativa del Estado de Querétaro».",
-   "{inciso}": "letra del inciso; va DOS VECES en la misma frase (Constitución y Ley Orgánica), siempre la MISMA letra. Regla real: civil y mercantil → c) (88 apariciones); administrativa, laboral y agraria → b) (32).",
+   "{inciso}": "letra del inciso; va DOS VECES en la misma frase (Constitución, 107 fr. V, y Ley Orgánica, 35 fr. I), siempre la MISMA letra: penal → a); administrativa y agraria → b); civil, familiar y mercantil → c); laboral → d). Medido en el corpus: c) 88 apariciones, b) 32. Si la materia no consta, hueco.",
    "{concordancia}": "participio tras la coma que sigue a {responsable}: «localizado» por defecto (49/52), «localizada» si se hace concordar con «la Sala» (2), «localizados» con DOS autoridades unidas por «y» (1).",
    "{objeto}": "lo reclamado. Por defecto «una sentencia definitiva en materia {materia}». Variantes literales medidas: «un auto que pone fin a juicio» (sin materia), «una resolución definitiva en materia {materia}», «una resolución que puso fin a un juicio en materia {materia}».",
    "{expediente}": "número del expediente de origen con año: 1373/2023; o «455/2021 y su acumulado 657/2022».",
@@ -482,7 +482,7 @@
     "fijo": true,
     "frecuencia": "24/30",
     "plantilla": "TERCERO. Turno del asunto. En proveído de {fecha_turno}, se ordenó turnar el asunto a la ponencia del Magistrado {magistrado}, a fin de formular el proyecto de resolución.",
-    "cuando": "Siempre. El fundamento del turno en queja es el artículo 101 de la Ley de Amparo."
+    "cuando": "Siempre. La plantilla no cita fundamento del turno. Si se funda, la atribución es de la Presidencia conforme al artículo 24, fracción II, de la Ley Orgánica del Poder Judicial de la Federación; el artículo 101 de la Ley de Amparo sólo fija el plazo de cuarenta días para resolver (verificación de normas, 27-sep-2026)."
    },
    {
     "id": "qj-r-returno",
@@ -766,7 +766,7 @@
     "fijo": true,
     "frecuencia": "26/26 la frase «El presente asunto se listó el»",
     "plantilla": "CUARTO. Celebración de la sesión vía remota. El presente asunto se listó el _________ de ________ de {anio_letra}, para verse en sesión de ______ de _______ siguiente, lo anterior, de conformidad con los Acuerdos Generales del Pleno del otrora Consejo de la Judicatura Federal 16/2009 y 12/2020 en relación con el de catorce de octubre de dos mil veintidós y que entró en vigor el siete de noviembre siguiente del propio Consejo que abroga los acuerdos de contingencia por COVID-19 y reforma, adiciona y deroga diversas disposiciones relativas a la utilización de medios electrónicos y soluciones digitales como ejes rectores del nuevo esquema de trabajo en las áreas administrativas y órganos jurisdiccionales del propio Consejo; y,\n\nC O N S I D E R A N D O:",
-    "cuando": "Cola COVID: sesiones anteriores a abril de 2026.",
+    "cuando": "Cola COVID: sólo para asuntos listados ANTES del 18-04-2026. El Acuerdo General 6/2026 del Pleno del OAJ (DOF 17-04-2026) abrogó el 12/2020 del CJF (transitorio tercero); para lo listado desde su vigencia la cola es la de la variante del 6/2026, que es la que escribe el documento en los cuatro tipos.",
     "variantes": [
      {
       "id": "rv-r4-6-2026",
@@ -803,7 +803,7 @@
       "id": "rv-c1-suspension-definitiva",
       "texto": "PRIMERO. Competencia. Este Tercer Tribunal Colegiado en Materias Administrativa y Civil del Vigésimo Segundo Circuito es legalmente competente para conocer y resolver el presente recurso de revisión de conformidad con los artículos 107, fracción VIII, último párrafo, de la Constitución Federal; 81, fracción I, inciso a) y 84 de la Ley de Amparo; 35, fracción II de la Ley Orgánica del Poder Judicial de la Federación vigente, así como en los Acuerdos Generales 3/2013 y 28/2017, artículo 4°, ambos del Pleno del Consejo de la Judicatura Federal; ya que se promovió contra una resolución que decidió sobre la suspensión definitiva del acto reclamado en un juicio de amparo tramitado ante un juez de Distrito con residencia en el Estado de Querétaro, ámbito de jurisdicción territorial sobre el que ejerce competencia este tribunal colegiado.",
       "frecuencia": "3/62",
-      "cuando": "Revisión contra suspensión DEFINITIVA (inciso a del 81). Aquí el orgánico puede ser «38, fracción II y 124». Nótese «es legalmente competente» y «una Jueza de Distrito» cuando corresponde."
+      "cuando": "Revisión contra suspensión DEFINITIVA (inciso a del 81). El orgánico es «35, fracción II y 210» de la Ley Orgánica vigente; «38, fracción II y 124» es de la ley de 2021, abrogada el 20-12-2024, y no debe emitirse. Nótese «es legalmente competente» y «una Jueza de Distrito» cuando corresponde."
      },
      {
       "id": "rv-c1-antigua",
@@ -1046,8 +1046,8 @@
     "rotulo": "CUARTO. Procedencia.",
     "fijo": true,
     "frecuencia": "14/28 por la fracción VI",
-    "plantilla": "CUARTO. Procedencia. El recurso es procedente conforme al artículo 63, fracción VI, de la Ley Federal de Procedimiento Contencioso Administrativo.",
-    "cuando": "siempre",
+    "plantilla": "CUARTO. Procedencia. El recurso de revisión fiscal es procedente en términos del artículo 63, fracción {fraccion_63}, de la Ley Federal de Procedimiento Contencioso Administrativo, toda vez que {motivo_procedencia}.",
+    "cuando": "Siempre, con la fracción que se SURTE: el banco la mide en la VI en 14/28 (aportaciones de seguridad social) y en otras en el resto. La fijaba en la VI para todos los asuntos, y desde que faltó la UMA de 2026 era la que salía en cada revisión fiscal (verificación de normas, 27-sep-2026). `fase_procedencia_rf` motiva la I (cuantía contra 3,500 UMA si la sentencia recurrida es anterior al 10-06-2026, 27,000 desde entonces) y la VI cuando reconoce el supuesto; si no, esta fórmula sale con la fracción y el motivo en hueco.",
     "nota_al_pie": "",
     "variantes": []
    },

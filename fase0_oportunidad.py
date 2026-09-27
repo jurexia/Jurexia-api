@@ -217,7 +217,13 @@ CALENDARIO_AMPARO = Calendario(
     nombre="Poder Judicial de la Federación",
     fundamento="artículo 19 de la Ley de Amparo",
     # El art. 19 dice «catorce Y dieciséis de septiembre» — el 14 faltaba.
-    fijos={(1, 1), (1, 5), (5, 5), (14, 9), (16, 9), (12, 10), (25, 12)},
+    # Y también «cinco de febrero, veintiuno de marzo… veinte de noviembre»
+    # (verificación de normas, 27-sep-2026): hasta 2026 los cubría la lista de
+    # la OAJ, pero desde 2027, sin esa lista cargada, el viernes 5-feb-2027
+    # contaría como hábil contra la letra del artículo. Los lunes trasladados de
+    # la Ley Federal del Trabajo se conservan: la OAJ declara inhábiles ambos.
+    fijos={(1, 1), (5, 2), (21, 3), (1, 5), (5, 5), (14, 9), (16, 9), (12, 10),
+           (20, 11), (25, 12)},
     trasladados={2: 1, 3: 3, 11: 3},
     sueltos=set().union(*INHABILES_OAJ.values()),
     periodos=[p for v in PERIODOS_OAJ.values() for p in v],

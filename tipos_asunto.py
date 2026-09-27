@@ -46,9 +46,10 @@ PLAZOS = {
         "dias": 15,
         "fundamento": "artículo 17 de la Ley de Amparo",
         "excepciones": [
-            {"clave": "autoaplicativa", "dias": 30,
-             "cuando": "Se reclama una norma general autoaplicativa o el procedimiento de extradición",
-             "fundamento": "artículo 17, fracción I, de la Ley de Amparo"},
+            # LA AUTOAPLICATIVA NO ES DEL AMPARO DIRECTO (verificación de
+            # normas, 27-sep-2026): los treinta días de la fracción I operan en
+            # el indirecto; en el directo la norma no es acto reclamado
+            # (artículo 175, fracción IV). Se quitó de aquí.
             {"clave": "penal_prision", "dias": 2920,
              "cuando": "Se reclama sentencia definitiva condenatoria que impone pena de prisión",
              "fundamento": "artículo 17, fracción II, de la Ley de Amparo (hasta ocho años)"},
@@ -511,6 +512,45 @@ COMPETENCIA = {
 }
 
 
+# LA CADENA DE LA COMPETENCIA, POR TIPO, CONTRA LA LEY VIGENTE (27-sep-2026).
+# El prompt de la estructura daba a los cuatro tipos la del amparo directo y
+# cerraba con «37 de la Ley Orgánica», que era la competencia de los colegiados
+# en la ley de 1995; en la de 2024 el 37 es la oficina de correspondencia común
+# y la competencia es el 35. Las fracciones, verificadas en el texto vigente
+# (DOF 20-12-2024, última reforma 28-11-2025): I directo (inciso de la materia),
+# II revisión en los casos del 81 (la de suspensión), III queja, V revisión de
+# la sentencia de audiencia y la remitida por la SCJN, VI revisión fiscal. El
+# 210 es el que deja al OAJ fijar circuitos y jurisdicción. Es el respaldo: la
+# fórmula que se escribe sale del banco (`banco.texto_de`).
+CADENA_COMPETENCIA = {
+    "amparo_directo": (
+        "los artículos 103, fracción I, y 107, fracción V, de la Constitución; "
+        "33, fracción II, 34 y 170, fracción I, de la Ley de Amparo; y 35, "
+        "fracción I, y 210 de la Ley Orgánica del Poder Judicial de la "
+        "Federación"),
+    "amparo_revision": (
+        "los artículos 107, fracción VIII, último párrafo, de la Constitución; "
+        "81, fracción I, inciso e), y 84 de la Ley de Amparo; y 35, fracción V, "
+        "y 210 de la Ley Orgánica del Poder Judicial de la Federación —si lo "
+        "recurrido es la interlocutoria de suspensión, 81, fracción I, inciso a) "
+        "o b), y 35, fracción II—"),
+    "queja": (
+        "los artículos 103 y 107 de la Constitución; 97, fracción I, de la Ley "
+        "de Amparo, con el inciso del supuesto; y 35, fracción III, y 210 de la "
+        "Ley Orgánica del Poder Judicial de la Federación"),
+    "revision_fiscal": (
+        "los artículos 104, fracción III, de la Constitución; 35, fracción VI, y "
+        "210 de la Ley Orgánica del Poder Judicial de la Federación; y 63, "
+        "párrafo primero, de la Ley Federal de Procedimiento Contencioso "
+        "Administrativo —nunca la Ley de Amparo—"),
+}
+
+
+def cadena_competencia(tipo: str) -> str:
+    return CADENA_COMPETENCIA.get(normalizar(tipo) or "amparo_directo",
+                                  CADENA_COMPETENCIA["amparo_directo"])
+
+
 def competencia_de(tipo: str) -> dict:
     """La cadena propia del tipo, o {} si la toma del banco."""
     return COMPETENCIA.get(normalizar(tipo), {})
@@ -604,6 +644,24 @@ CIERRE = {
         "efectos": False,
     },
 }
+
+
+# EL SUPLETORIO DE LA LEY DE AMPARO ES EL CÓDIGO NACIONAL (27-sep-2026). Desde
+# la reforma publicada en el DOF el 13-03-2025, el artículo 2o. de la Ley de
+# Amparo dice: «A falta de disposición expresa se aplicará en forma supletoria
+# el Código Nacional de Procedimientos Civiles y Familiares». La existencia del
+# acto se fundaba en los artículos 129 y 202 del Código Federal —el texto de
+# 2013—. Los equivalentes del Nacional: 312, fracción II (informes de personas
+# funcionarias en ejercicio de sus funciones: el informe justificado), 312,
+# fracción VIII (actuaciones judiciales de toda especie: los autos) y 344 (los
+# documentos públicos hacen prueba plena). Hay criterio de un Pleno Regional
+# (PR.A.C.CS. J/8 K (12a.)) que lo aplica de inmediato y engroses de la casa de
+# 2025 que siguen citando el Federal: si el tribunal decide conservarlo, es esta
+# línea.
+SUPLETORIO_DOCUMENTALES = (
+    "los artículos 312, fracciones II y VIII, y 344 del Código Nacional de "
+    "Procedimientos Civiles y Familiares, de aplicación supletoria a la Ley de "
+    "Amparo conforme a su artículo 2o.")
 
 
 # LOS EFECTOS ABREN CON SU FUNDAMENTO Y CUELGAN DE «DEBERÁ:» (27-sep-2026).
@@ -974,8 +1032,11 @@ _INCISO_97 = [
     # «nulidad de notificación» en singular, y «de actuaciones»: el resultando
     # real decía «el incidente de nulidad de notificación de emplazamiento» y
     # la exigencia del plural lo dejaba fuera.
+    # LA REPOSICIÓN DE AUTOS NO VA AQUÍ (verificación de normas, 27-sep-2026):
+    # la resolución que decide el incidente de reposición de constancias se
+    # recurre en REVISIÓN, artículo 81, fracción I, inciso c); el e) del 97 es
+    # sólo para lo que no admite expresamente la revisión.
     (r"incidente\s+de\s+nulidad\s+de\s+(?:notificaci[óo]n(?:es)?|actuaciones)"
-     r"|incidente\s+de\s+reposici[óo]n\s+de\s+autos"
      r"|dictad[ao]s?\s+despu[ée]s\s+de\s+(?:la\s+)?sentencia", "e"),
 ]
 
@@ -1806,9 +1867,12 @@ TECNICA_RESOLUCION["recurso_revoca_o_modifica"] = {
 TECNICA_RESOLUCION["revision_fiscal_reenvio"] = {
     "cuando": ("La REVISIÓN FISCAL es fundada y se revoca la sentencia de la "
                "Sala, quedando conceptos de anulación sin estudiar."),
-    "fuente": ("artículos 103, 107 y 104, fracción I-B, de la Constitución, y "
-               "50 de la Ley Federal de Procedimiento Contencioso "
-               "Administrativo (antes 237 del Código Fiscal de la Federación)"),
+    # 104, FRACCIÓN III: la I-B no existe desde la reforma del 06-06-2011, y
+    # el 103 y el 107 son el régimen del amparo, que no gobierna este recurso
+    # (verificación de normas, 27-sep-2026).
+    "fuente": ("artículos 104, fracción III, de la Constitución, y 50 de la Ley "
+               "Federal de Procedimiento Contencioso Administrativo (antes 237 "
+               "del Código Fiscal de la Federación)"),
     "tecnica": [
         "SÍ HAY REENVÍO, y ésta es la diferencia con el amparo en revisión. "
         "Ahí el colegiado asume jurisdicción; aquí NO puede: el estudio de los "
@@ -2326,11 +2390,14 @@ LEGITIMACION = {
                   "le resulta desfavorable."),
         "fundamento": "artículo 6º de la Ley de Amparo"},
     "queja": {
+        # EL 97 ES LA PROCEDENCIA, NO LA LEGITIMACIÓN (verificación de normas,
+        # 27-sep-2026): legitima ser PARTE del juicio de amparo, artículo 5o.,
+        # que es como lo funda la variante del banco (qj-c3-quejoso).
         "molde": ("El recurso fue interpuesto por {parte}{rep}, quien está "
-                  "legitimad{a} para hacerlo conforme al artículo 97 de la Ley "
-                  "de Amparo, por ser parte en el juicio de amparo en que se "
-                  "dictó el auto recurrido y resultarle desfavorable."),
-        "fundamento": "artículo 97 de la Ley de Amparo"},
+                  "legitimad{a} para hacerlo en términos del artículo 5o. de la "
+                  "Ley de Amparo, por ser parte en el juicio de amparo en que "
+                  "se dictó el auto recurrido y resultarle desfavorable."),
+        "fundamento": "artículo 5o. de la Ley de Amparo"},
     "revision_fiscal": {
         # AQUÍ NO ES «QUIEN RESIENTE EL PERJUICIO»: es la autoridad, y sólo
         # por conducto de su unidad de defensa jurídica. Lo dice el propio 63.

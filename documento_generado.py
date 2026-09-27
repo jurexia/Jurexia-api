@@ -1460,10 +1460,8 @@ REGLAS:
   lo pongas y NO lo sustituyas por uno verosímil: redacta la frase de modo que
   no lo necesite, o deja constancia de que consta en autos. Un dato inventado
   en un resultando se firma.
-- EL TRIBUNAL ES EL DE ARRIBA, no otro. La competencia se funda en los
-  artículos 103, fracción I, y 107, fracción V, de la Constitución; 33,
-  fracción II, 34 y 170, fracción I, de la Ley de Amparo; y 37 de la Ley
-  Orgánica del Poder Judicial de la Federación, con el acuerdo general que
+- EL TRIBUNAL ES EL DE ARRIBA, no otro. La competencia se funda en
+  {_ta_r.cadena_competencia(_tipo)}, con el acuerdo general que
   fije la jurisdicción territorial de ese tribunal —si no sabes cuál es, no
   cites acuerdo alguno—.
 - FRASE de unas 35 palabras, subordinada. Voz impersonal: «se estima», «este
@@ -4340,7 +4338,15 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
     _datos_bk.setdefault("materia", _mat or {
         "revision_fiscal": "administrativa", "queja": "administrativa",
     }.get(str(tipo_asunto or "").strip().lower(), "") or HUECO)
-    _datos_bk.setdefault("inciso", "b" if _mat in ("administrativa", "agraria") else "c")
+    # LA LETRA DEL INCISO ES LA DE LA MATERIA en el 107, fr. V, constitucional
+    # y en el 35, fr. I, de la Ley Orgánica: penal a), administrativa b), civil
+    # c), laboral d). Se mandaba todo lo que no fuera administrativo o agrario a
+    # la c), y una materia vacía se firmaba como civil (verificación de normas,
+    # 27-sep-2026). Sin materia conocida, hueco a la vista.
+    _datos_bk.setdefault("inciso", {
+        "penal": "a", "administrativa": "b", "agraria": "b", "fiscal": "b",
+        "civil": "c", "familiar": "c", "mercantil": "c",
+        "laboral": "d", "trabajo": "d"}.get(_mat, HUECO if not _mat else "c"))
     # EL INCISO DEL 97 NO ES EL DE LA MATERIA. Ver la nota en tipos_asunto: un
     # solo marcador servía a dos preceptos que se reparten por cosas distintas,
     # y la queja acababa fundando su procedencia en el supuesto equivocado.
@@ -4470,9 +4476,8 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
                 f"informe justificado rendido por {_org_a_quo}, certeza que se "
                 f"corrobora con los autos del juicio de amparo indirecto "
                 f"{_exp_a_quo} que acompañó al referido informe. Documentales "
-                f"que en términos de los artículos 129 y 202 del Código Federal "
-                f"de Procedimientos Civiles, de aplicación supletoria a la Ley "
-                f"de Amparo, merecen eficacia probatoria plena.")
+                f"que en términos de {_ta.SUPLETORIO_DOCUMENTALES}, merecen "
+                f"eficacia probatoria plena.")
         if HUECO in _exi:
             _avisos_bk.append(
                 "EL CONSIDERANDO DE EXISTENCIA SALE CON HUECO: falta "
@@ -4600,7 +4605,21 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
             # de ejercicio —y ahí el aviso lo dirá, porque la cifra saldrá.
             _anio = getattr(computo, "notificacion", None)
             _anio = _anio.year if _anio else 0
-            _p_rf, _av_rf = _pf.parrafo(_fuente, _anio)
+            # EL UMBRAL LO DECIDE LA FECHA DE LA SENTENCIA RECURRIDA (reforma
+            # LFPCA DOF 09-06-2026: 27,000 UMA para las dictadas desde el 10 de
+            # junio). Se lee la del PDF y, si no, la de la prosa; si no se lee,
+            # decide la notificación, con aviso en la frontera.
+            _f_sent = None
+            try:
+                import fase_origen as _fo_pf
+                _f_sent = (_pf.fecha_de_letra(str(datos.get("fecha_origen") or ""))
+                           or _pf.fecha_de_letra(_fo_pf.fecha_de(_fuente)))
+            except Exception:
+                _f_sent = None
+            _p_rf, _av_rf = _pf.parrafo(
+                _fuente, _anio, fecha_sentencia=_f_sent,
+                fecha_interposicion=getattr(computo, "presentacion", None),
+                fecha_notificacion=getattr(computo, "notificacion", None))
             _avisos_bk.extend(_av_rf)
             if _p_rf:
                 _proc = _p_rf
