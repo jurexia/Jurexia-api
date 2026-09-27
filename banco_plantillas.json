@@ -349,7 +349,7 @@
      "frecuencia": "13/87"
     },
     {
-     "texto": "Por lo expuesto y con fundamento en los artículos 76, 77, 78, 80, 184 y 190, de la Ley de Amparo, se:",
+     "texto": "Por lo expuesto, fundado, y con apoyo además en los artículos 74, 77, 183 y 184 de la Ley de Amparo, se resuelve:",
      "frecuencia": "4/87"
     },
     {
@@ -361,7 +361,7 @@
     "plantilla": "En ese sentido, ante la ineficacia de los conceptos de violación planteados, lo procedente es negar el amparo solicitado.",
     "frecuencia": "11/87 con este esqueleto exacto; 17/87 con «lo procedente es negar el amparo solicitado»",
     "cuando": "Párrafo que cierra el considerando de estudio y da paso a «Por lo expuesto y fundado». El conector de entrada rota sin cambiar el cuerpo: «En ese sentido,» / «En tal sentido,» / «En esas condiciones,» / «En resumen,» / «Así, ante la conclusión alcanzada,» / «Por lo expuesto, dado lo infundado de los conceptos de violación,». Cuando se dice el nombre entero es «negar el amparo y protección de la Justicia Federal» (11) o «…de la Justicia de la Unión» (4); abreviado es sólo «negar el amparo solicitado».",
-    "variante_suplencia": "En ese sentido, al haber resultado infundados e inoperantes los conceptos de violación hechos valer, y no advirtiéndose deficiencia de la queja que suplir en términos de la fracción IV del artículo 79 de la Ley de Amparo, lo procedente conforme a derecho es negar el amparo y protección de la justicia federal solicitado."
+    "variante_suplencia": "En ese sentido, al haber resultado infundados e inoperantes los conceptos de violación hechos valer, y no advirtiéndose deficiencia de la queja que suplir en términos del artículo 79 de la Ley de Amparo, lo procedente conforme a derecho es negar el amparo y protección de la justicia federal solicitado."
    },
    "variantes": {
     "niega": "ÚNICO. La Justicia de la Unión no ampara ni protege a {quejoso}, contra la sentencia dictada el {fecha_acto}, por {responsable}, en el toca civil {toca}, por los motivos y fundamentos expuestos en el último considerando de esta ejecutoria.",
@@ -574,7 +574,7 @@
      },
      {
       "id": "qj-c3-computo-personal",
-      "texto": "Igualmente, la presentación de la demanda resultó oportuna, a la luz del precepto 98 del mencionado ordenamiento, toda vez que se notificó a la parte quejosa el {fecha_notificacion} de manera personal y surtió efectos al día hábil siguiente, es decir, el {fecha_surtimiento}, por lo que el plazo para la promoción del juicio constitucional fue del {plazo}, sin contar sábados y domingos por ser inhábiles en términos del artículo 19 de la Ley de Amparo, ni el {dias_inhabiles} en términos del artículo 74 fracción III de la Ley Federal del Trabajo, entonces si se presentó el {fecha_presentacion}, es claro que fue hecho valer oportunamente.",
+      "texto": "Igualmente, la interposición del recurso resultó oportuna, a la luz del artículo 98 de la Ley de Amparo, toda vez que el auto recurrido se notificó a la parte recurrente el {fecha_notificacion} de manera personal y surtió efectos al día hábil siguiente, es decir, el {fecha_surtimiento}, por lo que el plazo para la interposición del recurso fue del {plazo}, sin contar sábados y domingos por ser inhábiles en términos del artículo 19 de la Ley de Amparo, ni el {dias_inhabiles} en términos del artículo 74 fracción III de la Ley Federal del Trabajo, entonces si se presentó el {fecha_presentacion}, es claro que fue hecho valer oportunamente.",
       "frecuencia": "6/30",
       "cuando": "Notificación personal o por lista: cambia el enganche del surtimiento."
      }
@@ -633,7 +633,7 @@
      "frecuencia": "9/30"
     },
     {
-     "texto": "Por lo anteriormente expuesto y fundado, con apoyo además en los artículos 97, fracción I, inciso b), 101, 102 y 103 de la Ley de Amparo, se R E S U E L V E",
+     "texto": "Por lo anteriormente expuesto y fundado, con apoyo además en los artículos 97, fracción I, inciso b), 101 y 103 de la Ley de Amparo, se R E S U E L V E",
      "frecuencia": "queja de suspensión"
     }
    ],
