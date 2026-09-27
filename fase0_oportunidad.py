@@ -213,6 +213,11 @@ def _revisar_periodos() -> None:
 _revisar_periodos()
 
 
+# El día en que el surtimiento del Boletín del TFJA pasa del tercero al segundo
+# día hábil: 240 días naturales desde el 09-06-2026 (LFPCA, transitorio Tercero).
+LFPCA_65_REFORMADO = _dt.date(2027, 2, 4)
+
+
 CALENDARIO_AMPARO = Calendario(
     nombre="Poder Judicial de la Federación",
     fundamento="artículo 19 de la Ley de Amparo",
@@ -1137,6 +1142,37 @@ def computar(
                 "Si tu asunto es de otra entidad, comprueba cómo surte efectos la "
                 "notificación en la ley que rige el acto: un plazo mal contado "
                 "invalida la sentencia.")
+        # EL BOLETÍN DEL TFJA Y LA REFORMA DE 2026 (verificación de normas,
+        # 27-sep-2026). El art. 65, último párrafo, LFPCA dice desde el DOF
+        # 09-06-2026 que la notificación por Boletín surte «al segundo día
+        # hábil»; el transitorio Tercero difiere los plazos de ese artículo a
+        # los 240 días naturales, que caen el 04-02-2027. Hasta entonces se
+        # cuenta el tercero, con el texto anterior; desde entonces, el segundo.
+        if (r is not None and str(getattr(r, "clave", "")) == "lfpca_boletin"
+                and notificacion >= _dt.date(2026, 6, 10)):
+            if notificacion >= LFPCA_65_REFORMADO:
+                r = ReglaSurte(clave="lfpca_boletin", descripcion=r.descripcion,
+                               dias_habiles=2,
+                               fundamento="artículo 65 de la Ley Federal de "
+                                          "Procedimiento Contencioso Administrativo")
+            else:
+                r = ReglaSurte(clave="lfpca_boletin", descripcion=r.descripcion,
+                               dias_habiles=3,
+                               fundamento="artículo 65 de la Ley Federal de "
+                                          "Procedimiento Contencioso Administrativo, "
+                                          "en su texto anterior a la "
+                                          "reforma publicada en el Diario Oficial de la "
+                                          "Federación el nueve de junio de dos mil "
+                                          "veintiséis, aplicable conforme al artículo "
+                                          "Tercero transitorio de ésta")
+            avisos.append(
+                "BOLETÍN DEL TFJA: el artículo 65 reformado (DOF 09-06-2026) dice "
+                "que surte al SEGUNDO día hábil, pero su transitorio Tercero "
+                "difiere los plazos de ese artículo 240 días (hasta el "
+                "04-02-2027). Se contó "
+                + ("el segundo." if notificacion >= LFPCA_65_REFORMADO else
+                   "el tercero, con el texto anterior.")
+                + " Si tu tribunal lo lee de otro modo, cambia la regla.")
         if r is None:
             r = REGLAS_SURTE["personal"]
             avisos.append(

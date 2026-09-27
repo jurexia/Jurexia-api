@@ -125,6 +125,12 @@ ok(pf.fecha_de_letra("veintidós de septiembre de dos mil veinticinco") == dt.da
    and pf.fecha_de_letra("primero de julio de dos mil veintiséis") == dt.date(2026, 7, 1),
    "la fecha de la sentencia se lee en letra")
 
+for _n, _dias, _txt in ((dt.date(2025, 12, 5), 3, ""), (dt.date(2026, 7, 6), 3, "texto anterior"),
+                        (dt.date(2027, 2, 8), 2, "")):
+    _c = f0.computar(_n, _n + dt.timedelta(days=20), plazo=15, regla="lfpca_boletin")
+    ok(_c.regla.dias_habiles == _dias and _txt in _c.regla.fundamento,
+       f"Boletín del TFJA notificado el {_n.isoformat()}: surte al {_dias}º día hábil (art. 65 LFPCA y su Tercero transitorio)")
+
 print()
 if FALLAS:
     print(f"FALLAN {len(FALLAS)}: " + " · ".join(FALLAS))
