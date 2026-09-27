@@ -144,10 +144,10 @@
     "fijo": false,
     "frecuencia": "23/44",
     "condicional": true,
-    "plantilla": "{ordinal}. Nueva integración y returno. En proveído de {fecha}, se hizo del conocimiento de las partes, que a través del oficio SEADS/3771/2025 de veintinueve de octubre de dos mil veinticinco, firmado electrónicamente por el Secretario Ejecutivo de la Comisión de Adscripción del Órgano de Administración Judicial, se tomó conocimiento que {integracion}; en consecuencia, se returnó el asunto al Magistrado {magistrado}.",
-    "cuando": "Sólo si hubo cambio de titular (Acuerdo General del Pleno del Órgano de Administración Judicial de adscripciones del Proceso Electoral Extraordinario 2024-2025 + oficio SEADS/3771/2025). Cuando entra, TODO lo que sigue corre un ordinal y la sesión remota pasa a SÉPTIMO.",
+    "plantilla": "{ordinal}. Nueva integración y returno. En proveído de {fecha}, se hizo del conocimiento de las partes, que a través del oficio {oficio_adscripcion} de {fecha_oficio}, firmado electrónicamente por el Secretario Ejecutivo de Adscripciones del Órgano de Administración Judicial, se tomó conocimiento que {integracion}; en consecuencia, se returnó el asunto al Magistrado {magistrado}.",
+    "cuando": "Sólo si hubo cambio de titular. Fundamento de la adscripción: Acuerdo General del Pleno del Órgano de Administración Judicial por el que se adscriben a las personas electas en el Proceso Electoral Extraordinario 2024-2025 (AG-POAJ-008/2025, DOF 14-09-2025); el oficio y su fecha son los del expediente —en el corpus, SEADS/3771/2025 de 29-10-2025— y NO se fijan: toda readscripción posterior tiene el suyo. El área que firma se llama Secretaría Ejecutiva de Adscripciones (AG-POAJ-004/2025). Cuando entra, TODO lo que sigue corre un ordinal y la sesión remota pasa a SÉPTIMO.",
     "no_medido": true,
-    "nota": "El cuerpo literal está medido en QUEJA (30 docs) y en REVISIÓN («Mediante aviso general de quince de septiembre de dos mil veinticinco, el Secretario Ejecutivo de Adscripción del Órgano de Administración Judicial del Poder Judicial de la Federación, informó que…»); para AMPARO DIRECTO sólo está medida la frecuencia del resultando, no su redacción palabra por palabra."
+    "nota": "El cuerpo literal está medido en QUEJA (30 docs) y en REVISIÓN («Mediante {aviso_adscripcion}, el Secretario Ejecutivo de Adscripciones del Órgano de Administración Judicial del Poder Judicial de la Federación, informó que…»); para AMPARO DIRECTO sólo está medida la frecuencia del resultando, no su redacción palabra por palabra."
    },
    {
     "id": "ad-r6-sesion",
@@ -408,7 +408,7 @@
    "{medio_notificacion}": "«mediante lista», «mediante listas», «mediante cédula de notificación», «mediante notificación personal», «de manera electrónica», «mediante Boletín Jurisdiccional», «mediante boletín judicial».",
    "{inicio_plazo} {fin_plazo}": "extremos del plazo de quince días, en letra; si caen en el mismo mes se contrae a «del nueve al treinta de marzo de dos mil veintiséis».",
    "{fecha_presentacion}": "fecha de presentación de la demanda, en letra.",
-   "{dias_inhabiles}": "inhábiles distintos de sábado y domingo, en letra y con su fundamento propio encadenado después (artículo 74, fracción II, de la Ley Federal del Trabajo, 6/90; o la Circular 1/2025 del Secretario Ejecutivo del Pleno del Consejo de la Judicatura Federal, 5/90).",
+   "{dias_inhabiles}": "inhábiles distintos de sábado y domingo, en letra y con su fundamento propio encadenado después, según el AÑO del día descontado: artículo 74 de la Ley Federal del Trabajo (lunes conmemorativos); Circular 1/2025 de la Secretaría Ejecutiva del Pleno del otrora Consejo de la Judicatura Federal (16, 17 y 18 de abril y 2 de mayo de 2025); Circular 3/2025 de la Secretaría Ejecutiva del Pleno del Órgano de Administración Judicial (15 de septiembre de 2025); Circular 3/2026 de la misma Secretaría (1, 2 y 3 de abril, 4 de mayo, 15 de septiembre y 2 de noviembre de 2026). Los periodos vacacionales salen de la Ley Orgánica, no de circular. Verificado en el portal del OAJ el 27-sep-2026: la Circular 1/2025 NO sirve para un cómputo de 2026.",
    "{fecha_acto}": "fecha de la resolución reclamada, en letra. Nunca en dígitos.",
    "{tribunal_origen}": "oficialía donde se presentó: «Tribunal Superior de Justicia del Estado de Querétaro» (15/44), «Oficina de Correspondencia Común de los Juzgados de Distrito…» (5/44), «Sala Superior del Tribunal de Justicia Administrativa del Estado de Querétaro», «Tribunal Unitario Agrario, Distrito Cuarenta y Dos».",
    "{tercero}": "tercero interesado, con todas sus variantes de nombre si las constancias las traen.",
@@ -490,7 +490,7 @@
     "fijo": false,
     "frecuencia": "no medida por separado",
     "condicional": true,
-    "plantilla": "CUARTO. Nueva integración y returno. En proveído de {fecha}, se hizo del conocimiento de las partes, que a través del oficio SEADS/3771/2025 de veintinueve de octubre de dos mil veinticinco, firmado electrónicamente por el Secretario Ejecutivo de la Comisión de Adscripción del Órgano de Administración Judicial, se tomó conocimiento que {integracion}.",
+    "plantilla": "CUARTO. Nueva integración y returno. En proveído de {fecha}, se hizo del conocimiento de las partes, que a través del oficio {oficio_adscripcion} de {fecha_oficio}, firmado electrónicamente por el Secretario Ejecutivo de Adscripciones del Órgano de Administración Judicial, se tomó conocimiento que {integracion}.",
     "cuando": "Sólo si hubo readscripción. Cuando entra, TODO lo demás corre un ordinal."
    },
    {
@@ -757,7 +757,7 @@
     "fijo": false,
     "frecuencia": "10/26",
     "condicional": true,
-    "plantilla": "{ordinal}. Nueva integración y returno. Mediante aviso general de quince de septiembre de dos mil veinticinco, el Secretario Ejecutivo de Adscripción del Órgano de Administración Judicial del Poder Judicial de la Federación, informó que {integracion}; en consecuencia, se returnó el asunto al Magistrado {magistrado}.",
+    "plantilla": "{ordinal}. Nueva integración y returno. Mediante {aviso_adscripcion}, el Secretario Ejecutivo de Adscripciones del Órgano de Administración Judicial del Poder Judicial de la Federación, informó que {integracion}; en consecuencia, se returnó el asunto al Magistrado {magistrado}.",
     "cuando": "Desde sep-2025. Cuando entra, TODO lo demás corre un ordinal."
    },
    {
@@ -801,7 +801,7 @@
      },
      {
       "id": "rv-c1-suspension-definitiva",
-      "texto": "PRIMERO. Competencia. Este Tercer Tribunal Colegiado en Materias Administrativa y Civil del Vigésimo Segundo Circuito es legalmente competente para conocer y resolver el presente recurso de revisión de conformidad con los artículos 107, fracción VIII, último párrafo, de la Constitución Federal; 81, fracción I, inciso a) y 84 de la Ley de Amparo; 35, fracción II de la Ley Orgánica del Poder Judicial de la Federación vigente, así como en los Acuerdos Generales 3/2013 y 28/2017, artículo 4°, ambos del Pleno del Consejo de la Judicatura Federal; ya que se promovió contra una resolución que decidió sobre la suspensión definitiva del acto reclamado en un juicio de amparo tramitado ante un juez de Distrito con residencia en el Estado de Querétaro, ámbito de jurisdicción territorial sobre el que ejerce competencia este tribunal colegiado.",
+      "texto": "PRIMERO. Competencia. Este Tercer Tribunal Colegiado en Materias Administrativa y Civil del Vigésimo Segundo Circuito es legalmente competente para conocer y resolver el presente recurso de revisión de conformidad con los artículos 107, fracción VIII, último párrafo, de la Constitución Federal; 81, fracción I, inciso a) y 84 de la Ley de Amparo; 35, fracción II de la Ley Orgánica del Poder Judicial de la Federación vigente, así como en el punto tercero, fracción {fraccion_acuerdo}, del Acuerdo General 3/2013, en relación con el artículo 1 del diverso 28/2017, ambos del Pleno del otrora Consejo de la Judicatura Federal; ya que se promovió contra una resolución que decidió sobre la suspensión definitiva del acto reclamado en un juicio de amparo tramitado ante un juez de Distrito con residencia en el Estado de Querétaro, ámbito de jurisdicción territorial sobre el que ejerce competencia este tribunal colegiado.",
       "frecuencia": "3/62",
       "cuando": "Revisión contra suspensión DEFINITIVA (inciso a del 81). El orgánico es «35, fracción II y 210» de la Ley Orgánica vigente; «38, fracción II y 124» es de la ley de 2021, abrogada el 20-12-2024, y no debe emitirse. Nótese «es legalmente competente» y «una Jueza de Distrito» cuando corresponde."
      },

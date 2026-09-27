@@ -4281,9 +4281,10 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
             "rellenan al engrosar.")
     _avisos_bk.append(
         "COMPRUEBA LA COLA NORMATIVA del párrafo de la sesión: se escribió la del "
-        "Acuerdo General 6/2026, que rige los asuntos listados desde abril de "
-        "dos mil veintiséis; si éste se listó antes, la cola es la de los "
-        "Acuerdos 16/2009 y 12/2020 del otrora Consejo de la Judicatura "
+        "Acuerdo General 6/2026 del Pleno del Órgano de Administración Judicial, "
+        "en vigor desde el dieciocho de abril de dos mil veintiséis (abrogó el "
+        "12/2020); si la sesión se celebró antes de esa fecha, la cola es la de "
+        "los Acuerdos 16/2009 y 12/2020 del otrora Consejo de la Judicatura "
         "Federal.")
     _emitir(res_apartados)
 

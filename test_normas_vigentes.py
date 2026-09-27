@@ -59,6 +59,18 @@ _n2, _a2 = ta.competencia_revision(_c_rv, "VISTOS para resolver los autos del ju
 ok(_n2 == _c_rv and any("2/2025 (12a.)" in x for x in _a2),
    "constitucionalidad: la fórmula no se toca a ciegas y se avisa de la delegación (AG 2/2025 y 11/2025, 12a.)")
 
+print("\n1b · ACUERDOS GENERALES DEL CJF Y DEL OAJ")
+_datos = {"fraccion_acuerdo": "XXII", "materia": "civil", "inciso": "c"}
+for _tipo in ta.TIPOS:
+    _t3, _ = banco.texto_de(_tipo, "competencia", dict(_datos, tribunal="Tercer Tribunal Colegiado en Materias "
+                                                            "Administrativa y Civil del Vigésimo Segundo Circuito"))
+    _t1, _ = banco.texto_de(_tipo, "competencia", dict(_datos, tribunal="Primer Tribunal Colegiado en Materias "
+                                                            "Administrativa y Civil del Vigésimo Segundo Circuito"))
+    ok("28/2017" in _t3 and "28/2017" not in _t1 and "Acuerdo General 3/2013 del Pleno del otrora" in _t1,
+       f"{_tipo}: el 28/2017 (creación del Tercer TCC) sólo para el Tercero; el 3/2013 para todos")
+ok("artículo 4°" not in _B and "a través del oficio SEADS" not in _B, "ni el art. 4° del 28/2017 (reparto de 2017) ni un oficio de adscripción fijo en la plantilla")
+ok("12/2020" in _B and "abrogó el 12/2020" in _B, "el 6/2026 del OAJ abrogó el 12/2020: la cola COVID queda para lo anterior")
+
 print("\n2 · CONSTITUCIÓN")
 ok("I-B" not in ta.TECNICA_RESOLUCION["revision_fiscal_reenvio"]["fuente"]
    and "104, fracción III" in ta.TECNICA_RESOLUCION["revision_fiscal_reenvio"]["fuente"],
