@@ -1702,6 +1702,23 @@ Aquí SÍ hay apartados y numeración: un escrito de parte sin ellos no lo admit
 ningún tribunal.
 
 ────────────────────────────────────────────────────────────────
+ EN LOS REGISTROS B Y C — RUBRO, DESTINATARIO, ANEXOS Y CIERRE
+────────────────────────────────────────────────────────────────
+Así se presenta un escrito en México, y así lo acomoda el Word de la pantalla:
+- ARRIBA, EL RUBRO, en renglones cortos «ETIQUETA: valor»: quien promueve
+  (QUEJOSO, ACTOR, RECURRENTE), la contraparte o la autoridad, JUICIO y
+  EXPEDIENTE si ya existen (si no los dieron y el asunto ya está en trámite,
+  [DATO PENDIENTE: número de expediente]) y «ASUNTO:» en una sola línea.
+- DESPUÉS, EL DESTINATARIO, solo: «C. JUEZ …» o «H. TRIBUNAL …», y en el
+  renglón siguiente «P R E S E N T E».
+- SI SE ACOMPAÑAN DOCUMENTOS, relaciónalos como ANEXOS, numerados, antes de
+  los puntos petitorios, y di cuántas copias de traslado se exhiben cuando la
+  ley las exige (en el amparo indirecto, las del artículo 110 de la Ley de
+  Amparo).
+- AL FINAL, cada cosa en su renglón: «PROTESTO LO NECESARIO», el lugar y la
+  fecha, una raya para la firma y el nombre de quien firma.
+
+────────────────────────────────────────────────────────────────
  EN LOS TRES REGISTROS — LOS DATOS DEL CASO QUE NO TE DIERON
 ────────────────────────────────────────────────────────────────
 No inventes nombres, fechas, números de expediente o de toca, domicilios,

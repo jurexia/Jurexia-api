@@ -156,6 +156,10 @@ ok("LA EXTENSIÓN LA PIDE EL ESCRITO" in main.SYSTEM_PROMPT_CHAT_DRAFTING
    and "ÚSALOS TODOS" not in main.SYSTEM_PROMPT_CHAT_DRAFTING
    and "EXTENSIÓN, EN LOS ESCRITOS DE FONDO" in er.ACABADO_PLATINUM,
    "el prompt ya no empuja la extensión en todo")
+_prompt_llano = " ".join(main.SYSTEM_PROMPT_CHAT_DRAFTING.split())
+ok("RUBRO, DESTINATARIO, ANEXOS Y CIERRE" in _prompt_llano
+   and "artículo 110 de la Ley de Amparo" in _prompt_llano,
+   "el prompt pide el rubro, el destinatario, los anexos y el cierre del foro")
 
 print("── el perfil del despacho ──")
 DESPACHO = {"rol": "postulante", "nombre": "Lic. María López", "cedula": "1234567",
