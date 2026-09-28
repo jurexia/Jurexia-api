@@ -442,6 +442,259 @@ try:
 except Exception as ex:  # pragma: no cover
     ok(False, f"el documento no se pudo componer: {type(ex).__name__}: {ex}")
 
+# ═══════════════════════════════════════════════════════════════════════════
+# plan-6 (28-sep-2026). David: «esta ventana entorpeció demasiado el diálogo
+# jurídico coherente […] el redactor debería de entender en automático cómo
+# funciona la decisión judicial cuando el tema principal está resuelto y de
+# ella dependen muchos argumentos secundarios». La Decisión 6 (una razón por
+# argumento) se retira: dentro de cada problema decide el que ataca la
+# proposición toral y los demás se resuelven por dependencia de él.
+print("\n9 · plan-6, FUNDADO: DECIDE UNO; LOS DEL MISMO TEMA CON EL PRINCIPAL; LO DEMÁS, INNECESARIO")
+ESCRITO6 = (
+    "AGRAVIOS\n"
+    "PRIMERO. La sentencia recurrida vulnera los principios de exhaustividad y congruencia porque no "
+    "atendió lo que se planteó sobre la ejecución de la sentencia definitiva. La interlocutoria sólo "
+    "determinó quién cuenta con legitimación para continuar la ejecución sin modificar las prestaciones "
+    "de la sentencia definitiva. El artículo 49 del Código Procesal Civil local permite que el "
+    "causahabiente sustituya a quien transmitió el derecho controvertido. Los artículos 2284 y 2294 del "
+    "Código Civil local transmiten al adquirente los derechos del arrendador sobre el inmueble "
+    "arrendado. La recurrente adquirió el inmueble mediante escritura pública de fecha anterior a la "
+    "sustitución que se reclama. La sentencia carece de fundamentación porque no cita el precepto que "
+    "sustenta la cosa juzgada. La sentencia carece de motivación porque no expone las razones "
+    "particulares del caso concreto. Se vulnera el principio de igualdad jurídica porque no se aplican "
+    "de manera uniforme las normas procesales. La falta de fundamentación y motivación es una violación "
+    "formal distinta de la indebida fundamentación y motivación. Invoca la jurisprudencia sobre los "
+    "argumentos que deben examinarse cuando se alega la ausencia de fundamentación. REVISIÓN ADHESIVA. "
+    "La quejosa adherente sostiene que el juicio de origen se tramitó con violaciones al procedimiento "
+    "que la dejaron sin defensa.\n\n"
+    "SEGUNDO. Solicita que, como consecuencia de los argumentos expuestos en el primero, se tenga por "
+    "reproducido su contenido para controvertir el considerando octavo de la sentencia recurrida.")
+_o6 = [ESCRITO6.index(x) for x in ("PRIMERO.", "SEGUNDO.")] + [len(ESCRITO6)]
+CONTEO6 = {"estado": "contado", "n": 2, "tramos": [[_o6[i], _o6[i + 1]] for i in range(2)]}
+
+
+def fases6():
+    return fases(fuentes=[ACTO, ESCRITO6], conteo=dict(CONTEO6))
+
+
+_CITAS6 = {
+    "A1.a": ("forma", "vulnera los principios de exhaustividad y congruencia porque no atendió", []),
+    "A1.b": ("fondo", "sólo determinó quién cuenta con legitimación para continuar la ejecución", []),
+    "A1.c": ("fondo", "el artículo 49 del Código Procesal Civil local permite que el causahabiente",
+             ["art 49 cpc"]),
+    "A1.d": ("fondo", "Los artículos 2284 y 2294 del Código Civil local transmiten al adquirente",
+             ["art 2284 cc", "art 2294 cc"]),
+    "A1.e": ("fondo", "La recurrente adquirió el inmueble mediante escritura pública de fecha anterior", []),
+    "A1.f": ("forma", "La sentencia carece de fundamentación porque no cita el precepto", []),
+    "A1.g": ("forma", "La sentencia carece de motivación porque no expone las razones particulares", []),
+    "A1.h": ("forma", "Se vulnera el principio de igualdad jurídica porque no se aplican", []),
+    "A1.i": ("forma", "La falta de fundamentación y motivación es una violación formal distinta", []),
+    "A1.j": ("forma", "Invoca la jurisprudencia sobre los argumentos que deben examinarse", []),
+    "AD1.a": ("procesal", "el juicio de origen se tramitó con violaciones al procedimiento que la dejaron", []),
+}
+SEGS6 = [pe.normalizar_segmento_piso({"id": k, "concepto": 1, "texto": v[1], "cita": v[1], "anclas": v[2]})
+         for k, v in _CITAS6.items()] + [SEGS[-1]]           # A2.a, el del segundo agravio
+_FORMA6 = ("A1.a", "A1.f", "A1.g", "A1.h", "A1.i", "A1.j")
+
+
+def _s6(sid, **kw):
+    base = {"id": sid, "problema_id": 1, "vicio": _CITAS6[sid][0], "ataca": "P1", "reitera": None,
+            "dato": None, "etiqueta": "fundado", "razon": "fundado", "trat": "aplica", "diferencia": None,
+            "pendiente": None}
+    base.update(kw)
+    return base
+
+
+PLAN6 = {
+    "proposiciones": [
+        {"id": "P1", "dice": "La sustitución alteró la cosa juzgada", "caracter": "toral", "relacion": "suficiente",
+         "fuente": "recurrida", "cita": "la sustitución de la parte ejecutante alteró la cosa juzgada",
+         "vinculada_por_ejecutoria": False},
+        {"id": "P2", "dice": "La adquirente no era causahabiente", "caracter": "accesoria",
+         "relacion": "dependiente_de:P1", "fuente": "recurrida",
+         "cita": "la adquirente del inmueble no era causahabiente del contrato de arrendamiento",
+         "vinculada_por_ejecutoria": False},
+        {"id": "P3", "dice": "La acción era personal", "caracter": "accesoria", "relacion": "dependiente_de:P2",
+         "fuente": "recurrida", "cita": "que sustentó la acción personal de rescisión",
+         "vinculada_por_ejecutoria": False},
+        {"id": "P5", "dice": "Era innecesario estudiar los demás conceptos", "caracter": "accesoria",
+         "relacion": "dependiente_de:P1", "fuente": "recurrida",
+         "cita": "Consideró innecesario estudiar los restantes conceptos de violación",
+         "vinculada_por_ejecutoria": False}],
+    "segmentos": [
+        # Lo que devolvía el planificador del 631 con la Decisión 6: la forma
+        # «fundada» y pendiente de una razón del secretario, uno por uno.
+        _s6("A1.a", trat="desarrolla", diferencia="norma", pendiente="razon"),
+        _s6("A1.b"),
+        _s6("A1.c", ataca="P2", dato={"texto": "el artículo 49", "fuente": "escrito",
+                                      "cita": "el artículo 49 del Código Procesal Civil local permite que el "
+                                              "causahabiente sustituya"}),
+        _s6("A1.d", ataca="P2", etiqueta="esencialmente_fundado", razon="esencialmente_fundado"),
+        _s6("A1.e", ataca="P3", diferencia="hecho"),
+        _s6("A1.f", trat="desarrolla", diferencia="norma", pendiente="razon"),
+        _s6("A1.g", trat="desarrolla", diferencia="norma", pendiente="razon"),
+        _s6("A1.h", etiqueta="inoperante", razon="generico", trat="residual"),
+        _s6("A1.i", trat="desarrolla", diferencia="norma", pendiente="razon"),
+        _s6("A1.j", trat="desarrolla", diferencia="precedente", pendiente="razon"),
+        # Un suplido y la violación procesal del adhesivo: nunca dependen.
+        {"id": "S1.a", "problema_id": 1, "vicio": "fondo", "ataca": "P1", "reitera": None, "dato": None,
+         "etiqueta": "fundado", "razon": "fundado", "trat": "desarrolla", "diferencia": "hecho", "pendiente": None},
+        _s6("AD1.a", etiqueta="infundado", razon="fondo_desestimado", trat="desarrolla", diferencia="procesal"),
+        {"id": "A2.a", "problema_id": 2, "vicio": "fondo", "ataca": "P5", "reitera": None, "dato": None,
+         "etiqueta": "innecesario", "razon": "cae_con_principal", "trat": "no_se_estudia", "diferencia": None,
+         "pendiente": None}],
+    "premisas": [{"id": "M1", "responde_a": ["P1", "P2", "P3"], "fuentes": {"tesis": [], "normas": ["art. 49"]},
+                  "anclas": ["causahabiente", "legitimación"], "rastro": "razon",
+                  "rastro_cita": "el artículo 49 del Código Procesal Civil local permite al causahabiente "
+                                 "sustituir a quien transmitió el derecho controvertido"}],
+    # Partido como en el 631: la misma premisa en tres unidades.
+    "unidades": [{"id": "U1", "problemas": [1], "segmentos": ["A1.b"], "premisa": "M1",
+                  "objecion": {"de": "el juzgado", "anclas": ["cosa juzgada"]}},
+                 {"id": "U2", "problemas": [1], "segmentos": ["A1.c", "A1.d"], "premisa": "M1", "objecion": None},
+                 {"id": "U3", "problemas": [1], "segmentos": ["A1.e"], "premisa": "M1", "objecion": None},
+                 {"id": "U4", "problemas": [1], "segmentos": ["A1.a", "A1.f", "A1.g", "A1.i", "A1.j"],
+                  "premisa": None, "objecion": None},
+                 {"id": "U5", "problemas": [1], "segmentos": ["S1.a"], "premisa": None, "objecion": None},
+                 {"id": "U6", "problemas": [1], "segmentos": ["AD1.a"], "premisa": None, "objecion": None}],
+    "propuestas": [],
+    "avisos_al_secretario": ["A1.a, A1.f, A1.g, A1.i y A1.j tienen pendiente la razón específica del secretario"],
+    "orden": {"criterio": "prelacion", "por_que": "el principal primero"},
+}
+_r9, _av9 = pe.reparar(_norm(PLAN6), crit(), SEGS6, fases6(), material(), "", {})
+_s9 = {s["id"]: s for s in _r9["segmentos"]}
+_j9 = next(j for j in _r9["jerarquia"] if j["problema"] == 1)
+ok(_j9["decide"] == "A1.b" and _s9["A1.b"]["dependencia"] == "decide" and _j9["ataca"] == "P1",
+   "decide A1.b, el de fondo que ataca la proposición toral (P1), no el agravio de forma que va antes")
+ok(all(_s9[x]["dependencia"] == "con_el_principal" and _s9[x]["con"] == "A1.b"
+       and _s9[x]["depende_de"] == "P1" and _s9[x]["etiqueta"] == "fundado" for x in ("A1.c", "A1.d", "A1.e")),
+   "con el principal: el art. 49 (P2), los arts. 2284 y 2294 (P2) y la escritura (P3 → P2 → P1), con la "
+   "calificación del grupo (el «esencialmente fundado» ya no se acota por argumento)")
+ok(all(_s9[x]["etiqueta"] == "innecesario" and _s9[x]["razon"] == "innecesario_por_suficiencia"
+       and _s9[x]["trat"] == "no_se_estudia" and _s9[x]["con"] == "A1.b" for x in _FORMA6)
+   and not any(x in (u.get("segmentos") or []) for u in _r9["unidades"] for x in _FORMA6),
+   "los seis de forma, innecesarios por suficiencia (decide A1.b) y fuera de las unidades")
+ok(_s9["S1.a"]["dependencia"] == "autonomo" and _s9["AD1.a"]["dependencia"] == "autonomo"
+   and _s9["S1.a"]["etiqueta"] == "fundado" and _s9["AD1.a"]["etiqueta"] == "infundado",
+   "el suplido y la violación procesal del adhesivo no se absorben ni se declaran innecesarios")
+ok(not any(s.get("pendiente") == "razon" for s in _r9["segmentos"]), "ningún pendiente de razón")
+ok(_s9["A2.a"].get("dependencia") is None and _s9["A2.a"]["etiqueta"] == "innecesario",
+   "el problema que no se estudia, como hoy")
+_f9 = pe.validar(_r9, crit(), SEGS6, fases6(), material(), "", suplencia={})
+ok(_f9 == [], f"V0 limpio: {_f9[:3]}")
+ok(sum(1 for u in _r9["unidades"] if u.get("premisa") == "M1") == 3
+   and not any("juntaba" in a and "U2" in a for a in _r9["avisos_al_secretario"]),
+   "el tema no se parte por proposición: P1, P2 y P3 son una cadena (la premisa M1 no se reparte más)")
+ok(any(a.startswith("Resueltos por consecuencia del principal (problema 1, decide A1.b")
+       and "innecesarios por suficiencia A1.a" in a for a in _r9["avisos_al_secretario"])
+   and not any("pendiente" in a and "razón" in a for a in _r9["avisos_al_secretario"]),
+   "el panel lo dice en una línea, como información; lo que el planificador escribió de «pendientes» sale")
+_rev = types.SimpleNamespace(encargo=types.SimpleNamespace(tipo_asunto="amparo_revision",
+                                                           resolvio_declarado="Concedió el amparo."),
+                             fases=fases6())
+ok(pe.concede_de(_rev, crit()) is False, "la revisión que revoca una concesión NIEGA: no hay efectos")
+_g9 = pe.vista(_r9, "estandar", concede=pe.concede_de(_rev, crit()))
+print("      " + _g9.replace("\n", "\n      ")[:2600])
+ok("JERARQUÍA DEL PROBLEMA 1 (fundado): DECIDE A1.b (ataca P1) · CON EL PRINCIPAL: A1.c, A1.d, A1.e · "
+   "INNECESARIOS POR SUFICIENCIA: A1.a, A1.f, A1.g, A1.h, A1.i, A1.j · AUTÓNOMOS: S1.a, AD1.a" in _g9,
+   "el guion trae la JERARQUÍA del problema, como datos")
+ok("PENDIENTE DE RAZÓN" not in _g9 and "UNIDADES QUE PROSPERAN" not in _g9 and "ADVERTENCIAS" not in _g9,
+   "sin PENDIENTE DE RAZÓN, sin nada a ADVERTENCIAS y sin «de ellas salen los efectos» en una revisión que niega")
+ok("APLICA A1.c" not in _g9 and "con el principal: A1.c (P2) · dato (escrito): «el artículo 49" in _g9
+   and _g9.count("EXPONE M1") == 1,
+   "los que van con el principal no tienen renglón propio: su dato, dentro del renglón del que decide")
+ok("INNECESARIOS POR SUFICIENCIA A1.a, A1.f, A1.g, A1.h, A1.i, A1.j · etiqueta: innecesario" in _g9
+   and "NO SE ESTUDIA A1.f" not in _g9,
+   "los innecesarios, un renglón por grupo al cerrar el apartado")
+ok("UNIDADES QUE PROSPERAN" in pe.vista(_r9, "estandar", concede=True),
+   "(control: si el asunto concediera, sí se dicen las unidades de las que salen los efectos)")
+_b9 = pe.bloque(_g9)
+ok("JERARQUÍA DEL PROBLEMA: cómo se sigue la suerte" in _b9 and "PENDIENTE DE RAZÓN" not in _b9,
+   "el bloque describe la jerarquía; ya no describe el pendiente de razón")
+_p9 = f6.prompt_estudio("ACTO", "CONC", crit(), f6.Material(tipo_asunto="amparo_revision", variante="v4",
+                                                            formato="estandar"), guion=_g9)
+ok("JERARQUÍA del guion lo resuelva por" in _p9 and "PENDIENTE DE RAZÓN" not in _p9,
+   "el estudio (v4) acepta la jerarquía como criterio y no pone nada primero en ADVERTENCIAS")
+ok(pe.resolver_por_dependencia(_r9) == pe.resolver_por_dependencia(pe.resolver_por_dependencia(_r9)),
+   "resolver por dependencia es idempotente sobre el plan reparado")
+_props9 = {p["id"]: p for p in _r9["proposiciones"]}
+ok(pe.depende_del_principal({"id": "A1.z", "vicio": "procesal", "ataca": "P3"}, _props9, "amparo_directo") is None
+   and pe.depende_del_principal({"id": "A1.z", "vicio": "procesal", "ataca": "P3"}, _props9,
+                                "amparo_revision") == "P1"
+   and pe.depende_del_principal({"id": "A1.z", "vicio": "omision", "ataca": "P1"}, _props9) is None
+   and pe.raiz_toral({"P1": {"relacion": "dependiente_de:P2", "caracter": "toral"},
+                      "P2": {"relacion": "dependiente_de:P1", "caracter": "toral"}}, "P1") is None,
+   "la procesal del amparo directo (arts. 74-V, 174 y 189) y la omisión nunca dependen; un ciclo no tiene raíz")
+
+print("\n10 · plan-6, INFUNDADO: LOS 13 DE LA CAPTURA DE DAVID, POR CONSECUENCIA DEL PRINCIPAL")
+# El plan-4 «infundado» guardado en producción (sesión 462, clave 83a4…),
+# reducido a su forma: 24 argumentos del primer agravio, P2 y P3 dependientes
+# de la toral P1, trece «pendiente: razon» —la caja que vio David— y las
+# premisas ya retiradas. Más una omisión, que no depende de nadie.
+_PEND = ("A1.d", "A1.g", "A1.j", "A1.m", "A1.n", "A1.o", "A1.p", "A1.q", "A1.r", "A1.s", "A1.t", "A1.v", "A1.w")
+_ATACA = {"A1.c": "P3", "A1.d": "P3", "A1.f": "P3", "A1.g": "P3", "A1.p": "P3", "A1.x": "P2"}
+_segs10 = []
+for _c in "abcdefghijklmnopqrstuvwx":
+    _sid = f"A1.{_c}"
+    _p = _sid in _PEND
+    _segs10.append({"id": _sid, "problema_id": 1, "concepto": 1,
+                    "vicio": "forma" if _c in "lmpqrst" else ("procesal" if _c in "vw" else "fondo"),
+                    "ataca": _ATACA.get(_sid, "P1"), "reitera": None, "dato": None,
+                    "etiqueta": "inoperante" if _sid in ("A1.n", "A1.o") else "infundado",
+                    "razon": "" if _p else "fondo_desestimado",
+                    "trat": "residual" if _sid == "A1.k" else "desarrolla",
+                    "diferencia": ("precedente" if _c in "jorstvw" else "norma") if _p else None,
+                    "pendiente": "razon" if _p else None, "sin_premisa": not _p and _sid != "A1.k"})
+_segs10.append({"id": "A1.y", "problema_id": 1, "concepto": 1, "vicio": "omision", "ataca": "P1", "reitera": None,
+                "dato": None, "etiqueta": "infundado", "razon": "", "trat": "desarrolla", "diferencia": "hecho",
+                "pendiente": "razon"})
+_segs10.append({"id": "A2.a", "problema_id": 2, "concepto": 2, "vicio": "omision", "ataca": "P4", "reitera": None,
+                "dato": None, "etiqueta": "infundado", "razon": "omision_inexistente", "trat": "remite",
+                "diferencia": None, "pendiente": None})
+PLAN4_GUARDADO = {
+    "version": "plan-4", "tipo_asunto": "amparo_revision",
+    "problemas": [{"id": 1, "pregunta": PREG1, "sentido": "infundado", "clase": "fondo", "jerarquia": "principal",
+                   "grupo": ""},
+                  {"id": 2, "pregunta": PREG2, "sentido": "infundado", "clase": "fondo", "jerarquia": "accesorio",
+                   "grupo": ""}],
+    "proposiciones": [{"id": "P1", "dice": "x", "caracter": "toral", "relacion": "suficiente"},
+                      {"id": "P2", "dice": "x", "caracter": "accesoria", "relacion": "dependiente_de:P1"},
+                      {"id": "P3", "dice": "x", "caracter": "accesoria", "relacion": "dependiente_de:P1"},
+                      {"id": "P4", "dice": "x", "caracter": "toral", "relacion": "suficiente"}],
+    "segmentos": _segs10,
+    "premisas": [{"id": "M3", "responde_a": ["P4"], "fuentes": {"tesis": [], "normas": []}, "anclas": [],
+                  "rastro": "razon", "rastro_cita": "x"}],
+    "unidades": [{"id": "U1", "problemas": [1], "segmentos": ["A1.a", "A1.b", "A1.e", "A1.h", "A1.i", "A1.u"],
+                  "premisa": None}]
+                + [{"id": f"U{i + 2}", "problemas": [1], "segmentos": [x["id"]], "premisa": None}
+                   for i, x in enumerate(s_ for s_ in _segs10 if s_["id"] not in
+                                         ("A1.a", "A1.b", "A1.e", "A1.h", "A1.i", "A1.u", "A1.k", "A2.a"))]
+                + [{"id": "U40", "problemas": [2], "segmentos": ["A2.a"], "premisa": "M3"}],
+    "propuestas": [], "avisos_al_secretario": [], "orden": {"criterio": "prelacion", "por_que": ""},
+}
+_r10 = pe.resolver_por_dependencia(PLAN4_GUARDADO)
+_s10 = {s["id"]: s for s in _r10["segmentos"]}
+_con10 = [x for x in _PEND if _s10[x]["dependencia"] == "con_el_principal"]
+_cae10 = [x for x in _PEND if _s10[x]["dependencia"] == "deriva"]
+ok(len(_con10) == 11 and _cae10 == ["A1.n", "A1.o"] and len(_con10) + len(_cae10) == 13,
+   f"los 13: infundados por las mismas razones ({len(_con10)}) o caen por derivar ({_cae10})")
+ok(all(_s10[x]["etiqueta"] == "infundado" and _s10[x]["razon"] == "fondo_desestimado"
+       and _s10[x]["con"] == "A1.a" and _s10[x]["depende_de"] == "P1" for x in _con10),
+   "con el principal: infundados, fondo_desestimado, siguen a A1.a (P1; los de P3, por su cadena)")
+ok(all(_s10[x]["razon"] == "deriva_de_desestimado" and _s10[x]["razon_p"] == "P1" and _s10[x]["trat"] == "residual"
+       for x in _cae10), "los inoperantes sin razón propia caen por derivar de P1, desestimada")
+ok(not any(s["etiqueta"] == "innecesario" or s.get("razon") == "innecesario_por_suficiencia"
+           for s in _r10["segmentos"]), "ninguno «innecesario»: en un problema que no prospera todo se contesta")
+ok(_s10["A1.y"]["dependencia"] == "autonomo" and _s10["A1.y"]["trat"] == "desarrolla"
+   and _s10["A1.y"].get("pendiente") is None and any("A1.y" in u["segmentos"] for u in _r10["unidades"]),
+   "la omisión sigue autónoma: se desarrolla con su diferencia, sin pendiente y sin pedir nada")
+ok(not any(s.get("pendiente") == "razon" for s in _r10["segmentos"])
+   and pe.resolver_por_dependencia(_r10) == _r10,
+   "el plan-4 guardado queda sin pendientes, y resolver otra vez no cambia nada (idempotente)")
+_g10 = pe.vista(_r10, "estandar")
+ok("PENDIENTE DE RAZÓN" not in _g10 and "CAEN POR DERIVAR A1.n, A1.o" in _g10
+   and "JERARQUÍA DEL PROBLEMA 1 (infundado): DECIDE A1.a" in _g10 and "DESARROLLA A1.y" in _g10,
+   "el guion: la jerarquía, los que caen en un renglón, y la omisión con el suyo; sin PENDIENTE DE RAZÓN")
+
 print()
 if FALLOS:
     print(f"FALLAN {len(FALLOS)}: " + " · ".join(FALLOS))

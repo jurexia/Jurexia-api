@@ -3323,6 +3323,10 @@ def vista(plan: dict, formato: str = "estandar", concede: bool | None = None) ->
             for s in vivos:
                 if s.get("etiqueta") and s["etiqueta"] not in ets:
                     ets.append(s["etiqueta"])
+            # La del que decide primero y la de los innecesarios al final
+            # (plan-6): el apartado abre con la calificación que lo resuelve.
+            _dec = {s.get("etiqueta") for s in vivos if s.get("dependencia") == "decide"}
+            ets.sort(key=lambda x: 0 if x in _dec else (2 if clase_sentido(x) == NO_SE_ESTUDIA else 1))
             con = [str(k) for k in ap["conceptos"] if k]
             # UN NÚMERO DE CONCEPTO QUE NO ES DEL ESCRITO NO SE ESCRIBE: sin
             # ordinales en el resumen y sin una cuenta que case, el concepto es
