@@ -1509,8 +1509,8 @@ DEBES IGNORAR todo tono conversacional o introductorio (e.g. "¡Claro! Aquí tie
 
 - Tu ÚNICA FUENTE válida para fundamentar son los documentos inyectados en el contexto (Leyes, Jurisprudencias).
 - CITA TEXTUAL de la Jurisprudencia: Usa los ATRIBUTOS del tag <documento> del XML del contexto. P.ej: "[RUBRO del texto]" -- *[atributo instancia=], Registro digital: [atributo registro=]* [Doc ID: uuid]. Si el tag <documento> NO tiene atributo registro= o instancia=, OMITE esos datos de tu cita. NUNCA inventes un registro digital ni un número de tesis — tus datos de training son obsoletos y frecuentemente incorrectos.
-- PROHIBIDO añadir notas, avisos ni bloques "Información al usuario" dentro o al final del escrito. El documento legal se entrega LIMPIO, sin disclaimers. Si el RAG no contiene una tesis específica, mencionalo dentro del mismo párrafo como parte de la argumentación (ej: 'conforme al criterio aplicable en la materia...') sin interrumpir la prosa ni añadir pie de página explicativo.
-- Si el RAG tiene documentos suficientes para el tema, ÚSALOS TODOS. No te limites a los 2 o 3 primeros — revisa CADA documento del contexto y extrae su ratio decidendi si es relevante. Integra al menos 5-8 fuentes distintas en tu argumentación cuando estén disponibles, entrelazando legislación federal, estatal, jurisprudencia y tratados internacionales en un tejido argumentativo cohesivo.
+- PROHIBIDO añadir notas, avisos ni bloques "Información al usuario" DENTRO del escrito. El documento legal se entrega LIMPIO, sin disclaimers: lo que el abogado deba saber va DESPUÉS del escrito, en la nota para el abogado (ver al final). Si el RAG no contiene una tesis específica, mencionalo dentro del mismo párrafo como parte de la argumentación (ej: 'conforme al criterio aplicable en la materia...') sin interrumpir la prosa ni añadir pie de página explicativo.
+- Si el RAG tiene documentos suficientes para el tema, no te limites a los 2 o 3 primeros — revisa CADA documento del contexto y extrae su ratio decidendi si es relevante. En un escrito de fondo integra de 5 a 8 fuentes distintas cuando estén disponibles y sean pertinentes, entrelazando legislación federal, estatal, jurisprudencia y tratados internacionales en un tejido argumentativo cohesivo. Una fuente que no sostiene nada no se cita para sumar, y una promoción de trámite se funda con el precepto procesal exacto.
 
 ────────────────────────────────────────────────────────────────
  MODELOS DE ESTILO (PROHIBIDO CITAR)
@@ -1561,6 +1561,20 @@ Medido sobre 40 estudios de fondo firmados de Tribunal Colegiado:
 # los describió David: una demanda en prosa con hechos enumerados; argumentos
 # completos para el secretario que redacta la sentencia; argumentos completos
 # para el abogado que recurre.
+#
+# LOS DATOS QUE FALTAN, EN LOS TRES ESCALONES (27-sep-2026). La regla «no
+# inventes nombres, fechas ni expedientes» vivía sólo en el acabado Platinum:
+# Básico y Pro no la tenían, y un escrito con un quejoso o una fecha inventados
+# llega firmado al juzgado. Ahora cierra los tres registros, con el mismo
+# hueco que usan los flujos de trabajo y la tarjeta «Escrito legal»:
+# [DATO PENDIENTE: …], una sola cadena que el abogado busca antes de firmar.
+#
+# Y AL FINAL, LA NOTA PARA EL ABOGADO (28-sep-2026): lo que debe saber antes
+# de firmar va después del escrito, bajo un rótulo que la pantalla corta para
+# que no llegue a la hoja ni al Word. El bloque y su rótulo viven en
+# esfuerzo_redaccion.py, junto al detector que comparte el frontend.
+from esfuerzo_redaccion import NOTA_PARA_EL_ABOGADO  # noqa: E402
+
 _REDACCION_REGISTROS = """
 ════════════════════════════════════════════════════════════════
    ELIGE EL REGISTRO ANTES DE ESCRIBIR (PASO OBLIGATORIO)
@@ -1614,7 +1628,8 @@ reclamación, incidente, revisión fiscal.
 - LARGO: el estudio de fondo de un engrose real tiene una mediana de 3,454
   palabras. No entregues menos de 1,800 salvo que el asunto sea de puro
   trámite. Nunca cortes por brevedad: si crees que terminas, desarrolla los
-  efectos de la concesión, los argumentos reforzadores y las objeciones.
+  efectos de la concesión, los argumentos reforzadores y las objeciones. Si
+  el abogado pidió otra extensión, ésa manda.
 - NUNCA ordenes un sentido que el abogado no pidió. Si te dio su criterio,
   ese criterio manda y tu trabajo es redactarlo mejor de lo que él lo diría,
   no sustituirlo por el tuyo.
@@ -1685,7 +1700,52 @@ consecuencia que se pide.
 
 Aquí SÍ hay apartados y numeración: un escrito de parte sin ellos no lo admite
 ningún tribunal.
-"""
+
+────────────────────────────────────────────────────────────────
+ EN LOS REGISTROS B Y C — RUBRO, DESTINATARIO, ANEXOS Y CIERRE
+────────────────────────────────────────────────────────────────
+Así se presenta un escrito en México, y así lo acomoda el Word de la pantalla:
+- ARRIBA, EL RUBRO, en renglones cortos «ETIQUETA: valor»: quien promueve
+  (QUEJOSO, ACTOR, RECURRENTE), la contraparte o la autoridad, JUICIO y
+  EXPEDIENTE si ya existen (si no los dieron y el asunto ya está en trámite,
+  [DATO PENDIENTE: número de expediente]) y «ASUNTO:» en una sola línea.
+- DESPUÉS, EL DESTINATARIO, solo: «C. JUEZ …» o «H. TRIBUNAL …», y en el
+  renglón siguiente «P R E S E N T E».
+- SI SE ACOMPAÑAN DOCUMENTOS, relaciónalos como ANEXOS, numerados, antes de
+  los puntos petitorios, y di cuántas copias de traslado se exhiben cuando la
+  ley las exige (en el amparo indirecto, las del artículo 110 de la Ley de
+  Amparo).
+- AL FINAL, cada cosa en su renglón: «PROTESTO LO NECESARIO», el lugar y la
+  fecha, una raya para la firma y el nombre de quien firma.
+
+────────────────────────────────────────────────────────────────
+ EN LOS TRES REGISTROS — LOS DATOS DEL CASO QUE NO TE DIERON
+────────────────────────────────────────────────────────────────
+No inventes nombres, fechas, números de expediente o de toca, domicilios,
+cantidades ni hechos. Lo que no esté en lo que te dio el abogado —su mensaje,
+sus documentos o la conversación— se deja visible en su lugar, siempre con esta
+misma forma:
+  [DATO PENDIENTE: nombre de la parte quejosa]
+  [DATO PENDIENTE: fecha de notificación del acto reclamado]
+Y sigues escribiendo: un hueco no detiene el escrito. El abogado busca
+«DATO PENDIENTE» antes de firmar; un dato inventado no lo encuentra nadie
+hasta que lo lee el juez.
+
+Lo que el foro escribe en genérico —«C. JUEZ DE DISTRITO EN MATERIA
+ADMINISTRATIVA EN TURNO», «P R E S E N T E»— no es un dato que falte: se
+escribe así.
+
+────────────────────────────────────────────────────────────────
+ EN LOS TRES REGISTROS — LA EXTENSIÓN LA PIDE EL ESCRITO
+────────────────────────────────────────────────────────────────
+Los largos de arriba son de los escritos de fondo. Una promoción de trámite
+—copias, autorizados, domicilio, diferimiento, exhibir un documento,
+desahogar una prevención sencilla— cabe en una o dos cuartillas, con el
+precepto procesal exacto y sin marco constitucional; un escrito intermedio
+—una vista, unos alegatos, un incidente— mide lo que su punto exige. Y si el
+abogado dice cuánto —«breve», «de una cuartilla», «desarrolla a fondo»—,
+eso manda sobre cualquier mínimo.
+""" + NOTA_PARA_EL_ABOGADO
 
 
 def _build_chat_drafting_prompt() -> str:
@@ -1856,8 +1916,11 @@ def _build_precedentes_system_prompt(circuit: str, tribunal: Optional[str] = Non
 # «qué alego…»), y sin el interruptor Buscar/Redactar el detector ES el
 # interruptor.
 from esfuerzo_redaccion import (  # noqa: E402
-    ACABADO_PLATINUM, PLANES_PLATINUM, PLANES_PRO,
-    detectar_redaccion, normalizar_esfuerzo,
+    ACABADO_PLATINUM, INSTRUCCION_MODIFICAR, INSTRUCCION_SEGUIR_ESCRITO,
+    INSTRUCCION_DOCUMENTO_BASE, MARCA_REEMPLAZA, OFERTA_TRAS_REVISION,
+    PLANES_PLATINUM, PLANES_PRO, bloque_despacho, decidir_redaccion,
+    esfuerzo_permitido, indicacion_de_extension, intencion_del_mensaje,
+    normalizar_esfuerzo, normalizar_intencion, pide_escrito, tipo_de_ajuste,
 )
 
 
@@ -1989,7 +2052,7 @@ _HISTORIAL_OMITIDO = "[…turno anterior omitido por extensión…]"
 _MARCADORES_DE_PANTALLA = (
     "FUENTES_PREVIAS", "CITATION_META", "PRECEDENTES_META", "REGISTROS_FUERA",
     "SOURCES", "PASO", "MODE", "PING", "CACHE", "SUSCRIPCION_SUSPENDIDA",
-    "ADVERTENCIA",
+    "ADVERTENCIA", "REEMPLAZA_ESCRITO",
 )
 # La apertura de un marcador. Lo demás —hasta su «-->» y los saltos de línea
 # de alrededor— lo recorre _limpiar_marcadores con str.find, no una
@@ -2379,7 +2442,7 @@ Dictamen final y directrices para el proyectista o juzgador.
    - Si es materialmente justo pero formalmente un desastre, ordena las correcciones de redacción.
 
 *Nota Final: Al terminar tu dictamen, SIEMPRE despídete textualmente con este mensaje exacto:*
-**"¿Quieres que redacte un esqueleto argumentativo para fortalecer o cambiar el proyecto? Si es así, selecciona el Genio de la Materia que corresponda a este caso, activa el modo 'Redacción Especializada', envíame un mensaje con un simple 'ok' y yo me encargaré del resto."**
+**\"""" + OFERTA_TRAS_REVISION + """\"**
 
 ═══════════════════════════════════════════════════════════════
    PRINCIPIOS RECTORES PARA TU RAZONAMIENTO
@@ -2466,6 +2529,7 @@ REGLAS CRÍTICAS:
 3. Incluye cláusulas de protección equilibradas
 4. Usa lenguaje formal pero claro
 5. Adapta al estado/jurisdicción seleccionado
+6. Si falta un dato de las partes o del objeto (nombres, domicilios, montos, fechas), NO lo inventes: indica [DATO PENDIENTE: qué falta]
 """
 
 SYSTEM_PROMPT_DRAFT_DEMANDA = """Eres IUREXIA REDACTOR ESTRATÉGICO, especializado en redacción de demandas mexicanas con enfoque estratégico-procesal.
@@ -2616,7 +2680,7 @@ REGLAS CRÍTICAS:
 3. Cada prestación debe tener FUNDAMENTO LEGAL específico del contexto RAG
 4. BUSCA AGRESIVAMENTE en el contexto RAG: constitución, leyes, jurisprudencia
 5. Cita SIEMPRE con [Doc ID: uuid] del contexto recuperado
-6. Si el usuario no proporciona datos, indica [COMPLETAR: descripción de lo que falta]
+6. Si el usuario no proporciona un dato, NO lo inventes: indica [DATO PENDIENTE: qué falta]
 7. Adapta la estructura según la MATERIA (civil/laboral/familiar/mercantil/agrario)
 8. Sé CREATIVO en los argumentos: no repitas fórmulas genéricas
 """
@@ -2776,7 +2840,7 @@ REGLAS CRÍTICAS:
 3. NO uses fórmulas genéricas — argumenta con lógica jurídica real
 4. Cita SIEMPRE con [Doc ID: uuid] del contexto recuperado
 5. Aplica interpretación conforme y principio pro persona cuando fortalezca
-6. Si faltan datos, indica [COMPLETAR: descripción]
+6. Si falta un dato, NO lo inventes: indica [DATO PENDIENTE: qué falta]
 7. Anticipa causales de improcedencia y desvirtúalas en los hechos
 """
 
@@ -2816,7 +2880,7 @@ Tu capacidad creativa debe ser MÁXIMA. Construye AGRAVIOS devastadores, lógico
   - Plazo: 10 días (art. 86 Ley de Amparo)
 
 ▸ SI EL TIPO DE RECURSO NO ESTÁ ARRIBA (lo escribe el abogado con sus palabras):
-  - El órgano ante el que se presenta y el plazo se toman de la ley procesal aplicable a ese recurso y a la materia indicados. Si no están en el contexto ni los conoces con certeza, escribe [COMPLETAR: órgano ante el que se interpone] y [COMPLETAR: plazo y artículo] en lugar de suponerlos.
+  - El órgano ante el que se presenta y el plazo se toman de la ley procesal aplicable a ese recurso y a la materia indicados. Si no están en el contexto ni los conoces con certeza, escribe [DATO PENDIENTE: órgano ante el que se interpone] y [DATO PENDIENTE: plazo y artículo] en lugar de suponerlos.
   - Si el recurso exige razonar su procedencia (por ejemplo, la revisión fiscal del art. 63 de la Ley Federal de Procedimiento Contencioso Administrativo), incluye un apartado PROCEDENCIA DEL RECURSO antes de los agravios.
 
 ▸ CONCEPTO DE VIOLACIÓN / AGRAVIO:
@@ -2931,7 +2995,7 @@ REGLAS CRÍTICAS:
 4. SIEMPRE identifica la CAUSA DE PEDIR con precisión
 5. Cita con [Doc ID: uuid] del contexto recuperado
 6. Si el usuario describe la resolución, ataca la consideración que sostiene el fallo: un agravio que no combate la razón toral es inoperante
-7. Si faltan datos, indica [COMPLETAR: descripción]
+7. Si falta un dato, NO lo inventes: indica [DATO PENDIENTE: qué falta]
 8. Proporciona un ANÁLISIS DE VIABILIDAD honesto al final
 """
 
@@ -3096,6 +3160,7 @@ REGLAS CRÍTICAS:
 4. Las respuestas deben indicar recursos disponibles
 5. Usa lenguaje formal pero accesible
 6. Adapta a la jurisdicción seleccionada
+7. Si falta un dato (nombres, número de oficio, fechas, domicilios), NO lo inventes: indica [DATO PENDIENTE: qué falta]
 """
 
 # LA REGLA 8 YA NO MANDA CITAR DE MEMORIA   (16-sep-2026, con visto bueno de David)
@@ -3137,11 +3202,11 @@ Tu tarea es redactar una DENUNCIA ADMINISTRATIVA FORMAL (Queja Disciplinaria) co
 **ÓRGANO DE CONTROL Y DISCIPLINA**
 **P R E S E N T E**
 
-**[INSERTAR NOMBRE DEL PROMOVENTE]**, mexicano(a), mayor de edad, con domicilio en **[INSERTAR DOMICILIO]**, señalando como medio para recibir notificaciones **[INSERTAR CORREO ELECTRÓNICO O DOMICILIO PROCESAL]**, por mi propio derecho, ante este H. Órgano comparezco para interponer formal:
+**[DATO PENDIENTE: nombre del promovente]**, mexicano(a), mayor de edad, con domicilio en **[DATO PENDIENTE: domicilio]**, señalando como medio para recibir notificaciones **[DATO PENDIENTE: correo electrónico o domicilio procesal]**, por mi propio derecho, ante este H. Órgano comparezco para interponer formal:
 
 **DENUNCIA ADMINISTRATIVA / QUEJA DISCIPLINARIA**
 
-En contra de **[INSERTAR NOMBRE DEL JUZGADOR/MAGISTRADO]**, en su carácter de **[Juez/Magistrado]** del **[Juzgado/Tribunal]** con residencia en **[Ciudad, Estado]**, por las conductas que a continuación se describen.
+En contra de **[DATO PENDIENTE: nombre del juzgador o magistrado]**, en su carácter de **[Juez/Magistrado]** del **[Juzgado/Tribunal]** con residencia en **[Ciudad, Estado]**, por las conductas que a continuación se describen.
 
 ### HECHOS
 
@@ -3152,7 +3217,7 @@ En contra de **[INSERTAR NOMBRE DEL JUZGADOR/MAGISTRADO]**, en su carácter de *
 **TERCERO.-** [Continuación cronológica]
 [Continuar numeración según los hechos del usuario]
 
-NOTA: Si el usuario no proporcionó fechas o datos específicos, usar **[INSERTAR FECHA]**, **[INSERTAR NÚMERO DE EXPEDIENTE]**, **[INSERTAR DATO]** en negritas para que sea visible.
+NOTA: Si el usuario no proporcionó fechas o datos específicos, usar **[DATO PENDIENTE: fecha]**, **[DATO PENDIENTE: número de expediente]**, **[DATO PENDIENTE: qué falta]** en negritas para que sea visible.
 
 ### CONCEPTOS DE INFRACCIÓN
 
@@ -3183,8 +3248,8 @@ La conducta del servidor público denunciado transgrede frontalmente el derecho 
 
 Para acreditar los hechos y las infracciones denunciadas, se ofrecen las siguientes:
 
-1. **DOCUMENTAL PÚBLICA.-** Consistente en las constancias del expediente **[INSERTAR NÚMERO]** del **[Juzgado/Tribunal]**, que acreditan la dilación procesal / la conducta denunciada.
-2. **DOCUMENTAL PÚBLICA.-** Copia certificada de los autos de fecha **[INSERTAR FECHAS]** que evidencian **[la falta denunciada]**.
+1. **DOCUMENTAL PÚBLICA.-** Consistente en las constancias del expediente **[DATO PENDIENTE: número de expediente]** del **[Juzgado/Tribunal]**, que acreditan la dilación procesal / la conducta denunciada.
+2. **DOCUMENTAL PÚBLICA.-** Copia certificada de los autos de fecha **[DATO PENDIENTE: fechas de los autos]** que evidencian **[la falta denunciada]**.
 3. **INSTRUMENTAL DE ACTUACIONES.-** Todas las constancias que obren en el expediente de mérito.
 4. **PRESUNCIONAL LEGAL Y HUMANA.-** En todo lo que favorezca a los intereses del denunciante.
 
@@ -3194,21 +3259,21 @@ Para acreditar los hechos y las infracciones denunciadas, se ofrecen las siguien
 
 Por lo anteriormente expuesto y fundado, a este H. Consejo de la Judicatura, respetuosamente **PIDO:**
 
-**PRIMERO.-** Tenerme por presentado con este escrito, interponiendo formal **denuncia administrativa / queja disciplinaria** en contra de **[NOMBRE DEL DENUNCIADO]**.
+**PRIMERO.-** Tenerme por presentado con este escrito, interponiendo formal **denuncia administrativa / queja disciplinaria** en contra de **[DATO PENDIENTE: nombre del servidor público denunciado]**.
 
 **SEGUNDO.-** Ordenar la apertura del **procedimiento disciplinario** correspondiente, de conformidad con la Ley General de Responsabilidades Administrativas y la normatividad aplicable.
 
-**TERCERO.-** Requerir al **[Juzgado/Tribunal]** la remisión de las constancias del expediente **[INSERTAR NÚMERO]** para su análisis.
+**TERCERO.-** Requerir al **[Juzgado/Tribunal]** la remisión de las constancias del expediente **[DATO PENDIENTE: número de expediente]** para su análisis.
 
 **CUARTO.-** En su caso, decretar la **suspensión temporal** del servidor público denunciado como medida cautelar, atendiendo a la gravedad de las infracciones.
 
 **QUINTO.-** Imponer las **sanciones administrativas** que resulten procedentes, incluyendo amonestación, suspensión, destitución e inhabilitación.
 
 PROTESTO LO NECESARIO
-**[INSERTAR CIUDAD]**, a **[INSERTAR FECHA]**
+**[DATO PENDIENTE: ciudad]**, a **[DATO PENDIENTE: fecha]**
 
 ________________________
-**[INSERTAR NOMBRE DEL DENUNCIANTE]**
+**[DATO PENDIENTE: nombre del denunciante]**
 
 ═══════════════════════════════════════════════════════════════
    REGLAS CRÍTICAS DE REDACCIÓN
@@ -3216,7 +3281,7 @@ ________________________
 
 1. **SIN PREÁMBULOS NI YAPPING**: Genera el documento inmediatamente. NO incluyas explicación, resumen, ni preámbulo. El output comienza con "### PROEMIO".
 2. **CITA AGRESIVA DEL RAG**: Cada Concepto de Infracción DEBE citar al menos 2-3 artículos del contexto recuperado usando [Doc ID: uuid].
-3. **DATOS FALTANTES**: Usa **[INSERTAR DATO]** en negritas para cualquier información que el usuario no proporcionó. Esto permite que el usuario rellene los huecos antes de imprimir.
+3. **DATOS FALTANTES**: Usa **[DATO PENDIENTE: qué falta]** en negritas para cualquier información que el usuario no proporcionó; nunca la inventes. Esto permite que el usuario rellene los huecos antes de imprimir.
 4. **NEGRITAS ESTRATÉGICAS**: Resalta con ** nombres, fechas clave, preceptos legales y artículos constitucionales para que el conversor DOCX los respete.
 5. **CREATIVIDAD JURÍDICA**: Sé creativo en la argumentación. Relaciona hechos con normas de forma contundente. Usa silogismos jurídicos implacables.
 6. **ADAPTACIÓN JURISDICCIONAL**: Si es Federal → Consejo de la Judicatura Federal + Ley Orgánica del PJF. Si es Estatal → Consejo de la Judicatura del Estado + Ley Orgánica del Poder Judicial del Estado.
@@ -3628,6 +3693,33 @@ class ChatRequest(BaseModel):
     # esfuerzo_redaccion.py.
     esfuerzo: Optional[str] = Field(
         None, description="Esfuerzo de redacción elegido: basico, pro o platinum.")
+    # La etiqueta del compositor (27-sep-2026): antes de enviar, el abogado ve
+    # si su mensaje se redactará como escrito o se contestará como consulta, y
+    # la cambia con un clic. Si viene, manda sobre el detector —lo anunciado es
+    # lo que ocurre—; el escalón sigue saliendo de `esfuerzo` y del plan.
+    intencion: Optional[str] = Field(
+        None, description="Decisión explícita: 'redactar' o 'consultar'. Ausente: decide el detector.")
+    # El perfil del despacho (28-sep-2026): con qué nombre y cédula firma el
+    # abogado, su domicilio procesal, sus autorizados, su ciudad y su rol. Sólo
+    # se usa al redactar; cada campo se recorta a su tope en
+    # esfuerzo_redaccion.bloque_despacho, que lee sólo las claves que conoce.
+    # Cualquier forma se admite y la que no es diccionario se ignora: un perfil
+    # mal formado no puede tumbar la consulta.
+    despacho: Optional[Any] = Field(
+        None, description="Perfil del despacho: rol, nombre, cedula, domicilio, contacto, autorizados, ciudad.")
+
+
+class RevisionRequest(BaseModel):
+    """El escrito de la hoja, para revisarlo antes de presentar."""
+    texto: str = Field(..., max_length=300_000)
+
+
+class IntencionRequest(BaseModel):
+    """Lo que pregunta la etiqueta del compositor mientras el abogado escribe."""
+    mensaje: str = Field(..., max_length=8000)
+    # La respuesta anterior, recortada por el cliente: basta para reconocer el
+    # retoque de un escrito y el «sí» a la oferta de redactar.
+    anterior: Optional[str] = Field(None, max_length=40000)
 
 
 class AuditRequest(BaseModel):
@@ -12469,6 +12561,12 @@ async def analyze_document(
     usar_acervo: str = Form("1"),
     # El selector «Fuentes» del chat, separado por comas. Ver fuentes_elegidas.py.
     fuentes: str = Form(None),
+    # ADJUNTAR Y REDACTAR EN UN PASO (28-sep-2026): el Esfuerzo elegido, la
+    # etiqueta «Escrito / Consulta» del compositor y el perfil del despacho
+    # (JSON). Sin ellos, como siempre: se analiza.
+    esfuerzo: str = Form(None),
+    intencion: str = Form(None),
+    despacho: str = Form(None),
 ):
     """
     Analiza un documento completo con Gemini Flash vía OpenRouter.
@@ -12551,6 +12649,27 @@ async def analyze_document(
                     print(f"   👤 Standard user detected ({correo_opaco(user_email)}, plan: {sub_type}) — Extracted char limit: {effective_max_chars:,}")
         except Exception as e:
             print(f"   ⚠️ Error checking subscription for user {user_id} in analyze-document: {err(e)}")
+
+    # ── ¿ANALIZAR O REDACTAR? (28-sep-2026) ───────────────────────────────
+    # «Redacta el recurso contra esta sentencia» con la sentencia adjunta
+    # recibía un análisis, y el abogado tenía que volver a pedir el escrito.
+    # Si el mensaje encarga un escrito —el mismo detector del chat— o la
+    # etiqueta del compositor dice «Escrito», este mismo paso redacta: con el
+    # prompt de redacción, el motor del Esfuerzo que permite el plan y el
+    # perfil del despacho. «Consulta» en la etiqueta manda en sentido contrario.
+    _intencion_doc = normalizar_intencion(intencion)
+    _redactar_doc = _intencion_doc == "redactar" or (_intencion_doc is None and pide_escrito(prompt or ""))
+    _escalon_doc = esfuerzo_permitido(esfuerzo, plan_actual, es_admin) if _redactar_doc else ""
+    _despacho_doc = ""
+    if _redactar_doc and despacho:
+        try:
+            _despacho_doc = bloque_despacho(json.loads(despacho))
+        except (ValueError, TypeError):
+            _despacho_doc = ""
+    if _redactar_doc:
+        print(f"   ✍️ DOCUMENTO + REDACCIÓN: el mensaje encarga un escrito · escalón {_escalon_doc}"
+              f"{' (lo pidió la etiqueta)' if _intencion_doc == 'redactar' else ''}"
+              f"{' · con perfil del despacho' if _despacho_doc else ''}")
 
     # Validate file type
     if extension not in ("pdf", "doc", "docx"):
@@ -12947,6 +13066,12 @@ async def analyze_document(
             print("   📚 Documento sin acervo por petición del llamador (usar_acervo=0)")
         _con_acervo = bool(search_results)
         system_documento = prompt_documento(con_acervo=_con_acervo)
+        if _redactar_doc:
+            # El prompt de redacción del chat —registros, datos pendientes,
+            # nota para el abogado— y lo propio de escribir sobre un documento.
+            system_documento = (SYSTEM_PROMPT_CHAT_DRAFTING
+                                + (ACABADO_PLATINUM if _escalon_doc == "platinum" else "")
+                                + "\n" + INSTRUCCION_DOCUMENTO_BASE)
         if _con_acervo:
             system_documento += "\n\nCONTEXTO JURÍDICO RECUPERADO:\n" + context_xml
         if _fuentes_doc:
@@ -12963,11 +13088,28 @@ async def analyze_document(
 
     CONTENIDO DEL DOCUMENTO:
     {extracted_text}"""
+        if _despacho_doc:
+            full_user_message += "\n\n" + _despacho_doc
+        if _redactar_doc:
+            _extension_doc = indicacion_de_extension(prompt or "")
+            if _extension_doc:
+                full_user_message += "\n\n" + _extension_doc
 
-        _paso("Redactando el análisis…")
+        _paso("Redactando el escrito…" if _redactar_doc else "Redactando el análisis…")
         t_pre_llm = _time.time()
         model_to_use = DOCUMENT_MODEL_PLATINUM if is_platinum_or_admin else DOCUMENT_MODEL
         esfuerzo_doc = DOCUMENT_ESFUERZO_PLATINUM if is_platinum_or_admin else DOCUMENT_ESFUERZO
+        # Al redactar, el motor del escalón, como en el chat. El Básico se
+        # queda con el del análisis de documentos, que lee documentos largos.
+        max_salida_doc = None
+        if _escalon_doc == "platinum":
+            model_to_use, esfuerzo_doc, max_salida_doc = (
+                REDACTOR_PLATINUM_MODEL, REDACTOR_PLATINUM_ESFUERZO, REDACTOR_PLATINUM_MAX_TOKENS)
+        elif _escalon_doc == "pro":
+            model_to_use, esfuerzo_doc, max_salida_doc = (
+                REDACTOR_PRO_MODEL, REDACTOR_PRO_ESFUERZO, REDACTOR_PRO_MAX_TOKENS)
+        elif _escalon_doc == "basico":
+            model_to_use, esfuerzo_doc = DOCUMENT_MODEL, DOCUMENT_ESFUERZO
         _via_doc = ("OpenRouter" if "/" in model_to_use
                     else "Gemini directo (clave nueva)" if _gemini_doc.es_modelo_gemini_directo(model_to_use)
                     else f"OpenAI, razonamiento {esfuerzo_doc}")
@@ -13007,6 +13149,7 @@ async def analyze_document(
             "full_user_message": full_user_message,
             "model_to_use": model_to_use,
             "esfuerzo_doc": esfuerzo_doc,
+            "max_salida_doc": max_salida_doc,
             "_marcador_previas": _marcador_previas,
             "_web_tasks_doc": _web_tasks_doc,
             "extracted_text": extracted_text,
@@ -13051,6 +13194,13 @@ async def analyze_document(
             full_user_message = _p["full_user_message"]
             model_to_use = _p["model_to_use"]
             esfuerzo_doc = _p.get("esfuerzo_doc")
+            max_salida_doc = _p.get("max_salida_doc")
+
+            # El escalón con que se redacta, para la insignia de la pantalla
+            # (como <!--MODE:…--> en el chat). Sólo al redactar.
+            if _redactar_doc:
+                _modo = {"platinum": "PLATINUM", "pro": "PRO"}.get(_escalon_doc, "PROFESIONAL")
+                yield f"data: {json.dumps({'modo': _modo})}\n\n"
             _marcador_previas = _p["_marcador_previas"]
             _web_tasks_doc = _p["_web_tasks_doc"]
 
@@ -13085,6 +13235,10 @@ async def analyze_document(
 
             async def _abrir(_modelo: str, _esfuerzo: Optional[str] = None):
                 _cliente, _parametros = _via_documento(_modelo, _esfuerzo)
+                # Al redactar con el motor del escalón, su tope de salida.
+                if max_salida_doc and _modelo in (REDACTOR_PRO_MODEL, REDACTOR_PLATINUM_MODEL) \
+                        and "max_completion_tokens" in _parametros:
+                    _parametros = {**_parametros, "max_completion_tokens": max_salida_doc}
                 return await _crear_con_amortiguador(
                     _cliente,
                     etiqueta="analyze-document",
@@ -15381,6 +15535,54 @@ async def _smart_rag_for_document(
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# ENDPOINT: ¿ESCRITO O CONSULTA? (la etiqueta del compositor, 27-sep-2026)
+# ══════════════════════════════════════════════════════════════════════════════
+# Sin el interruptor Buscar/Redactar, el abogado no sabía qué iba a pasar con
+# su mensaje hasta ver la respuesta: «Quiero que me ayudes con la demanda» le
+# llegaba como explicación y «contesta la demanda» también. La etiqueta del
+# compositor pregunta aquí, mientras escribe, lo mismo que decidirá /chat —el
+# mismo detector, sin modelo y sin costo— y el abogado la cambia si no era eso.
+# No cobra consulta ni guarda nada: sólo clasifica el texto que recibe.
+
+@app.post("/redaccion/intencion")
+async def redaccion_intencion(req: IntencionRequest):
+    motivo = intencion_del_mensaje(req.mensaje, req.anterior or "")
+    return {"intencion": "redactar" if motivo else "consultar", "motivo": motivo}
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# ENDPOINT: LA REVISIÓN ANTES DE PRESENTAR (28-sep-2026)
+# ══════════════════════════════════════════════════════════════════════════════
+# Lo que el abogado revisaba a ojo antes de firmar y se puede comprobar sin
+# modelo: los requisitos de la demanda de amparo (artículos 108 y 175 de la
+# Ley de Amparo), los datos pendientes y las plantillas sin llenar, el cierre
+# y las frases rotas. Sin costo y sin guardar nada; en un hilo, porque un
+# escrito largo son unos cientos de milisegundos de expresiones regulares.
+# No calcula el plazo, a propósito: ver revision_escrito.py.
+from revision_escrito import revisar_escrito  # noqa: E402
+
+# Dos a la vez. El grupo de hilos lo comparten las consultas de perfil y de
+# cuota del chat, y no está en RATE_LIMITED_PATHS para no gastar el cupo del
+# chat del abogado cada vez que revisa: una avalancha de escritos de 300 mil
+# caracteres espera aquí su turno en vez de acaparar los hilos, y si el turno
+# no llega a tiempo, 503 (el panel dice «vuelve a intentarlo»).
+_REVISION_SEM = asyncio.Semaphore(2)
+_REVISION_ESPERA = 15.0
+
+
+@app.post("/redaccion/revisar")
+async def redaccion_revisar(req: RevisionRequest):
+    try:
+        await asyncio.wait_for(_REVISION_SEM.acquire(), timeout=_REVISION_ESPERA)
+    except asyncio.TimeoutError:
+        raise HTTPException(status_code=503, detail="La revisión está ocupada; vuelve a intentarlo en un momento.")
+    try:
+        return await asyncio.to_thread(revisar_escrito, req.texto)
+    finally:
+        _REVISION_SEM.release()
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # ENDPOINT: CHAT (STREAMING SSE CON THINKING MODE + RAG)
 # ══════════════════════════════════════════════════════════════════════════════
 
@@ -15689,6 +15891,13 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
     # Verdadero cuando el escalón lo pidió el desplegable «Esfuerzo» y no un
     # marcador: entonces se comprueba también el Pro contra el plan.
     _esfuerzo_por_campo = False
+    # Por qué se redacta cuando lo decide el mensaje: 'pide', 'ajuste',
+    # 'acepta' o 'etiqueta' (lo eligió el abogado en el compositor).
+    _via_redaccion = ""
+    # El retoque (28-sep-2026): 'modificar' entrega el escrito completo y la
+    # pantalla lo pone en lugar del anterior; 'continuar' sigue donde se quedó
+    # y se anexa. Vacío si no es un retoque. Ver esfuerzo_redaccion.py.
+    _tipo_ajuste = ""
     if "[MODO_REDACCION_PLATINUM]" in last_user_message:
         # Platinum va antes que Pro: comparte toda la ruta de Pro y sólo cambia
         # el motor, así que enciende ambas banderas.
@@ -15725,7 +15934,14 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
         # Buscar/Redactar. El mensaje decide si es un encargo —«redacta una
         # demanda…»— o el retoque del escrito recién entregado —«agrega un
         # concepto…»—, y el desplegable «Esfuerzo» decide con qué motor.
-        _via_redaccion = detectar_redaccion(request.messages)
+        #
+        # SALVO QUE EL ABOGADO LO HAYA DICHO (27-sep-2026): la etiqueta del
+        # compositor le enseña antes de enviar qué va a pasar, y si la cambió,
+        # manda su decisión. Sin etiqueta —la app móvil, bundles viejos—, el
+        # detector como siempre.
+        _via_redaccion = decidir_redaccion(request.messages, request.intencion)
+        if normalizar_intencion(request.intencion) == "consultar":
+            print("   🗣️ CONSULTA por decisión del abogado (etiqueta del compositor)")
         if _via_redaccion:
             is_chat_drafting = True
             _esfuerzo_pedido = normalizar_esfuerzo(request.esfuerzo)
@@ -15734,9 +15950,14 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                 is_chat_drafting_platinum = _esfuerzo_pedido == "platinum"
                 _esfuerzo_por_campo = True
             _motivo = {"pide": "encargo", "ajuste": "retoque del escrito anterior",
-                       "acepta": "acepta la oferta de redactar"}.get(_via_redaccion, _via_redaccion)
+                       "acepta": "acepta la oferta de redactar",
+                       "etiqueta": "lo pidió en la etiqueta del compositor"}.get(_via_redaccion, _via_redaccion)
             print(f"   ✍️ REDACCIÓN por lenguaje natural ({_motivo}) "
                   f"· esfuerzo pedido: {_esfuerzo_pedido or 'ninguno'}")
+            if _via_redaccion == "ajuste":
+                _tipo_ajuste = tipo_de_ajuste(last_user_message)
+                print(f"   🔁 RETOQUE: {_tipo_ajuste}"
+                      f"{' → sustituye al escrito anterior en la hoja' if _tipo_ajuste == 'modificar' else ' → se anexa'}")
 
     # El marcador Platinum enciende un motor que cuesta ~8× lo que cuesta Pro.
     # Esconder el botón en el frontend no basta: cualquiera puede escribir
@@ -17893,6 +18114,33 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                         dynamic_injections.append(_session_msg)
                         print(f"   🔗 SESSION CTX: materia={_session_ctx.get('materia_detectada','?')}, proceso={_session_ctx.get('proceso_detectado','?')}")
 
+                # EL RETOQUE, EN SU LUGAR (28-sep-2026): que modifique entregando
+                # el escrito completo —la pantalla lo pone en lugar del
+                # anterior— o que siga donde se quedó. Sólo con el prompt de
+                # redacción del chat: el de la tarjeta «Escrito legal» manda
+                # su propio esqueleto.
+                if _tipo_ajuste and is_chat_drafting and not (is_drafting and draft_tipo):
+                    dynamic_injections.append(
+                        INSTRUCCION_MODIFICAR if _tipo_ajuste == "modificar" else INSTRUCCION_SEGUIR_ESCRITO)
+
+                # LA EXTENSIÓN, PROPORCIONAL AL ESCRITO (28-sep-2026): la que
+                # pidió el abogado manda; si no dijo nada y es una promoción de
+                # trámite, se le recuerda que lo es. Sólo con el prompt del chat.
+                if is_chat_drafting and not (is_drafting and draft_tipo):
+                    _extension = indicacion_de_extension(last_user_message)
+                    if _extension:
+                        dynamic_injections.append(_extension)
+                        print(f"   📏 EXTENSIÓN: {_extension[:70]}…")
+
+                # EL PERFIL DEL DESPACHO (28-sep-2026): al redactar —por el chat
+                # o por la tarjeta «Escrito legal»—, los datos que el abogado
+                # guardó para no volver a escribirlos en cada escrito.
+                if (is_chat_drafting or is_drafting) and request.despacho:
+                    _despacho = bloque_despacho(request.despacho)
+                    if _despacho:
+                        dynamic_injections.append(_despacho)
+                        print("   🏛️ PERFIL DEL DESPACHO: datos del abogado para el escrito")
+
                 # Agregar historial conversacional, con tope. Ver
                 # `_recortar_historial`: una conversación que no cabe en la
                 # ventana del modelo no falla «a veces», falla SIEMPRE y desde
@@ -18207,6 +18455,12 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                     yield "<!--MODE:PRO-->"
                 elif is_chat_drafting:
                     yield "<!--MODE:PROFESIONAL-->"
+                # La respuesta sustituye al escrito anterior en la hoja. La
+                # pantalla la guarda pegada al mensaje, para que al volver a
+                # abrir la conversación la hoja se arme igual; al historial del
+                # modelo no llega (_MARCADORES_DE_PANTALLA).
+                if _tipo_ajuste == "modificar" and is_chat_drafting and not (is_drafting and draft_tipo):
+                    yield MARCA_REEMPLAZA
 
                 # ── Emit RAG source count for frontend (filterable) ──
                 if search_results:
