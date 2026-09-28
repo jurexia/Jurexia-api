@@ -251,3 +251,53 @@ def consulta_para_acervo(prompt: str, texto: str, filename: str = "") -> str:
     elif filename:
         partes.append("Documento: " + _limpiar(filename))
     return "\n".join(partes)[:2000]
+
+
+# ── LA PREGUNTA, BUSCADA POR SÍ SOLA (28-sep-2026) ─────────────────────────────
+# Con un documento adjunto, la búsqueda era UNA consulta: la instrucción, los ordenamientos
+# que invoca el documento y su arranque (1.400 caracteres), en un solo vector. Domina el
+# arranque —partes, prestaciones, cantidades— y lo que el abogado preguntó se diluye. Medido
+# con una demanda de mutuo en vía ordinaria civil de Querétaro y «¿Qué plazo tengo para
+# contestar y qué excepciones y defensas puedo oponer?»: 30 fuentes, 8 del Código de
+# Procedimientos Civiles (el 259, el sumario del 453, el ejecutivo del 488…) y NINGUNA el 260,
+# que es el que da los nueve días. El análisis contestó «no está en el contexto recuperado».
+# Ahora va además la pregunta sola, con la vía que declara el documento: es lo que hace un
+# abogado al buscar —«plazo para contestar, juicio ordinario civil»—.
+_VIAS = (
+    (r"(?:v[íi]a|juicio)\s+ejecutiv[oa]\s+mercantil", "juicio ejecutivo mercantil"),
+    (r"(?:v[íi]a|juicio)\s+oral\s+mercantil", "juicio oral mercantil"),
+    (r"(?:v[íi]a|juicio)\s+ordinari[oa]\s+mercantil", "juicio ordinario mercantil"),
+    (r"(?:v[íi]a|juicio)\s+ejecutiv[oa]\s+civil", "juicio ejecutivo civil"),
+    (r"(?:v[íi]a|juicio)\s+ordinari[oa]\s+civil", "juicio ordinario civil"),
+    (r"(?:v[íi]a|juicio)\s+sumari[oa]", "juicio sumario"),
+    (r"(?:v[íi]a|juicio)\s+especial\s+hipotecari[oa]", "juicio especial hipotecario"),
+    (r"juicio\s+oral\s+familiar|controversia\s+del\s+orden\s+familiar", "controversia del orden familiar"),
+    (r"amparo\s+indirecto", "juicio de amparo indirecto"),
+    (r"amparo\s+directo", "juicio de amparo directo"),
+    (r"juicio\s+contencioso\s+administrativo|juicio\s+de\s+nulidad", "juicio contencioso administrativo"),
+    (r"procedimiento\s+ordinario\s+laboral|juicio\s+ordinario\s+laboral", "procedimiento ordinario laboral"),
+)
+_POR_OMISION = "analiza este documento y genera un resumen ejecutivo completo"
+
+
+def via_del_documento(texto: str) -> str:
+    """La vía o el tipo de juicio que declara el documento («VÍA ORDINARIA CIVIL»), o ''.
+    Se mira el arranque (20.000 caracteres): ahí se promueve y ahí se dice la vía."""
+    cabeza = _limpiar(texto)[:20000]
+    for patron, nombre in _VIAS:
+        if re.search(patron, cabeza, re.IGNORECASE):
+            return nombre
+    return ""
+
+
+def consultas_para_acervo(prompt: str, texto: str, filename: str = "") -> List[str]:
+    """Las consultas del análisis de un documento: la de siempre (instrucción + ordenamientos
+    + arranque) y, si el abogado preguntó algo, la pregunta sola con la vía del documento."""
+    consultas = [consulta_para_acervo(prompt, texto, filename)]
+    instruccion = _limpiar(prompt)[:600]
+    if instruccion and instruccion.lower().rstrip(". ") != _POR_OMISION:
+        via = via_del_documento(texto)
+        enfocada = f"{instruccion}\nTipo de juicio: {via}" if via else instruccion
+        if enfocada != consultas[0]:
+            consultas.append(enfocada)
+    return consultas
