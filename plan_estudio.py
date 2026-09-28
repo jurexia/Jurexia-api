@@ -86,7 +86,13 @@ import unicodedata
 # plan-4: la calificación por argumento dentro del sentido del problema (V0 b
 # deja de exigir igualdad y exige coherencia): un plan-3 traía la etiqueta del
 # problema en cada argumento y no se reutiliza.
-PLAN_VERSION = "plan-4"
+# plan-5 (28-sep-2026, AR 631/2025): la calificación escrita con una razón del
+# catálogo se lee como la calificación que esa razón implica (antes heredaba la
+# del problema y diecinueve argumentos desestimados salieron «fundados»); el
+# problema que prospera sin quien lo funde lo funda UN argumento, no todos; y
+# el prompt trae el catálogo de calificaciones. Un plan-4 pudo guardar esa
+# herencia y no se reutiliza.
+PLAN_VERSION = "plan-5"
 
 # EL MODELO DE LAS FASES, con razonamiento MEDIO (propuesta §3.6: «Se mide
 # ESFUERZO_PLAN=medium contra high»). Se lee al llamar, no al importar, para
@@ -170,6 +176,11 @@ RAZONES = {
     "sin_materia":                 {"clase": NO_SE_ESTUDIA, "nunca_procesal": True},
     "adhesivo_sin_materia":        {"clase": NO_SE_ESTUDIA, "nunca_procesal": True},
 }
+# LAS ETIQUETAS DE UN ARGUMENTO QUE SE ESTUDIA, para el prompt del
+# planificador (plan-5): las calificaciones de fondo del catálogo de
+# `tipos_asunto`. Lo que no se estudia lleva el sentido de su problema.
+ETIQUETAS_DE_FONDO = ("fundado", "esencialmente_fundado", "fundado_insuficiente",
+                      "infundado", "inoperante", "ineficaz", "inatendible")
 # Calificaciones finas: la razón tiene que ser una de éstas.
 _RAZONES_DE_INFUNDADO = {"fondo_desestimado", "omision_inexistente"}
 _RAZONES_DE_INOPERANTE = {"no_combate", "ataca_accesoria", "generico",
@@ -831,6 +842,10 @@ def prompt_plan(*, tipo_asunto: str, probs: list[dict], segs: list[dict],
         sup_conf = False
     razones = "\n".join(f"  {k}: {v} → implica {RAZONES[k]['clase'].replace('_', ' ')}"
                         for k, v in _DESCRIBE_RAZON.items())
+    # EL CATÁLOGO DE LAS ETIQUETAS (plan-5, 28-sep-2026): el prompt daba el de
+    # las razones y no el de las calificaciones, y en el AR 631/2025 el
+    # planificador llenó la calificación con una razón («fondo_desestimado»).
+    etiquetas = " | ".join(ETIQUETAS_DE_FONDO)
     trats = "\n".join(f"  {k}: {v}" for k, v in _DESCRIBE_TRAT.items())
     vicios = "\n".join(f"  {k}: {v}" for k, v in _DESCRIBE_VICIO.items())
     escrito = "\n\n".join(
@@ -877,7 +892,7 @@ QUÉ DECIDES
 5. EL ORDEN DEL ESTUDIO: el orden de la lista de unidades.
 
 REGLAS QUE EL CÓDIGO COMPRUEBA (si no se cumplen, tu plan se rechaza)
-  · El SENTIDO DE CADA PROBLEMA lo fijó el secretario y no se toca. etiqueta = la calificación de ESE segmento dentro de su problema, por lo que él mismo plantea, y coherente con el sentido del problema: si el problema prospera, al menos uno de sus segmentos lo funda y los demás pueden ser infundados o inoperantes; si no prospera, ninguno queda fundado —el que tiene razón y no alcanza es fundado_insuficiente—; si el problema no se estudia (innecesario, sin materia), todos sus segmentos llevan ese mismo sentido. Dentro de un problema que se estudia, ningún segmento se declara sin estudio.
+  · El SENTIDO DE CADA PROBLEMA lo fijó el secretario y no se toca. etiqueta = la calificación de ESE segmento dentro de su problema (del catálogo de etiquetas de abajo; la razón que la decide va en «razon», nunca en «etiqueta»), por lo que él mismo plantea, y coherente con el sentido del problema: si el problema prospera, al menos uno de sus segmentos lo funda y los demás pueden ser infundados o inoperantes; si no prospera, ninguno queda fundado —el que tiene razón y no alcanza es fundado_insuficiente—; si el problema no se estudia (innecesario, sin materia), todos sus segmentos llevan ese mismo sentido. Dentro de un problema que se estudia, ningún segmento se declara sin estudio.
   · propuestas: SÓLO cuando crees que el sentido de un PROBLEMA debería ser otro. seg = uno de sus segmentos; a = la calificación que propones para el problema entero; por_que = la razón. La calificación distinta de un segmento dentro de su problema no es una propuesta: va en su etiqueta.
   · problema_id: uno de los problemas posibles que el inventario indica para ese segmento.
   · Todo segmento que se contesta (aplica, remite, desarrolla) está en UNA unidad, y sólo en una; los residuales y los que no se estudian pueden quedar fuera de las unidades.
@@ -892,6 +907,7 @@ REGLAS QUE EL CÓDIGO COMPRUEBA (si no se cumplen, tu plan se rechaza)
   · La procedencia primero, y cada accesorio después de su principal.
 {_orden_ad}
 CATÁLOGOS
+etiqueta (la calificación del segmento): {etiquetas}; y, sólo si su problema no se estudia, el mismo sentido de ese problema
 razon (nombre: qué significa → qué implica):
 {razones}
 trat:
@@ -1299,6 +1315,20 @@ def reparar(plan: dict, crit, segs, fases, material, contexto: str = "", suplenc
     #     la del problema.
     # Salvo que el secretario haya tocado ese problema a mano: entonces ni se
     # propone.
+    #
+    # LA RAZÓN ESCRITA COMO CALIFICACIÓN NO ES UNA ETIQUETA ILEGIBLE (plan-5,
+    # 28-sep-2026). En el AR 631/2025 el planificador escribió
+    # «fondo_desestimado» —una RAZÓN del catálogo: «se examina y no tiene
+    # razón en el fondo»— en el campo de la calificación de diecinueve
+    # argumentos de un problema que el secretario fijó «fundado». Esto la
+    # trataba como «fuera del catálogo» y les ponía la del problema: los
+    # diecinueve salieron «fundados», lo CONTRARIO de lo que el planificador
+    # había razonado, y el proyecto contestó «Es fundado…» a cada uno para
+    # decir en la frase siguiente que no tenía razón. Una razón implica su
+    # calificación (`_implica`), y ésa es la que se juzga; la razón se queda.
+    # Y la etiqueta vacía se lee de la razón, si la trae: la herencia del
+    # sentido del problema es el último recurso, no el primero.
+    traducidas = []
     for s in segmentos:
         p = cx.por_pid.get(s.get("problema_id"))
         fijado = p["sentido"] if p else ""
@@ -1309,6 +1339,23 @@ def reparar(plan: dict, crit, segs, fases, material, contexto: str = "", suplenc
         if s.get("pendiente") == "sentido":
             s["pendiente"] = None
         et = norm_sentido(s.get("etiqueta"))
+        _de_razon = ""
+        # Sólo donde el problema se estudia: en uno que no se estudia la
+        # etiqueta es la del problema de todos modos, y traducirla sólo
+        # fabricaría propuestas de cambio que nadie hizo.
+        if clase_sentido(fijado) != NO_SE_ESTUDIA:
+            if et and not calificacion_conocida(et) and et in RAZONES and _implica(et):
+                _de_razon = et
+            elif not et and s.get("razon") in RAZONES and _implica(s["razon"]):
+                _de_razon = s["razon"]
+        if _de_razon:
+            _cal = _implica(_de_razon)
+            if not s.get("razon"):
+                s["razon"] = _de_razon
+            traducidas.append(f"{s['id']} ({et or 'vacía'}→{_cal})")
+            avisos.append(f"{s['id']}: el planificador escribió la razón «{_de_razon}» en lugar de la "
+                          f"calificación; va como «{_cal}», la que esa razón implica")
+            et = _cal
         motivo = etiqueta_fuera(et, fijado)
         if not motivo:
             s["etiqueta"] = et
@@ -1330,29 +1377,62 @@ def reparar(plan: dict, crit, segs, fases, material, contexto: str = "", suplenc
                 avisos.append(f"{s['id']}: «{et}» no cabe dentro de un problema «{fijado}»; lleva "
                               f"la calificación del problema")
             s["etiqueta"] = fijado
+    if traducidas:
+        _aviso(plan, "calificaciones que el planificador escribió con una razón del catálogo, "
+                     "leídas como la calificación que esa razón implica (no se tomó la del "
+                     "problema): " + ", ".join(traducidas[:12])
+               + (f" y {len(traducidas) - 12} más" if len(traducidas) > 12 else ""))
     # EL PROBLEMA QUE PROSPERA Y QUE NINGÚN ARGUMENTO FUNDA: las etiquetas del
-    # planificador niegan el sentido del secretario. No se elige a cuál darle
-    # la razón —eso sería decidir—: todos vuelven a la del problema, como en
-    # plan-3, y lo que el planificador opinaba va a propuestas, que es un
-    # cambio de sentido del PROBLEMA y sólo lo aplica el secretario.
+    # planificador niegan el sentido del secretario. Lo que el planificador
+    # opinaba va a propuestas —es un cambio de sentido del PROBLEMA y sólo lo
+    # aplica el secretario—, y el sentido fijado necesita quien lo funde.
+    #
+    # UNO, NO TODOS (plan-5, 28-sep-2026). Hasta plan-4 TODOS volvían a la del
+    # problema, como en plan-3: con un problema «fundado» eso declara fundados
+    # veinte argumentos que el planificador acababa de desestimar uno por uno
+    # —es la herencia mecánica del sentido que David vio en el AR 631/2025:
+    # «todos los argumentos accesorios fundados sin una lógica de
+    # entendimiento»—. Se invierte lo mínimo para que el sentido del
+    # secretario tenga quien lo funde: el primer argumento, en el orden del
+    # escrito, que ataca una proposición TORAL (la que sostiene lo resuelto);
+    # si ninguno la ataca, el primero del problema. Los demás conservan la
+    # calificación que razonó el planificador, y el panel lo dice.
+    _orden_inv = {s["id"]: i for i, s in enumerate(cx.segs)}
+    _torales = {x.get("id") for x in (plan.get("proposiciones") or [])
+                if x.get("caracter") == "toral" and x.get("id")}
     for pid in problemas_sin_quien_los_funde(segmentos, cx.probs):
         p = cx.por_pid[pid]
-        suyos = [s for s in segmentos if s.get("problema_id") == pid
-                 and s.get("pendiente") != "sentido"]
+        suyos = sorted([s for s in segmentos if s.get("problema_id") == pid
+                        and s.get("pendiente") != "sentido"
+                        and s.get("trat") != "no_se_expresa_art79"],
+                       key=lambda s: _orden_inv.get(s["id"], len(_orden_inv)))
+        if not suyos:
+            continue
         cuenta: dict = {}
         for s in suyos:
             cuenta[s["etiqueta"]] = cuenta.get(s["etiqueta"], 0) + 1
         otra = max(cuenta, key=lambda k: cuenta[k]) if cuenta else ""
-        for s in suyos:
-            s["etiqueta"] = p["sentido"]
+        # El que se contesta con premisa (aplica, desarrolla, remite) antes
+        # que un residual: el que funda el problema necesita su respuesta.
+        portador = next((s for s in suyos if s.get("ataca") in _torales
+                         and s.get("trat") in _EN_UNIDAD), None) \
+            or next((s for s in suyos if s.get("ataca") in _torales), None) or suyos[0]
+        _antes = portador.get("etiqueta") or "vacía"
+        portador["etiqueta"] = p["sentido"]
         if otra and not cx.tocado(pid) \
                 and not any((por_id.get(x.get("seg")) or {}).get("problema_id") == pid
                             for x in plan["propuestas"]):
-            plan["propuestas"].append({"seg": suyos[0]["id"], "de": p["sentido"], "a": otra,
+            plan["propuestas"].append({"seg": portador["id"], "de": p["sentido"], "a": otra,
                                        "por_que": "según el planificador, ninguno de los argumentos "
                                                   "de este problema lo funda"})
-        avisos.append(f"problema {pid}: el planificador no dejó ningún argumento que lo funde; "
-                      f"todos llevan «{p['sentido']}», el sentido que fijaste")
+        _msg = (f"problema {pid}: el planificador no dejó ningún argumento que lo funde; lo funda "
+                f"{portador['id']} ({_antes}→{p['sentido']}), "
+                + ("el primero que ataca la proposición que sostiene lo resuelto"
+                   if portador.get("ataca") in _torales else "el primero del problema")
+                + (f"; los demás ({', '.join(s['id'] for s in suyos if s is not portador)[:200]}) "
+                   f"conservan la calificación que les dio el planificador" if len(suyos) > 1 else ""))
+        avisos.append(_msg)
+        _aviso(plan, _msg)
     # UNA PROPUESTA ES UNA CALIFICACIÓN (26-sep-2026): el planificador del
     # 642/2024 propuso «fundado → fondo_desestimado» y «→ no_combate», que son
     # RAZONES; el botón del panel pondría eso como sentido. Se traduce a la

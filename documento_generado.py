@@ -5161,6 +5161,24 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
             # sentido de la sentencia recurrida» y el PDF decía, dos páginas
             # antes, «La Justicia de la Unión ampara y protege».
             _que_hizo = str(datos.get("resolvio_a_quo") or "").strip().lower()
+            # EL PUNTO RESOLUTIVO DEL JUZGADO MANDA SOBRE EL RECUENTO
+            # (28-sep-2026, AR 631/2025). La sesión guardó «niega» —el recuento
+            # de verbos del PDF entero, arrastrado por un amparo ANTERIOR que
+            # la sentencia narraba— y su propio resolutivo, leído en la misma
+            # pasada, decía «ampara y protege». Con «niega» y el recurso
+            # fundado, la rama revocó la concesión para volver a conceder.
+            _por_puntos = _fr.que_dice_el_resolutivo(
+                str(datos.get("resolutivo_recurrida") or ""))
+            if _por_puntos and _por_puntos != _que_hizo:
+                if _que_hizo:
+                    _avisos_bk.append(
+                        f"LO QUE HIZO EL JUZGADO SE TOMÓ DE SU PUNTO RESOLUTIVO "
+                        f"(«{_por_puntos.replace('_', ' y ')}»), no de la lectura "
+                        f"guardada del resto de la sentencia («{_que_hizo.replace('_', ' y ')}»), "
+                        f"que contaba verbos de otros juicios. Compruébalo contra el "
+                        f"resolutivo del juzgado: de esto depende que se confirme o se "
+                        f"revoque, y si se ampara o se niega.")
+                _que_hizo = _por_puntos
             # LA SENTENCIA MIXTA, LEÍDA DESPUÉS. Las sesiones de antes de la
             # lectura mixta guardaron «sobresee» a secas aunque el juzgado
             # también negara o concediera por los demás actos (revisión
@@ -5259,6 +5277,19 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
                         "REVISIÓN» porque el estudio afirma que algo de la "
                         "sentencia recurrida no fue combatido. Compruébalo: si "
                         "la recurrente sí lo impugnó todo, quita esa frase.")
+            elif _clave == "revoca_fondo_niega":
+                # REVOCAR UNA CONCESIÓN ES NEGAR LO QUE ELLA CONCEDIÓ, a quien
+                # se lo concedió y contra el acto por el que lo concedió (AR
+                # 631/2025: la fórmula genérica amparaba a la recurrente contra
+                # un juzgado sobreseído). Ver `tipos_asunto.puntos_revoca_concesion`.
+                _neg = _ta.puntos_revoca_concesion(
+                    str(datos.get("resolutivo_recurrida") or ""))
+                if _neg:
+                    _puntos = _neg
+                    _avisos_bk.append(
+                        "EL SEGUNDO RESOLUTIVO NIEGA LO QUE EL JUZGADO CONCEDIÓ, con "
+                        "el sujeto y el acto de su propio resolutivo. Compruébalo "
+                        "contra la sentencia recurrida.")
             for _pt in _puntos:
                 _txt = (_pt.replace("{HUECO}", HUECO)
                            .replace("{quejoso}", str(datos.get("quejoso") or HUECO))

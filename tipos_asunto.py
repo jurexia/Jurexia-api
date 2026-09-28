@@ -2756,6 +2756,37 @@ def puntos_confirma_concede(resolutivo_reproducido: str = "",
     return [primero, RAMAS_REVISION["confirma_concede"]["puntos"][1]]
 
 
+# ═══ REVOCAR UNA CONCESIÓN ES NEGAR LO QUE ELLA CONCEDIÓ (28-sep-2026) ═══════
+# AR 631/2025: la fórmula genérica —«no ampara ni protege a {quejoso}, contra
+# el acto reclamado a {responsable_originaria}»— se llena con lo tecleado en el
+# formulario (en un recurso, QUIEN RECURRE) y con la primera autoridad que
+# nombran los antecedentes; así salió amparada la recurrente, que era la
+# tercera interesada, contra un juzgado cuyo acto se había sobreseído. El
+# resolutivo del juzgado ya dice a quién amparó y contra qué acto: revocar esa
+# concesión es negar ESO, con sus palabras, y la cola apunta a esta ejecutoria.
+_RX_AMPARA_PROTEGE = re.compile(r"\bampara\s+y\s+protege\b", re.I)
+_RX_COLA_DEL_JUZGADO = re.compile(
+    r",?\s*(?:por\s+(?:los|las)\s+(?:motivos|razones|consideraciones|fundamentos)\b"
+    r"|para\s+(?:los|el)\s+efectos?\b|en\s+t[ée]rminos\s+del?\b).*$", re.I)
+
+
+def puntos_revoca_concesion(resolutivo_reproducido: str = "") -> list:
+    """Los dos puntos de una revisión que revoca una concesión y niega, con el
+    sujeto y el acto del resolutivo del juzgado; [] si ese resolutivo no es un
+    «ampara y protege» limpio (entonces va la fórmula genérica de la rama)."""
+    t = " ".join((resolutivo_reproducido or "").split())
+    if (not t or not _RX_AMPARA_PROTEGE.search(t)
+            or re.search(r"\bno\s+ampara\b|\bsobrese", t, re.I)):
+        return []
+    cuerpo = _RX_COLA_DEL_JUZGADO.sub("", t).rstrip(" .,;:")
+    cuerpo = _RX_AMPARA_PROTEGE.sub("no ampara ni protege", cuerpo, count=1)
+    if len(cuerpo.split()) < 8:
+        return []
+    return [RAMAS_REVISION["revoca_fondo_niega"]["puntos"][0],
+            f"SEGUNDO. {cuerpo}, por los motivos y fundamentos expuestos en el último "
+            f"considerando de esta ejecutoria."]
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 # CON QUÉ VERBOS DECIDE EL ÓRGANO DE ORIGEN
 #

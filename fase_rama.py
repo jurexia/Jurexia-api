@@ -77,8 +77,14 @@ def _resolvio_de(fuente: str, solo_verbos: bool = False) -> str:
 
 
 def resolvio_a_quo(texto: str, antecedentes: str = "",
-                   declarado: str = "") -> str:
+                   declarado: str = "", resolutivo: str = "") -> str:
     """«sobresee» | «concede» | «niega», o cadena vacía si no consta.
+
+    (0) LOS PUNTOS RESOLUTIVOS DEL JUZGADO MANDAN SOBRE TODO (28-sep-2026).
+        `resolutivo` es el punto que se leyó del PDF (`resolutivo_recurrida`)
+        o la sección resolutiva entera; si dice qué se hizo —«ampara y
+        protege», «no ampara ni protege», «se sobresee»—, eso es lo que hizo
+        el juzgado, diga lo que diga la prosa. Ver `que_dice_el_resolutivo`.
 
     DOS CAMBIOS, Y LOS DOS SALIERON DEL MISMO CASO REAL.
 
@@ -109,6 +115,9 @@ def resolvio_a_quo(texto: str, antecedentes: str = "",
     #
     #     Se pasa por el mismo barrido —no se cree a ciegas—: si la frase no
     #     dice claramente qué se hizo, se sigue como antes.
+    _r = que_dice_el_resolutivo(resolutivo)
+    if _r:
+        return _r
     dec = " ".join((declarado or "").split())
     if dec:
         _d = _mixto(dec) or _resolvio_de(dec, solo_verbos=False)
@@ -648,6 +657,91 @@ def resolutivo_recurrida(texto: str) -> str:
         return ""
     cuerpo = _RX_COLA_PROPIA.sub("de la sentencia recurrida", cuerpo)
     return cuerpo.rstrip(" .") + "."
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# LO QUE DICEN LOS PUNTOS RESOLUTIVOS, Y NADA MÁS (28-sep-2026)
+# ═══════════════════════════════════════════════════════════════════════════
+# AR 631/2025: el juzgado CONCEDIÓ —su resolutivo, leído bien del PDF, dice
+# «La Justicia de la Unión ampara y protege a la Unión de Trabajadores…»—, y
+# `resolvio_a_quo` sobre el texto entero dio «niega»: la sentencia recurrida
+# narra en sus antecedentes un amparo directo ANTERIOR que «negó el amparo
+# solicitado», y el recuento de verbos en pasado gana por mayoría. Con
+# «niega» y el recurso fundado la rama fue «revoca_fondo_concede», y el
+# proyecto revocó la concesión para volver a conceder —«ampara y protege» a
+# la recurrente, contra el juzgado cuyo acto se había sobreseído—, cuando
+# revocar una concesión es negar. El recuento se queda para cuando no hay
+# resolutivo que leer; si lo hay, manda, con sus fórmulas en presente.
+_RX_RES_SOBRESEE = re.compile(
+    r"\bse\s+sobrese[ée]\b|\bsobrese[ée]\s+en\s+(?:el|este|el\s+presente)\s+juicio\b|"
+    r"\bse\s+decreta\s+el\s+sobreseimiento\b", re.I)
+_RX_RES_NIEGA = re.compile(
+    r"\bno\s+ampara\s+ni\s+protege\b|\bse\s+niega\s+(?:el\s+amparo|la\s+protecci[óo]n)\b", re.I)
+_RX_RES_CONCEDE = re.compile(
+    r"(?<!no\s)\bampara\s+y\s+protege\b|\bse\s+concede\s+(?:el\s+amparo|la\s+protecci[óo]n)\b", re.I)
+
+
+def que_dice_el_resolutivo(fragmento: str) -> str:
+    """«sobresee» | «concede» | «niega» | «sobresee_concede» | «sobresee_niega»,
+    o «» si el fragmento no lo dice con una fórmula de resolutivo —o dice a la
+    vez que ampara y que no ampara (actos distintos): eso no se adivina—."""
+    t = " ".join((fragmento or "").split())
+    if not t:
+        return ""
+    s = bool(_RX_RES_SOBRESEE.search(t))
+    n = bool(_RX_RES_NIEGA.search(t))
+    c = bool(_RX_RES_CONCEDE.search(t))
+    if c and n:
+        return ""
+    if s:
+        return "sobresee_concede" if c else "sobresee_niega" if n else "sobresee"
+    return "concede" if c else "niega" if n else ""
+
+
+def seccion_resolutiva(texto: str) -> str:
+    """Lo que va del ÚLTIMO «RESUELVE» del documento a «Notifíquese»: los
+    puntos resolutivos, con todos sus puntos (a diferencia de
+    `resolutivo_recurrida`, que sólo devuelve un punto reproducible)."""
+    t = " ".join((texto or "").split())
+    m = None
+    for m in _RX_RESUELVE.finditer(t):
+        pass                       # el ÚLTIMO: los anteriores son citas
+    if m is None:
+        return ""
+    resto = t[m.end():].lstrip(" :")
+    fin = _RX_FIN_RESOLUTIVO.search(resto)
+    return (resto[:fin.start()] if fin else resto[:3000]).strip()
+
+
+def resolvio_segun_resolutivos(texto: str) -> str:
+    """Qué hizo el juzgado según SUS PUNTOS RESOLUTIVOS, leídos del texto de
+    la sentencia recurrida; «» si no se encuentran o no lo dicen."""
+    return que_dice_el_resolutivo(seccion_resolutiva(texto))
+
+
+_VALIDOS_A_QUO = ("sobresee", "niega", "concede", "sobresee_niega", "sobresee_concede")
+
+
+def que_hizo_el_juzgado(fases, declarado: str = "") -> str:
+    """Lo que hizo el a quo, con el orden de fuentes de un solo sitio: su
+    punto resolutivo leído del PDF; lo que el adelanto leyó del PDF; lo que el
+    motor declaró al proponer; y, al final, los antecedentes. Para la rama que
+    se le dice al estudio ANTES de redactar.
+
+    LOS ANTECEDENTES SON UNA CADENA. Las dos llamadas que esto sustituye
+    hacían `"\\n".join(r.fases.antecedentes or [])`, que sobre una cadena
+    intercala un salto de línea entre CADA LETRA: ningún verbo casaba y, sin
+    lo declarado, la rama del estudio quedaba sin determinar."""
+    _r = que_dice_el_resolutivo(str(getattr(fases, "resolutivo_recurrida", "") or ""))
+    if _r:
+        return _r
+    _pdf = str(getattr(fases, "resolvio_a_quo", "") or "").strip().lower()
+    if _pdf in _VALIDOS_A_QUO:
+        return _pdf
+    _ant = getattr(fases, "antecedentes", "") or ""
+    if isinstance(_ant, (list, tuple)):
+        _ant = "\n".join(str(x) for x in _ant)
+    return resolvio_a_quo("", str(_ant), declarado=declarado or "")
 
 
 # QUÉ QUEDÓ FUERA DE LA REVISIÓN. David: «en el resolutivo primero puse "En la

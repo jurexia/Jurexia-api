@@ -416,14 +416,21 @@ ok(seg(_r, "C1.a")["etiqueta"] == "infundado" and _r["propuestas"] == []
 _c_f = crit(s1="fundado")
 _d = mutar(lambda d: None)
 _r, _av = _rep(_d, c=_c_f)
-ok(all(seg(_r, x)["etiqueta"] == "fundado" for x in ("C1.a", "C1.b", "C3.a", "C3.b"))
+# plan-5 (AR 631/2025): UNO lo funda —el primero que ataca la proposición
+# toral—, no todos; los demás conservan lo que razonó el planificador.
+ok(seg(_r, "C1.a")["etiqueta"] == "fundado"
+   and all(seg(_r, x)["etiqueta"] == "infundado" for x in ("C1.b", "C3.a", "C3.b"))
    and _r["propuestas"] == [{"seg": "C1.a", "de": "fundado", "a": "infundado",
                              "por_que": "según el planificador, ninguno de los argumentos de este "
                                         "problema lo funda"}]
-   and any("problema 1" in a for a in _av),
-   "un problema FUNDADO que ningún argumento funda: todos a su sentido y la otra, a PROPUESTA del problema")
+   and any("problema 1" in a and "C1.a" in a for a in _av)
+   and any("problema 1" in a and "conservan" in a for a in _r["avisos_al_secretario"])
+   and pe.problemas_sin_quien_los_funde(_r["segmentos"], pe.problemas_del_criterio(_c_f, fases())) == [],
+   "un problema FUNDADO que ningún argumento funda: lo funda UNO (el que ataca la toral), los demás "
+   "conservan su calificación, y la otra va a PROPUESTA del problema")
 _r, _ = _rep(_d, c=_c_f, tocados=[PREG1])
-ok(all(seg(_r, x)["etiqueta"] == "fundado" for x in ("C1.a", "C1.b", "C3.a", "C3.b")) and _r["propuestas"] == [],
+ok(seg(_r, "C1.a")["etiqueta"] == "fundado"
+   and all(seg(_r, x)["etiqueta"] == "infundado" for x in ("C1.b", "C3.a", "C3.b")) and _r["propuestas"] == [],
    "en un problema que el secretario tocó a mano, ni se propone")
 _d = mutar(lambda d: [seg(d, x).update(etiqueta="fundado", razon="fundado") for x in ("C1.a", "C3.a", "C3.b")]
            + [seg(d, "C1.b").update(etiqueta="infundado", razon="fondo_desestimado")])
@@ -1611,7 +1618,8 @@ ok(_plan is not None and _info["intentos"] == 1 and len(_cli.kw) == 1 and _info[
 ok(_plan and any("M2 se retiró" in a for a in _plan["avisos_al_secretario"])
    and any("U1 juntaba" in a for a in _plan["avisos_al_secretario"]),
    "…con las dos correcciones dichas al secretario")
-ok(pe.PLAN_VERSION == "plan-4", "la versión del plan sube: un plan-3 (etiqueta = la del problema) no se reutiliza")
+ok(pe.PLAN_VERSION == "plan-5", "la versión del plan sube: un plan-4 (la razón escrita como calificación "
+                                 "heredaba la del problema) no se reutiliza")
 # (j) Una propuesta es una CALIFICACIÓN: la razón que el planificador puso ahí
 # (642/2024: «fundado → fondo_desestimado») se traduce; el botón del panel
 # pondría si no una razón como sentido.

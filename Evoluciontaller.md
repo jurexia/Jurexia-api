@@ -1221,3 +1221,52 @@ Y apareció un pariente del mismo fallo: la **fecha de ingreso del visor no es
 la fecha de presentación**. En el 91/2025 van cinco días separadas —13/11 en la
 portada de la OCC, 18/11 en el visor— y computar desde el ingreso corre el
 plazo hacia adelante. Ahora manda la portada, que es donde está el sello.
+
+---
+
+## 24 · El retroceso del AR 631/2025: una razón al revés, diecinueve «fundados» heredados y una concesión revocada para volver a conceder (28-sep)
+
+David, con la v4 encendida para todos desde el 26-sep: «muchísimos segundos
+planteamientos contestados conforme al sentido principal sin una lógica de
+resolución… revoca la sentencia, y debería de negar el amparo». Revisión de la
+tercera interesada contra una sentencia que CONCEDIÓ; él dictó «fundado»
+(revocar) para todo el asunto. Leído en la fila 462 y en los registros de
+Render, fueron tres fallos encadenados, dos de fontanería y uno del modelo:
+
+1. **La razón argumentaba lo contrario del sentido** (modelo, empujado por la
+   pantalla). El cuadro de la razón global traía la del motor para
+   «infundado»; al pedir «redactar el criterio» de «fundado», esa razón viajó
+   a `/taller/razonar` como «la base del secretario —desarróllala, no la
+   discutas—» y el modelo la desarrolló («la sustitución sí alteró la cosa
+   juzgada…»). Registro: «razón "fundado": dirección indeterminada».
+   Reproducido en local: por el camino viejo la razón sale al revés; con la
+   base de la vía contraria que el motor ya había escrito y los datos de
+   dirección (qué sostienen los agravios, qué resolvió el juez), sale a favor
+   de la recurrente.
+2. **Diecinueve argumentos «fundados» que el planificador había desestimado**
+   (fontanería, plan-4, e888d7e). El planificador escribió la RAZÓN
+   «fondo_desestimado» en el campo de la calificación; `reparar` la trató como
+   ilegible y les puso la del problema. El estudio contestó «Es fundado…» a
+   cada uno para decir en la frase siguiente que no tenía razón.
+3. **Revocó para volver a conceder** (fontanería, lectura del a quo, 5423df1).
+   `resolvio_a_quo` contó verbos en el PDF entero y dio «niega» —la sentencia
+   narraba un amparo directo ANTERIOR que «negó el amparo»—, aunque su propio
+   resolutivo, leído en la misma pasada, decía «ampara y protege». Rama
+   «revoca_fondo_concede»: el proyecto amparó a la recurrente contra el
+   juzgado cuyo acto se había sobreseído.
+
+Arreglo (plan-5): la calificación escrita con una razón se lee como la que esa
+razón implica; el problema que prospera sin quien lo funde lo funda UN
+argumento, no todos; el prompt del plan trae el catálogo de etiquetas; la razón
+del motor para la vía contraria no se toma por la del secretario (ni al
+razonar ni al resolver); la razón sabe quién gana si prospera; el punto
+resolutivo del juzgado manda sobre el recuento; y revocar una concesión niega
+lo que ella concedió, con su sujeto y su acto. `test_regresion_631.py`
+reproduce el caso con datos sintéticos (falla con el código de antes).
+
+Medido en local sobre la fila 462, sin escribir en la base: con el arreglo, el
+plan dejó 17 fundados, 2 esencialmente fundados y 5 inoperantes (en producción,
+19 de los 24 argumentos del primer agravio llevaban «fundado» por herencia) y el proyecto revoca y NIEGA el amparo a la Unión contra el acto
+de la Sala. Queda abierto: al revocar una concesión, el proyecto no estudia los
+conceptos de violación que el juez dejó sin estudiar (art. 93); y el encargo
+guarda a la recurrente en «quejoso», lo que confunde la síntesis.

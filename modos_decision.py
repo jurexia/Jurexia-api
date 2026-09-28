@@ -139,6 +139,65 @@ def temas_distintos_de(checklist: list, problemas: list) -> set:
     return fuera
 
 
+# ═══ LA RAZÓN DE LA OTRA VÍA NO ES LA RAZÓN DEL SECRETARIO (28-sep-2026) ══════
+#
+# AR 631/2025. El motor propuso «infundado» con su razón; la pantalla la puso
+# en el cuadro de la razón global. David dictó «fundado» —revocar— y pidió
+# «redactar el criterio»: el cuadro, con la razón del motor PARA LA VÍA
+# CONTRARIA, viajó como «la base que da el secretario —desarróllala, no la
+# discutas—», y el modelo la desarrolló: «La sustitución procesal sí alteró la
+# cosa juzgada…», bajo la etiqueta «fundado». Esa razón fue al principal, el
+# plan leyó la contradicción y el estudio escribió «Es fundado…» para
+# argumentar lo contrario en cada párrafo. Es la regla que ya vive en
+# `repartir` —la razón no sobrevive al sentido que la sostenía— y que el cuadro
+# global se saltaba. Se aplica donde entra el texto: en la razón que se pide y
+# en la que va al principal.
+
+
+def _cuerpo(t) -> str:
+    return " ".join(str(t or "").split()).strip().lower()
+
+
+def _campo(o, k, defecto=None):
+    if isinstance(o, dict):
+        return o.get(k, defecto)
+    return getattr(o, k, defecto)
+
+
+def razon_de_la_otra_via(texto: str, sentido: str, glob) -> tuple:
+    """(la razón que vale para `sentido`, aviso o «»).
+
+    Si `texto` es, tal cual, la razón que el motor escribió para su propuesta
+    global y ésta va en la vía contraria a `sentido` (una prospera y la otra
+    no), no es del secretario: es el eco de la otra vía. Se sustituye por la
+    razón de la vía contraria que el motor YA escribió (`alternativa`), si es
+    de la vía de `sentido`; si no la hay, se queda vacía y el aviso lo dice.
+    Cualquier otro texto se respeta como está."""
+    import tipos_asunto as _ta
+    t = _cuerpo(texto)
+    s = str(sentido or "").strip().lower()
+    if not t or not s or not glob:
+        return texto, ""
+    s_motor = str(_campo(glob, "sentido", "") or "").strip().lower()
+    r_motor = _cuerpo(_campo(glob, "razon", ""))
+    if not s_motor or t != r_motor or _ta.prospera(s_motor) == _ta.prospera(s):
+        return texto, ""
+    alt = _campo(glob, "alternativa", None) or {}
+    s_alt = str(_campo(alt, "sentido", "") or "").strip().lower()
+    r_alt = " ".join(str(_campo(alt, "razon", "") or "").split())
+    if r_alt and s_alt and _ta.prospera(s_alt) == _ta.prospera(s):
+        return r_alt, (
+            f"LA RAZÓN DEL CUADRO ERA LA DEL MOTOR PARA LA VÍA CONTRARIA "
+            f"(«{s_motor.replace('_', ' ')}»), no la tuya para «{s.replace('_', ' ')}»: "
+            f"se usó la de la vía «{s_alt.replace('_', ' ')}» que el motor ya había "
+            f"escrito. Revísala o escribe la tuya.")
+    return "", (
+        f"LA RAZÓN DEL CUADRO ERA LA DEL MOTOR PARA LA VÍA CONTRARIA "
+        f"(«{s_motor.replace('_', ' ')}»), no la tuya para «{s.replace('_', ' ')}», y no "
+        f"se usó: sostenía lo contrario. El estudio razona tu sentido con el material; "
+        f"si tienes la razón, escríbela.")
+
+
 def repartir(problemas: list, modo: str, sentido_global: str = "",
              propuestas: list = None, calificaciones: dict = None,
              global_dictado: bool = False,

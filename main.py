@@ -33187,6 +33187,26 @@ def _taller_armar_criterio(r, ses, glob: dict, *, sentido: str = "", problema: s
                 if str(d.get("sentido", "")).strip() or _de_la_maquina(d)]
         if not any(str(c.sentido or "").strip() for c in crit):
             raise HTTPException(422, "criterios_json no trae ningún sentido.")
+        # LA RAZÓN DEL MOTOR PARA LA VÍA CONTRARIA, TAMBIÉN POR PROBLEMA
+        # (28-sep-2026, AR 631/2025): la pantalla pone la razón del motor en el
+        # cuadro y la sustituye al cambiar la pastilla; si esa llamada no
+        # llega, la del motor viaja pegada al sentido contrario. No se usa.
+        try:
+            import modos_decision as _md_pp
+            _props_pp = {_kp(getattr(_p, "problema", "") or ""): _p
+                         for _p in (ses.get("propuestas") or [])}
+            for _c in crit:
+                _pp = _props_pp.get(_kp(_c.problema))
+                if _pp is None or not str(_c.razonamiento or "").strip():
+                    continue
+                _rz_pp, _av_pp = _md_pp.razon_de_la_otra_via(
+                    _c.razonamiento, _c.sentido,
+                    {"sentido": getattr(_pp, "sentido", ""), "razon": getattr(_pp, "razon", "")})
+                if _av_pp:
+                    _c.razonamiento = _rz_pp
+                    avisos_r.append(f"«{str(_c.problema)[:70]}»: {_av_pp}")
+        except Exception as _ex_pp:
+            print(f"   ⚠️ TALLER: no se pudo comprobar la razón por problema: {err(_ex_pp)}")
     elif _modo == "global":
         # EL SENTIDO GLOBAL: el secretario dicta uno para el proyecto entero y
         # `modos_decision` lo reparte —si el principal alcanza, los accesorios
@@ -33237,12 +33257,22 @@ def _taller_armar_criterio(r, ses, glob: dict, *, sentido: str = "", problema: s
                 for x in _rep if str(x.get("sentido", "")).strip()]
         # LA RAZÓN QUE ESCRIBIÓ EL SECRETARIO VA SOBRE EL PRINCIPAL: es el
         # problema que decide, y sin ella el estudio se inventaba el porqué.
-        if (razonamiento or "").strip() and crit:
+        # SALVO QUE NO SEA SUYA (28-sep-2026, AR 631/2025): el cuadro global
+        # se llena con la razón del motor al llegar la propuesta, y si él
+        # dicta el sentido contrario sin tocarlo, esa razón argumenta lo
+        # contrario de lo que se resuelve. Ver `razon_de_la_otra_via`.
+        _razon_g, _eco_g = (razonamiento or ""), ""
+        if _razon_g.strip():
+            _razon_g, _eco_g = _md.razon_de_la_otra_via(
+                _razon_g, sentido_global.strip().lower(), _glob)
+        if (_razon_g or "").strip() and crit:
             _pral = next((c for c in crit
                           if str(getattr(c, "jerarquia", "")).lower() == "principal"),
                          crit[0])
-            _pral.razonamiento = razonamiento.strip()
+            _pral.razonamiento = _razon_g.strip()
         avisos_modo = list(_av_modo or [])
+        if _eco_g:
+            avisos_modo.append(_eco_g)
         if not crit:
             raise HTTPException(
                 422, "El modo global no pudo repartir el sentido: no hay "
@@ -36703,14 +36733,42 @@ async def taller_razonar(
     print(f"   ⚖️ razón «{sentido}»: "
           + ("favorece a la persona" if _fav_r is True else "no favorece a la persona"
              if _fav_r is False else "dirección indeterminada"))
+    # LA DIRECTRIZ QUE ES EL ECO DE LA OTRA VÍA NO ES DEL SECRETARIO (28-sep-2026,
+    # AR 631/2025): el cuadro global traía la razón del motor para «infundado»,
+    # se pidió la de «fundado» y el modelo desarrolló la del motor. Ver
+    # `modos_decision.razon_de_la_otra_via`.
+    _dir_r = (directriz or "").strip()
+    if _dir_r and _g_r is not None:
+        import modos_decision as _md_r
+        _dir_r, _eco_r = _md_r.razon_de_la_otra_via(_dir_r, sentido, _g_r)
+        _dir_r = (_dir_r or "").strip()
+        if _eco_r:
+            print(f"   ⚖️ razón «{sentido}»: la directriz era la razón del motor para la vía "
+                  f"contraria; " + ("va la de la vía contraria ya escrita" if _dir_r
+                                    else "se pide sin directriz"))
+    # QUÉ SOSTIENEN LOS AGRAVIOS Y QUÉ RESOLVIÓ EL ÓRGANO, del problema de la
+    # fase 3 (28-sep-2026): con eso la calificación tiene dirección —quién gana
+    # si prospera— y no se adivina desde la pregunta.
+    _comb_r, _res_r = "", ""
+    try:
+        import arbol_decision as _ad_r
+        _k_r = _ad_r.clave_problema(problema)
+        for _p_r in (r.fases.problemas or []):
+            if isinstance(_p_r, dict) and _ad_r.clave_problema(
+                    str(_p_r.get("pregunta") or "")) == _k_r:
+                _comb_r = str(_p_r.get("combate") or "")
+                _res_r = str(_p_r.get("resolvio") or "")
+                break
+    except Exception:
+        _comb_r, _res_r = "", ""
     try:
         razon = await _f5.razonar(
             chat_client, problema, sentido, material,
             r.fases.resumen_acto, r.fases.resumen_conceptos,
             bool(r.encargo and r.encargo.es_recurso),
             getattr(r.encargo, "tipo_asunto", "") if r.encargo else "",
-            directriz=(directriz or "").strip(), marco=_param_r,
-            favorece=_fav_r, via=_via_r)
+            directriz=_dir_r, marco=_param_r,
+            favorece=_fav_r, via=_via_r, combate=_comb_r, resolvio=_res_r)
     except Exception as ex:
         print(f"   ⚠️ no se pudo razonar «{sentido}»: {err(ex)}")
         raise HTTPException(502,

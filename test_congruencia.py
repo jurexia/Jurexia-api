@@ -270,7 +270,8 @@ _c1d = next(s for s in _segs if s["id"] == "C1.d")
 _c1d["etiqueta"] = "infundado"
 ok(pe.etiqueta_fuera("infundado", "fundado") == "" and pe.problemas_sin_quien_los_funde(_segs, _probs) == [],
    "plan-4: la reconvención INFUNDADA dentro del problema 1, fundado, cabe (C1.a-c lo fundan)")
-ok(pe.PLAN_VERSION == "plan-4", "y un plan-3 guardado no se reutiliza")
+ok(pe.PLAN_VERSION not in ("plan-3", "plan-4"),
+   "y un plan-3 guardado no se reutiliza (ni un plan-4, que heredaba la del problema: AR 631/2025)")
 _todos_inf = [dict(s, etiqueta="infundado") if s["problema_id"] == 1 else s for s in _segs]
 ok(pe.problemas_sin_quien_los_funde(_todos_inf, _probs) == [1],
    "si ningún argumento funda el problema 1, las etiquetas niegan el sentido del secretario")

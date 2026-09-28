@@ -1552,11 +1552,57 @@ def calificaciones_de(propuestas: list) -> list:
 # que el secretario lea la razón ANTES de comprometerse.
 # ═══════════════════════════════════════════════════════════════════════════
 
+def bloque_direccion(sentido: str, tipo_asunto: str = "", es_recurso: bool = False,
+                     combate: str = "", resolvio: str = "") -> str:
+    """QUÉ QUIERE DECIR LA CALIFICACIÓN EN ESTE PLANTEAMIENTO: quién tiene la
+    razón si prospera y quién si no, con lo que sostiene quien promueve y lo que
+    resolvió el órgano (fase 3). Datos y descripción; ninguna frase que copiar.
+
+    AR 631/2025 (28-sep-2026): con el planteamiento en forma de pregunta
+    —«¿La sustitución de la parte actora alteró la cosa juzgada?»— y
+    «FUNDADO» al lado, el modelo contestó la pregunta que sí y razonó a favor
+    de lo que resolvió el juez: la calificación es del AGRAVIO, no de la
+    pregunta. Sin estos dos datos la dirección se adivinaba."""
+    import tipos_asunto as _ta
+    s = str(sentido or "").strip().lower().replace(" ", "_")
+    combate, resolvio = " ".join(str(combate or "").split()), " ".join(str(resolvio or "").split())
+    # Lo que no se estudia no tiene dirección: no se dice quién gana.
+    if not s or not (combate or resolvio) or s in _SIN_DIRECCION:
+        return ""
+    _t = tipo_asunto or ("amparo_revision" if es_recurso else "amparo_directo")
+    _org = _ta.sujetos_de(_t)["organo"][0]
+    _q = _ta.vocabulario_de(_t)["combate"]
+    try:
+        _p = _ta.prospera(s)
+    except Exception:
+        return ""
+    lineas = ["", "QUÉ QUIERE DECIR ESA CALIFICACIÓN EN ESTE PLANTEAMIENTO"]
+    if combate:
+        lineas.append(f"Lo que sostienen los {_q}: {combate[:1200]}")
+    if resolvio:
+        lineas.append(f"Lo que resolvió {_org}: {resolvio[:1200]}")
+    lineas.append(
+        f"La calificación es la de los {_q}, no la respuesta a la pregunta del "
+        f"planteamiento. {s.replace('_', ' ').upper()} quiere decir aquí que "
+        + (f"prosperan los {_q}: cae lo que resolvió {_org} en este punto, y la razón "
+           f"demuestra lo que ellos sostienen."
+           if _p else
+           f"no prosperan los {_q}: subsiste lo que resolvió {_org} en este punto, y la "
+           f"razón demuestra por qué no lo derriban."))
+    return "\n".join(lineas) + "\n"
+
+
+# Las calificaciones que no deciden quién tiene razón: no se estudia el fondo.
+_SIN_DIRECCION = {"innecesario", "sin_materia", "cae_con_principal", "no_se_estudia",
+                  "adhesivo_sin_materia"}
+
+
 def prompt_razon(problema: str, sentido: str, material,
                  resumen_acto: str = "", resumen_conceptos: str = "",
                  es_recurso: bool = False, tipo_asunto: str = "",
                  directriz: str = "", marco: str = "",
-                 favorece=None, via: dict | None = None) -> str:
+                 favorece=None, via: dict | None = None,
+                 combate: str = "", resolvio: str = "") -> str:
     import tipos_asunto as _ta
     import dialogo_constitucional as _dc
     # EL MÉTODO Y EL PARÁMETRO, DONDE SE DECIDE EL PORQUÉ (24-sep-2026). Hasta
@@ -1608,7 +1654,13 @@ def prompt_razon(problema: str, sentido: str, material,
             "  verdad algo le fuera indispensable, dilo en una sola línea al final, sin\n"
             "  convertirlo en la conclusión.\n"
             "- No sustituyas su razón por otra que te parezca mejor: es su criterio y\n"
-            "  él firma. Puedes reforzarla con acervo; no reemplazarla.\n")
+            "  él firma. Puedes reforzarla con acervo; no reemplazarla.\n"
+            # LA BASE LLEVA A LA CALIFICACIÓN, NO AL REVÉS (28-sep-2026, AR
+            # 631/2025: una base que argumentaba la vía contraria se desarrolló
+            # tal cual y salió una razón de «infundado» con «fundado» al pie).
+            "- La calificación de arriba es la decisión. Si algo de la base apunta al\n"
+            "  sentido contrario, no lo desarrolles: la razón llega a esa calificación.\n")
+    _direccion = bloque_direccion(sentido, tipo_asunto, es_recurso, combate, resolvio)
 
     return f"""Eres el secretario de un Tribunal Colegiado. El sentido YA ESTÁ
 DECIDIDO por quien firma: NO lo discutas, NO propongas otro, NO adviertas que
@@ -1620,7 +1672,7 @@ EL PLANTEAMIENTO
 
 LA CALIFICACIÓN QUE HAY QUE SOSTENER
 {sentido.replace('_', ' ').upper()}
-{_bloque_directriz}
+{_direccion}{_bloque_directriz}
 LO QUE RESOLVIÓ {_org.upper()}
 {resumen_acto[:20000]}
 
@@ -1651,7 +1703,8 @@ async def razonar(cliente, problema: str, sentido: str, material,
                   resumen_acto: str = "", resumen_conceptos: str = "",
                   es_recurso: bool = False, tipo_asunto: str = "",
                   directriz: str = "", marco: str = "",
-                  favorece=None, via: dict | None = None) -> str:
+                  favorece=None, via: dict | None = None,
+                  combate: str = "", resolvio: str = "") -> str:
     """Una razón para el sentido que el secretario acaba de marcar."""
     if not (problema or "").strip() or not (sentido or "").strip():
         return ""
@@ -1664,7 +1717,7 @@ async def razonar(cliente, problema: str, sentido: str, material,
     _mensajes = [{"role": "user", "content": prompt_razon(
         problema, sentido, material, resumen_acto,
         resumen_conceptos, es_recurso, tipo_asunto, directriz, marco,
-        favorece, via)}]
+        favorece, via, combate=combate, resolvio=resolvio)}]
     kw = dict(model=MODELO_PROPUESTA, messages=_mensajes,
               max_completion_tokens=2600,
               temperature=0, seed=20260831)

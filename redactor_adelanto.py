@@ -584,8 +584,15 @@ async def generar(cliente, e: Encargo, texto_acto: str, texto_conceptos: str,
     if e.es_recurso:
         try:
             import fase_rama as _fr_a
-            f.resolvio_a_quo = _fr_a.resolvio_a_quo(texto_acto or "")
             f.resolutivo_recurrida = _fr_a.resolutivo_recurrida(texto_acto or "")
+            # LOS PUNTOS RESOLUTIVOS PRIMERO (28-sep-2026, AR 631/2025): el
+            # recuento de verbos sobre el PDF entero dio «niega» porque la
+            # sentencia narra un amparo ANTERIOR que «negó el amparo»; su
+            # resolutivo decía «ampara y protege». El recuento, sólo si los
+            # puntos resolutivos no se dejan leer.
+            f.resolvio_a_quo = (_fr_a.resolvio_segun_resolutivos(texto_acto or "")
+                                or _fr_a.resolvio_a_quo(texto_acto or "",
+                                                        resolutivo=f.resolutivo_recurrida))
             import fase_origen as _fo_a
             _dd = _fo_a.datos_del_documento(texto_acto or "")
             f.expediente_origen = _dd.get("expediente", "")
@@ -1185,9 +1192,11 @@ async def resolver(cliente, r: Resultado, criterios: list[f6.Criterio],
     try:
         import tipos_asunto as _ta_r, fase_rama as _fr_r
         if _ta_r.normalizar(e.tipo_asunto) == "amparo_revision":
-            _que = _fr_r.resolvio_a_quo(
-                "", "\n".join(r.fases.antecedentes or []),
-                declarado=getattr(e, "resolvio_declarado", "") or "")
+            # EL MISMO ORDEN DE FUENTES QUE EL RESOLUTIVO (28-sep-2026): el
+            # punto resolutivo del juzgado, lo leído del PDF, lo declarado y
+            # los antecedentes. Ver `fase_rama.que_hizo_el_juzgado`.
+            _que = _fr_r.que_hizo_el_juzgado(
+                r.fases, getattr(e, "resolvio_declarado", "") or "")
             _sent = "fundado" if any(
                 _ta_r.prospera(str(getattr(c, "sentido", "")))
                 for c in (criterios or [])) else "infundado"
@@ -1382,9 +1391,11 @@ async def resolver_en_vivo(cliente, r: Resultado, criterios: list[f6.Criterio],
     try:
         import tipos_asunto as _ta_r, fase_rama as _fr_r
         if _ta_r.normalizar(e.tipo_asunto) == "amparo_revision":
-            _que = _fr_r.resolvio_a_quo(
-                "", "\n".join(r.fases.antecedentes or []),
-                declarado=getattr(e, "resolvio_declarado", "") or "")
+            # EL MISMO ORDEN DE FUENTES QUE EL RESOLUTIVO (28-sep-2026): el
+            # punto resolutivo del juzgado, lo leído del PDF, lo declarado y
+            # los antecedentes. Ver `fase_rama.que_hizo_el_juzgado`.
+            _que = _fr_r.que_hizo_el_juzgado(
+                r.fases, getattr(e, "resolvio_declarado", "") or "")
             _sent = "fundado" if any(
                 _ta_r.prospera(str(getattr(c, "sentido", "")))
                 for c in (criterios or [])) else "infundado"
