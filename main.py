@@ -1887,7 +1887,7 @@ def _build_precedentes_system_prompt(circuit: str, tribunal: Optional[str] = Non
 # «qué alego…»), y sin el interruptor Buscar/Redactar el detector ES el
 # interruptor.
 from esfuerzo_redaccion import (  # noqa: E402
-    ACABADO_PLATINUM, INSTRUCCION_CONTINUAR, INSTRUCCION_MODIFICAR,
+    ACABADO_PLATINUM, INSTRUCCION_MODIFICAR, INSTRUCCION_SEGUIR_ESCRITO,
     MARCA_REEMPLAZA, OFERTA_TRAS_REVISION, PLANES_PLATINUM, PLANES_PRO,
     bloque_despacho, decidir_redaccion, intencion_del_mensaje,
     normalizar_esfuerzo, normalizar_intencion, tipo_de_ajuste,
@@ -17992,7 +17992,7 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                 # su propio esqueleto.
                 if _tipo_ajuste and is_chat_drafting and not (is_drafting and draft_tipo):
                     dynamic_injections.append(
-                        INSTRUCCION_MODIFICAR if _tipo_ajuste == "modificar" else INSTRUCCION_CONTINUAR)
+                        INSTRUCCION_MODIFICAR if _tipo_ajuste == "modificar" else INSTRUCCION_SEGUIR_ESCRITO)
 
                 # EL PERFIL DEL DESPACHO (28-sep-2026): al redactar —por el chat
                 # o por la tarjeta «Escrito legal»—, los datos que el abogado

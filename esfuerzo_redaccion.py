@@ -410,7 +410,10 @@ datos, los [DATO PENDIENTE: …] que siguen pendientes y las citas [Doc ID]—:
 no lo resumas, no lo reordenes, no lo mejores de paso. No anuncies el cambio
 dentro del escrito; si hay algo que advertir, va en la nota para el abogado."""
 
-INSTRUCCION_CONTINUAR = """EL ABOGADO PIDE QUE SIGAS EL ESCRITO DONDE SE QUEDÓ.
+# No se llama INSTRUCCION_CONTINUAR: main.py importa DESPUÉS la de
+# documento_acervo.py —la que continúa tras el filtro de recitación— con ese
+# nombre, y la pisaba: un «continúa» del abogado recibía la otra.
+INSTRUCCION_SEGUIR_ESCRITO = """EL ABOGADO PIDE QUE SIGAS EL ESCRITO DONDE SE QUEDÓ.
 Tu respuesta anterior es lo ya escrito: no lo repitas ni lo resumas. Empieza
 exactamente donde terminó —a media sección, si ahí se cortó— y sigue hasta el
 cierre del escrito."""
