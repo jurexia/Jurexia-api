@@ -371,6 +371,51 @@ def es_ajuste_de_escrito(mensaje: str) -> bool:
     return bool(t) and bool(_AJUSTE.match(t))
 
 
+# ── El retoque, en su lugar (28-sep-2026) ────────────────────────────────
+# Un retoque —«agrega un concepto…», «corrige el nombre del quejoso»— llegaba
+# como respuesta nueva y la hoja la anexaba DEBAJO del escrito anterior: el
+# abogado acababa con dos escritos casi iguales y borraba a mano el viejo. Y
+# el modelo retocaba SU versión, no la de la hoja, así que lo que el abogado
+# había corregido a mano volvía a salir mal.
+#
+# Ahora se distinguen dos retoques. El que MODIFICA entrega el escrito
+# completo, ya con el cambio, y la pantalla lo pone EN LUGAR del anterior
+# (la respuesta lleva MARCA_REEMPLAZA); la pantalla, además, manda como
+# respuesta anterior el escrito tal como está en la hoja, con las
+# correcciones del abogado. El que CONTINÚA —«continúa», «sigue»,
+# «termina»— se escribe desde donde se quedó y se anexa, como siempre.
+MARCA_REEMPLAZA = "<!--REEMPLAZA_ESCRITO-->"
+
+# «Sigue el mismo formato, pero agrega un agravio» no es seguir: es cambiar.
+_CONTINUAR = re.compile(
+    r"^(?:(?:me |nos )?(?:puedes|podrias|pudieras) (?:me |nos )?)?"
+    r"(?:continu\w*|sigue\b|seguir\b|sigamos\b|prosigue\b|prosigamos\b|termina\w*)"
+    r"(?! (?:con |usando |igual )?(?:el|la|los|las|ese|esa|esos|esas) (?:mism|formato|estilo|estructura))"
+)
+
+
+def tipo_de_ajuste(mensaje: str) -> str:
+    """'continuar' si el retoque pide seguir el escrito donde se quedó;
+    'modificar' si pide cambiarlo (y entonces sustituye al anterior)."""
+    t = _CORTESIA.sub("", _plano(mensaje)).strip()
+    return "continuar" if _CONTINUAR.match(t) else "modificar"
+
+
+INSTRUCCION_MODIFICAR = """EL ABOGADO PIDE UN CAMBIO AL ESCRITO QUE YA TIENE.
+Tu respuesta anterior es ese escrito tal como está ahora en su hoja, con lo
+que él mismo corrigió a mano. Entrega el escrito COMPLETO, de la primera a la
+última línea, con el cambio aplicado: sustituirá al anterior en su hoja. Lo
+que el cambio no toca se conserva palabra por palabra —sus correcciones, sus
+datos, los [DATO PENDIENTE: …] que siguen pendientes y las citas [Doc ID]—:
+no lo resumas, no lo reordenes, no lo mejores de paso. No anuncies el cambio
+dentro del escrito; si hay algo que advertir, va en la nota para el abogado."""
+
+INSTRUCCION_CONTINUAR = """EL ABOGADO PIDE QUE SIGAS EL ESCRITO DONDE SE QUEDÓ.
+Tu respuesta anterior es lo ya escrito: no lo repitas ni lo resumas. Empieza
+exactamente donde terminó —a media sección, si ahí se cortó— y sigue hasta el
+cierre del escrito."""
+
+
 # «¿Desea que redacte la demanda?» — «Sí, por favor». La consulta ofreció el
 # escrito y el abogado lo acepta: eso es un encargo, aunque no lo diga.
 _OFRECE_ESCRITO = re.compile(

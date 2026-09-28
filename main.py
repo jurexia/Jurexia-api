@@ -1887,9 +1887,10 @@ def _build_precedentes_system_prompt(circuit: str, tribunal: Optional[str] = Non
 # «qué alego…»), y sin el interruptor Buscar/Redactar el detector ES el
 # interruptor.
 from esfuerzo_redaccion import (  # noqa: E402
-    ACABADO_PLATINUM, OFERTA_TRAS_REVISION, PLANES_PLATINUM, PLANES_PRO,
+    ACABADO_PLATINUM, INSTRUCCION_CONTINUAR, INSTRUCCION_MODIFICAR,
+    MARCA_REEMPLAZA, OFERTA_TRAS_REVISION, PLANES_PLATINUM, PLANES_PRO,
     decidir_redaccion, intencion_del_mensaje, normalizar_esfuerzo,
-    normalizar_intencion,
+    normalizar_intencion, tipo_de_ajuste,
 )
 
 
@@ -2021,7 +2022,7 @@ _HISTORIAL_OMITIDO = "[…turno anterior omitido por extensión…]"
 _MARCADORES_DE_PANTALLA = (
     "FUENTES_PREVIAS", "CITATION_META", "PRECEDENTES_META", "REGISTROS_FUERA",
     "SOURCES", "PASO", "MODE", "PING", "CACHE", "SUSCRIPCION_SUSPENDIDA",
-    "ADVERTENCIA",
+    "ADVERTENCIA", "REEMPLAZA_ESCRITO",
 )
 # La apertura de un marcador. Lo demás —hasta su «-->» y los saltos de línea
 # de alrededor— lo recorre _limpiar_marcadores con str.find, no una
@@ -15756,6 +15757,10 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
     # Por qué se redacta cuando lo decide el mensaje: 'pide', 'ajuste',
     # 'acepta' o 'etiqueta' (lo eligió el abogado en el compositor).
     _via_redaccion = ""
+    # El retoque (28-sep-2026): 'modificar' entrega el escrito completo y la
+    # pantalla lo pone en lugar del anterior; 'continuar' sigue donde se quedó
+    # y se anexa. Vacío si no es un retoque. Ver esfuerzo_redaccion.py.
+    _tipo_ajuste = ""
     if "[MODO_REDACCION_PLATINUM]" in last_user_message:
         # Platinum va antes que Pro: comparte toda la ruta de Pro y sólo cambia
         # el motor, así que enciende ambas banderas.
@@ -15812,6 +15817,10 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                        "etiqueta": "lo pidió en la etiqueta del compositor"}.get(_via_redaccion, _via_redaccion)
             print(f"   ✍️ REDACCIÓN por lenguaje natural ({_motivo}) "
                   f"· esfuerzo pedido: {_esfuerzo_pedido or 'ninguno'}")
+            if _via_redaccion == "ajuste":
+                _tipo_ajuste = tipo_de_ajuste(last_user_message)
+                print(f"   🔁 RETOQUE: {_tipo_ajuste}"
+                      f"{' → sustituye al escrito anterior en la hoja' if _tipo_ajuste == 'modificar' else ' → se anexa'}")
 
     # El marcador Platinum enciende un motor que cuesta ~8× lo que cuesta Pro.
     # Esconder el botón en el frontend no basta: cualquiera puede escribir
@@ -17968,6 +17977,15 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                         dynamic_injections.append(_session_msg)
                         print(f"   🔗 SESSION CTX: materia={_session_ctx.get('materia_detectada','?')}, proceso={_session_ctx.get('proceso_detectado','?')}")
 
+                # EL RETOQUE, EN SU LUGAR (28-sep-2026): que modifique entregando
+                # el escrito completo —la pantalla lo pone en lugar del
+                # anterior— o que siga donde se quedó. Sólo con el prompt de
+                # redacción del chat: el de la tarjeta «Escrito legal» manda
+                # su propio esqueleto.
+                if _tipo_ajuste and is_chat_drafting and not (is_drafting and draft_tipo):
+                    dynamic_injections.append(
+                        INSTRUCCION_MODIFICAR if _tipo_ajuste == "modificar" else INSTRUCCION_CONTINUAR)
+
                 # Agregar historial conversacional, con tope. Ver
                 # `_recortar_historial`: una conversación que no cabe en la
                 # ventana del modelo no falla «a veces», falla SIEMPRE y desde
@@ -18282,6 +18300,12 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                     yield "<!--MODE:PRO-->"
                 elif is_chat_drafting:
                     yield "<!--MODE:PROFESIONAL-->"
+                # La respuesta sustituye al escrito anterior en la hoja. La
+                # pantalla la guarda pegada al mensaje, para que al volver a
+                # abrir la conversación la hoja se arme igual; al historial del
+                # modelo no llega (_MARCADORES_DE_PANTALLA).
+                if _tipo_ajuste == "modificar" and is_chat_drafting and not (is_drafting and draft_tipo):
+                    yield MARCA_REEMPLAZA
 
                 # ── Emit RAG source count for frontend (filterable) ──
                 if search_results:

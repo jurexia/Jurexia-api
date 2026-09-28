@@ -2,8 +2,9 @@
 import json
 
 from esfuerzo_redaccion import (
-    ACABADO_PLATINUM, NOTA_PARA_EL_ABOGADO, OFERTA_TRAS_REVISION, ROTULO_NOTA,
-    _sin_marcadores, decidir_redaccion, detectar_redaccion,
+    ACABADO_PLATINUM, MARCA_REEMPLAZA, NOTA_PARA_EL_ABOGADO,
+    OFERTA_TRAS_REVISION, ROTULO_NOTA, _sin_marcadores, decidir_redaccion,
+    detectar_redaccion, tipo_de_ajuste,
     es_ajuste_de_escrito, esfuerzo_permitido, intencion_del_mensaje,
     normalizar_esfuerzo, normalizar_intencion, parece_escrito, pide_escrito,
 )
@@ -271,6 +272,21 @@ def main() -> None:
     con_nota = ESCRITO + "\n\n## NOTA PARA EL ABOGADO\n\n- Verifique el plazo de quince días.\n" + meta
     assert intencion_del_mensaje("Agrega un concepto de violación", con_nota) == "ajuste"
     assert intencion_del_mensaje("Sí", con_nota) == ""
+
+    # EL RETOQUE, EN SU LUGAR (28-sep-2026): el que modifica sustituye al
+    # escrito anterior en la hoja; el que continúa se anexa.
+    for m in ("continúa", "Continúa, por favor", "sigue desde donde te quedaste",
+              "Termina el escrito", "ok, sigue", "Por favor termina los puntos petitorios",
+              "continúa con los puntos petitorios", "puedes continuar"):
+        assert tipo_de_ajuste(m) == "continuar", m
+    for m in ("agrega un concepto de violación", "corrige el nombre del quejoso",
+              "hazlo más formal", "completa los datos del quejoso", "quita el tercer hecho",
+              "Sigue el mismo formato pero agrega un agravio",
+              "sigue con la misma estructura y cambia la autoridad"):
+        assert tipo_de_ajuste(m) == "modificar", m
+    # Un retoque sobre un retoque: la marca guardada no esconde el escrito.
+    assert intencion_del_mensaje("Agrega otro concepto", MARCA_REEMPLAZA + ESCRITO + meta) == "ajuste"
+    assert _sin_marcadores(MARCA_REEMPLAZA + "texto") == "texto"
 
     # El plan manda sobre el desplegable.
     assert esfuerzo_permitido("platinum", "platinum_monthly") == "platinum"
