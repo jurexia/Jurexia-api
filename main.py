@@ -776,13 +776,17 @@ cree que debería tener la norma y no la ve, la reconstruye.
   Potosí, Sonora, Tabasco, Tamaulipas, Tlaxcala, Zacatecas.
 
 REGLA: no cites de memoria un ordenamiento estatal que no tengas delante,
-ni afirmes lo que dice. Si no lo tienes, NO lo inventes: nombra la norma
-federal o supletoria que sí puedes citar y sigue adelante con esa.
+ni afirmes lo que dice. Si no lo tienes, NO lo inventes ni lo sustituyas por
+una ley federal: el Código Civil Federal y el Código Federal de
+Procedimientos Civiles no son supletorios de los códigos de un estado. Di qué
+ordenamiento local te falta y sigue con lo que sí rige el caso y tienes
+delante: la Constitución, los tratados, las leyes generales o nacionales
+aplicables y la jurisprudencia que interpreta la institución.
 
 Y dilo en la lengua del abogado, no en la tuya. «No dispongo del texto
-vigente del Código Civil de Tlaxcala; me apoyo en el Código Civil Federal
-como supletorio» es correcto. «No se recuperó» o «no está en el contexto»
-NO lo es: son palabras de máquina y no significan nada para quien lee.
+vigente del Código Civil de Tlaxcala» es correcto. «No se recuperó» o «no
+está en el contexto» NO lo es: son palabras de máquina y no significan nada
+para quien lee.
 
 JURISPRUDENCIA:
 - Tesis y Jurisprudencias de la SCJN (1917-2025)
@@ -1510,7 +1514,7 @@ DEBES IGNORAR todo tono conversacional o introductorio (e.g. "¡Claro! Aquí tie
 - Tu ÚNICA FUENTE válida para fundamentar son los documentos inyectados en el contexto (Leyes, Jurisprudencias).
 - CITA TEXTUAL de la Jurisprudencia: Usa los ATRIBUTOS del tag <documento> del XML del contexto. P.ej: "[RUBRO del texto]" -- *[atributo instancia=], Registro digital: [atributo registro=]* [Doc ID: uuid]. Si el tag <documento> NO tiene atributo registro= o instancia=, OMITE esos datos de tu cita. NUNCA inventes un registro digital ni un número de tesis — tus datos de training son obsoletos y frecuentemente incorrectos.
 - PROHIBIDO añadir notas, avisos ni bloques "Información al usuario" dentro o al final del escrito. El documento legal se entrega LIMPIO, sin disclaimers. Si el RAG no contiene una tesis específica, mencionalo dentro del mismo párrafo como parte de la argumentación (ej: 'conforme al criterio aplicable en la materia...') sin interrumpir la prosa ni añadir pie de página explicativo.
-- Si el RAG tiene documentos suficientes para el tema, ÚSALOS TODOS. No te limites a los 2 o 3 primeros — revisa CADA documento del contexto y extrae su ratio decidendi si es relevante. Integra al menos 5-8 fuentes distintas en tu argumentación cuando estén disponibles, entrelazando legislación federal, estatal, jurisprudencia y tratados internacionales en un tejido argumentativo cohesivo.
+- Si el RAG tiene documentos suficientes para el tema, aprovéchalos. No te limites a los 2 o 3 primeros — revisa CADA documento del contexto y extrae su ratio decidendi si es relevante. Integra al menos 5-8 fuentes distintas en tu argumentación cuando estén disponibles y sean aplicables, entrelazando la legislación que rige el caso con la jurisprudencia que la interpreta y, cuando el asunto lo amerite, con los tratados internacionales, en un tejido argumentativo cohesivo. Una ley que no rige el caso no suma fuentes: resta rigor (ver LEY APLICABLE).
 
 ────────────────────────────────────────────────────────────────
  MODELOS DE ESTILO (PROHIBIDO CITAR)
@@ -1688,14 +1692,20 @@ ningún tribunal.
 """
 
 
+# La ley aplicable por materia (28-sep-2026): las reglas viven en
+# ley_aplicable.py, con su porqué, y van entre el núcleo y los registros —antes
+# de que el modelo elija cómo escribir, después de que sepa con qué fundar—.
+import ley_aplicable  # noqa: E402
+
+
 def _build_chat_drafting_prompt() -> str:
-    """El prompt del botón Redactar: núcleo común + los tres registros.
+    """El prompt del botón Redactar: núcleo común + ley aplicable + los tres registros.
 
     Se arma una sola vez al importar. Los tres escalones (Profesional, Pro y
     Platinum) reciben EXACTAMENTE este texto; lo que los distingue es el motor
     y el esfuerzo de razonamiento, no el prompt. Ver `motores.py`.
     """
-    return _REDACCION_NUCLEO + _REDACCION_REGISTROS
+    return _REDACCION_NUCLEO + ley_aplicable.REGLAS_REDACCION + _REDACCION_REGISTROS
 
 
 SYSTEM_PROMPT_CHAT_DRAFTING = _build_chat_drafting_prompt()
@@ -9575,6 +9585,76 @@ async def _inyectar_codigo_de_la_materia(merged: list, materia_key: str, _select
     return merged
 
 
+# El código procesal del estado, por NOMBRE (28-sep-2026, ley_aplicable.py).
+_PATRONES_PROCESAL_LOCAL = [
+    r"\bc\s?o?\s?digo (?:de )?(?:procedimientos?|proceimientos) civil(?:es)?\b",
+    r"\bc\s?o?\s?digo (?:de )?procedimientos? familiar(?:es)?\b",
+]
+
+
+async def _articulos_de_la_via(consulta: str, estado: Optional[str], limite: int = 3) -> List[SearchResult]:
+    """Los artículos del código procesal del estado que fijan la vía de la pretensión.
+
+    El escrito de la pensión (28-sep-2026) dijo «vía ordinaria» porque el
+    artículo que manda sumarios los juicios de alimentos nunca llegó al
+    contexto: la consulta hablaba de un papá que dejó de pagar, no de vías.
+    Esto lo busca con el vocabulario de los códigos (ver
+    ley_aplicable.consulta_de_via), filtrando por el NOMBRE del código procesal
+    como hace _inyectar_codigo_de_la_materia. Nunca lanza: si algo falla, [].
+    """
+    try:
+        col = _silo_del_estado(estado)
+        if not (col and consulta):
+            return []
+        campo, patrones = "origen", _PATRONES_PROCESAL_LOCAL
+        _vig = ley_aplicable.vigencia_cnpcf(estado)
+        if _vig and _vig["alcance"] == "plena":
+            # Donde el Código Nacional ya rige todo lo nuevo (la CDMX), la vía
+            # se busca en él: el código anterior de la entidad daría la vía
+            # de un procedimiento que ya no se usa. La federal guarda el
+            # nombre en `ley`, como sabe _inyectar_codigo_de_la_materia.
+            col, campo = FIXED_SILOS["federal"], "ley"
+            patrones = [r"\bc\s?o?\s?digo nacional de procedimientos civiles"]
+        nombres = [orig for norm_, orig in await _nombres_de_coleccion(col)
+                   if any(re.search(p, norm_) for p in patrones)]
+        if not nombres:
+            print(f"   ⚖️ VÍA PROCESAL: {col} no tiene código procesal civil o familiar")
+            return []
+        base = get_filter_for_silo(col, estado) if campo == "origen" else None
+        must = list(base.must) if (base and base.must) else []
+        must.append(FieldCondition(key=campo, match=MatchAny(any=nombres)))
+        resultados = await hybrid_search_single_silo(
+            collection=col, query=consulta,
+            dense_vector=await get_dense_embedding(consulta),
+            sparse_vector=get_sparse_embedding(consulta),
+            filter_=Filter(must=must), top_k=limite * 3, alpha=0.7,
+        )
+        norm = {_normalizar_nombre_ley(n) for n in nombres}
+        elegidos, vistos = [], set()
+        for r in resultados:
+            if not r.origen and campo == "ley":
+                # La federal guarda el nombre en `ley` y el texto lo lleva en su
+                # migaja; si el filtro no se aplicó, la migaja delata otra ley.
+                r.origen = infer_source_from_text(r.texto or "")[0] or nombres[0]
+            # El reintento sin filtro puede traer otra ley: sólo el código procesal.
+            if _normalizar_nombre_ley(r.origen or "") not in norm:
+                continue
+            # leyes_cdmx guarda dos versiones del mismo código: el artículo, una vez.
+            clave = (_normalizar_nombre_ley(r.origen or ""), (r.ref or "").strip().lower(),
+                     " ".join((r.texto or "").split())[:80].lower())
+            if clave in vistos:
+                continue
+            vistos.add(clave)
+            r.score = max(r.score, 0.90)   # como la inyección del código: que no caiga en el recorte
+            elegidos.append(r)
+            if len(elegidos) >= limite:
+                break
+        return elegidos
+    except Exception as e:
+        print(f"   ⚠️ VÍA PROCESAL: la búsqueda falló (no fatal): {err(e)}")
+        return []
+
+
 async def hybrid_search_all_silos(
     query: str,
     estado: Optional[str],
@@ -16595,6 +16675,24 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                         )
 
                     print(f"   🔍 MULTI-QUERY: {len(_search_tasks)} búsquedas en paralelo (drafting={is_chat_drafting}, constitucional={_needs_const_query})")
+
+                    # ── LA VÍA SE FUNDA (28-sep-2026, ley_aplicable.py) ──────
+                    # En un escrito de fuero común, el artículo del código
+                    # procesal del estado que fija la vía de la pretensión. La
+                    # consulta no lo nombra —habla del papá que dejó de pagar,
+                    # no de vías— y sin él el modelo elegía la ordinaria por
+                    # descarte. Corre en paralelo con la búsqueda: no suma
+                    # espera. La materia sale sólo del texto, que ya está aquí;
+                    # el Estratega todavía no ha vuelto. Apagable sin desplegar.
+                    _via_task = None
+                    if is_chat_drafting and os.getenv("VIA_PROCESAL_ACTIVA", "true").lower() != "false":
+                        _m_via = ley_aplicable.materia(last_user_message, elegida=request.materia)
+                        _consulta_via = ley_aplicable.consulta_de_via(
+                            ley_aplicable.conceptos_de_via(last_user_message, _m_via))
+                        if _consulta_via and _silo_del_estado(effective_estado):
+                            _via_task = asyncio.create_task(
+                                _articulos_de_la_via(_consulta_via, effective_estado))
+
                     # Run search + pre-search LLM in parallel (saves ~1.5-2s)
                     _multi_results, (legal_plan, hyde_doc) = await asyncio.gather(
                         asyncio.gather(*_search_tasks),
@@ -16608,6 +16706,31 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                     # El Estratega ya dictaminó: que su veredicto salga de aquí.
                     if isinstance(legal_plan, dict):
                         _plan_estratega.update(_fuero_coherente(legal_plan, effective_estado))
+
+                    # ── LA LEY LA DECIDE LA MATERIA, NO EL LUGAR ─────────────
+                    # (28-sep-2026, ley_aplicable.py) «Un pagaré en Querétaro»
+                    # es mercantil y «me corrieron en Querétaro» es laboral:
+                    # las dos se rigen por ley federal aunque las conozca una
+                    # autoridad del estado. El Estratega dictaminaba «estatal» o
+                    # «mixto» por el nombre del estado, y con eso no se
+                    # encendían ni el freno de ruido local ni la jerarquía
+                    # federal del prompt: el escrito salía fundado en el código
+                    # de procedimientos y el código civil del estado. Un fuero
+                    # que el usuario eligió a mano no se toca.
+                    _materia_ley = ley_aplicable.materia(
+                        last_user_message, estratega=_plan_estratega.get("materia_principal"),
+                        elegida=request.materia)
+                    _plan_estratega["materia_ley"] = _materia_ley
+                    # El estado que se nombra en la pregunta vive aquí y no en
+                    # generate_stream (allí `locals()` no lo ve y el bloque por
+                    # estado sólo conoce el del selector): viaja por el buzón.
+                    _plan_estratega["estado_ley"] = effective_estado
+                    _fuero_antes = (_plan_estratega.get("fuero_detectado") or "").lower().strip()
+                    if (ley_aplicable.es_federal(_materia_ley) and not (request.fuero or "").strip()
+                            and _fuero_antes not in ("federal", "constitucional")):
+                        _plan_estratega["fuero_detectado"] = "federal"
+                        print(f"   ⚖️ LEY APLICABLE: materia {_materia_ley} → fuero federal "
+                              f"(el Estratega dijo «{_fuero_antes or 'nada'}»)")
 
                     # Fusionar resultados con deduplicación (el primero gana — mayor relevancia)
                     _seen_ids = set()
@@ -16762,6 +16885,19 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                         except Exception as _e_materia:
                             print(f"   ⚠️ Suplemento de materia falló (no fatal): {err(_e_materia)}")
 
+                    if _via_task is not None:
+                        # Delante, como la pasada por concepto: el artículo de
+                        # la vía es lo primero que el escrito tiene que fundar.
+                        try:
+                            _vistos = {r.id for r in semantic_results}
+                            _de_via = [r for r in await _via_task if r.id not in _vistos]
+                            if _de_via:
+                                semantic_results = _de_via + semantic_results
+                            print(f"   ⚖️ VÍA PROCESAL: +{len(_de_via)} artículo(s) del código procesal "
+                                  f"de {effective_estado}: {[getattr(r, 'ref', '') for r in _de_via]}")
+                        except Exception as _e_via:
+                            print(f"   ⚠️ Vía procesal falló (no fatal): {err(_e_via)}")
+
                     # ── FRENO DE RUIDO LOCAL EN MATERIA FEDERAL ──────────────
                     # La búsqueda arranca ANTES de que el Estratega dictamine
                     # —van en paralelo para ahorrar dos segundos— así que se
@@ -16805,10 +16941,14 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
 
                     
                     # Merge: Direct Lookup al frente (artículos exactos primero)
+                    # Lo que el usuario citó por su nombre no lo quita el
+                    # filtro de ley ajena de más abajo: lo pidió él.
+                    _ids_explicitos = set()
                     if _has_explicit_citations:
                         try:
                             direct_results = await _direct_task
                             seen_ids = {r.id for r in direct_results}
+                            _ids_explicitos = set(seen_ids)
                             # Añadir semánticos no duplicados al final
                             for r in semantic_results:
                                 if r.id not in seen_ids:
@@ -16840,7 +16980,42 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                             )
                         except Exception as _salto_err:
                             print(f"   ⚠️ Salto interno falló (no fatal): {_salto_err}")
-                    
+
+                    # ── LA LEY QUE NO RIGE EL ASUNTO NO ENTRA (28-sep-2026) ──
+                    # La regla del prompt no bastó sola: con los quince artículos
+                    # del Código Civil Federal delante, el contrato de renta lo
+                    # volvió a llamar «supletorio», y con la ley burocrática del
+                    # estado delante, el despido se escribió para un empleado
+                    # del gobierno. Va al final, después de los cruces y del
+                    # salto interno, que también traen artículos. Qué sale, en
+                    # ley_aplicable.es_ley_ajena. Nunca con amparo ni con fuero
+                    # elegido a mano. Apagable sin desplegar.
+                    if (_materia_ley and os.getenv("LEY_AJENA_FUERA", "true").lower() != "false"
+                            and not (request.fuero or "").strip()
+                            and (_plan_estratega.get("fuero_detectado") or "").lower() != "constitucional"
+                            and (ley_aplicable.es_federal(_materia_ley) or _silo_del_estado(effective_estado))):
+                        # Los artículos de leyes_federales llegan aquí SIN
+                        # `origen`: el nombre de la ley se deduce del texto al
+                        # armar el contexto. Sin esto el filtro no veía el
+                        # Código Civil Federal (medido: 15 de 15 se colaban en
+                        # el contrato de renta). Idempotente: después se vuelve
+                        # a llamar y ya no hay nada que rellenar.
+                        enrich_missing_metadata(search_results)
+                        _fuera_ajena: Dict[str, int] = {}
+                        _quedan = []
+                        for _r in search_results:
+                            if (_r.id not in _ids_explicitos and ley_aplicable.es_ley_ajena(
+                                    _materia_ley, getattr(_r, "silo", ""), getattr(_r, "origen", ""),
+                                    last_user_message, estado=effective_estado)):
+                                _k = (getattr(_r, "origen", "") or "?")[:48]
+                                _fuera_ajena[_k] = _fuera_ajena.get(_k, 0) + 1
+                                continue
+                            _quedan.append(_r)
+                        if _fuera_ajena:
+                            print(f"   ⚖️ LEY AJENA FUERA ({_materia_ley}): {len(search_results) - len(_quedan)} "
+                                  f"de {len(search_results)} → {_fuera_ajena}")
+                            search_results = _quedan
+
                     doc_id_map = build_doc_id_map(search_results)
                     context_xml = format_results_as_xml(search_results, estado=effective_estado, prose_mode=is_chat_drafting)
                     # Corte IDH (revisión A.3): los párrafos citados van en su
@@ -17583,6 +17758,38 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                 print(f"   ⚖️ FUERO PARA EL PROMPT: {_effective_fuero_for_prompt or 'sin determinar'} "
                       f"(manual={request.fuero or 'no'} · estratega={_plan_estratega.get('fuero_detectado', 'no llegó')})")
 
+                # LEY APLICABLE POR MATERIA (28-sep-2026, ley_aplicable.py):
+                # mercantil y laboral se rigen por ley federal aunque el asunto
+                # ocurra en un estado. Se calcula FUERA del bloque por estado:
+                # ése sólo corre con el estado del selector, y en la prueba del
+                # despido el estado venía en la pregunta («me corrieron en
+                # Querétaro»), así que la instrucción nunca llegó al modelo. El
+                # estado sale del buzón (el de la pregunta manda, como en la
+                # búsqueda). Con fuero constitucional (amparo) manda el bloque
+                # de siempre, y con un fuero elegido a mano también.
+                _instr_ley = None
+                if (_effective_fuero_for_prompt != "constitucional"
+                        and not (request.fuero or "").strip()):
+                    _ent_ley = _plan_estratega.get("estado_ley") or _estado_for_llm
+                    _instr_ley = ley_aplicable.instruccion(
+                        _plan_estratega.get("materia_ley"),
+                        _ent_ley.replace("_", " ").title() if _ent_ley else None)
+                if _instr_ley and not _estado_for_llm:
+                    dynamic_injections.append(_instr_ley)
+                    print(f"   📍 LEY APLICABLE {_plan_estratega.get('materia_ley')} inyectada "
+                          f"(estado de la pregunta: {_plan_estratega.get('estado_ley') or 'ninguno'})")
+                # Qué código procesal rige un asunto local: sólo donde está
+                # verificado (ley_aplicable.VIGENCIA_CNPCF). En la CDMX el
+                # Código Nacional rige ya todo lo nuevo; en Querétaro, apenas un
+                # distrito. Sin esta línea el escrito mezclaba los dos códigos.
+                _ent_proc = _plan_estratega.get("estado_ley") or _estado_for_llm
+                _instr_proc = ley_aplicable.instruccion_procesal(
+                    _plan_estratega.get("materia_ley"), _ent_proc)
+                if _instr_proc:
+                    dynamic_injections.append(_instr_proc)
+                    print(f"   📍 CÓDIGO PROCESAL de {_ent_proc}: Código Nacional con vigencia "
+                          f"{ley_aplicable.vigencia_cnpcf(_ent_proc)['alcance']}")
+
                 if _estado_for_llm:
                     estado_humano = _estado_for_llm.replace("_", " ").title()
 
@@ -17595,7 +17802,16 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                     _has_local_genio = any(g in ["civil", "laboral", "familiar"] for g in _resolved_genio_ids)
                     _is_multi_genio = len(_resolved_genio_ids) > 1
 
-                    if _is_federal_or_const and not _has_local_genio:
+                    # La ley aplicable por materia (calculada arriba) va antes
+                    # que el bloque de fuero federal porque aquél ordena no
+                    # mencionar el estado, y en un escrito el estado es el que
+                    # dice ante qué juez o centro se presenta.
+                    if _instr_ley:
+                        _estado_prompt = _instr_ley
+                        print(f"   📍 Estado inyectado al LLM (LEY APLICABLE "
+                              f"{_plan_estratega.get('materia_ley')}: ley federal; "
+                              f"{estado_humano} sólo decide la autoridad)")
+                    elif _is_federal_or_const and not _has_local_genio:
                         # FUERO FEDERAL/CONSTITUCIONAL detectado → jerarquía federal SIEMPRE
                         # Esto aplica tanto en chat normal como en modo redacción
                         # NI UNA LÍNEA EXPLICANDO POR QUÉ NO SE USA EL ESTADO (19-sep-2026)
@@ -17669,8 +17885,15 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                             f"2. En la sección '## Fundamento Legal', TRANSCRIBE PRIMERO los artículos "
                             f"TEXTUALES de las leyes de {estado_humano} que estén en el contexto. "
                             f"Copia el texto del artículo tal como aparece en el contexto con su [Doc ID: uuid].\n"
-                            f"3. Las leyes federales (Código Civil Federal, etc.) son SUPLETORIAS — "
-                            f"cítalas DESPUÉS de los artículos locales, no en lugar de ellos.\n"
+                            # Decía «Las leyes federales (Código Civil Federal,
+                            # etc.) son SUPLETORIAS»: falso, y el contrato de renta
+                            # del 28-sep-2026 lo obedeció quince veces. Ver
+                            # ley_aplicable.py.
+                            f"3. Lo federal entra sólo cuando rige por sí mismo —la Constitución, los "
+                            f"tratados, una ley general o nacional aplicable— y se cita DESPUÉS de los "
+                            f"artículos locales, no en lugar de ellos. El Código Civil Federal y el Código "
+                            f"Federal de Procedimientos Civiles NO son supletorios de las leyes de "
+                            f"{estado_humano}: no los cites como fundamento ni como supletorios.\n"
                             f"4. La jurisprudencia COMPLEMENTA el fundamento legal, no lo reemplaza. "
                             f"Primero cita el artículo de la ley local, luego la tesis que lo interpreta.\n"
                             f"5. NUNCA digas 'consulte la ley local' ni 'esos textos no se transcriben aquí' "
