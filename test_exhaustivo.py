@@ -535,8 +535,17 @@ PLAN6 = {"segmentos": [
 _SIN_EF = ESTUDIO.split("\n\nEFECTOS DE LA CONCESIÓN")[0]
 ok([f["id"] for f in X.revisar_texto(_SIN_EF, SEGS, CRIT, PROB)["sin_dato"]] == ["C1.b", "C2.a"],
    "sin el plan, los dos declarados sin estudio se acusan (como siempre)")
-ok([f["id"] for f in X.revisar_texto(_SIN_EF, SEGS, CRIT, PROB, plan=PLAN6)["sin_dato"]] == ["C2.a"],
-   "con el plan, el innecesario por suficiencia ya no: su declaración es del principal (sin efectos)")
+ok([f["id"] for f in X.revisar_texto(_SIN_EF, SEGS, CRIT, PROB, plan=PLAN6, concede=False)["sin_dato"]]
+   == ["C2.a"],
+   "con el plan, en un asunto que NO concede (un «revoca y niega»), el innecesario por suficiencia ya no: su "
+   "declaración es del principal")
+# LA CONCESIÓN PARA EFECTOS, CON EL SENTIDO Y NO CON EL TEXTO (revisión
+# adversarial, 28-sep-2026): el estudio de un asunto que concede y que no
+# escribió EFECTOS no puede perder la red de 0ad0379.
+ok([f["id"] for f in X.revisar_texto(_SIN_EF, SEGS, CRIT, PROB, plan=PLAN6, concede=True)["sin_dato"]]
+   == ["C1.b", "C2.a"]
+   and [f["id"] for f in X.revisar_texto(_SIN_EF, SEGS, CRIT, PROB, plan=PLAN6)["sin_dato"]] == ["C1.b", "C2.a"],
+   "si concede —o no se sabe— y el estudio no escribió EFECTOS, el innecesario con dato se sigue acusando")
 ok([f["id"] for f in X.revisar_texto(ESTUDIO, SEGS, CRIT, PROB, plan=PLAN6)["sin_dato"]] == ["C1.b", "C2.a"],
    "…salvo en una concesión PARA EFECTOS: su dato sigue yendo a los EFECTOS (0ad0379)")
 _p_deriva = {"segmentos": [{"id": "C1.b", "etiqueta": "inoperante", "razon": "deriva_de_desestimado"}]}
@@ -550,15 +559,35 @@ ok(X.sin_consecuencia_del_plan([{"id": "C1.b"}], None) == [{"id": "C1.b"}],
    "sin plan (v3), nada cambia")
 ok([x["ids"] for x in X.sin_materia_por_su_cuenta(PS, MAPA, SEGS, CRIT, PROB)] == [["C1.b"]]
    and X.sin_materia_por_su_cuenta(PS, MAPA, SEGS, CRIT, PROB, plan=PLAN6) == [],
-   "en sombra: con el plan, la etiqueta del argumento manda sobre la de su problema (casa con el plan)")
+   "en sombra: con el plan, lo que resuelve por consecuencia no se acusa (casa con el plan)")
+# SÓLO LO QUE EL PLAN RESUELVE POR CONSECUENCIA (revisión adversarial,
+# 28-sep-2026): un inoperante autónomo que el estudio declara sin estudio por
+# su cuenta se sigue acusando, y un inoperante en cualquier sitio del plan ya
+# no apaga la frase de «los restantes».
+_p_inop = {"segmentos": [{"id": "C1.a", "etiqueta": "fundado", "razon": "fundado"},
+                         {"id": "C1.b", "etiqueta": "inoperante", "razon": "no_combate", "dependencia": "autonomo"}]}
+ok([x["ids"] for x in X.sin_materia_por_su_cuenta(PS, MAPA, SEGS, CRIT, PROB, plan=_p_inop)] == [["C1.b"]],
+   "un inoperante autónomo del plan no sustituye al sentido del criterio: se sigue acusando")
+_ps_rest6 = ["Se estudia primero el primer concepto, cuya solución hace innecesario examinar los restantes."]
+ok(X.sin_materia_por_su_cuenta(_ps_rest6, {}, [], [CRIT[0]], PROB, plan=_p_inop)
+   and not X.sin_materia_por_su_cuenta(_ps_rest6, {}, [], [CRIT[0]], PROB, plan=PLAN6),
+   "«los restantes»: se exceptúa sólo si el plan tiene algún innecesario por suficiencia")
 _mat4 = f6.Material(tipo_asunto="amparo_directo", variante="v4", inventario=SEGS, problemas=PROB)
-ok([f["id"] for f in ra._por_completar(_mat4, CRIT, _SIN_EF, PLAN6)] == ["C2.a"]
+ok([f["id"] for f in ra._por_completar(_mat4, CRIT, _SIN_EF, PLAN6, False)] == ["C2.a"]
+   and [f["id"] for f in ra._por_completar(_mat4, CRIT, _SIN_EF, PLAN6)] == ["C1.b", "C2.a"]
    and [f["id"] for f in ra._por_completar(_mat4, CRIT, _SIN_EF)] == ["C1.b", "C2.a"],
-   "`_por_completar` recibe el plan del encargo")
+   "`_por_completar` recibe el plan del encargo y si el asunto concede")
 for nombre in ("resolver", "resolver_en_vivo"):
     _fn = next(n for n in ARBOL_RA.body if isinstance(n, ast.AsyncFunctionDef) and n.name == nombre)
-    ok("_por_completar(material, criterios, estudio, _plan_del_estudio(r))" in ast.get_source_segment(SRC_RA, _fn),
-       f"{nombre}: le pasa el plan con que se escribió el estudio")
+    ok(" ".join("_por_completar(material, criterios, estudio, _plan_del_estudio(r), "
+                "_concede_del_estudio(r, criterios))".split())
+       in " ".join(ast.get_source_segment(SRC_RA, _fn).split()),
+       f"{nombre}: le pasa el plan con que se escribió el estudio y si el asunto concede")
+_r_rev = types.SimpleNamespace(encargo=types.SimpleNamespace(tipo_asunto="amparo_directo"))
+ok(ra._concede_del_estudio(_r_rev, CRIT) is True and ra._concede_del_estudio(None, CRIT) is True
+   and ra._concede_del_estudio(types.SimpleNamespace(encargo=types.SimpleNamespace(tipo_asunto="amparo_directo")),
+                               [CRIT[1]]) is False,
+   "si el asunto concede, con el sentido (amparo directo: algún problema prospera)")
 _r_pl = types.SimpleNamespace(encargo=types.SimpleNamespace(plan={"estado": "usado", "plan": PLAN6}))
 ok(ra._plan_del_estudio(_r_pl) is PLAN6 and ra._plan_del_estudio(types.SimpleNamespace()) is None,
    "el plan del encargo, o None (v3)")

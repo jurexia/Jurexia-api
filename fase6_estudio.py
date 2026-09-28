@@ -3441,12 +3441,28 @@ _REEMPLAZOS_JERARQUIA = (
      "  revocan. Si el secretario la eligió, respétala y di en qué parte se le da la\n"
      "  razón y en cuál no; dentro de un grupo que la JERARQUÍA del guion resuelve\n"
      "  con su principal, se acota una vez para el grupo, no por argumento."),
+    # LAS CUATRO QUE SEGUÍAN PIDIENDO UNA RESPUESTA POR ARGUMENTO (revisión
+    # adversarial, 28-sep-2026): con ellas intactas el modelo tenía cómo
+    # justificar un párrafo y un «Es fundado…» para cada argumento que la
+    # jerarquía manda contestar con su principal, y volvía a mezclar. La
+    # cuarta, la EXTENSIÓN del bloque del guion, se ajusta en `plan_estudio`.
+    ("demostrarla, y no cambia la del problema.",
+     "demostrarla, y no cambia la del problema. Salvo lo que la JERARQUÍA del guion\n"
+     "resuelve por consecuencia de su principal: eso lleva la calificación y la\n"
+     "respuesta de su grupo, no una propia."),
+    ("     frase. Sólo la proposición se comparte; el hecho es de cada argumento.",
+     "     frase. Sólo la proposición se comparte; el hecho es de cada argumento. Lo\n"
+     "     que la JERARQUÍA del guion resuelve por consecuencia de su principal se\n"
+     "     contesta dentro de la respuesta de su grupo, con su dato y su marca."),
+    ("  cifra, un precepto, un precedente— reciba su respuesta, aunque eso alargue",
+     "  cifra, un precepto, un precedente— reciba su respuesta —la de su grupo si la\n"
+     "  JERARQUÍA del guion lo resuelve por consecuencia de su principal—, aunque eso alargue"),
 )
 
 
 def _con_jerarquia(base: str) -> str:
-    """La v3 con los cinco ajustes de la JERARQUÍA. Cada uno, una vez; el que
-    no encuentra su texto no hace nada (la v3 sigue valiendo tal cual)."""
+    """La v3 con los ajustes de la JERARQUÍA. Cada uno, una vez; el que no
+    encuentra su texto no hace nada (la v3 sigue valiendo tal cual)."""
     for viejo, nuevo in _REEMPLAZOS_JERARQUIA:
         base = base.replace(viejo, nuevo, 1)
     return base

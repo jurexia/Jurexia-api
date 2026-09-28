@@ -625,11 +625,20 @@ ok(_g.count("objeción aquí, una vez") == 1 and _g.index("objeción aquí") < _
 # plan-6: la Decisión 6 se retiró. Nada va a ADVERTENCIAS por eso: arriba,
 # la JERARQUÍA del problema, y lo que va con el principal en su mismo
 # apartado entra en su renglón.
+# En un problema que NO prospera, «con el principal» se dice en su dirección:
+# desestimados por las mismas razones (revisión adversarial, 28-sep-2026).
 ok("PENDIENTE DE RAZÓN" not in _g and "ADVERTENCIAS" not in _g
-   and "JERARQUÍA DEL PROBLEMA 1 (infundado): DECIDE C1.a (ataca P1) · CON EL PRINCIPAL: C1.b, C3.a, C3.b" in _g
-   and "decide el problema 1 · con el principal: C1.b (P1) · dato (escrito)" in _g
+   and ("JERARQUÍA DEL PROBLEMA 1 (infundado): DECIDE C1.a (ataca P1) · CON EL PRINCIPAL, POR LAS MISMAS "
+        "RAZONES: C1.b, C3.a, C3.b") in _g
+   and "decide el problema 1 · con el principal, por las mismas razones: C1.b (P1) · dato (escrito)" in _g
    and "APLICA C1.b" not in _g,
    "sin pendiente de razón: la jerarquía arriba y el que va con el principal, dentro de su renglón")
+# EL QUE CONSERVA «DESARROLLA» CON SU DIFERENCIA LLEVA SU RENGLÓN (revisión
+# adversarial, 28-sep-2026): C3.b trae un precedente que la premisa no
+# contesta; sigue a C1.a, pero no se reduce a una mención dentro de su renglón.
+ok("DESARROLLA C3.b" in _g and "diferencia: precedente" in _g
+   and "con el principal, por las mismas razones: sigue a C1.a (P1), apartado 1" in _g,
+   "el que va con el principal y trae una diferencia que desarrollar, en su renglón: a quién sigue y qué trae")
 ok("dato (escrito): «una superficie de 2.5 hectáreas" in _g, "el dato verificado, literal, con su fuente")
 ok("EXTENSIÓN (techo, no meta)" not in _g and "≤" not in _g,
    "sin techo por apartado en el guion (David, 26-sep: la brevedad no es el objetivo)")
@@ -675,8 +684,17 @@ ok(seg(_vacia, "C3.b")["pendiente"] is None and seg(_vacia, "C3.b")["dependencia
 ok(pe.resolver_por_dependencia(_vacia) == _vacia, "resolver por dependencia es idempotente")
 ok(pe.leer_razones_segmento("{roto") == {} and pe.leer_razones_segmento("") == {},
    "un JSON roto se trata como vacío")
-ok(seg(pe.aplicar_razones(_pb, {"C1.a": "otra cosa"}), "C1.a").get("razon_secretario") is None,
-   "sólo se aplica a los pendientes de razón (un plan-6 no los tiene: no hace nada)")
+# SOBRE UN PLAN-6 (revisión adversarial, 28-sep-2026): la razón de una pantalla
+# abierta antes del despliegue ya no se descarta en silencio.
+_a6 = pe.aplicar_razones(_pb, {"C1.a": "otra cosa"})
+ok(seg(_a6, "C1.a").get("razon_secretario") == "otra cosa",
+   "sobre un plan-6 (sin pendientes), la razón escrita en una pantalla anterior entra igual como suya")
+_pb_inn = copy.deepcopy(_pb)
+seg(_pb_inn, "C3.b").update(etiqueta="innecesario", razon="innecesario_por_suficiencia", trat="no_se_estudia")
+_a6 = pe.aplicar_razones(_pb_inn, {"C3.b": "otra cosa"})
+ok(seg(_a6, "C3.b").get("razon_secretario") is None
+   and any("pantalla anterior" in a and "C3.b" in a for a in _a6["avisos_al_secretario"]),
+   "…y la del argumento que el plan deja sin estudio no se usa, pero se dice")
 ok(any("C3.b" in x and "pendiente de razón" in x for x in _v0(_pv)),
    "V0 rechaza el pendiente de razón que quede")
 _p7 = pe.prompt_plan(tipo_asunto="amparo_directo", probs=pe.problemas_del_criterio(crit(), fases()),
@@ -821,8 +839,10 @@ for forma in ("estandar", "moderna"):
     ok(_v4_sin == _v3, f"{forma}: la v4 = la v3 + el guion (y los ajustes de su jerarquía), ni un carácter más")
     # (El de la regla de las marcas sólo está con inventario: aquí no lo hay.)
     _aplican = [(_v, _n) for _v, _n in f6._REEMPLAZOS_JERARQUIA if _v in _v3]
-    ok(pe._RX_JERARQUIA in _g and len(_aplican) == 4 and all(_n in _v4 for _, _n in _aplican),
-       f"{forma}: con JERARQUÍA en el guion entran los ajustes del texto heredado")
+    # (Cuatro del plan-6 y tres de su revisión adversarial, 28-sep-2026: la
+    # calificación propia de cada argumento, «4. APLICAR» y la extensión.)
+    ok(pe._RX_JERARQUIA in _g and len(_aplican) == 7 and all(_n in _v4 for _, _n in _aplican),
+       f"{forma}: con JERARQUÍA en el guion entran los ajustes del texto heredado ({len(_aplican)})")
     _g_sin = "\n".join(x for x in _g.splitlines() if pe._RX_JERARQUIA not in x)
     _v4_sj = p93("v4", forma, guion=_g_sin)
     ok(_v4_sj.replace("\n" + pe.bloque(_g_sin), "", 1).replace("\n" + f6._RECUERDA_GUION.rstrip("\n"), "", 1)
@@ -1102,10 +1122,10 @@ ok(out["estado"] == "usado" and len(_mod.kw) == 1 and _r.encargo.variante_estudi
    "sin plan en la fila: se calcula dentro de la tarea y se usa")
 ok("EXPONE M1" in _r.encargo.guion and "JERARQUÍA DEL PROBLEMA 1" in _r.encargo.guion
    and "PENDIENTE DE RAZÓN" not in _r.encargo.guion
-   and "razón del secretario para este argumento" not in _r.encargo.guion
+   and "razón del secretario para este argumento: «No vincula: es otro juicio.»" in _r.encargo.guion
    and not any(s.get("pendiente") == "razon" for s in _r.encargo.plan["plan"]["segmentos"]),
-   "el guion va al encargo con la jerarquía y sin pendientes; `razones_segmento` es inerte (Decisión 6 "
-   "retirada: un plan-6 no deja nada pendiente)")
+   "el guion va al encargo con la jerarquía y sin pendientes; la razón de una pantalla anterior entra como "
+   "suya aunque el plan-6 no deje nada pendiente (revisión adversarial, 28-sep-2026)")
 ok(_b.filas[0]["plan"]["planes"][out["clave"]]["estado"] == "listo" and _b.filas[0]["plan"]["corridas"] == 1,
    "y queda en la fila, con su corrida contada")
 _fi = ns["_taller_plan_ficha"](types.SimpleNamespace(encargo=_r.encargo))
@@ -1749,6 +1769,39 @@ _pp = {x["seg"]: x for x in _r["propuestas"]}
 ok(_pp["C2.a"]["a"] == "infundado" and "fondo_desestimado" in _pp["C2.a"]["por_que"]
    and _pp["C1.a"]["a"] == "fundado" and _pp["C1.a"]["por_que"] == "tiene razón",
    "la razón puesta como propuesta se vuelve la calificación que implica; una calificación queda igual")
+
+print("\n16 · REVISIÓN ADVERSARIAL DEL PLAN-6 (28-sep-2026): REPARAR SIN DEJAR HUECOS")
+# (a) LA PREMISA RETIRADA Y LA UNIDAD QUE MEZCLA (la combinación del ADC
+# 642/2024): «sólo el primero desarrolla» se decidía antes de partir la unidad,
+# y el inoperante con su razón propia quedaba solo en una unidad nueva, sin
+# premisa y sin nadie que desarrollara.
+_d = mutar(lambda d: seg(d, "C1.b").update(etiqueta="inoperante", razon="no_combate(P1)", trat="aplica"))
+_d["premisas"][0]["rastro_cita"] = "una regla que no está en ninguna parte del expediente ni de la razón"
+_r, _ = _rep(_d)
+_u_b = next(u for u in _r["unidades"] if "C1.b" in u["segmentos"])
+ok(_u_b.get("premisa") is None and seg(_r, "C1.b")["trat"] == "desarrolla" and seg(_r, "C1.b").get("sin_premisa"),
+   "la parte sin premisa desarrolla desde la razón en su primer argumento")
+_f = pe.validar(_r, crit(), SEGS_N, fases(), material(), "", suplencia={})
+ok(not any("ninguno de sus argumentos la desarrolla" in x for x in _f),
+   f"…y V0 no tiene de qué quejarse: {[x for x in _f if 'desarrolla' in x]}")
+_mal = copy.deepcopy(_r)
+seg(_mal, "C1.b")["trat"] = "aplica"
+ok(any(_u_b["id"] in x and "ninguno de sus argumentos la desarrolla" in x
+       for x in pe.validar(_mal, crit(), SEGS_N, fases(), material(), "", suplencia={})),
+   "V0: una unidad sin premisa verificada en la que nadie desarrolla se rechaza")
+ok("DESARROLLA C1.b" in pe.vista(_r, "estandar"), "el guion le da su renglón de desarrollo")
+# (b) REPARAR (b) CON LAS GUARDAS: lo que la suficiencia no cubre (una
+# consecuencia distinta, una procesal del amparo directo) no se vuelve
+# «innecesario» con su razón vieja —dos rechazos dejaban el estudio sin plan—:
+# vuelve a la calificación del problema y se estudia, como en plan-5.
+for _que, _upd in (("una consecuencia distinta", {"diferencia": "consecuencia"}),
+                   ("una procesal del amparo directo", {"vicio": "procesal"})):
+    _d = mutar(lambda d: [seg(d, x).update(etiqueta="fundado", razon="fundado") for x in ("C1.a", "C3.a", "C3.b")]
+               + [seg(d, "C1.b").update(etiqueta="sin_materia", razon="sin_materia", trat="aplica", **_upd)])
+    _r, _ = _rep(_d, c=_c_f)
+    _f = pe.validar(_r, _c_f, SEGS_N, fases(), material(), "", suplencia={})
+    ok(seg(_r, "C1.b")["etiqueta"] == "fundado" and seg(_r, "C1.b")["trat"] in pe._EN_UNIDAD and _f == [],
+       f"{_que} con «sin materia» dentro de un problema fundado: vuelve al estudio y V0 pasa ({_f[:2]})")
 print()
 if FALLOS:
     print(f"FALLAN {len(FALLOS)}: " + " · ".join(FALLOS))

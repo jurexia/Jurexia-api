@@ -167,12 +167,14 @@ PLAN_631 = {
 
 # LA TRADUCCIÓN SOLA (577c700, plan-5). Desde plan-6 lo que en un problema que
 # prospera no lo funda es innecesario por suficiencia —la jerarquía lo
-# resuelve después de traducir—; para ver la traducción sin ella, cada uno pide
-# aquí una consecuencia distinta (lo único que la jerarquía no toca).
+# resuelve después de traducir—; para ver la traducción sin ella, cada uno
+# alega aquí una omisión, que nunca depende del principal. (Hasta la revisión
+# adversarial del 28-sep-2026 pedían una «consecuencia distinta»; pero un
+# infundado que la pide no da nada más y ahora es innecesario igual.)
 PLAN_631_C = copy.deepcopy(PLAN_631)
 for _x in PLAN_631_C["segmentos"]:
     if _x["id"] in ("A1.b", "A1.c", "A1.d", "A1.e"):
-        _x["diferencia"] = "consecuencia"
+        _x["vicio"] = "omision"
 
 
 def _norm(d):
@@ -625,11 +627,14 @@ ok(pe.depende_del_principal({"id": "A1.z", "vicio": "procesal", "ataca": "P3"}, 
                       "P2": {"relacion": "dependiente_de:P1", "caracter": "toral"}}, "P1") is None,
    "la procesal del amparo directo (arts. 74-V, 174 y 189) y la omisión nunca dependen; un ciclo no tiene raíz")
 
-print("\n10 · plan-6, INFUNDADO: LOS 13 DE LA CAPTURA DE DAVID, POR CONSECUENCIA DEL PRINCIPAL")
+print("\n10 · plan-6, INFUNDADO: LOS 13 DE LA CAPTURA DE DAVID, SIN CAJA Y SIN PEDIR NADA")
 # El plan-4 «infundado» guardado en producción (sesión 462, clave 83a4…),
 # reducido a su forma: 24 argumentos del primer agravio, P2 y P3 dependientes
 # de la toral P1, trece «pendiente: razon» —la caja que vio David— y las
-# premisas ya retiradas. Más una omisión, que no depende de nadie.
+# premisas ya retiradas. Más una omisión, que no depende de nadie. Desde la
+# revisión adversarial (28-sep-2026), por consecuencia del principal sólo va lo
+# de fondo; la forma, la procesal y el inoperante sin caída declarada se
+# desarrollan con su diferencia: ninguno queda pendiente ni sin respuesta.
 _PEND = ("A1.d", "A1.g", "A1.j", "A1.m", "A1.n", "A1.o", "A1.p", "A1.q", "A1.r", "A1.s", "A1.t", "A1.v", "A1.w")
 _ATACA = {"A1.c": "P3", "A1.d": "P3", "A1.f": "P3", "A1.g": "P3", "A1.p": "P3", "A1.x": "P2"}
 _segs10 = []
@@ -647,6 +652,12 @@ for _c in "abcdefghijklmnopqrstuvwx":
 _segs10.append({"id": "A1.y", "problema_id": 1, "concepto": 1, "vicio": "omision", "ataca": "P1", "reitera": None,
                 "dato": None, "etiqueta": "infundado", "razon": "", "trat": "desarrolla", "diferencia": "hecho",
                 "pendiente": "razon"})
+# Un inoperante que el planificador SÍ declaró caído por derivar de lo
+# desestimado, nombrando la proposición (lo único que cae así desde la
+# revisión adversarial del 28-sep-2026).
+_segs10.append({"id": "A1.z", "problema_id": 1, "concepto": 1, "vicio": "fondo", "ataca": "P2", "reitera": None,
+                "dato": None, "etiqueta": "inoperante", "razon": "deriva_de_desestimado", "razon_p": "P2",
+                "trat": "residual", "diferencia": None, "pendiente": None})
 _segs10.append({"id": "A2.a", "problema_id": 2, "concepto": 2, "vicio": "omision", "ataca": "P4", "reitera": None,
                 "dato": None, "etiqueta": "infundado", "razon": "omision_inexistente", "trat": "remite",
                 "diferencia": None, "pendiente": None})
@@ -674,14 +685,25 @@ PLAN4_GUARDADO = {
 _r10 = pe.resolver_por_dependencia(PLAN4_GUARDADO)
 _s10 = {s["id"]: s for s in _r10["segmentos"]}
 _con10 = [x for x in _PEND if _s10[x]["dependencia"] == "con_el_principal"]
-_cae10 = [x for x in _PEND if _s10[x]["dependencia"] == "deriva"]
-ok(len(_con10) == 11 and _cae10 == ["A1.n", "A1.o"] and len(_con10) + len(_cae10) == 13,
-   f"los 13: infundados por las mismas razones ({len(_con10)}) o caen por derivar ({_cae10})")
+_aut10 = [x for x in _PEND if _s10[x]["dependencia"] == "autonomo"]
+# REVISIÓN ADVERSARIAL (28-sep-2026): «por las mismas razones» sólo lo de fondo
+# —la forma, la igualdad o la vía no se desestiman con la premisa de la cosa
+# juzgada—, y nada cae por derivar sin que el planificador lo haya declarado.
+ok(_con10 == ["A1.d", "A1.g", "A1.j"]
+   and _aut10 == ["A1.m", "A1.n", "A1.o", "A1.p", "A1.q", "A1.r", "A1.s", "A1.t", "A1.v", "A1.w"],
+   f"los 13: los de fondo, infundados por las mismas razones ({_con10}); la forma, la procesal y los "
+   f"inoperantes sin caída declarada, autónomos ({_aut10})")
 ok(all(_s10[x]["etiqueta"] == "infundado" and _s10[x]["razon"] == "fondo_desestimado"
-       and _s10[x]["con"] == "A1.a" and _s10[x]["depende_de"] == "P1" for x in _con10),
-   "con el principal: infundados, fondo_desestimado, siguen a A1.a (P1; los de P3, por su cadena)")
-ok(all(_s10[x]["razon"] == "deriva_de_desestimado" and _s10[x]["razon_p"] == "P1" and _s10[x]["trat"] == "residual"
-       for x in _cae10), "los inoperantes sin razón propia caen por derivar de P1, desestimada")
+       and _s10[x]["con"] == "A1.a" and _s10[x]["depende_de"] == "P1" for x in _con10)
+   and _s10["A1.l"]["dependencia"] == "autonomo" and _s10["A1.b"]["dependencia"] == "con_el_principal",
+   "con el principal: infundados de fondo, fondo_desestimado, siguen a A1.a (P1; los de P3, por su cadena); "
+   "el de forma que no estaba pendiente (A1.l) tampoco va con él")
+ok(all(_s10[x]["trat"] == "desarrolla" and _s10[x].get("diferencia") and _s10[x].get("pendiente") is None
+       and _s10[x]["etiqueta"] == ("inoperante" if x in ("A1.n", "A1.o") else "infundado") for x in _aut10),
+   "los autónomos se desarrollan con su diferencia, sin pendiente y con la calificación que les dio el planificador")
+ok(_s10["A1.z"]["dependencia"] == "deriva" and _s10["A1.z"]["razon"] == "deriva_de_desestimado"
+   and _s10["A1.z"]["razon_p"] == "P1" and _s10["A1.z"]["trat"] == "residual",
+   "el inoperante que el planificador declaró derivado de lo desestimado cae con P1")
 ok(not any(s["etiqueta"] == "innecesario" or s.get("razon") == "innecesario_por_suficiencia"
            for s in _r10["segmentos"]), "ninguno «innecesario»: en un problema que no prospera todo se contesta")
 ok(_s10["A1.y"]["dependencia"] == "autonomo" and _s10["A1.y"]["trat"] == "desarrolla"
@@ -691,9 +713,188 @@ ok(not any(s.get("pendiente") == "razon" for s in _r10["segmentos"])
    and pe.resolver_por_dependencia(_r10) == _r10,
    "el plan-4 guardado queda sin pendientes, y resolver otra vez no cambia nada (idempotente)")
 _g10 = pe.vista(_r10, "estandar")
-ok("PENDIENTE DE RAZÓN" not in _g10 and "CAEN POR DERIVAR A1.n, A1.o" in _g10
-   and "JERARQUÍA DEL PROBLEMA 1 (infundado): DECIDE A1.a" in _g10 and "DESARROLLA A1.y" in _g10,
-   "el guion: la jerarquía, los que caen en un renglón, y la omisión con el suyo; sin PENDIENTE DE RAZÓN")
+ok("PENDIENTE DE RAZÓN" not in _g10 and "CAEN POR DERIVAR A1.z" in _g10
+   and "JERARQUÍA DEL PROBLEMA 1 (infundado): DECIDE A1.a" in _g10 and "DESARROLLA A1.y" in _g10
+   and "DESARROLLA A1.q" in _g10 and "CON EL PRINCIPAL, POR LAS MISMAS RAZONES: A1.b" in _g10,
+   "el guion: la jerarquía en su dirección, los que caen en un renglón, y la omisión y la forma con el suyo; "
+   "sin PENDIENTE DE RAZÓN")
+
+print("\n11 · REVISIÓN ADVERSARIAL DEL PLAN-6 (28-sep-2026): LA DEPENDENCIA NO OMITE NI MEZCLA")
+
+
+def _sg(sid, **kw):
+    b = {"id": sid, "problema_id": 1, "concepto": 1, "vicio": "fondo", "ataca": "P1", "reitera": None,
+         "dato": None, "etiqueta": "infundado", "razon": "fondo_desestimado", "trat": "aplica",
+         "diferencia": None, "pendiente": None}
+    b.update(kw)
+    return b
+
+
+def _pl(segs, props, sentido="infundado", tipo="amparo_directo", premisas=None, unidades=None):
+    return {"tipo_asunto": tipo, "problemas": [{"id": 1, "pregunta": "q", "sentido": sentido, "clase": "fondo"}],
+            "proposiciones": props, "segmentos": segs, "premisas": premisas or [],
+            "unidades": unidades or [{"id": "U1", "problemas": [1], "segmentos": [s["id"] for s in segs],
+                                      "premisa": None}],
+            "propuestas": [], "avisos_al_secretario": [], "orden": {"criterio": "prelacion", "por_que": ""}}
+
+
+def _P(i, car, rel):
+    return {"id": i, "dice": "x " + i, "caracter": car, "relacion": rel}
+
+
+def _dep(plan):
+    return {s["id"]: s for s in pe.resolver_por_dependencia(plan)["segmentos"]}
+
+
+_T = [_P("P1", "toral", "suficiente"), _P("P2", "accesoria", "dependiente_de:P1")]
+# (a) FONDO CON FONDO: en un problema que no prospera, la forma y una procesal
+# fuera del amparo directo no se desestiman con la premisa de fondo del
+# principal (el 83a4: falta de motivación, vía incorrecta).
+_x = _dep(_pl([_sg("A1.a"), _sg("A1.b", vicio="forma"), _sg("A1.c", vicio="procesal")], _T[:1],
+              tipo="amparo_revision"))
+ok(_x["A1.a"]["dependencia"] == "decide" and _x["A1.b"]["dependencia"] == "autonomo"
+   and _x["A1.c"]["dependencia"] == "autonomo",
+   "no prospera: la forma y la procesal no van «con el principal»; se contestan con su razón")
+# (b) PARCIALMENTE FUNDADO: no cabe la suficiencia; lo infundado se desestima.
+_x = _dep(_pl([_sg("A1.a", etiqueta="fundado", razon="fundado"), _sg("A1.b", ataca="P2", etiqueta="fundado",
+                                                                      razon="fundado"),
+               _sg("A1.c", ataca="P3", trat="desarrolla", diferencia="hecho"), _sg("A1.d")],
+              _T + [_P("P3", "toral", "suficiente")], sentido="parcialmente_fundado"))
+ok(not any(s["etiqueta"] == "innecesario" for s in _x.values())
+   and _x["A1.b"]["dependencia"] == "con_el_principal" and _x["A1.b"]["etiqueta"] == "fundado"
+   and _x["A1.c"]["dependencia"] == "autonomo" and _x["A1.d"]["dependencia"] == "autonomo"
+   and _x["A1.d"]["etiqueta"] == "infundado",
+   "parcialmente fundado: nada innecesario, la parte infundada se contesta y el grupo lleva «fundado», "
+   "no «parcialmente_fundado»")
+# (c) EN EL AMPARO DIRECTO DECIDE EL FONDO (art. 189): la forma contra la toral
+# suficiente no le gana a un fondo fundado contra otra toral.
+_x = _dep(_pl([_sg("A1.a", vicio="forma", etiqueta="fundado", razon="fundado"),
+               _sg("A1.b", ataca="P2", etiqueta="fundado", razon="fundado", trat="desarrolla", diferencia="norma")],
+              [_P("P1", "toral", "suficiente"), _P("P2", "toral", "necesaria")], sentido="fundado"))
+ok(_x["A1.b"]["dependencia"] == "decide" and _x["A1.a"]["dependencia"] == "innecesario",
+   "amparo directo: decide el fondo fundado y la forma es la innecesaria, no al revés")
+# …y en un recurso, donde la forma puede decidir, el fondo que prospera nunca
+# se absorbe en ella ni queda innecesario.
+_x = _dep(_pl([_sg("A1.a", vicio="forma", etiqueta="fundado", razon="fundado"),
+               _sg("A1.b", ataca="P2", etiqueta="fundado", razon="fundado")], _T, sentido="fundado",
+              tipo="amparo_revision"))
+ok(_x["A1.a"]["dependencia"] == "decide" and _x["A1.b"]["dependencia"] == "autonomo"
+   and _x["A1.b"]["etiqueta"] == "fundado",
+   "recurso: con un principal de forma, el fondo fundado sigue autónomo (ni innecesario ni absorbido)")
+# (d) NADA CAE POR DERIVAR SIN QUE EL PLANIFICADOR LO DECLARE.
+_x = _dep(_pl([_sg("A1.a"), _sg("A1.b", ataca="P2", etiqueta="inoperante", razon="", pendiente="razon",
+                                trat="desarrolla", diferencia="precedente")], _T, tipo="amparo_revision"))
+ok(_x["A1.b"]["dependencia"] == "autonomo" and _x["A1.b"]["razon"] != "deriva_de_desestimado"
+   and _x["A1.b"]["trat"] == "desarrolla",
+   "el inoperante pendiente sin caída declarada sigue autónomo: el código no elige la razón de la caída")
+# (e) LA PREMISA COMÚN NO UNE LA SUERTE DE UNA TORAL INDEPENDIENTE (las costas
+# junto a la cosa juzgada) en un problema que no prospera.
+_x = _dep(_pl([_sg("A1.a"), _sg("A1.b", ataca="P5", etiqueta="inoperante", razon="", pendiente="razon",
+                                trat="desarrolla", diferencia="norma"), _sg("A1.c", ataca="P5")],
+              [_P("P1", "toral", "suficiente"), _P("P5", "toral", "suficiente")],
+              premisas=[{"id": "M1", "responde_a": ["P1", "P5"], "fuentes": {"tesis": [], "normas": []},
+                         "anclas": [], "rastro": "razon", "rastro_cita": "x"}]))
+ok(_x["A1.b"]["dependencia"] == "autonomo" and _x["A1.c"]["dependencia"] == "autonomo",
+   "no prospera: contra P5, independiente de P1, ni «por las mismas razones» ni «cae por derivar» de P1")
+# (f) SIN RAÍZ TORAL NO SE FABRICA UNA CAÍDA QUE V0 RECHACE.
+_x = _dep(_pl([_sg("A1.a", ataca="P1"), _sg("A1.b", ataca="P1", etiqueta="inoperante",
+                                            razon="deriva_de_desestimado", razon_p="P1", trat="residual")],
+              [_P("P1", "accesoria", "necesaria")]))
+ok(_x["A1.b"]["dependencia"] == "autonomo",
+   "si lo que ataca el que decide no llega a una toral, nada se le une ni cae por derivar de él")
+# (g) «FUNDADO PERO INSUFICIENTE» CONTRA EL TEMA QUE CAE (el e34c): va con el
+# principal; el infundado que pide otra consecuencia sigue autónomo (el 642).
+_x = _dep(_pl([_sg("A1.a", etiqueta="fundado", razon="fundado"),
+               _sg("A1.b", etiqueta="fundado_insuficiente", razon="fundado_insuficiente", diferencia="consecuencia"),
+               _sg("A1.c", ataca="P2", diferencia="consecuencia")], _T, sentido="fundado"))
+ok(_x["A1.b"]["dependencia"] == "con_el_principal" and _x["A1.b"]["etiqueta"] == "fundado"
+   and _x["A1.c"]["dependencia"] == "autonomo" and _x["A1.c"]["etiqueta"] == "infundado",
+   "en un problema fundado, el «fundado pero insuficiente» contra P1 va con el principal; el infundado que "
+   "pide otra consecuencia se contesta")
+_pg = pe.resolver_por_dependencia(_pl([_sg("A1.a", etiqueta="fundado", razon="fundado"),
+                                       _sg("A1.b", etiqueta="fundado_insuficiente", razon="fundado_insuficiente",
+                                           diferencia="consecuencia")], _T, sentido="fundado"))
+ok(pe.resolver_por_dependencia(_pg) == _pg, "…y resolver otra vez no lo devuelve a autónomo (idempotente)")
+# (h) UNA CALIFICACIÓN POR GRUPO: la del que decide, también en un problema
+# «esencialmente fundado».
+_x = _dep(_pl([_sg("A1.a", etiqueta="fundado", razon="fundado"),
+               _sg("A1.b", etiqueta="esencialmente_fundado", razon="esencialmente_fundado"),
+               _sg("A1.c", ataca="P2", etiqueta="fundado", razon="fundado")], _T, sentido="esencialmente_fundado"))
+ok({(_x[k]["etiqueta"], _x[k]["razon"]) for k in ("A1.a", "A1.b", "A1.c")} == {("fundado", "fundado")},
+   "el grupo lleva la calificación del que decide: ni dos calificaciones ni la unidad partida por razón")
+# (i) EL GUION: lo que conserva «desarrolla» con su diferencia tiene renglón; la
+# objeción del que decide, una; con concesión, los datos de los innecesarios.
+_pv = _pl([_sg("A1.a", trat="desarrolla", diferencia="hecho"),
+           _sg("A1.b", ataca="P2", trat="desarrolla", diferencia="norma",
+               dato={"texto": "art", "cita": "el artículo 2294 impone", "fuente": "escrito"}),
+           _sg("A1.c", ataca="P2", dato={"texto": "d", "cita": "la escritura pública", "fuente": "escrito"})],
+          _T, tipo="amparo_revision",
+          unidades=[{"id": "U1", "problemas": [1], "segmentos": ["A1.a"], "premisa": None,
+                     "objecion": {"de": "recurrente", "anclas": ["uno"]}},
+                    {"id": "U2", "problemas": [1], "segmentos": ["A1.b"], "premisa": None,
+                     "objecion": {"de": "recurrente", "anclas": ["dos"]}},
+                    {"id": "U3", "problemas": [1], "segmentos": ["A1.c"], "premisa": None,
+                     "objecion": {"de": "recurrente", "anclas": ["tres"]}}])
+_gv = pe.vista(pe.resolver_por_dependencia(_pv), "estandar")
+_ren = next(x for x in _gv.splitlines() if "decide el problema 1" in x)
+ok("DESARROLLA A1.b" in _gv and "diferencia: norma" in _gv and "sigue a A1.a" in _gv
+   and "con el principal, por las mismas razones: A1.c (P2)" in _ren,
+   "el que trae su diferencia lleva renglón y dice a quién sigue; el que no, entra al del que decide")
+ok(_ren.count("objeción aquí") == 1,
+   f"el renglón del que decide lleva UNA objeción, no la de cada unidad absorbida ({_ren.count('objeción aquí')})")
+_pc = _pl([_sg("A1.a", etiqueta="fundado", razon="fundado"),
+           _sg("A1.b", vicio="forma", dato={"texto": "p", "cita": "la pericial de fecha 3 de marzo", "fuente": "escrito"})],
+          _T, sentido="fundado")
+_gc = pe.vista(pe.resolver_por_dependencia(_pc), "estandar", concede=True)
+ok(f"{pe._RX_A_EFECTOS}: A1.b (P1) · dato (escrito): «la pericial de fecha 3 de marzo»" in _gc
+   and pe._RX_A_EFECTOS not in pe.vista(pe.resolver_por_dependencia(_pc), "estandar", concede=False)
+   and "EFECTOS, con su dato" in pe.bloque(_gc),
+   "con concesión, el renglón de los innecesarios trae su dato para los EFECTOS (0ad0379), y el bloque lo describe")
+# (j) LA GUARDA PROCESAL DEL AMPARO DIRECTO (arts. 74-V, 174 y 189): dentro de
+# un problema procesal fundado, ninguna procesal queda «innecesaria».
+_fp = fases()
+_fp.problemas[0]["clase"] = "procesal"
+_mp = material()
+_mp.tipo_asunto = "amparo_directo"
+_PLP = copy.deepcopy(PLAN_631)
+_PLP["segmentos"] = [
+    _s("A1.a", vicio="procesal", etiqueta="fundado", razon="fundado", trat="aplica", diferencia=None),
+    _s("A1.b", vicio="procesal", etiqueta="innecesario", razon="innecesario_por_suficiencia",
+       trat="no_se_estudia", diferencia=None),
+    _s("A1.c", vicio="procesal", etiqueta="sin_materia", razon="sin_materia", trat="no_se_estudia", diferencia=None),
+    _s("A1.d", vicio="procesal", etiqueta="fundado", razon="fundado", trat="aplica", diferencia=None),
+    _s("A1.e", vicio="procesal", etiqueta="fundado", razon="fundado", trat="aplica", diferencia=None),
+    _s("A2.a", problema_id=2, etiqueta="innecesario", razon="cae_con_principal", trat="no_se_estudia",
+       diferencia=None, ataca=None)]
+_PLP["unidades"] = [{"id": "U1", "problemas": [1], "segmentos": ["A1.a", "A1.d", "A1.e"], "premisa": None,
+                     "objecion": None}]
+_np = pe.normalizar(copy.deepcopy(_PLP))
+_np["tipo_asunto"] = "amparo_directo"
+_rp, _ = pe.reparar(_np, crit(), SEGS, _fp, _mp, "", {})
+_sp = {s["id"]: s for s in _rp["segmentos"]}
+ok(all(_sp[x]["etiqueta"] == "fundado" and _sp[x]["trat"] not in ("no_se_estudia", "")
+       for x in ("A1.b", "A1.c")),
+   "reparar: la procesal que el planificador dejó «innecesaria» o «sin materia» vuelve al estudio")
+ok(not [f for f in pe.validar(_rp, crit(), SEGS, _fp, _mp, "", suplencia={}) if "procesal" in f],
+   "…y V0 no tiene nada que decir de las procesales")
+_mal = copy.deepcopy(_rp)
+next(s for s in _mal["segmentos"] if s["id"] == "A1.b").update(
+    etiqueta="innecesario", razon="innecesario_por_suficiencia", trat="no_se_estudia")
+ok(any("A1.b" in f and "violación procesal" in f
+       for f in pe.validar(_mal, crit(), SEGS, _fp, _mp, "", suplencia={})),
+   "V0 rechaza una procesal «innecesaria por suficiencia» aunque ningún fondo prospere")
+# (k) EL PROMPT DEL ESTUDIO Y EL BLOQUE CON JERARQUÍA.
+_p9n = " ".join(_p9.split())
+ok("Salvo lo que la JERARQUÍA del guion resuelve por consecuencia de su principal" in _p9n
+   and "se contesta dentro de la respuesta de su grupo, con su dato y su marca" in _p9n
+   and "reciba su respuesta —la de su grupo si la JERARQUÍA del guion lo resuelve" in _p9n
+   and "recibe su respuesta —la de su grupo, si la JERARQUÍA lo resuelve" in _p9n,
+   "v4 con JERARQUÍA: las cuatro reglas de «una respuesta por argumento» dicen su salvedad")
+ok("UNIDADES QUE PROSPERAN" not in " ".join(_b9.split()) and "UNIDADES QUE PROSPERAN" not in _p9n
+   and "UNIDADES QUE PROSPERAN" in " ".join(pe.bloque(pe.vista(_r9, "estandar", concede=True)).split()),
+   "sin concesión, ni el bloque habla de las unidades de las que salen los efectos (con los espacios "
+   "normalizados)")
+ok("manda la JERARQUÍA" in _g9, "el porqué del orden del planificador cede ante la jerarquía")
 
 print()
 if FALLOS:

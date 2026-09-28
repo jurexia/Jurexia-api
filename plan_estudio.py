@@ -205,6 +205,16 @@ _RAZONES_DE_INOPERANTE = {"no_combate", "ataca_accesoria", "generico",
                           "adhesivo_fuera_182", "fundado_insuficiente",
                           "deriva_de_desestimado"}
 _RAZONES_FORMA = {k for k, v in RAZONES.items() if v.get("forma")}
+# DÓNDE CABE LA SUFICIENCIA (revisión adversarial de plan-6, 28-sep-2026): sólo
+# en un problema FUNDADO o ESENCIALMENTE FUNDADO. En uno «parcialmente
+# fundado» la parte que no prospera hay que desestimarla —declararla
+# innecesaria la dejaba sin contestar—, y uno «fundado suplido» prospera por la
+# suplencia, no por el argumento que lo decide.
+_SENTIDOS_SUFICIENCIA = ("fundado", "esencialmente_fundado")
+# LA CALIFICACIÓN DE UN GRUPO que va con su principal: una de éstas, nunca la
+# del problema cuando es «parcialmente fundado» o «fundado suplido» (ésas no
+# son calificaciones de un argumento que se contesta con el principal).
+_ETIQUETAS_DE_GRUPO = ("fundado", "esencialmente_fundado")
 
 # Qué dice cada razón, para el prompt del planificador (descripciones, no
 # frases: lección del ejemplo que se firma literal).
@@ -229,8 +239,9 @@ _DESCRIBE_RAZON = {
     "adhesivo_sin_materia": "el principal no prospera y el adhesivo se queda sin materia",
     "innecesario_por_suficiencia": ("su problema ya prospera por el segmento que ataca la proposición toral y "
                                     "éste, por su propia vía (la forma o la motivación, otro precedente, otra "
-                                    "proposición), no daría nada que aquél no dé; sólo en un problema que "
-                                    "prospera, nunca el segmento que lo decide, ni una procesal donde rige el "
+                                    "proposición), no daría nada que aquél no dé; sólo en un problema fundado "
+                                    "o esencialmente fundado, nunca el segmento que lo decide, ni uno de fondo que "
+                                    "prospera si el que decide es de forma, ni una procesal donde rige el "
                                     "artículo 189, ni un suplido o un adhesivo, ni el que pide una consecuencia distinta"),
     "deriva_de_desestimado": ("da por cierta la proposición que decide su problema, ya desestimada, y cae con "
                               "ella (nombrarla: deriva_de_desestimado(Pk)); sólo en un problema que no prospera"),
@@ -318,7 +329,9 @@ def clase_sentido(s) -> str:
 #     esto estaba prohibido y la única salida del planificador era calificar
 #     «fundados» seis agravios de forma y pedir una razón por cada uno (la
 #     Decisión 6, retirada). Quién lo puede ser lo decide
-#     `resolver_por_dependencia`; V0 comprueba su razón.
+#     `resolver_por_dependencia`; V0 comprueba su razón. Sólo si el problema
+#     es fundado o esencialmente fundado (`_SENTIDOS_SUFICIENCIA`), y nunca una
+#     procesal donde rige el art. 189 salvo por su mayor beneficio (V0 j).
 def calificacion_conocida(s) -> bool:
     """¿Es una calificación del catálogo (o una de las de no estudiar)?"""
     t = norm_sentido(s)
@@ -347,8 +360,11 @@ def etiqueta_fuera(etiqueta, fijado) -> str:
         return "no es una calificación del catálogo"
     ce = clase_sentido(et)
     if ce == NO_SE_ESTUDIA:
-        if cf == PROSPERA and et == "innecesario":
+        if cf == PROSPERA and et == "innecesario" and fij in _SENTIDOS_SUFICIENCIA:
             return ""                   # por suficiencia (plan-6): su razón la mira V0
+        if cf == PROSPERA and fij not in _SENTIDOS_SUFICIENCIA:
+            return (f"declara sin estudio un argumento de un problema «{fij}»: ahí no cabe la "
+                    f"suficiencia —lo que no prospera se desestima—, y cada argumento se contesta")
         if cf == PROSPERA:
             return (f"declara sin estudio un argumento de un problema que prospera («{fij}») con "
                     f"«{et}»; lo que su suficiencia deja sin estudio es «innecesario»")
@@ -446,12 +462,18 @@ def depende_del_principal(seg: dict, props: dict, tipo: str = "", clase_problema
 
 
 def _temas(props: dict, premisas=(), fijos=()) -> dict:
-    """{Pk: clave de su tema}. Un TEMA es lo que se une por `dependiente_de`
-    y, además, lo que una misma premisa decide: en el plan-5 del 631, M1
-    responde a P1-P4 aunque el planificador dejó P2 como toral «necesaria» y
-    no como dependiente de P1 —es la misma cadena de razonamiento del juez—.
-    `fijos`: temas ya calculados (la jerarquía guardada en el plan), para que
-    retirar después una premisa por su rastro no parta lo que ya se resolvió."""
+    """{Pk: clave de su tema} PARA LAS UNIDADES (paso 4 de la organización y
+    V0 e). Un tema de unidad es lo que se une por `dependiente_de` y, además,
+    lo que una misma premisa decide: en el plan-5 del 631, M1 responde a P1-P4
+    aunque el planificador dejó P2 como toral «necesaria» y no como
+    dependiente de P1; partir por proposición dejaba la misma premisa en
+    cinco unidades. `fijos`: temas ya calculados (la jerarquía guardada).
+    EN UN PROBLEMA QUE NO PROSPERA NO decide la suerte de nadie (revisión
+    adversarial, 28-sep-2026): que una premisa conteste dos torales
+    independientes —la cosa juzgada y las costas— no hace que el argumento
+    contra las costas caiga «por las mismas razones» que el de la cosa
+    juzgada, que es el error del ADC 722/2025; ahí la dependencia es sólo la
+    cadena (`raiz_toral`). En uno que prospera, sí (`_resolver_en_sitio`)."""
     padre = {pk: pk for pk in (props or {})}
 
     def _r(x):
@@ -482,21 +504,32 @@ def _temas_del_plan(plan: dict) -> dict:
                   [j.get("tema") for j in plan.get("jerarquia") or [] if isinstance(j, dict)])
 
 
-def _quien_decide(suyos: list, props: dict, prospera: bool, orden: dict):
+def _quien_decide(suyos: list, props: dict, prospera: bool, orden: dict, tipo: str = ""):
     """EL QUE DECIDE EL PROBLEMA: el que ataca la proposición toral —la
     suficiente antes que la necesaria—, de fondo, contestado con premisa, en
     el orden del escrito. Si el problema prospera, con una calificación que
     prospera (el mismo que `reparar` promueve cuando no hay ninguno); si no,
-    un infundado. Sin él no hay jerarquía: nada se resuelve por consecuencia."""
+    un infundado. Sin él no hay jerarquía: nada se resuelve por consecuencia.
+
+    EN EL AMPARO DIRECTO, SI PROSPERA, EL VICIO VA PRIMERO (revisión
+    adversarial, 28-sep-2026): con la proposición primero, un agravio de forma
+    contra la toral suficiente ganaba a uno de fondo fundado contra otra
+    proposición, y el de fondo quedaba innecesario o absorbido en el de forma:
+    la concesión saldría para efectos por motivación con un fondo fundado sin
+    estudiar, lo contrario del art. 189 (el fondo que da mayor beneficio se
+    estudia primero)."""
+    vicio_primero = prospera and _guarda_procesal(tipo)
+
     def _peso(s):
         pk = s.get("ataca")
         p = props.get(pk) or {}
         es_raiz = raiz_toral(props, pk) == pk
-        return (0 if es_raiz and p.get("relacion") == "suficiente" else 1 if es_raiz
-                else 2 if raiz_toral(props, pk) else 3,
-                0 if s.get("vicio") == "fondo" else 1,
-                0 if s.get("trat") in _EN_UNIDAD else 1,
-                orden.get(s.get("id"), len(orden)))
+        por_p = (0 if es_raiz and p.get("relacion") == "suficiente" else 1 if es_raiz
+                 else 2 if raiz_toral(props, pk) else 3)
+        por_v = 0 if s.get("vicio") == "fondo" else 1
+        return ((por_v, por_p) if vicio_primero else (por_p, por_v)) + (
+            0 if s.get("trat") in _EN_UNIDAD else 1,
+            orden.get(s.get("id"), len(orden)))
     cand = [s for s in suyos if not str(s.get("id") or "").startswith(("S", "AD"))
             and s.get("pendiente") != "sentido"
             and (clase_sentido(s.get("etiqueta")) == PROSPERA if prospera
@@ -550,6 +583,23 @@ def _contestar_en_unidad(plan: dict, s: dict, destino) -> None:
     s["sin_premisa"] = True
 
 
+def _al_estudio(plan: dict, s: dict) -> None:
+    """Que un segmento que dejaba de estudiarse se estudie: a su unidad (con
+    su premisa, aplica; sin ella, desarrolla) o a una propia, desde la razón
+    del secretario. Lo usan el que funda un problema promovido desde
+    «innecesario» y lo que dentro de un problema que prospera no puede
+    quedarse sin estudio (una procesal del amparo directo, un suplido, un
+    adhesivo, el que pide una consecuencia distinta)."""
+    if s.get("trat") not in ("", None, "no_se_estudia"):
+        return
+    _u = _unidad_de(plan, s["id"])
+    s["trat"] = "aplica" if (_u or {}).get("premisa") else "desarrolla"
+    if _u is None:
+        _unidad_propia(plan, s)
+    if s["trat"] == "desarrolla" and not s.get("diferencia"):
+        s["sin_premisa"] = True
+
+
 def _resolver_en_sitio(plan: dict, orden: dict = None, completar_razones: bool = True) -> None:
     """El cuerpo de `resolver_por_dependencia`, EN SITIO (`reparar` lo llama
     sobre el plan que está reparando). `completar_razones=False` deja las
@@ -562,7 +612,6 @@ def _resolver_en_sitio(plan: dict, orden: dict = None, completar_razones: bool =
     if not orden:
         orden = {s["id"]: i for i, s in enumerate(segs)}
     guardada = {j.get("problema"): j for j in plan.get("jerarquia") or [] if isinstance(j, dict)}
-    temas = _temas_del_plan(plan)
     jer, avisos = [], []
     for p in plan.get("problemas") or []:
         pid, fijado = p.get("id"), norm_sentido(p.get("sentido"))
@@ -573,21 +622,43 @@ def _resolver_en_sitio(plan: dict, orden: dict = None, completar_razones: bool =
         if not suyos:
             continue
         prospera = cf == PROSPERA
+        # LA SUFICIENCIA SÓLO EN UN PROBLEMA FUNDADO O ESENCIALMENTE FUNDADO
+        # (revisión adversarial, 28-sep-2026): en uno «parcialmente fundado»
+        # lo que no prospera se desestima, no se declara innecesario.
+        suficiencia = prospera and fijado in _SENTIDOS_SUFICIENCIA
         g = guardada.get(pid) or {}
         decide = next((s for s in suyos if s["id"] == g.get("decide")), None) \
             if g.get("prospera") == prospera else None
         if decide is not None and prospera and clase_sentido(decide.get("etiqueta")) != PROSPERA:
             decide = None
-        decide = decide or _quien_decide(suyos, props, prospera, orden)
+        decide = decide or _quien_decide(suyos, props, prospera, orden, tipo)
         if decide is None:
             continue
         clase_p = str(p.get("clase") or "")
         pk = decide.get("ataca") if decide.get("ataca") in props else None
-        raiz = raiz_toral(props, pk) or pk
-        if g.get("decide") == decide["id"] and g.get("tema"):
-            tema = set(g["tema"])
-        else:
-            tema = {x for x, k in temas.items() if pk and k == temas.get(pk)}
+        # SIN RAÍZ TORAL NADA SE LE UNE (revisión adversarial, 28-sep-2026):
+        # antes la raíz era la propia Pk y se fabricaba un «deriva_de_
+        # desestimado(Pk)» que el propio V0 rechazaba («no llega a una
+        # proposición toral»).
+        raiz = raiz_toral(props, pk)
+        # EL TEMA DE LA SUERTE (revisión adversarial, 28-sep-2026). Si el
+        # problema NO prospera, sólo la cadena `dependiente_de`: unir también lo
+        # que responde una misma premisa metía en el tema una toral
+        # independiente —las costas junto a la cosa juzgada— y su argumento caía
+        # «por las mismas razones» que otro que no ataca: el error del ADC
+        # 722/2025. Si PROSPERA, también lo que decide la premisa del que decide
+        # (`_temas`): en el plan-5 del 631, M1 responde a P1 y a P2 —el art. 49 y
+        # la causahabiencia son su rastro— y el argumento del art. 49 contra P2
+        # no puede quedar «innecesario» mientras el principal se estudia con
+        # esa misma premisa. Ahí unir no omite nada: se contesta dentro del
+        # estudio del principal, en la dirección que le da la razón.
+        tema = {x for x in props if raiz and raiz_toral(props, x) == raiz}
+        if prospera and raiz:
+            if g.get("decide") == decide["id"] and g.get("prospera") and g.get("tema"):
+                tema |= {x for x in g["tema"] if x in props}
+            else:
+                _tu = _temas_del_plan(plan)
+                tema |= {x for x, k in _tu.items() if k == _tu.get(pk)}
         u_dec = _unidad_de(plan, decide["id"])
         grupos = {"con_el_principal": [], "innecesario": [], "deriva": [], "autonomo": []}
         decide["pendiente"] = None if decide.get("pendiente") == "razon" else decide.get("pendiente")
@@ -596,10 +667,18 @@ def _resolver_en_sitio(plan: dict, orden: dict = None, completar_razones: bool =
             decide.pop(k, None)
         _et_d = norm_sentido(decide.get("etiqueta"))
         if completar_razones and (not decide.get("razon") or _falla_razon(decide["razon"], _et_d)):
-            decide["razon"] = (_et_d if _et_d in ("fundado", "esencialmente_fundado") else "fundado") \
+            decide["razon"] = (_et_d if _et_d in _ETIQUETAS_DE_GRUPO else "fundado") \
                 if prospera else ("omision_inexistente" if decide.get("vicio") == "omision"
                                   else "fondo_desestimado")
             decide["razon_p"] = None
+        # LA CALIFICACIÓN DEL GRUPO, UNA (revisión adversarial, 28-sep-2026): la
+        # del que decide para los que van con él. Tomarla del problema dejaba,
+        # en uno «esencialmente fundado», al que decide «fundado» y a los demás
+        # «esencialmente fundado» —dos calificaciones y la unidad partida por
+        # razón—; y en uno «parcialmente fundado», un argumento con una
+        # calificación que no es de argumento.
+        et_grupo = (_et_d if _et_d in _ETIQUETAS_DE_GRUPO else "fundado") if prospera else "infundado"
+        rz_grupo = et_grupo if prospera else "fondo_desestimado"
         # (Su tratamiento no se toca: el que `reparar` promueve ya viene
         # contestado; uno que el planificador dejó sin estudio es de contenido
         # y lo rechaza V0.)
@@ -610,30 +689,65 @@ def _resolver_en_sitio(plan: dict, orden: dict = None, completar_razones: bool =
             if era_pendiente:
                 s["pendiente"] = None
             grupo = "autonomo"
-            en_tema = bool((s.get("ataca") or s.get("razon_p")) in tema)
+            en_tema = bool(raiz) and (s.get("ataca") or s.get("razon_p")) in tema
             propio = bool(s.get("razon_secretario")) or _nunca_depende(s, tipo, clase_p)
             et = norm_sentido(s.get("etiqueta"))
+            # «FONDO CON FONDO» (revisión adversarial, 28-sep-2026): con el
+            # principal sólo va lo que discute lo mismo que él. Un agravio de
+            # forma (falta de motivación), de igualdad o una procesal fuera del
+            # amparo directo (la vía) no se contesta con la premisa de fondo
+            # del principal: se desestima con la suya (arbol_decision: «una
+            # suerte infundado es una calificación de fondo: se estudia con su
+            # razón»).
+            fondo_con_fondo = s.get("vicio") == "fondo" and decide.get("vicio") == "fondo"
             if propio:
                 pass
             elif prospera:
-                if s.get("vicio") == "fondo" and en_tema and clase_sentido(et) == PROSPERA:
-                    grupo = "con_el_principal"
-                elif s.get("diferencia") != "consecuencia":
-                    grupo = "innecesario"
-            else:
-                # Causa de pedir propia (un hecho, una prueba, otra
-                # consecuencia) u otra proposición: autónomo, como hoy.
-                if s.get("diferencia") in ("hecho", "prueba", "consecuencia") or not en_tema:
+                prospera_s = clase_sentido(et) == PROSPERA
+                # «FUNDADO PERO INSUFICIENTE» CONTRA EL TEMA QUE CAE (revisión
+                # adversarial, 28-sep-2026): en el plan e34c, tres argumentos
+                # contra P1 salían autónomos con esa calificación —«sobrevive
+                # otra proposición suficiente»— dentro de un apartado que revoca
+                # por P1, porque pedían «una consecuencia distinta». Contra el
+                # tema del que decide tiene razón con él: va con el principal si
+                # es de fondo, o es innecesario. (El infundado o el inoperante
+                # que pide otra consecuencia sigue autónomo: lo que pide no lo
+                # da el principal, y declararlo innecesario es la omisión cara
+                # —la reconvención del ADC 642/2024—.)
+                insuf_del_tema = et == "fundado_insuficiente" and en_tema
+                if s.get("diferencia") == "consecuencia" and not insuf_del_tema:
+                    pass                           # otra consecuencia: se estudia
+                elif prospera_s and s.get("vicio") == "fondo" and decide.get("vicio") != "fondo":
+                    # Un fondo que prospera nunca queda innecesario ni se
+                    # absorbe en un principal de forma o procesal: se estudia
+                    # (art. 189 en el amparo directo; y en cualquier vía, lo
+                    # que el fondo da no lo da la forma).
                     pass
-                elif et == "infundado" and s.get("razon") != "omision_inexistente":
+                elif fondo_con_fondo and en_tema and (prospera_s or insuf_del_tema):
                     grupo = "con_el_principal"
-                # CAE POR DERIVAR sólo lo que el planificador dejó sin razón
-                # propia de inoperancia (el pendiente) o ya la nombró así: una
-                # inoperancia con su razón es suya, y una razón que no cabe la
-                # ajusta o la rechaza V0, no el código (el 722/2025: la caída
-                # falsa es la omisión más cara).
-                elif et == "inoperante" and (era_pendiente or s.get("razon") == "deriva_de_desestimado"):
+                elif suficiencia:
+                    grupo = "innecesario"
+                if insuf_del_tema and grupo != "autonomo" and s.get("diferencia") == "consecuencia":
+                    # La consecuencia distinta que pedía no la sostuvo (era
+                    # insuficiente): dentro del grupo ya no pide otra, y una
+                    # segunda pasada no la vuelve autónoma (idempotencia).
+                    s["diferencia"] = None
+            else:
+                # CAE POR DERIVAR SÓLO LO QUE EL PLANIFICADOR DECLARÓ ASÍ, con la
+                # proposición desestimada (revisión adversarial, 28-sep-2026):
+                # antes bastaba un inoperante pendiente de razón, y el código
+                # elegía la razón de la caída —la caída falsa del ADC 722/2025,
+                # que el árbol sólo admite con el presupuesto verificado—. Sin
+                # esa declaración, el inoperante sigue autónomo con su razón.
+                if et == "inoperante" and s.get("razon") == "deriva_de_desestimado" \
+                        and bool(raiz) and (s.get("razon_p") or s.get("ataca")) in tema:
                     grupo = "deriva"
+                # Causa de pedir propia (un hecho, una prueba, otra
+                # consecuencia), otra proposición u otro vicio: autónomo.
+                elif s.get("diferencia") in ("hecho", "prueba", "consecuencia") or not en_tema:
+                    pass
+                elif et == "infundado" and fondo_con_fondo and s.get("razon") != "omision_inexistente":
+                    grupo = "con_el_principal"
             s["dependencia"] = grupo
             if grupo == "autonomo":
                 for k in ("con", "depende_de"):
@@ -641,17 +755,15 @@ def _resolver_en_sitio(plan: dict, orden: dict = None, completar_razones: bool =
             else:
                 s["con"], s["depende_de"] = decide["id"], raiz
             if grupo == "con_el_principal":
-                # LA CALIFICACIÓN DEL GRUPO (la del problema) si prospera: el
+                # LA CALIFICACIÓN DEL GRUPO si prospera (la del que decide): el
                 # «esencialmente fundado» se acota una vez, no por argumento.
                 # La razón que falta o no cabe la pone `_reparar_organizacion`
                 # dentro de `reparar` (y lo dice); aquí, sólo fuera de él.
-                _rz_grupo = (("esencialmente_fundado" if fijado == "esencialmente_fundado" else "fundado")
-                             if prospera else "fondo_desestimado")
-                if prospera and et != fijado:
-                    s["etiqueta"] = fijado
-                    s["razon"], s["razon_p"] = _rz_grupo, None
+                if prospera and et != et_grupo:
+                    s["etiqueta"] = et_grupo
+                    s["razon"], s["razon_p"] = rz_grupo, None
                 elif completar_razones and (not s.get("razon") or _falla_razon(s["razon"], s["etiqueta"])):
-                    s["razon"], s["razon_p"] = _rz_grupo, None
+                    s["razon"], s["razon_p"] = rz_grupo, None
                 if era_pendiente and s.get("trat") == "desarrolla" and (_unidad_de(plan, s["id"]) or {}).get("premisa"):
                     s["trat"] = "aplica"           # la Decisión 6 lo había forzado
                 if s.get("trat") in _EN_UNIDAD:
@@ -667,27 +779,56 @@ def _resolver_en_sitio(plan: dict, orden: dict = None, completar_razones: bool =
                          trat="no_se_estudia")
                 _fuera_de_unidades(plan, s["id"])
             elif grupo == "deriva":
-                s.update(razon="deriva_de_desestimado", razon_p=raiz or s.get("ataca"), trat="residual")
+                s.update(razon="deriva_de_desestimado", razon_p=raiz, trat="residual")
                 _fuera_de_unidades(plan, s["id"])
-            elif era_pendiente:
-                # AUTÓNOMO que la Decisión 6 dejaba pendiente: se desarrolla con
-                # su diferencia y el material, como hoy, sin pedir nada.
-                if s.get("trat") in ("aplica", "remite", "residual", ""):
-                    s["trat"] = "desarrolla"
-                if not s.get("diferencia"):
-                    _an = sorted(_anclas_seg(s))
-                    s["diferencia"] = tipo_de_ancla(_an[0]) if _an else s.get("diferencia")
-                _contestar_en_unidad(plan, s, None)
+            else:
+                if prospera and clase_sentido(et) == NO_SE_ESTUDIA \
+                        and s.get("razon") != "innecesario_mayor_beneficio" \
+                        and s.get("trat") != "no_se_expresa_art79":
+                    # SIN ESTUDIO DENTRO DE UN PROBLEMA QUE PROSPERA SIN QUE LA
+                    # SUFICIENCIA LO CUBRA (una procesal del amparo directo, un
+                    # suplido, un adhesivo, lo que pide una consecuencia
+                    # distinta, lo que el secretario contestó con su razón, un
+                    # problema «parcialmente fundado»): vuelve al estudio con la
+                    # calificación del grupo, como hacía plan-5. La procesal que
+                    # una concesión de fondo vuelve innecesaria (art. 189) se
+                    # queda como está.
+                    s["etiqueta"] = et_grupo
+                    s["razon"], s["razon_p"] = rz_grupo, None
+                    _al_estudio(plan, s)
+                if era_pendiente:
+                    # AUTÓNOMO que la Decisión 6 dejaba pendiente: se desarrolla
+                    # con su diferencia y el material, como hoy, sin pedir nada.
+                    if s.get("trat") in ("aplica", "remite", "residual", ""):
+                        s["trat"] = "desarrolla"
+                    if not s.get("diferencia"):
+                        _an = sorted(_anclas_seg(s))
+                        s["diferencia"] = tipo_de_ancla(_an[0]) if _an else s.get("diferencia")
+                    # SU RAZÓN, LA ÚNICA QUE SU CALIFICACIÓN DEJA (revisión
+                    # adversarial, 28-sep-2026): la Decisión 6 los dejaba sin
+                    # ella y, ahora que la forma y lo procesal del 83a4 no van
+                    # con el principal, salían al guion sin razón. «Inoperante»
+                    # deja varias: ésa no se elige (la dice el estudio, o el
+                    # reintento del planificador dentro de `reparar`).
+                    _et_s = norm_sentido(s.get("etiqueta"))
+                    if completar_razones and (not s.get("razon") or _falla_razon(s["razon"], _et_s)):
+                        _rz = ({"infundado": "omision_inexistente" if s.get("vicio") == "omision"
+                                else "fondo_desestimado", "fundado_insuficiente": "fundado_insuficiente"}.get(_et_s)
+                               or (_et_s if _et_s in _ETIQUETAS_DE_GRUPO else ""))
+                        if _rz:
+                            s["razon"], s["razon_p"] = _rz, None
+                    _contestar_en_unidad(plan, s, None)
             grupos[grupo].append(s["id"])
         jer.append({"problema": pid, "sentido": fijado, "prospera": prospera, "decide": decide["id"],
                     "ataca": pk, "raiz": raiz, "tema": sorted(tema), **grupos})
         partes = []
         if grupos["con_el_principal"]:
-            partes.append("con el principal " + ", ".join(grupos["con_el_principal"]))
+            partes.append(("con el principal " if prospera else "con el principal, por las mismas razones, ")
+                          + ", ".join(grupos["con_el_principal"]))
         if grupos["innecesario"]:
             partes.append("innecesarios por suficiencia " + ", ".join(grupos["innecesario"]))
         if grupos["deriva"]:
-            partes.append(f"caen por derivar de {raiz or pk or 'lo desestimado'} " + ", ".join(grupos["deriva"]))
+            partes.append(f"caen por derivar de {raiz or 'lo desestimado'} " + ", ".join(grupos["deriva"]))
         if partes:
             avisos.append(f"{_PREFIJO_AVISO_DEP}{pid}, decide {decide['id']}"
                           + (f", {raiz or pk}" if (raiz or pk) else "") + "): " + "; ".join(partes))
@@ -1287,6 +1428,10 @@ def prompt_plan(*, tipo_asunto: str, probs: list[dict], segs: list[dict],
     _ctx = (f"\nCONTEXTO QUE APORTÓ EL SECRETARIO (autos y constancias; de aquí salen, con su "
             f"cita, las razones R1…Rn de una resolución procesal):\n{str(contexto)[:12000]}\n"
             if str(contexto or "").strip() else "")
+    # QUIÉN DECIDE EN EL AMPARO DIRECTO (revisión adversarial, 28-sep-2026):
+    # el fondo que prospera antes que la forma, como en `_quien_decide`.
+    _decide_ad = ("; donde rige el artículo 189, si el problema prospera, el de fondo antes que el de "
+                  "forma o el procesal" if _guarda_procesal(tipo_asunto) else "")
     _orden_ad = (
         "  · En el amparo directo, el fondo antes que el procedimiento y la forma (artículo 189\n"
         "    de la Ley de Amparo); el orden sólo se invierte si estudiar primero una violación\n"
@@ -1305,7 +1450,7 @@ QUÉ DECIDES
 
 REGLAS QUE EL CÓDIGO COMPRUEBA (si no se cumplen, tu plan se rechaza)
   · El SENTIDO DE CADA PROBLEMA lo fijó el secretario y no se toca. etiqueta = la calificación de ESE segmento dentro de su problema (del catálogo de etiquetas de abajo; la razón que la decide va en «razon», nunca en «etiqueta»), por lo que él mismo plantea, y coherente con el sentido del problema: si el problema prospera, al menos uno de sus segmentos lo funda y los demás pueden ser infundados o inoperantes; si no prospera, ninguno queda fundado —el que tiene razón y no alcanza es fundado_insuficiente—; si el problema no se estudia (innecesario, sin materia), todos sus segmentos llevan ese mismo sentido.
-  · DENTRO DE CADA PROBLEMA QUE SE ESTUDIA DECIDE UN SEGMENTO: el que ataca la proposición toral (la suficiente antes que la necesaria). La suerte de los demás se sigue de la suya según dependan o no de esa proposición —la atacan a ella o a una dependiente_de ella, sin causa de pedir propia—. Si el problema prospera: los de fondo que sostienen lo mismo contra esa proposición llevan su misma calificación y se contestan con su premisa (su precepto, su hecho o su precedente es un elemento de ella); los demás que no piden una consecuencia distinta —la forma o la motivación, otro precedente, otra vía, lo que por su cuenta sería infundado o inoperante— son «innecesario» con innecesario_por_suficiencia y trat no_se_estudia; nunca el que decide, una violación procesal donde rige el artículo 189, un suplido (S) ni un adhesivo (AD). Si no prospera, todos se contestan: los que dependen de la proposición que subsiste son infundados con fondo_desestimado y aplican o remiten a su premisa, o inoperantes con deriva_de_desestimado(Pk) si dan por cierto lo desestimado; los que tienen causa de pedir propia (una omisión, la procedencia, un hecho o una prueba propios) se desarrollan con su diferencia; ninguno se declara sin estudio.
+  · DENTRO DE CADA PROBLEMA QUE SE ESTUDIA DECIDE UN SEGMENTO: el que ataca la proposición toral (la suficiente antes que la necesaria){_decide_ad}. La suerte de los demás se sigue de la suya según dependan o no de esa proposición —la atacan a ella o a una dependiente_de ella, por la misma vía (fondo con fondo) y sin causa de pedir propia—. Si el problema es fundado o esencialmente fundado: los de fondo que sostienen lo mismo contra esa proposición llevan su misma calificación y se contestan con su premisa (su precepto, su hecho o su precedente es un elemento de ella); los demás que no piden una consecuencia distinta —la forma o la motivación, otro precedente, otra vía, lo que por su cuenta sería infundado, inoperante o fundado pero insuficiente— son «innecesario» con innecesario_por_suficiencia y trat no_se_estudia; nunca el que decide, uno de fondo que prospera cuando el que decide es de forma, una violación procesal donde rige el artículo 189, un suplido (S) ni un adhesivo (AD). En uno parcialmente fundado no cabe esa suficiencia: lo que no prospera se desestima. Si no prospera, todos se contestan: los de fondo que dependen de la proposición que subsiste son infundados con fondo_desestimado y aplican o remiten a su premisa; el inoperante que da por cierta la proposición desestimada lleva deriva_de_desestimado(Pk), nombrándola; los de otra vía (la forma, la motivación, lo procesal) y los que tienen causa de pedir propia (una omisión, la procedencia, un hecho o una prueba propios) se contestan con su razón y se desarrollan con su diferencia; ninguno se declara sin estudio.
   · propuestas: SÓLO cuando crees que el sentido de un PROBLEMA debería ser otro. seg = uno de sus segmentos; a = la calificación que propones para el problema entero; por_que = la razón. La calificación distinta de un segmento dentro de su problema no es una propuesta: va en su etiqueta.
   · problema_id: uno de los problemas posibles que el inventario indica para ese segmento.
   · Todo segmento que se contesta (aplica, remite, desarrolla) está en UNA unidad, y sólo en una; los residuales y los que no se estudian pueden quedar fuera de las unidades.
@@ -1320,7 +1465,7 @@ REGLAS QUE EL CÓDIGO COMPRUEBA (si no se cumplen, tu plan se rechaza)
   · La procedencia primero, y cada accesorio después de su principal.
 {_orden_ad}
 CATÁLOGOS
-etiqueta (la calificación del segmento): {etiquetas}; innecesario sólo en un problema que prospera, con innecesario_por_suficiencia; y, sólo si su problema no se estudia, el mismo sentido de ese problema
+etiqueta (la calificación del segmento): {etiquetas}; innecesario sólo en un problema fundado o esencialmente fundado, con innecesario_por_suficiencia; y, sólo si su problema no se estudia, el mismo sentido de ese problema
 razon (nombre: qué significa → qué implica):
 {razones}
 trat:
@@ -1777,10 +1922,29 @@ def reparar(plan: dict, crit, segs, fases, material, contexto: str = "", suplenc
         # «INNECESARIO» (plan-6): la suficiencia del que lo decide. Hasta
         # plan-5 heredaba la calificación del problema —un «sin materia» salía
         # «fundado»—; quién lo es de verdad lo decide `resolver_por_dependencia`.
-        if clase_sentido(fijado) == PROSPERA and et and calificacion_conocida(et) \
-                and clase_sentido(et) == NO_SE_ESTUDIA:
-            et = "innecesario"
+        # CON LAS GUARDAS DE LA SUFICIENCIA (revisión adversarial, 28-sep-2026):
+        # sin ellas, una procesal del amparo directo que el planificador dejaba
+        # «innecesaria» dentro de un problema procesal fundado pasaba V0 (el
+        # hueco de los arts. 74-V y 174), y un suplido, un adhesivo o lo que pide
+        # una consecuencia distinta quedaba «innecesario» con su razón vieja y V0
+        # tumbaba el plan dos veces. Lo que la suficiencia no cubre vuelve, como
+        # en plan-5, a la calificación del problema, y se estudia.
+        _sin_estudio_aqui = bool(clase_sentido(fijado) == PROSPERA and et and calificacion_conocida(et)
+                                 and clase_sentido(et) == NO_SE_ESTUDIA)
+        _cabe = False
+        if _sin_estudio_aqui:
+            _procesal = _guarda_procesal(plan.get("tipo_asunto", "")) and _es_procesal(s, cx)
+            if _procesal:
+                _cabe = s.get("razon") == "innecesario_mayor_beneficio" and cx.alguno_prospera_fondo
+            else:
+                _cabe = norm_sentido(fijado) in _SENTIDOS_SUFICIENCIA \
+                    and not _nunca_depende(s, plan.get("tipo_asunto", ""), (p or {}).get("clase", "")) \
+                    and s.get("diferencia") != "consecuencia"
+            if _cabe:
+                et = "innecesario"
         motivo = etiqueta_fuera(et, fijado)
+        if _sin_estudio_aqui and not _cabe:
+            motivo = motivo or "deja sin estudio lo que la suficiencia no cubre"
         if not motivo:
             s["etiqueta"] = et
             continue
@@ -1801,6 +1965,10 @@ def reparar(plan: dict, crit, segs, fases, material, contexto: str = "", suplenc
                 avisos.append(f"{s['id']}: «{et}» no cabe dentro de un problema «{fijado}»; lleva "
                               f"la calificación del problema")
             s["etiqueta"] = fijado
+            if _sin_estudio_aqui:
+                # Y SE ESTUDIA: con la etiqueta del problema y trat
+                # no_se_estudia, V0 lo rechazaba («el criterio lo decide»).
+                _al_estudio(plan, s)
     if traducidas:
         _aviso(plan, "calificaciones que el planificador escribió con una razón del catálogo, "
                      "leídas como la calificación que esa razón implica (no se tomó la del "
@@ -1846,13 +2014,7 @@ def reparar(plan: dict, crit, segs, fases, material, contexto: str = "", suplenc
         # EL QUE LO FUNDA SE ESTUDIA (plan-6): promovido desde «innecesario»
         # —que ahora cabe en un problema que prospera— traía no_se_estudia, y
         # V0 lo tumbaba. A su unidad, o a una propia desde la razón.
-        if portador.get("trat") in ("", "no_se_estudia"):
-            _u = _unidad_de(plan, portador["id"])
-            portador["trat"] = "aplica" if (_u or {}).get("premisa") else "desarrolla"
-            if _u is None:
-                _unidad_propia(plan, portador)
-            if portador["trat"] == "desarrolla" and not portador.get("diferencia"):
-                portador["sin_premisa"] = True
+        _al_estudio(plan, portador)
         if otra and not cx.tocado(pid) \
                 and not any((por_id.get(x.get("seg")) or {}).get("problema_id") == pid
                             for x in plan["propuestas"]):
@@ -2453,6 +2615,31 @@ def _reparar_organizacion(plan: dict, cx: "_Ctx") -> None:
                      + " · ".join(ids) + (f", con la misma premisa {u['premisa']}" if u.get("premisa") else ""))
     plan["unidades"] = nuevas_u
 
+    # 4b · LA PARTE SIN PREMISA EN LA QUE NADIE DESARROLLA (revisión
+    # adversarial, 28-sep-2026). «Sólo el primero desarrolla» se decide en el
+    # paso 3, antes de que el paso 4 parta la unidad: el segmento que ahí había
+    # quedado «aplica» podía acabar solo en una unidad NUEVA, sin premisa y sin
+    # nada que aplicar —una inoperancia con su razón propia, sin respuesta (la
+    # combinación del ADC 642/2024: premisa retirada y unidad que mezcla)—. En
+    # cada unidad sin premisa donde el código la retiró, el primero —el que
+    # decide su problema, si está— desarrolla.
+    _ids_m = {m.get("id") for m in plan.get("premisas") or []}
+    _huerfanas = []
+    for u in plan["unidades"]:
+        if u.get("premisa") in _ids_m:
+            continue
+        conts = [x for x in u["segmentos"] if _contestado(por_id[x])]
+        if not conts or not any(por_id[x].get("sin_premisa") for x in conts) \
+                or any(por_id[x].get("trat") == "desarrolla" for x in conts):
+            continue
+        primero = next((x for x in conts if x in _deciden), conts[0])
+        por_id[primero]["trat"] = "desarrolla"
+        por_id[primero]["sin_premisa"] = True
+        _huerfanas.append(f"{u['id']} ({primero})")
+    if _huerfanas:
+        _aviso(plan, "unidades que quedaron sin premisa al partirse, desarrolladas desde tu razón en su "
+                     "primer argumento: " + ", ".join(_huerfanas[:10]))
+
     # 5 · EL ORDEN (V0 l), cuando el código puede cumplirlo sin decidir nada:
     # la procedencia primero y, en el amparo directo sin mayor beneficio
     # dicho, el fondo antes que el procedimiento y la forma (art. 189). Si con
@@ -2668,6 +2855,18 @@ def validar(plan: dict, crit, segs, fases, material, contexto: str = "", *,
                 if _no_estudia:
                     f.append(f"{sid}: una violación procesal no puede quedar sin estudio "
                              f"({rz or s.get('trat')}); arts. 74, fracción V, y 174 de la Ley de Amparo")
+            elif fijado and clase_sentido(fijado) != NO_SE_ESTUDIA:
+                # EL «INNECESARIO» DE UN PROBLEMA QUE SE ESTUDIA ES DEL PLAN, NO DEL
+                # CRITERIO (revisión adversarial de plan-6, 28-sep-2026): desde
+                # que cabe dentro de un problema que prospera, esta rama dejaba
+                # pasar una procesal «innecesaria por suficiencia» en un
+                # problema procesal fundado —ahí no prospera ningún fondo—. Lo
+                # que el plan deja sin estudio en una procesal donde rige la
+                # guarda sólo es lo del art. 189, con una concesión de fondo.
+                if not (cx.alguno_prospera_fondo and rz == "innecesario_mayor_beneficio"):
+                    f.append(f"{sid}: una violación procesal no puede quedar sin estudio "
+                             f"({rz or s.get('trat')}) salvo con innecesario_mayor_beneficio y una "
+                             f"concesión de fondo (arts. 74, fracción V, 174 y 189 de la Ley de Amparo)")
             elif cx.alguno_prospera_fondo and rz != "innecesario_mayor_beneficio":
                 f.append(f"{sid}: una violación procesal sólo deja de estudiarse con "
                          f"innecesario_mayor_beneficio (art. 189), nunca con {rz or s.get('trat')}")
@@ -2689,8 +2888,9 @@ def validar(plan: dict, crit, segs, fases, material, contexto: str = "", *,
                      f"problema se contesta desde la premisa de ésta; si no, «desarrolla» con su diferencia")
         # LAS DOS RAZONES DE LA DEPENDENCIA, en su dirección (plan-6).
         if rz == "innecesario_por_suficiencia":
-            if clase_sentido(fijado) != PROSPERA:
-                f.append(f"{sid}: innecesario_por_suficiencia sólo en un problema que prospera")
+            if norm_sentido(fijado) not in _SENTIDOS_SUFICIENCIA:
+                f.append(f"{sid}: innecesario_por_suficiencia sólo en un problema fundado o "
+                         f"esencialmente fundado")
             elif not any(x is not s and x.get("problema_id") == s.get("problema_id")
                          and clase_sentido(x.get("etiqueta")) == PROSPERA for x in segmentos):
                 f.append(f"{sid}: innecesario_por_suficiencia sin un argumento de su problema que lo decida")
@@ -2738,6 +2938,36 @@ def validar(plan: dict, crit, segs, fases, material, contexto: str = "", *,
         f.append(f"problema {pid}: el secretario lo fijó «{cx.por_pid[pid]['sentido']}» y ninguna "
                  f"etiqueta de sus segmentos lo funda; al menos uno lleva una calificación que "
                  f"prospera (si crees que el problema no prospera, va a propuestas)")
+
+    # (b, dentro de la jerarquía) «FUNDADO PERO INSUFICIENTE» CONTRA LO QUE CAE
+    # (revisión adversarial de plan-6, 28-sep-2026): en el plan e34c de
+    # producción, tres argumentos salían «fundados pero insuficientes» contra la
+    # misma proposición toral por la que el problema prospera, dentro de un
+    # apartado que revoca («sobrevive otra proposición suficiente» es falso
+    # ahí). Lo que dice eso contra el tema del que decide no tiene sitio.
+    for j in plan.get("jerarquia") or []:
+        if not isinstance(j, dict) or not j.get("prospera") or not j.get("raiz") \
+                or norm_sentido(j.get("sentido")) not in _SENTIDOS_SUFICIENCIA:
+            continue
+        for s in segmentos:
+            sid = s.get("id") or ""
+            if s.get("problema_id") != j.get("problema") or sid == j.get("decide") \
+                    or sid.startswith(("S", "AD")) or norm_sentido(s.get("etiqueta")) != "fundado_insuficiente":
+                continue
+            if raiz_toral(props, s.get("ataca") or s.get("razon_p")) == j["raiz"]:
+                f.append(f"{sid}: «fundado pero insuficiente» contra {s.get('ataca') or s.get('razon_p')}, que "
+                         f"cae con el problema {j['problema']} (decide {j.get('decide')}): va con el principal "
+                         f"o es innecesario por suficiencia")
+
+    # (i, la unidad) UNA UNIDAD A LA QUE EL CÓDIGO RETIRÓ LA PREMISA Y EN LA QUE
+    # NADIE DESARROLLA (revisión adversarial, 28-sep-2026): sus argumentos
+    # «aplican» algo que nadie construye (`_reparar_organizacion`, paso 4b).
+    for u in unis:
+        if u.get("premisa") in prems:
+            continue
+        us = [por_id[x] for x in u.get("segmentos") or [] if x in por_id and _contestado(por_id[x])]
+        if us and any(s.get("sin_premisa") for s in us) and not any(s.get("trat") == "desarrolla" for s in us):
+            f.append(f"{u.get('id')}: sin premisa verificada y ninguno de sus argumentos la desarrolla")
 
     # (e) Una unidad no mezcla TEMA, vicio ni razón (salvo el grupo del
     # secretario, que manda). El tema, no la proposición (plan-6, AR
@@ -2929,16 +3159,35 @@ def aplicar_razones(plan: dict, razones_segmento: dict) -> dict:
     pantalla anterior puede mandar una escrita para un plan-4/5 guardado con
     pendientes: ésa entra al guion como SUYA —una razón ya escrita manda— y
     deja de estar pendiente; por eso va ANTES de `resolver_por_dependencia`,
-    que resuelve lo que quede. Sobre un plan-6 (sin pendientes) no hace nada.
-    Determinista: no gasta una corrida del planificador."""
+    que resuelve lo que quede. Determinista: no gasta una corrida del
+    planificador.
+
+    SOBRE UN PLAN-6 (revisión adversarial, 28-sep-2026): al subir la versión
+    cambia la clave y el plan que llega ya no tiene pendientes, así que la
+    razón que el secretario escribió en una pantalla abierta antes del
+    despliegue se descartaba en silencio. Ahora entra igual como suya en el
+    argumento que se estudia —`resolver_por_dependencia` lo trata entonces
+    como autónomo—; en el que el plan deja sin estudio (innecesario por
+    suficiencia, o de un problema que no se estudia) no se usa, y se dice."""
     plan = copy.deepcopy(plan or {})
     razones = {norm_id(k): _ws(v)[:2000] for k, v in (razones_segmento or {}).items()
                if norm_id(k) and _ws(v)}
+    no_usadas = []
     for s in plan.get("segmentos") or []:
         txt = razones.get(s.get("id"))
-        if txt and s.get("pendiente") == "razon":
+        if not txt:
+            continue
+        if s.get("pendiente") == "razon" or (
+                s.get("pendiente") != "sentido" and s.get("etiqueta")
+                and clase_sentido(s.get("etiqueta")) != NO_SE_ESTUDIA):
             s["razon_secretario"] = txt
             s["pendiente"] = None
+        else:
+            no_usadas.append(s["id"])
+    if no_usadas:
+        plan.setdefault("avisos_al_secretario", []).append(
+            "razones que escribiste en una pantalla anterior para argumentos que el plan deja sin estudio, "
+            "no usadas: " + ", ".join(no_usadas[:12]) + "; si alguno debe estudiarse, dilo en tu criterio")
     return plan
 
 
@@ -3064,7 +3313,12 @@ def _linea_jerarquia(j: dict, por_id: dict) -> str:
               + (f" (ataca {j.get('ataca')}" + (f"; raíz {raiz}" if raiz and raiz != j.get("ataca") else "")
                  + ")" if j.get("ataca") else "")]
     if _ids("con_el_principal"):
-        partes.append("CON EL PRINCIPAL: " + ", ".join(_ids("con_el_principal")))
+        # LA DIRECCIÓN (revisión adversarial, 28-sep-2026): en un problema que
+        # no prospera, los que van con el principal son desestimados por las
+        # mismas razones —su dato se contesta desde la premisa del que decide—,
+        # no elementos que la apoyen.
+        partes.append(("CON EL PRINCIPAL: " if j.get("prospera") else _RX_MISMAS_RAZONES + ": ")
+                      + ", ".join(_ids("con_el_principal")))
     if _ids("innecesario"):
         partes.append("INNECESARIOS POR SUFICIENCIA: " + ", ".join(_ids("innecesario")))
     if _ids("deriva"):
@@ -3153,8 +3407,16 @@ def vista(plan: dict, formato: str = "estandar", concede: bool | None = None) ->
          "la prosa es tuya",
          f"FORMA: {'moderna: un apartado por problema, con su pregunta' if moderna else 'estándar: un apartado por ' + q1}"]
     o = plan.get("orden") or {}
+    # EL PORQUÉ DEL PLANIFICADOR SE ESCRIBIÓ ANTES DE LA JERARQUÍA (revisión
+    # adversarial, 28-sep-2026): en el 631 anunciaba «después las unidades
+    # formales y residuales» que la jerarquía declara innecesarias; el estudio
+    # recibía dos órdenes contrarias. Se dice cuál manda.
+    _consec = any(isinstance(j, dict) and (j.get("innecesario") or j.get("deriva"))
+                  for j in plan.get("jerarquia") or [])
     L.append(f"ORDEN: {'prelación lógica' if o.get('criterio') == 'prelacion' else 'el del escrito'}"
-             + (f" · por qué: {o['por_que']}" if o.get("por_que") else ""))
+             + (f" · por qué: {o['por_que']}" if o.get("por_que") else "")
+             + (" · (ese porqué es anterior a la JERARQUÍA: donde no coincidan, manda la JERARQUÍA)"
+                if o.get("por_que") and _consec else ""))
     # EL SENTIDO DE CADA PROBLEMA, del secretario (plan-4): la etiqueta de cada
     # argumento es la suya DENTRO de él, y el estudio tiene que ver las dos.
     _sent = [f"{p['id']} {p['sentido']}" for p in plan.get("problemas") or [] if p.get("sentido")]
@@ -3206,10 +3468,17 @@ def vista(plan: dict, formato: str = "estandar", concede: bool | None = None) ->
         # LOS QUE SE CONTESTAN EN EL RENGLÓN DE OTRO O EN GRUPO (plan-6): los
         # que van con el principal cuando el que decide está en este mismo
         # apartado, y los innecesarios y los que caen, que se declaran juntos.
+        # LO QUE CONSERVA «DESARROLLA» CON SU DIFERENCIA NO SE ABSORBE
+        # (revisión adversarial, 28-sep-2026): en el plan 83a4, veintidós
+        # argumentos que el planificador vio con algo que la premisa no
+        # contesta —su norma, su precedente— se reducían a una mención dentro
+        # del renglón del que decide. Llevan su renglón, que dice a quién
+        # siguen y qué diferencia traen.
         ids_aqui = {s["id"] for s in lista}
         absorbe: dict = {}
         for s in lista:
-            if s.get("dependencia") == "con_el_principal" and s.get("con") in ids_aqui:
+            if s.get("dependencia") == "con_el_principal" and s.get("con") in ids_aqui \
+                    and not (s.get("trat") == "desarrolla" and s.get("diferencia")):
                 absorbe.setdefault(s["con"], []).append(s)
         grupos_ap = {"innecesario": {}, "deriva": {}}
         for s in lista:
@@ -3257,7 +3526,8 @@ def vista(plan: dict, formato: str = "estandar", concede: bool | None = None) ->
                             + (f" · proposición: {', '.join(m.get('responde_a') or [])}"
                                if m and m.get("responde_a") else ""))
                     if s.get("dependencia") == "con_el_principal" and s.get("con"):
-                        _rem += f" · con el principal: sigue a {s['con']}" + (
+                        _rem += (f" · {'con el principal' if (jer.get(s.get('problema_id')) or {}).get('prospera', True) else _RX_MISMAS_RAZONES.lower()}"
+                                 f": sigue a {s['con']}") + (
                             f" ({s['depende_de']})" if s.get("depende_de") else "")
                     salida.append(_linea_seg(s, "remite", _rem, _sentidos_p))
                     palabras += _PALABRAS["remite"]
@@ -3279,26 +3549,38 @@ def vista(plan: dict, formato: str = "estandar", concede: bool | None = None) ->
                         f" ({' | '.join(ob.get('anclas') or [])})" if ob.get("anclas") else ""))
             if s.get("dependencia") == "decide":
                 extra.append(f"decide el problema {s.get('problema_id')}")
+            _prosp = (jer.get(s.get("problema_id")) or {}).get("prospera", True)
+            _con_rot = "con el principal" if _prosp else _RX_MISMAS_RAZONES.lower()
             if s["id"] in absorbe:
                 # LO QUE VA CON EL PRINCIPAL ES UN ELEMENTO DE SU PREMISA O DE
-                # SU APLICACIÓN: la premisa de su unidad, si es otra, se expone
-                # aquí, antes del renglón del que decide, y su dato entra en él.
+                # SU APLICACIÓN (si prospera) o se desestima por sus mismas
+                # razones (si no): la premisa de su unidad, si es otra, se
+                # expone aquí, antes del renglón del que decide, y su dato entra
+                # en él.
+                # LA OBJECIÓN, UNA SOLA (revisión adversarial, 28-sep-2026): en
+                # el plan 83a4 el renglón del que decide juntaba diecisiete
+                # «objeción aquí, una vez», una por cada unidad absorbida, y el
+                # estudio volvía a partir el principal argumento por argumento.
+                # La de su unidad; si no tiene, la de la primera absorbida. Las
+                # demás no se emiten aquí.
+                _ob_una = bool((u or {}).get("objecion"))
                 for x in absorbe[s["id"]]:
                     ux = u_de.get(x["id"])
                     if ux is None:
                         continue
                     vista_u.setdefault(ux.get("id"), n_ap)
                     palabras += _expone(prems.get(ux.get("premisa")), ux.get("id"), n_ap, salida)
-                    if ux.get("objecion") and ux.get("id") not in objecion_puesta \
+                    if not _ob_una and ux.get("objecion") and ux.get("id") not in objecion_puesta \
                             and ux.get("id") != (u or {}).get("id"):
+                        _ob_una = True
                         objecion_puesta.add(ux.get("id"))
                         extra.append(f"objeción aquí, una vez: {ux['objecion'].get('de')}" + (
                             f" ({' | '.join(ux['objecion'].get('anclas') or [])})"
                             if ux["objecion"].get("anclas") else ""))
-                extra.append("con el principal: " + " | ".join(_dato_breve(x) for x in absorbe[s["id"]]))
+                extra.append(f"{_con_rot}: " + " | ".join(_dato_breve(x) for x in absorbe[s["id"]]))
                 palabras += _PALABRAS["grupo"] * len(absorbe[s["id"]])
             elif s.get("dependencia") == "con_el_principal" and s.get("con") and trat != "remite":
-                extra.append(f"con el principal: sigue a {s['con']}"
+                extra.append(f"{_con_rot}: sigue a {s['con']}"
                              + (f" ({s['depende_de']})" if s.get("depende_de") else "")
                              + (f", apartado {apartado_de[s['con']]}" if s["con"] in apartado_de else ""))
             salida.append(_linea_seg(s, trat, " · ".join(extra), _sentidos_p))
@@ -3307,10 +3589,16 @@ def vista(plan: dict, formato: str = "estandar", concede: bool | None = None) ->
         # el estudio declara en un solo párrafo con la marca de todos.
         for con, xs in grupos_ap["innecesario"].items():
             _dp = next((x.get("depende_de") for x in xs if x.get("depende_de")), "")
+            # EN UNA CONCESIÓN, SUS DATOS A EFECTOS (revisión adversarial,
+            # 28-sep-2026): si la responsable tendrá que volver a resolver, lo
+            # que combaten se nombra en los EFECTOS con su dato (0ad0379); el
+            # renglón lo trae para que el estudio lo tenga a la mano.
             salida.append(f"  INNECESARIOS POR SUFICIENCIA {', '.join(x['id'] for x in xs)} · etiqueta: "
                           f"innecesario · razón: innecesario_por_suficiencia · decide {con}"
                           + (f" ({_dp})" if _dp else "")
-                          + (f", apartado {apartado_de[con]}" if apartado_de.get(con, n_ap) != n_ap else ""))
+                          + (f", apartado {apartado_de[con]}" if apartado_de.get(con, n_ap) != n_ap else "")
+                          + (f" · {_RX_A_EFECTOS}: " + " | ".join(_dato_breve(x) for x in xs)
+                             if concede is True else ""))
             palabras += _PALABRAS["grupo"]
         for con, xs in grupos_ap["deriva"].items():
             _dp = next((x.get("depende_de") for x in xs if x.get("depende_de")), "")
@@ -3467,6 +3755,21 @@ _SIN_CALIFICAR_DESC = """
 # regla del estudio que no deja declarar nada sin estudio por su cuenta
 # (`fase6_estudio`, «NINGÚN ARGUMENTO SE DECLARA SIN ESTUDIO…»).
 _RX_JERARQUIA = "JERARQUÍA DEL PROBLEMA"
+# LA DIRECCIÓN DE «CON EL PRINCIPAL» (revisión adversarial, 28-sep-2026): la
+# descripción sólo servía si el problema prospera («su precepto es un elemento
+# de la premisa del que decide»); en el plan 83a4, «infundado», eso llevaba a
+# usar el art. 49 que invoca el recurrente como apoyo de la desestimación. En
+# uno que no prospera el rótulo es otro y se describe aparte.
+_RX_MISMAS_RAZONES = "CON EL PRINCIPAL, POR LAS MISMAS RAZONES"
+# Los datos de los innecesarios, en una concesión (0ad0379): su descripción
+# sólo entra cuando el guion los trae.
+_RX_A_EFECTOS = "datos a EFECTOS"
+_A_EFECTOS_DESC = """
+- «datos a EFECTOS»: el asunto concede. Lo que combaten esos innecesarios y
+  queda comprendido en lo que la responsable tendrá que volver a resolver se
+  nombra en los EFECTOS, con su dato, entre lo que deberá examinar; si la
+  concesión es lisa y llana no queda nada que volver a resolver y no se
+  nombran."""
 _JERARQUIA_DESC = """
 - JERARQUÍA DEL PROBLEMA: cómo se sigue la suerte de cada argumento de la del
   que decide su problema. La calculó el plan sobre el sentido que el
@@ -3475,13 +3778,21 @@ _JERARQUIA_DESC = """
   declarar algo sin estudio. Nada de esto va a ADVERTENCIAS.
   · DECIDE: el argumento que ataca la proposición que sostiene lo resuelto. Se
     estudia una vez y completo: la premisa, su aplicación y la objeción, una
-    sola vez. En su renglón, tras «con el principal», vienen los argumentos
-    que se contestan dentro de ese estudio, con su dato.
-  · CON EL PRINCIPAL: su precepto, su hecho o su precedente es un elemento de
-    la premisa del que decide o de su aplicación. Se contestan dentro de ese
-    estudio, en el párrafo donde se usa su dato, que lleva también su marca;
-    no reciben calificación ni párrafo propios. Si su renglón está en otro
-    apartado, dice a quién siguen: ahí se contestan por esa consecuencia.
+    sola vez. En su renglón vienen, con su dato, los argumentos que se
+    contestan dentro de ese estudio.
+  · CON EL PRINCIPAL (el problema prospera): su precepto, su hecho o su
+    precedente es un elemento de la premisa del que decide o de su aplicación.
+    Se contestan dentro de ese estudio, en el párrafo donde se usa su dato,
+    que lleva también su marca; no reciben calificación ni párrafo propios.
+  · CON EL PRINCIPAL, POR LAS MISMAS RAZONES (el problema no prospera): se
+    desestiman con la premisa del que decide. Su dato se contesta desde ella,
+    en una o dos frases y en grupo, con la marca de cada uno y la calificación
+    del grupo; su precepto, su hecho o su precedente no apoyan esa premisa: se
+    dice por qué no la cambian.
+    En los dos casos, el que tiene renglón propio —en otro apartado, o porque
+    trae una diferencia que desarrollar— dice a quién sigue: se contesta por
+    esa consecuencia y, de lo suyo, sólo esa diferencia, sin una calificación
+    distinta de la del grupo.
   · INNECESARIOS POR SUFICIENCIA: el problema ya prospera por el que decide y
     ellos no darían nada que eso no dé. Se declaran juntos, en un solo
     párrafo al cerrar su apartado, con la marca de todos, diciendo qué los
@@ -3504,6 +3815,35 @@ def bloque(guion: str) -> str:
     comillas son rótulos que NO van a la sentencia."""
     if not str(guion or "").strip():
         return ""
+    # CON JERARQUÍA, «CADA ARGUMENTO CON DATO PROPIO RECIBE SU RESPUESTA» vale
+    # para el de su grupo como la respuesta del grupo (revisión adversarial,
+    # 28-sep-2026): unas líneas debajo de «recibe la respuesta de su grupo, no
+    # una propia», la regla de la extensión, intacta, lo contradecía.
+    _extension = ("""- EXTENSIÓN: la pide lo que cada apartado contesta. Cada argumento con dato
+  propio recibe su respuesta —la de su grupo, si la JERARQUÍA lo resuelve por
+  consecuencia de su principal—, aunque eso alargue el apartado; lo que no se
+  hace es repetir. El único techo es el del estudio entero, y no es una meta."""
+                  if _RX_JERARQUIA in guion else
+                  """- EXTENSIÓN: la pide lo que cada apartado contesta. Cada argumento con dato
+  propio recibe su respuesta, aunque eso alargue el apartado; lo que no se
+  hace es repetir. El único techo es el del estudio entero, y no es una meta.""")
+    # LAS MARCAS DE LOS EFECTOS SÓLO SI EL GUION TRAE LAS UNIDADES QUE
+    # PROSPERAN (revisión adversarial, 28-sep-2026): el 631 niega, `vista` ya no
+    # las emite, y el bloque seguía hablando de los efectos que salen de ellas.
+    _marcas = ("""- MARCAS DEL PLAN, además de las de los argumentos y con su mismo formato: el
+  párrafo donde construyes una premisa que el guion dice EXPONE lleva en su
+  marca el identificador M de esa premisa (junto a los de los argumentos que
+  contesta, si los hay); y cada efecto que se sigue de una de las UNIDADES QUE
+  PROSPERAN empieza con la marca de esa unidad, su identificador U. Con guion,
+  esto sustituye a lo que la regla de las marcas dice del párrafo que expone
+  una premisa y de los efectos. Son internas, como las demás."""
+               if "UNIDADES QUE PROSPERAN" in guion else
+               """- MARCAS DEL PLAN, además de las de los argumentos y con su mismo formato: el
+  párrafo donde construyes una premisa que el guion dice EXPONE lleva en su
+  marca el identificador M de esa premisa (junto a los de los argumentos que
+  contesta, si los hay). Con guion, esto sustituye a lo que la regla de las
+  marcas dice del párrafo que expone una premisa. Son internas, como las
+  demás.""")
     return f"""
 ═══════════════════════════════════════════════════════════════════════
 EL GUION DEL ESTUDIO — manda la organización
@@ -3543,17 +3883,9 @@ grupos, manda el guion.
   ningún otro.
 - «razón del secretario para este argumento»: es la razón que decide ese
   argumento; se desarrolla a partir de ella.
-- SIN SENTIDO FIJADO: no lo califiques; dilo en ADVERTENCIAS.{_JERARQUIA_DESC if _RX_JERARQUIA in guion else ""}{_SIN_CALIFICAR_DESC if _RX_SIN_CALIFICAR in guion else ""}{_SIN_PREMISA_DESC if _RX_SIN_PREMISA in guion else ""}
-- EXTENSIÓN: la pide lo que cada apartado contesta. Cada argumento con dato
-  propio recibe su respuesta, aunque eso alargue el apartado; lo que no se
-  hace es repetir. El único techo es el del estudio entero, y no es una meta.
-- MARCAS DEL PLAN, además de las de los argumentos y con su mismo formato: el
-  párrafo donde construyes una premisa que el guion dice EXPONE lleva en su
-  marca el identificador M de esa premisa (junto a los de los argumentos que
-  contesta, si los hay); y cada efecto que se sigue de una de las UNIDADES QUE
-  PROSPERAN empieza con la marca de esa unidad, su identificador U. Con guion,
-  esto sustituye a lo que la regla de las marcas dice del párrafo que expone
-  una premisa y de los efectos. Son internas, como las demás.
+- SIN SENTIDO FIJADO: no lo califiques; dilo en ADVERTENCIAS.{_JERARQUIA_DESC if _RX_JERARQUIA in guion else ""}{_A_EFECTOS_DESC if _RX_A_EFECTOS in guion else ""}{_SIN_CALIFICAR_DESC if _RX_SIN_CALIFICAR in guion else ""}{_SIN_PREMISA_DESC if _RX_SIN_PREMISA in guion else ""}
+{_extension}
+{_marcas}
 - Los rótulos y los identificadores del guion (APARTADO, EXPONE, APLICA, C1.a,
   P2, M1, U1…) no se escriben en la sentencia, salvo dentro de las marcas
   entre ⟦ ⟧.

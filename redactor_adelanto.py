@@ -1262,7 +1262,8 @@ async def resolver(cliente, r: Resultado, criterios: list[f6.Criterio],
     # LA REPARACIÓN DIRIGIDA (v3/v4, p2-exhaustivo): lo mismo que el gemelo en
     # vivo, en el mismo sitio —antes de los efectos, las constancias y los
     # preceptos, que leen el estudio ya completado—.
-    _faltan = _por_completar(material, criterios, estudio, _plan_del_estudio(r))
+    _faltan = _por_completar(material, criterios, estudio, _plan_del_estudio(r),
+                             _concede_del_estudio(r, criterios))
     if _faltan:
         with cronometrar("completar el estudio"):
             estudio = await _completar_estudio(cliente, r, criterios, material, estudio,
@@ -1467,7 +1468,8 @@ async def resolver_en_vivo(cliente, r: Resultado, criterios: list[f6.Criterio],
     estudio = _congruencia_pegar(material, estudio, _meta)
     # LA REPARACIÓN DIRIGIDA (v3/v4, p2-exhaustivo): igual que en `resolver`.
     # La pantalla ve «completando» mientras corre la llamada; sólo si la hay.
-    _faltan = _por_completar(material, criterios, estudio, _plan_del_estudio(r))
+    _faltan = _por_completar(material, criterios, estudio, _plan_del_estudio(r),
+                             _concede_del_estudio(r, criterios))
     if _faltan:
         yield {"tipo": "completando"}
         with cronometrar("completar el estudio"):
@@ -1750,7 +1752,19 @@ def _plan_del_estudio(r):
     return _pl if isinstance(_pl, dict) else None
 
 
-def _por_completar(material, criterios, estudio: str, plan: dict = None) -> list:
+def _concede_del_estudio(r, criterios):
+    """¿El asunto concede? (`plan_estudio.concede_de`), o None si no se sabe.
+    Para que la reparación dirigida decida la concesión «para efectos» con el
+    sentido y no con lo que el estudio haya escrito (revisión adversarial de
+    plan-6, 28-sep-2026)."""
+    try:
+        import plan_estudio as _pe_c
+        return _pe_c.concede_de(r, criterios)
+    except Exception:
+        return None
+
+
+def _por_completar(material, criterios, estudio: str, plan: dict = None, concede=None) -> list:
     """Los argumentos cuya respuesta es sólo una declaración de sin estudio,
     sin su dato en los efectos ni en otra respuesta (`exhaustivo.sin_su_dato`).
     Con el PLAN (v4, plan-6), sin lo que éste resuelve por consecuencia de su
@@ -1768,7 +1782,8 @@ def _por_completar(material, criterios, estudio: str, plan: dict = None) -> list
         if not segs:
             return []
         return _ex.revisar_texto(estudio or "", segs, criterios,
-                                 list(getattr(material, "problemas", None) or []), plan=plan)["sin_dato"]
+                                 list(getattr(material, "problemas", None) or []), plan=plan,
+                                 concede=concede)["sin_dato"]
     except Exception as _ex_p:
         print(f"   ⚠️ COMPLETAR: no se pudo revisar: {type(_ex_p).__name__}")
         return []

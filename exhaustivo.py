@@ -333,15 +333,22 @@ def sin_materia_por_su_cuenta(parrafos: list, mapa: dict, segs: list,
     abierto; y si no nombra ninguno, sólo cuando el criterio entero no tiene
     ninguna calificación que admita no estudiar.
 
-    CON PLAN (v4, plan-6), la etiqueta del argumento en el plan manda sobre la
-    de su problema, como en las guardas de la reparación: el innecesario por
-    suficiencia o el que cae por derivar lo decidió la jerarquía sobre el
-    sentido que el secretario fijó para el principal, y declararlo así no es
-    «por su cuenta» (en el 631 lo registraba en sombra)."""
+    CON PLAN (v4, plan-6), lo que el plan resuelve POR CONSECUENCIA de su
+    principal —el innecesario por suficiencia, el que cae por derivar— lo
+    decidió la jerarquía sobre el sentido que el secretario fijó para el
+    principal, y declararlo así no es «por su cuenta» (en el 631 lo registraba
+    en sombra). SÓLO eso (revisión adversarial, 28-sep-2026): cualquier otra
+    etiqueta del plan —un inoperante autónomo, un fundado pero insuficiente—
+    no sustituye al sentido del criterio, y la frase «…hace innecesario
+    examinar los restantes» sólo se exceptúa si el plan tiene algún
+    innecesario por suficiencia (antes bastaba un inoperante en cualquier
+    sitio para apagarla en todo el estudio)."""
     ps = list(parrafos or [])
     fin_cuerpo, _ = partes(ps)
     rep = reparto(criterios, problemas)
-    _et_plan = etiquetas_del_plan(plan)
+    _et_plan = {k: v for k, v in etiquetas_del_plan(plan).items()
+                if k in razones_de_consecuencia(plan)}
+    _hay_suficiencia = "innecesario_por_suficiencia" in razones_de_consecuencia(plan).values()
     por_id = {str(_get(s, "id")): s for s in (segs or [])}
     en_parrafo = {}
     for sid, idxs in (mapa or {}).items():
@@ -371,8 +378,7 @@ def sin_materia_por_su_cuenta(parrafos: list, mapa: dict, segs: list,
             # problemas. Sólo se acusa si el criterio no tiene ninguno que
             # admita no estudiarse (ni el plan, un innecesario por suficiencia).
             sentidos = [_norm_sentido(_get(c, "sentido")) for c in (criterios or [])]
-            if bool(criterios) and not _hay_permitido(criterios) \
-                    and not any(v not in FONDO for v in _et_plan.values()):
+            if bool(criterios) and not _hay_permitido(criterios) and not _hay_suficiencia:
                 fuera.append({"parrafo": i, "ids": [], "conceptos": [], "sentidos": sorted(set(sentidos)),
                               "texto": " ".join(p.split()[:24])})
             continue
@@ -563,6 +569,15 @@ def sin_mayor_beneficio(faltan: list, segs: list, criterios: list, problemas: li
 RAZONES_DE_CONSECUENCIA = ("innecesario_por_suficiencia", "deriva_de_desestimado")
 
 
+def razones_de_consecuencia(plan) -> dict:
+    """{id: razón} de los argumentos que el plan (plan-6) resuelve por
+    consecuencia de su principal, o {}."""
+    if not isinstance(plan, dict):
+        return {}
+    return {str(s.get("id")): s.get("razon") for s in plan.get("segmentos") or []
+            if isinstance(s, dict) and s.get("id") and s.get("razon") in RAZONES_DE_CONSECUENCIA}
+
+
 def sin_consecuencia_del_plan(faltan: list, plan, mapa: dict = None, para_efectos: bool = False) -> list:
     """Quita de `faltan` lo que el PLAN resuelve por consecuencia de su
     principal (plan-6, 28-sep-2026, AR 631/2025): los innecesarios por
@@ -592,17 +607,27 @@ def sin_consecuencia_del_plan(faltan: list, plan, mapa: dict = None, para_efecto
     return fuera
 
 
-def revisar_texto(estudio: str, segs: list, criterios: list, problemas: list, plan: dict = None) -> dict:
+def revisar_texto(estudio: str, segs: list, criterios: list, problemas: list, plan: dict = None,
+                  concede: bool | None = None) -> dict:
     """Los dos controles sobre el estudio CON sus marcas. Nunca lanza. El de
     la marca honesta ya sin lo que el criterio dejó fuera por mayor beneficio
-    ni lo que el plan (v4, plan-6) resuelve por consecuencia del principal."""
+    ni lo que el plan (v4, plan-6) resuelve por consecuencia del principal.
+
+    `concede`: si el asunto concede (`plan_estudio.concede_de`). LA CONCESIÓN
+    PARA EFECTOS SE DECIDE CON EL SENTIDO, NO CON EL TEXTO (revisión
+    adversarial, 28-sep-2026): si el estudio no escribió EFECTOS —o los puso
+    tras ADVERTENCIAS—, deducirla del texto quitaba de `faltan` los
+    innecesarios con dato de un asunto que sí concede, y se perdía la red de
+    0ad0379. Sólo cuando se sabe que no concede (un «revoca y niega») o los
+    efectos escritos son lisos y llanos, sale lo que el plan resuelve por
+    consecuencia; sin el dato, como si concediera."""
     try:
         import marcas as _mc
         limpio, mapa = _mc.separar_marcas(estudio or "")
         ps = _mc.parrafos(limpio)
         fin_cuerpo, fin_ef = partes(ps)
         efectos = "\n".join(ps[fin_cuerpo:fin_ef])
-        _para_efectos = bool(efectos.strip()) and not es_lisa_y_llana(efectos)
+        _para_efectos = concede is not False and not es_lisa_y_llana(efectos)
         faltan = sin_mayor_beneficio(sin_su_dato(ps, mapa, segs), segs, criterios, problemas)
         return {"sin_dato": sin_consecuencia_del_plan(faltan, plan, mapa, _para_efectos),
                 "sin_materia": sin_materia_por_su_cuenta(ps, mapa, segs, criterios, problemas, plan=plan)}
