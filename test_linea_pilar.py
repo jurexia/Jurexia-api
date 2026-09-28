@@ -668,7 +668,7 @@ for alc in ("completa", "solo_mx"):
            and {"2009816", "2009817"} <= set(lt["registros"]),
            "14 · el recorte nunca toca el núcleo, Radilla, el estado actual ni las abandonadas con su sustituta")
         fuera_q4 = lt.get("recortado") or []
-        ok(fuera_q4 and all(x.split(":", 1)[0] in ("cronologia", "registro", "hito", "supervision", "tensiones")
+        ok(fuera_q4 and all(x.split(":", 1)[0] in ("texto", "cronologia", "registro", "hito", "supervision", "tensiones")
                             for x in fuera_q4),
            f"14 · el presupuesto se aplica en traer_linea ({len(fuera_q4)} piezas fuera)")
 sel_q4 = lc.seleccionar(FIG, det_t[1], pregunta=TRAZA)
@@ -849,10 +849,10 @@ def _r141():
            and tope_p == min(lc.PRESUPUESTO_LINEA, lc.PRESUPUESTO_TEMA + lc.PRESUPUESTO_POR_TEMA * (len(temas_p) - 1)),
            f"14.1 · «{p[:45]}…»: {n_t:,} tokens (< {tope_p:,}, tope de {len(temas_p)} temas; nunca > "
            f"{lc.PRESUPUESTO_LINEA:,})")
-    ok(lc.presupuesto(dict(fases=[], temas=["prision_preventiva_oficiosa"])) == lc.PRESUPUESTO_TEMA == 6500
+    ok(lc.presupuesto(dict(fases=[], temas=["prision_preventiva_oficiosa"])) == lc.PRESUPUESTO_TEMA == 7000
        and lc.presupuesto(dict(fases=[], temas=list(F["temas_mx"]))) == lc.PRESUPUESTO_LINEA
        and lc.presupuesto(dict(fases=["actual"], temas=["arraigo"])) == lc.PRESUPUESTO_LINEA,
-       "14.1 · un tema solo sigue en 6,500; varios crecen sin pasar de 10,000; con fase, 10,000")
+       "14.1 · un tema solo en 7,000; varios crecen sin pasar de 13,500; con fase, 13,500")
     # Un resolutivo que repite la orden de un párrafo de su MISMA sentencia ya
     # dentro no es esencial (García Rodríguez res. 14 ↔ ¶301).
     ok(lc._esenciales_tema(FIG, ["C-482|s|301", "C-482|r|14", "C-470|r|8"], ["C-482|s|301"])
@@ -984,8 +984,53 @@ _es = lc._esenciales_tema(FIG, ["C-470|s|118", "C-470|r|8", "C-482|s|301", "C-48
                           ["C-470|s|118", "C-482|s|301"])
 ok("C-470|r|8" in _es and "C-482|r|14" not in _es,
    f"resolutivos: Tzompaxtle 8 esencial, García Rodríguez 14 repite al ¶301 ({_es})")
-ok(lc.PRESUPUESTO_LINEA == 12500 and lc.UMBRAL_LINEAS == 0.60,
-   "tope de la línea 12,500 y umbral de la sonda 0.60 (calibrado con la colección creada)")
+ok(lc.PRESUPUESTO_LINEA == 13500 and lc.UMBRAL_LINEAS == 0.60,
+   "tope de la línea 13,500 y umbral de la sonda 0.60 (calibrado con la colección creada)")
+
+# ── LAS CITAS CON SANGRÍA Y LOS RUBROS ENTEROS (28-sep-2026) ──────────────
+# David: «algunas [citas] son excesivamente cortas… ya no se dan
+# reproduciéndolas como antes con sangría». La línea sólo daba extractos de
+# ≤30 palabras y rubros cortados a 22 («…SIEMPRE QUE SEA MÁS FAVORABLE A LA…»,
+# copiado tal cual en la respuesta), y su instrucción pedía la cita en línea.
+print("\n15 · CITAS CON SANGRÍA: RUBRO ENTERO, PASAJE PARA TRANSCRIBIR Y FORMATO EN BLOCKQUOTE")
+_cab = "[Corte IDH | Caso Gelman Vs. Uruguay | 24-02-2011 | Serie C 221 | párr. 239]\n"
+_largo = _cab + ("Frase de relleno sobre la democracia y sus límites. " * 40
+                 + "La sola existencia de un régimen democrático no garantiza, per se, el permanente respeto del "
+                 "Derecho Internacional. " + "Otra frase posterior del mismo párrafo. " * 40)
+_pz = lc._pasaje(_largo, "La sola existencia de un régimen democrático no garantiza")
+ok(_pz.startswith("[…] La sola existencia") and "[Corte IDH" not in _pz and len(_pz.split()) <= lc.PALABRAS_PASAJE + 2,
+   f"el pasaje de un párrafo largo empieza en la frase del extracto, sin encabezado y acotado ({len(_pz.split())} palabras)")
+_corto = _cab + "La Corte es consciente que los jueces están sujetos al imperio de la ley."
+ok(lc._pasaje(_corto, "los jueces") == "La Corte es consciente que los jueces están sujetos al imperio de la ley.",
+   "un párrafo corto va entero y sin el encabezado de la ingesta")
+_d = {"id": "x", "ingerido": True, "texto": _largo, "cita_canonica": "Corte IDH. Caso Gelman…",
+      "_hito": {"llave": "C-221|s|239", "extracto": "La sola existencia de un régimen democrático no garantiza",
+                "verificado": True, "fase": "sujetos", "arista": "amplía"}, "_crono": {}}
+_hx = lc._hito_xml(_d)
+ok("<texto>«[…] La sola existencia" in _hx and "<extracto>" not in _hx,
+   "el hito lleva su pasaje en <texto> y no repite el extracto que ya contiene")
+_d["_sin_texto"] = True
+ok("<texto>" not in lc._hito_xml(_d) and "<extracto>" in lc._hito_xml(_d),
+   "si el presupuesto lo pide, el pasaje vuelve a extracto")
+_rub = ("JURISPRUDENCIA EMITIDA POR LA CORTE INTERAMERICANA DE DERECHOS HUMANOS. ES VINCULANTE PARA LOS JUECES "
+        "MEXICANOS SIEMPRE QUE SEA MÁS FAVORABLE A LA PERSONA.")
+_tx = lc._tesis_xml("pid", {"rubro": _rub, "clave_tesis": "P./J. 21/2014 (10a.)", "instancia": "Pleno"},
+                    {"vigencia": "vigente", "fuerza": "jurisprudencia_obligatoria", "porque": "x " * 60}, None, "2006225")
+ok(f"Rubro: «{_rub}»" in _tx, "la tesis lleva su RUBRO ENTERO (antes se cortaba a 22 palabras con «…»)")
+ok("TRANSCRIBE en blockquote" in lc._FORMATO_TRANSCRIPCION and "RUBRO COMPLETO en blockquote" in lc._FORMATO_TRANSCRIPCION
+   and "RUBRO COMPLETO en blockquote" in lc._INSTRUCCION_SOLO_MX,
+   "la instrucción pide el formato de la casa (blockquote) en la línea completa y en sólo México")
+_fuente_lc = Path("linea_coidh.py").read_text(encoding="utf-8")
+ok("_INSTRUCCION_PILAR + \" \" + _FORMATO_TRANSCRIPCION" in _fuente_lc,
+   "la regla de formato viaja en la instrucción de la línea completa")
+try:
+    _det_d = lc.pregunta_por_linea("dame la linea jurisprudencial de control de convencionalidad desde su surgimiento")
+    _sel_d = lc.seleccionar(FIG, _det_d[1], pregunta="dame la linea jurisprudencial de control de convencionalidad desde su surgimiento")
+    _txt = [x for t, x in _sel_d["recortables"] if t == "texto"]
+    ok(_txt and not (set(_txt) & set(lc.NUCLEO)) and [t for t, _ in _sel_d["recortables"]][:len(_txt)] == ["texto"] * len(_txt),
+       "los pasajes ceden ANTES que cualquier pieza, y los del núcleo nunca")
+except Exception as _e:
+    ok(False, f"seleccionar con la pregunta de David: {type(_e).__name__}: {_e}")
 
 print()
 if FALLOS:

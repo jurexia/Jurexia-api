@@ -171,9 +171,13 @@ MAX_PALABRAS_APORTE = 55
 # medidos con Qdrant real); sólo queda fuera el voto de Cossío y la doctrina de
 # Silva García. Las demás preguntas de David no cambian (≤ 9,060). Sólo paga
 # este tope quien pide una fase de la línea: 0 de 336 consultas reales la abren.
-PRESUPUESTO_LINEA = 12500
-PRESUPUESTO_TEMA = 6500
-PRESUPUESTO_POR_TEMA = 1500
+# Y OTRA VEZ, POR LOS PASAJES (28-sep-2026): los rubros enteros, la regla de
+# FORMATO y los pasajes del núcleo suman ~700 tokens; sin compensar, «Traza la
+# línea…» volvía a perder el proyecto de Pardo, el voto de Franco y la doctrina
+# de Cano López. +1,000 a la línea, +500 a un tema y +500 por tema adicional.
+PRESUPUESTO_LINEA = 13500
+PRESUPUESTO_TEMA = 7000
+PRESUPUESTO_POR_TEMA = 2000
 CAR_POR_TOKEN = 2.8
 
 # La colección de la línea para la sonda semántica (scripts/lineas_qdrant.py).
@@ -1167,7 +1171,19 @@ def seleccionar(fid: str, fases: Sequence[str], pregunta: Optional[str] = None, 
     # «las posturas serias» que pregunta David: se quitan al último.
     hitos_tema = [ll for ll, _, _ in _por_turnos(de_tema) if ll in orden and ll not in protegidos]
     con_extracto = bool(set(temas) & {"prision_preventiva_oficiosa", "arraigo"}) and bool(supervisiones)
-    recortables = ([("cronologia", i) for i in crono["recortar"]["puntos"]]
+    # LOS PASAJES CEDEN ANTES QUE LAS PIEZAS (28-sep-2026). Cada hito lleva el
+    # pasaje de su párrafo para transcribirlo en blockquote (_pasaje), unos
+    # 140 tokens más que su extracto. En «Traza la línea…» los quince pasajes
+    # echaban fuera la doctrina de Cano López, el proyecto de Pardo, los votos
+    # y la CC 3/2026 —las posturas que pide la pregunta—. Si no cabe, primero
+    # se vuelven extracto los de lo que no está protegido, luego los de lo
+    # protegido; los del núcleo (Myrna Mack, Almonacid ¶124, Cesados ¶128)
+    # no ceden nunca.
+    textos = list(dict.fromkeys(
+        [ll for ll in extra[::-1] if ll not in protegidos] + hitos_tema[::-1]
+        + [ll for ll in (fijos + garantia)[::-1] if ll not in NUCLEO]))
+    recortables = ([("texto", ll) for ll in textos]
+                   + [("cronologia", i) for i in crono["recortar"]["puntos"]]
                    + [("registro", r) for r in registros["recortar"]["puntos"]]
                    + [("hito", ll) for ll in extra[::-1] if ll not in protegidos]
                    + [("registro", r) for r in registros["recortar"]["parejas"]]
@@ -1715,6 +1731,11 @@ def _al_presupuesto(sel: Dict[str, Any], hitos: List[Dict[str, Any]], armar: Cal
             sel["registros"] = [r for r in sel["registros"] if r not in quitar]
         elif tipo == "cronologia" and x in sel["cronologia"]:
             sel["cronologia"] = [i for i in sel["cronologia"] if i != x]
+        elif tipo == "texto" and any((d.get("_hito") or {}).get("llave") == x and not d.get("_sin_texto")
+                                     for d in hitos):
+            for d in hitos:
+                if (d.get("_hito") or {}).get("llave") == x:
+                    d["_sin_texto"] = True
         elif tipo == "supervision" and sel.get("extracto_supervision"):
             sel["extracto_supervision"] = False
         elif tipo == "tensiones" and sel.get("max_tensiones", 2) > x:
@@ -1987,7 +2008,7 @@ def bloque_resueltos_xml(docs: Sequence[Any], ambiguos: Sequence[Dict[str, Any]]
 
 
 def _hito_xml(d: Dict[str, Any]) -> str:
-    """Un hito, en lo justo (~240 tokens): el caso, la serie y el tipo ya van
+    """Un hito, en lo justo (~240 tokens; ~380 con su <texto>): el caso, la serie y el tipo ya van
     en la <cita>, y el id una sola vez, en su [Doc ID]. Desde el pilar
     (25-sep-2026) lleva también su postura y su fuerza —una sentencia ORDENA,
     un voto PROPONE—, y verificacion="parcial" si su extracto sólo se cotejó en
@@ -2014,7 +2035,14 @@ def _hito_xml(d: Dict[str, Any]) -> str:
         cuerpo.append(f"<ubicacion>{_esc(h['ubicacion'])}</ubicacion>")
     if h.get("aporte"):
         cuerpo.append(f"<aporte>{_esc(h['aporte'])}</aporte>")
-    if h.get("extracto") and h.get("verificado", True):
+    # El pasaje para transcribir en blockquote (28-sep-2026): con sólo el
+    # extracto de ≤30 palabras el modelo narraba en paráfrasis. Si el pasaje
+    # ya contiene el extracto verificado, el extracto no se repite.
+    pasaje = (_pasaje(d.get("texto"), h.get("extracto"))
+              if (d.get("ingerido") and d.get("texto") and not d.get("_sin_texto")) else "")
+    if pasaje:
+        cuerpo.append(f"<texto>«{_esc(pasaje)}»</texto>")
+    if h.get("extracto") and h.get("verificado", True) and _letras(h["extracto"])[:40] not in _letras(pasaje):
         cuerpo.append(f"<extracto>«{_esc(h['extracto'])}»</extracto>")
     # Las notas largas son de verificación (qué PDF, qué página se corrigió):
     # al modelo le sirven las cortas y las del núcleo («no revisé toda la
@@ -2061,14 +2089,77 @@ _INSTRUCCION_PILAR = (
     "fuerza= y vigencia= dicen quién ORDENA, RECOMIENDA o PROPONE y si sigue vigente (vigencia=\"abandonada\": "
     "NO es criterio vigente, cita su reemplazo); sigue las <reglas> y fecha el estado actual con <cortes>.")
 
+# EL FORMATO DE LA CASA, TAMBIÉN EN LA LÍNEA (28-sep-2026). David, con la
+# respuesta a «dame la línea jurisprudencial de control de convencionalidad
+# desde su surgimiento» delante: «algunas [citas] son excesivamente cortas…
+# las citas ya no se dan reproduciéndolas como antes con sangría». Medido: 0
+# líneas en blockquote (las respuestas del chat traían 18-24 de media) y dos
+# rubros copiados tal cual terminaban en «…». La instrucción de la línea pedía
+# contar en orden cronológico con la cita en línea, y el bloque sólo traía
+# extractos de ≤30 palabras y rubros cortados a 22: el modelo narró en
+# paráfrasis. No era la salida (30,000 tokens de tope, terminó sola). El prompt
+# maestro pide blockquote para todo lo que se transcribe; la línea, lo mismo.
+_FORMATO_TRANSCRIPCION = (
+    "FORMATO (el de todo Iurexia): de cada hito que cites, TRANSCRIBE en blockquote el pasaje de su <texto> "
+    "—o su <extracto> si no trae texto—, literal y como viene (con sus […] si los trae): "
+    "> «…» -- *[su <cita>]* [Doc ID: uuid]; debajo, fuera del blockquote, explica lo que aporta. Cada tesis "
+    "que cites va con su RUBRO COMPLETO en blockquote: > \"RUBRO\" -- *[instancia], Registro digital: "
+    "[registro]* [Doc ID: uuid]. Nunca recortes un rubro.")
+
 _INSTRUCCION_SOLO_MX = (
     "<!-- INSTRUCCIÓN LÍNEA JURISPRUDENCIAL (sólo México): el abogado apagó «constitucional» en «Fuentes» y dejó "
     "«jurisprudencia»: aquí van SÓLO tesis y resoluciones mexicanas (SCJN, Plenos Regionales, Tribunales "
     "Colegiados). No cites a la Corte IDH, a la CIDH, a la ONU ni tratados de memoria. Cuéntala en orden "
     "cronológico por su fecha. Una tesis con vigencia=\"abandonada\" o \"superada\" NO es criterio vigente: dilo y "
     "cita la que la reemplaza. Cita cada tesis con su clave, su registro y su propio [Doc ID] (uno por "
-    "corchetes; nunca «Doc IDs»). Fecha el estado actual con "
-    "<cortes> («según lo verificado hasta…»), nunca «hoy». -->")
+    "corchetes; nunca «Doc IDs»). Cada tesis que cites va con su RUBRO COMPLETO en blockquote: "
+    "> \"RUBRO\" -- *[instancia], Registro digital: [registro]* [Doc ID: uuid]; nunca recortes un rubro. "
+    "Fecha el estado actual con <cortes> («según lo verificado hasta…»), nunca «hoy». -->")
+
+
+PALABRAS_PASAJE = 110
+
+
+def _letras(s: Any) -> str:
+    return re.sub(r"[^a-z0-9]", "", _plegar(str(s or "")))
+
+
+def _pasaje(texto: Any, extracto: Any = None, n: int = PALABRAS_PASAJE) -> str:
+    """El pasaje del párrafo que se da para transcribir: ~n palabras que
+    CONTIENEN el extracto verificado, desde el principio de su frase y hasta
+    un fin de frase (28-sep-2026, ver _FORMATO_TRANSCRIPCION). Sin el
+    encabezado «[Corte IDH | caso | fecha | serie | párr.]» de la ingesta. Un
+    párrafo corto va entero; uno largo (Gelman ¶239, 3,343 caracteres) se
+    abre con «[…]» donde no empieza por el principio. Si el extracto no se
+    encuentra, desde el principio."""
+    cuerpo = re.sub(r"^\s*\[Corte IDH[^\]]*\]\s*", "", str(texto or "")).strip()
+    w = cuerpo.split()
+    if len(w) <= n:
+        return cuerpo
+    ini = 0
+    clave = _letras(extracto)[:40]
+    if clave:
+        letras = [_letras(x) for x in w]
+        for i in range(len(w)):
+            acum = ""
+            for j in range(i, min(len(w), i + 12)):
+                acum += letras[j]
+                if len(acum) >= len(clave):
+                    break
+            if acum.startswith(clave):
+                ini = i
+                break
+        # atrás hasta el principio de su frase, sin irse más de 40 palabras
+        for k in range(ini, max(-1, ini - 40), -1):
+            if k == 0:
+                ini = 0
+                break
+            prev = w[k - 1].rstrip("»”\")")
+            if prev.endswith((";", ":")) or (prev.endswith(".") and not _RX_ABREVIATURA.search(prev)):
+                ini = k
+                break
+    trozo = _recorte(" ".join(w[ini:]), n)
+    return ("[…] " if ini > 0 else "") + trozo
 
 
 def _palabras(s: Any, n: int) -> str:
@@ -2208,7 +2299,9 @@ def _tesis_xml(pid: str, pl: Dict[str, Any], r: Dict[str, Any], e: Optional[Dict
     # La que sustituye a otra va con su aporte entero: es la que hay que citar
     # (el de la P./J. 2/2022 cortado a 26 palabras perdía «y sobre las normas
     # aplicadas en el acto reclamado», que es la respuesta a David).
-    return (f"<tesis {' '.join(attrs)}>{_esc(aviso)}{_esc(_palabras(rubro, 22))}"
+    # El rubro ENTERO (28-sep-2026): cortado a 22 palabras, el modelo lo copió
+    # como cita tal cual —«…SIEMPRE QUE SEA MÁS FAVORABLE A LA…»—.
+    return (f"<tesis {' '.join(attrs)}>{_esc(aviso)}Rubro: «{_esc(rubro)}»"
             + (f" — {_esc(_palabras(porque, 50 if r.get('sustituye') else 26))}" if porque else "")
             # La nota entera hasta su último fin de frase (26-sep-2026: «disputada:
             # un colegiado la tiene por inaplicable; el Pleno Regional…» cortada a
@@ -2335,7 +2428,7 @@ def bloque_xml(fid: str, sel: Dict[str, Any], hitos: Sequence[Dict[str, Any]],
                "éstos son SÓLO los hitos y criterios que tocan el tema de la pregunta, verificados; no cuentes "
                "la línea entera. Preséntalos después de la norma y la jurisprudencia mexicanas"
                + (", con sus tensiones. " if ten else ". "))
-            + _INSTRUCCION_PILAR
+            + _INSTRUCCION_PILAR + " " + _FORMATO_TRANSCRIPCION
             + f" Del estado actual de la Corte IDH di «según lo ingerido hasta {vig}», nunca «hoy». ingerido=\"no\": "
             "el texto completo no está en Iurexia, sólo su extracto verificado; cita igual su [Doc ID].\n"
             + _INSTRUCCION_CITA + " -->")

@@ -393,8 +393,10 @@ try:
     # 31-dic-2024, AG 2/2024, art. 166 LA, proyecto de recepción 3/2023) y las
     # reglas de redacción que le tocan. Medido con tesis reales en
     # test_linea_pilar.py: ~5.4 mil; aquí, con tres tesis de prueba, ~4.2 mil.
-    ok(max(tam.values()) < 8000 and tam["prisión preventiva"] < 5500,
-       "presupuesto: la línea entera < 8 mil tokens; un tema, < 5.5 mil")
+    # 28-sep-2026: los pasajes para transcribir (_pasaje) y los rubros enteros
+    # crecen el bloque; el tope ahora es el que aplica traer_linea.
+    ok(max(tam.values()) < lc.PRESUPUESTO_LINEA and tam["prisión preventiva"] < lc.PRESUPUESTO_TEMA,
+       f"presupuesto: la línea entera < {lc.PRESUPUESTO_LINEA:,} tokens; un tema, < {lc.PRESUPUESTO_TEMA:,}")
 except ImportError:
     pass
 
