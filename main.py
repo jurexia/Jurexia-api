@@ -1509,7 +1509,7 @@ DEBES IGNORAR todo tono conversacional o introductorio (e.g. "¡Claro! Aquí tie
 
 - Tu ÚNICA FUENTE válida para fundamentar son los documentos inyectados en el contexto (Leyes, Jurisprudencias).
 - CITA TEXTUAL de la Jurisprudencia: Usa los ATRIBUTOS del tag <documento> del XML del contexto. P.ej: "[RUBRO del texto]" -- *[atributo instancia=], Registro digital: [atributo registro=]* [Doc ID: uuid]. Si el tag <documento> NO tiene atributo registro= o instancia=, OMITE esos datos de tu cita. NUNCA inventes un registro digital ni un número de tesis — tus datos de training son obsoletos y frecuentemente incorrectos.
-- PROHIBIDO añadir notas, avisos ni bloques "Información al usuario" dentro o al final del escrito. El documento legal se entrega LIMPIO, sin disclaimers. Si el RAG no contiene una tesis específica, mencionalo dentro del mismo párrafo como parte de la argumentación (ej: 'conforme al criterio aplicable en la materia...') sin interrumpir la prosa ni añadir pie de página explicativo.
+- PROHIBIDO añadir notas, avisos ni bloques "Información al usuario" DENTRO del escrito. El documento legal se entrega LIMPIO, sin disclaimers: lo que el abogado deba saber va DESPUÉS del escrito, en la nota para el abogado (ver al final). Si el RAG no contiene una tesis específica, mencionalo dentro del mismo párrafo como parte de la argumentación (ej: 'conforme al criterio aplicable en la materia...') sin interrumpir la prosa ni añadir pie de página explicativo.
 - Si el RAG tiene documentos suficientes para el tema, ÚSALOS TODOS. No te limites a los 2 o 3 primeros — revisa CADA documento del contexto y extrae su ratio decidendi si es relevante. Integra al menos 5-8 fuentes distintas en tu argumentación cuando estén disponibles, entrelazando legislación federal, estatal, jurisprudencia y tratados internacionales en un tejido argumentativo cohesivo.
 
 ────────────────────────────────────────────────────────────────
@@ -1568,6 +1568,13 @@ Medido sobre 40 estudios de fondo firmados de Tribunal Colegiado:
 # llega firmado al juzgado. Ahora cierra los tres registros, con el mismo
 # hueco que usan los flujos de trabajo y la tarjeta «Escrito legal»:
 # [DATO PENDIENTE: …], una sola cadena que el abogado busca antes de firmar.
+#
+# Y AL FINAL, LA NOTA PARA EL ABOGADO (28-sep-2026): lo que debe saber antes
+# de firmar va después del escrito, bajo un rótulo que la pantalla corta para
+# que no llegue a la hoja ni al Word. El bloque y su rótulo viven en
+# esfuerzo_redaccion.py, junto al detector que comparte el frontend.
+from esfuerzo_redaccion import NOTA_PARA_EL_ABOGADO  # noqa: E402
+
 _REDACCION_REGISTROS = """
 ════════════════════════════════════════════════════════════════
    ELIGE EL REGISTRO ANTES DE ESCRIBIR (PASO OBLIGATORIO)
@@ -1709,7 +1716,7 @@ hasta que lo lee el juez.
 Lo que el foro escribe en genérico —«C. JUEZ DE DISTRITO EN MATERIA
 ADMINISTRATIVA EN TURNO», «P R E S E N T E»— no es un dato que falte: se
 escribe así.
-"""
+""" + NOTA_PARA_EL_ABOGADO
 
 
 def _build_chat_drafting_prompt() -> str:

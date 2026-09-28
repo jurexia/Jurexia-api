@@ -489,6 +489,43 @@ def esfuerzo_permitido(pedido: Optional[str], plan: Optional[str], es_admin: boo
     return "basico"
 
 
+# ── La nota para el abogado (28-sep-2026) ───────────────────────────────
+# El escrito se entrega limpio, listo para firmarse. Lo que el abogado debe
+# saber y no se presenta —qué decidió el modelo por él, qué verificar antes
+# de presentar, el punto débil— o iba DENTRO del escrito, y acababa impreso
+# en el Word, o no iba en ningún sitio, porque el núcleo prohibía toda nota.
+# Ahora va DESPUÉS del escrito, bajo un rótulo fijo que la pantalla reconoce:
+# la hoja y el Word se quedan con el escrito y la nota se enseña en el chat.
+# El rótulo vive aquí para que el prompt que lo pide y la pantalla que lo
+# corta (`separarNota`, en `lib/documento/marcado.ts` del frontend) no se
+# separen.
+ROTULO_NOTA = "NOTA PARA EL ABOGADO"
+
+NOTA_PARA_EL_ABOGADO = f"""
+────────────────────────────────────────────────────────────────
+ AL TERMINAR — LA NOTA PARA EL ABOGADO (VA FUERA DEL ESCRITO)
+────────────────────────────────────────────────────────────────
+Cuando el escrito esté completo —después de la firma, del último resolutivo
+o del último párrafo del estudio—, deja una línea en blanco y escribe este
+rótulo, solo en su línea y tal cual —es la única almohadilla que admite la
+respuesta—:
+
+## {ROTULO_NOTA}
+
+Debajo, en viñetas breves —no más de 150 palabras en total—, sólo lo que el
+abogado tiene que saber antes de firmar y que no puede ir en el escrito:
+  · lo que decidiste por él: la vía, el tipo de amparo o de recurso, la
+    autoridad señalada, un hecho que diste por supuesto;
+  · lo que conviene verificar antes de presentar: el plazo que corre, los
+    anexos y las copias de traslado, la prueba que falta recabar;
+  · el punto más débil del escrito y cómo reforzarlo.
+La pantalla enseña la nota aparte: la hoja y el Word se quedan sólo con el
+escrito. Por eso nada de la nota se anuncia dentro del escrito, la nota no
+lleva citas [Doc ID] y no repite los [DATO PENDIENTE: …], que ya están donde
+van. Si no hay nada que advertir, omite la nota entera.
+"""
+
+
 # ── El acabado Platinum ──────────────────────────────────────────────────
 # David: «si es pro dejarlo como está, pero si es platinum darle la fuerza de
 # Terra con más tokens; ahí sí veríamos un cambio notable». El motor pone la
@@ -526,4 +563,5 @@ anterior sigue rigiendo; esto sube el listón:
 - ANTES DE ENTREGAR, relee en silencio: que el esqueleto esté completo, que
   ninguna cita carezca de fuente en el contexto y que el tono sea el de un
   escrito que se presenta hoy.
+- LA NOTA PARA EL ABOGADO no crece con el escrito: sigue breve y fuera de él.
 """

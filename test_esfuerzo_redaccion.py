@@ -2,7 +2,8 @@
 import json
 
 from esfuerzo_redaccion import (
-    OFERTA_TRAS_REVISION, _sin_marcadores, decidir_redaccion, detectar_redaccion,
+    ACABADO_PLATINUM, NOTA_PARA_EL_ABOGADO, OFERTA_TRAS_REVISION, ROTULO_NOTA,
+    _sin_marcadores, decidir_redaccion, detectar_redaccion,
     es_ajuste_de_escrito, esfuerzo_permitido, intencion_del_mensaje,
     normalizar_esfuerzo, normalizar_intencion, parece_escrito, pide_escrito,
 )
@@ -257,6 +258,19 @@ def main() -> None:
     assert intencion_del_mensaje("Agrega un concepto de violación", ESCRITO + meta) == "ajuste"
     assert intencion_del_mensaje("Sí, por favor", oferta + meta) == "acepta"
     assert intencion_del_mensaje("Sí, por favor", "") == ""
+
+    # LA NOTA PARA EL ABOGADO (28-sep-2026): va después del escrito, bajo el
+    # rótulo por el que la pantalla la corta (`separarNota` en el frontend).
+    assert ROTULO_NOTA == "NOTA PARA EL ABOGADO", "cambiar el rótulo es cambiar marcado.ts"
+    assert f"## {ROTULO_NOTA}" in [l.strip() for l in NOTA_PARA_EL_ABOGADO.splitlines()], \
+        "el rótulo va solo en su línea"
+    assert "[DATO PENDIENTE" in NOTA_PARA_EL_ABOGADO and "Doc ID" in NOTA_PARA_EL_ABOGADO
+    assert ROTULO_NOTA in ACABADO_PLATINUM, "Platinum no infla la nota"
+    # Un escrito con su nota sigue siendo un escrito: el retoque se reconoce, y
+    # la nota no se toma por la oferta de redactar.
+    con_nota = ESCRITO + "\n\n## NOTA PARA EL ABOGADO\n\n- Verifique el plazo de quince días.\n" + meta
+    assert intencion_del_mensaje("Agrega un concepto de violación", con_nota) == "ajuste"
+    assert intencion_del_mensaje("Sí", con_nota) == ""
 
     # El plan manda sobre el desplegable.
     assert esfuerzo_permitido("platinum", "platinum_monthly") == "platinum"
