@@ -1881,7 +1881,8 @@ def _build_precedentes_system_prompt(circuit: str, tribunal: Optional[str] = Non
 # interruptor.
 from esfuerzo_redaccion import (  # noqa: E402
     ACABADO_PLATINUM, OFERTA_TRAS_REVISION, PLANES_PLATINUM, PLANES_PRO,
-    detectar_redaccion, normalizar_esfuerzo,
+    decidir_redaccion, intencion_del_mensaje, normalizar_esfuerzo,
+    normalizar_intencion,
 )
 
 
@@ -3654,6 +3655,20 @@ class ChatRequest(BaseModel):
     # esfuerzo_redaccion.py.
     esfuerzo: Optional[str] = Field(
         None, description="Esfuerzo de redacción elegido: basico, pro o platinum.")
+    # La etiqueta del compositor (27-sep-2026): antes de enviar, el abogado ve
+    # si su mensaje se redactará como escrito o se contestará como consulta, y
+    # la cambia con un clic. Si viene, manda sobre el detector —lo anunciado es
+    # lo que ocurre—; el escalón sigue saliendo de `esfuerzo` y del plan.
+    intencion: Optional[str] = Field(
+        None, description="Decisión explícita: 'redactar' o 'consultar'. Ausente: decide el detector.")
+
+
+class IntencionRequest(BaseModel):
+    """Lo que pregunta la etiqueta del compositor mientras el abogado escribe."""
+    mensaje: str = Field(..., max_length=8000)
+    # La respuesta anterior, recortada por el cliente: basta para reconocer el
+    # retoque de un escrito y el «sí» a la oferta de redactar.
+    anterior: Optional[str] = Field(None, max_length=40000)
 
 
 class AuditRequest(BaseModel):
@@ -15407,6 +15422,22 @@ async def _smart_rag_for_document(
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# ENDPOINT: ¿ESCRITO O CONSULTA? (la etiqueta del compositor, 27-sep-2026)
+# ══════════════════════════════════════════════════════════════════════════════
+# Sin el interruptor Buscar/Redactar, el abogado no sabía qué iba a pasar con
+# su mensaje hasta ver la respuesta: «Quiero que me ayudes con la demanda» le
+# llegaba como explicación y «contesta la demanda» también. La etiqueta del
+# compositor pregunta aquí, mientras escribe, lo mismo que decidirá /chat —el
+# mismo detector, sin modelo y sin costo— y el abogado la cambia si no era eso.
+# No cobra consulta ni guarda nada: sólo clasifica el texto que recibe.
+
+@app.post("/redaccion/intencion")
+async def redaccion_intencion(req: IntencionRequest):
+    motivo = intencion_del_mensaje(req.mensaje, req.anterior or "")
+    return {"intencion": "redactar" if motivo else "consultar", "motivo": motivo}
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # ENDPOINT: CHAT (STREAMING SSE CON THINKING MODE + RAG)
 # ══════════════════════════════════════════════════════════════════════════════
 
@@ -15715,6 +15746,9 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
     # Verdadero cuando el escalón lo pidió el desplegable «Esfuerzo» y no un
     # marcador: entonces se comprueba también el Pro contra el plan.
     _esfuerzo_por_campo = False
+    # Por qué se redacta cuando lo decide el mensaje: 'pide', 'ajuste',
+    # 'acepta' o 'etiqueta' (lo eligió el abogado en el compositor).
+    _via_redaccion = ""
     if "[MODO_REDACCION_PLATINUM]" in last_user_message:
         # Platinum va antes que Pro: comparte toda la ruta de Pro y sólo cambia
         # el motor, así que enciende ambas banderas.
@@ -15751,7 +15785,14 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
         # Buscar/Redactar. El mensaje decide si es un encargo —«redacta una
         # demanda…»— o el retoque del escrito recién entregado —«agrega un
         # concepto…»—, y el desplegable «Esfuerzo» decide con qué motor.
-        _via_redaccion = detectar_redaccion(request.messages)
+        #
+        # SALVO QUE EL ABOGADO LO HAYA DICHO (27-sep-2026): la etiqueta del
+        # compositor le enseña antes de enviar qué va a pasar, y si la cambió,
+        # manda su decisión. Sin etiqueta —la app móvil, bundles viejos—, el
+        # detector como siempre.
+        _via_redaccion = decidir_redaccion(request.messages, request.intencion)
+        if normalizar_intencion(request.intencion) == "consultar":
+            print("   🗣️ CONSULTA por decisión del abogado (etiqueta del compositor)")
         if _via_redaccion:
             is_chat_drafting = True
             _esfuerzo_pedido = normalizar_esfuerzo(request.esfuerzo)
@@ -15760,7 +15801,8 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                 is_chat_drafting_platinum = _esfuerzo_pedido == "platinum"
                 _esfuerzo_por_campo = True
             _motivo = {"pide": "encargo", "ajuste": "retoque del escrito anterior",
-                       "acepta": "acepta la oferta de redactar"}.get(_via_redaccion, _via_redaccion)
+                       "acepta": "acepta la oferta de redactar",
+                       "etiqueta": "lo pidió en la etiqueta del compositor"}.get(_via_redaccion, _via_redaccion)
             print(f"   ✍️ REDACCIÓN por lenguaje natural ({_motivo}) "
                   f"· esfuerzo pedido: {_esfuerzo_pedido or 'ninguno'}")
 

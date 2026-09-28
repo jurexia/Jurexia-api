@@ -2,9 +2,9 @@
 import json
 
 from esfuerzo_redaccion import (
-    OFERTA_TRAS_REVISION, _sin_marcadores, detectar_redaccion,
-    es_ajuste_de_escrito, esfuerzo_permitido, normalizar_esfuerzo,
-    parece_escrito, pide_escrito,
+    OFERTA_TRAS_REVISION, _sin_marcadores, decidir_redaccion, detectar_redaccion,
+    es_ajuste_de_escrito, esfuerzo_permitido, intencion_del_mensaje,
+    normalizar_esfuerzo, normalizar_intencion, parece_escrito, pide_escrito,
 )
 
 ENCARGOS = [
@@ -238,6 +238,25 @@ def main() -> None:
     for m in ("¿Me puedes volver a dar el contrato con los campos llenos?",):
         assert not es_ajuste_de_escrito(m), "una pregunta no es ajuste"
     assert es_ajuste_de_escrito("Me puedes volver a dar el contrato con los campos llenos")
+
+    # LA ETIQUETA DEL COMPOSITOR (27-sep-2026): lo que el abogado eligió manda.
+    assert normalizar_intencion("Redactar") == "redactar"
+    assert normalizar_intencion("consulta") == "consultar"
+    assert normalizar_intencion("cualquiera") is None and normalizar_intencion(None) is None
+    pide = [{"role": "user", "content": "Redacta una demanda de amparo contra la clausura"}]
+    duda = [{"role": "user", "content": "¿Cuál es el plazo del amparo directo?"}]
+    assert decidir_redaccion(pide) == "pide", "sin etiqueta, decide el detector"
+    assert decidir_redaccion(duda) == ""
+    assert decidir_redaccion(pide, "consultar") == "", "«consulta» en la etiqueta apaga la redacción"
+    assert decidir_redaccion(duda, "redactar") == "etiqueta", "«escrito» en la etiqueta la enciende"
+    assert decidir_redaccion(pide, "redactar") == "pide", "con las dos de acuerdo, el motivo del detector"
+    assert decidir_redaccion(duda, "loquesea") == "", "un valor raro cuenta como ausente"
+    # Lo que pregunta la etiqueta mientras se escribe: el mismo detector.
+    assert intencion_del_mensaje("Quiero que me ayudes con la demanda de divorcio") == "pide"
+    assert intencion_del_mensaje("¿Qué requisitos tiene la demanda?") == ""
+    assert intencion_del_mensaje("Agrega un concepto de violación", ESCRITO + meta) == "ajuste"
+    assert intencion_del_mensaje("Sí, por favor", oferta + meta) == "acepta"
+    assert intencion_del_mensaje("Sí, por favor", "") == ""
 
     # El plan manda sobre el desplegable.
     assert esfuerzo_permitido("platinum", "platinum_monthly") == "platinum"

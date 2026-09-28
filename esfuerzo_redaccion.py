@@ -432,6 +432,42 @@ def detectar_redaccion(mensajes: Iterable[Any]) -> str:
     return ""
 
 
+def normalizar_intencion(valor: Optional[str]) -> Optional[str]:
+    """La decisión explícita de la etiqueta del compositor (27-sep-2026).
+
+    El abogado ve antes de enviar si su mensaje se redactará como escrito o se
+    contestará como consulta, y la cambia con un clic. Si la manda, manda ella:
+    lo que la pantalla anunció es lo que ocurre. Cualquier otro valor cuenta
+    como ausente y decide el detector."""
+    v = _plano(valor or "")
+    if v in ("redactar", "escrito", "redaccion"):
+        return "redactar"
+    if v in ("consultar", "consulta"):
+        return "consultar"
+    return None
+
+
+def decidir_redaccion(mensajes: Iterable[Any], intencion: Optional[str] = None) -> str:
+    """Lo que decide /chat cuando no hay marcador: '' si es consulta; si no,
+    por qué se redacta —'pide', 'ajuste', 'acepta' o 'etiqueta' (lo eligió
+    el abogado aunque el detector no lo viera)—. La etiqueta manda en los dos
+    sentidos."""
+    i = normalizar_intencion(intencion)
+    if i == "consultar":
+        return ""
+    motivo = detectar_redaccion(mensajes)
+    return motivo or ("etiqueta" if i == "redactar" else "")
+
+
+def intencion_del_mensaje(mensaje: str, anterior: str = "") -> str:
+    """Lo que `detectar_redaccion` diría de `mensaje` tras la respuesta
+    `anterior` (vacía si no hay): '' consulta; 'pide', 'ajuste' o 'acepta'.
+    Es lo que pregunta la etiqueta mientras el abogado escribe."""
+    mensajes = [{"role": "assistant", "content": anterior}] if anterior else []
+    mensajes.append({"role": "user", "content": mensaje or ""})
+    return detectar_redaccion(mensajes)
+
+
 def normalizar_esfuerzo(valor: Optional[str]) -> Optional[str]:
     v = _plano(valor or "")
     if v in ("platino", "platinum"):
