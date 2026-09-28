@@ -32951,11 +32951,198 @@ async def _taller_preproponer(email: str, numero: str, r, material) -> None:
                     _taller_plan_desde_propuesta(email, numero, r, ses, resp))
                 _TALLER_EN_MARCHA.add(_tp)
                 _tp.add_done_callback(_TALLER_EN_MARCHA.discard)
+            # Y LA DELIBERACIÓN DEL PRINCIPAL, si su bandera está encendida
+            # para esta cuenta (apagada por omisión: ver `deliberacion.py`).
+            _taller_lanzar_deliberacion(email, numero, r, ses, resp)
     except Exception as ex:
         print(f"   ⚠️ la propuesta calculada sola de {numero} falló: {err(ex)}")
         if huella:
             _taller_guardar_marca(email, numero, "propuesta",
                                   {"huella": huella, "estado": "fallo"}, huella)
+
+
+# ═══ LA DELIBERACIÓN DEL PROBLEMA PRINCIPAL (28-sep-2026) ════════════════════
+# David, al pedir la tarjeta «El problema principal y su solución»: «¿Cómo le
+# damos esa potencia de inteligencia para resolver un problema jurídico? ¿Cómo
+# la maximizamos?». Lo medido (Kingston-24: 50 % contra 54 % de «siempre
+# niega»; error estable y sesgado a conceder) dice que el cuello de botella es
+# DECIDIR, y que no se arregla votando ni subiendo el modelo. `deliberacion.py`
+# cambia qué se pregunta (la pregunta decisiva), con qué se decide (lo que
+# obliga, bien rotulado) y cómo (dos abogados y un juez ciego).
+#
+# DETRÁS DE BANDERA Y APAGADA: `DELIBERACION_ACTIVA` y la cuenta en
+# `DELIBERACION_CUENTAS` (vacía por omisión). No se enciende sin que
+# `banco_deliberacion.py` pase sus compuertas y David lo apruebe.
+#
+# Corre en segundo plano, tras la propuesta, y deja la marca «deliberacion» en
+# la fila con la huella del adelanto (gunicorn -w 2: nada en memoria). La
+# tarjeta (/taller/tarjeta) la usa si existe; si no, se arma sin modelo.
+
+def _taller_lanzar_deliberacion(email: str, numero: str, r, ses: dict, resp: dict,
+                                contexto: str = "") -> bool:
+    """La única puerta: `deliberacion.programar` sólo crea la tarea si la
+    bandera y la cuenta lo permiten. Con la bandera apagada no se lee ni se
+    llama nada. Nunca lanza."""
+    try:
+        import deliberacion as _delib
+
+        def _lanzar():
+            _td = asyncio.ensure_future(
+                _taller_predeliberar(email, numero, r, ses, resp, contexto))
+            _TALLER_EN_MARCHA.add(_td)
+            _td.add_done_callback(_TALLER_EN_MARCHA.discard)
+        return _delib.programar(email, _lanzar)
+    except Exception as ex:
+        print(f"   ⚠️ no se pudo lanzar la deliberación de {numero}: {err(ex)}")
+        return False
+
+
+async def _taller_deliberar_nucleo(r, ses: dict, resp: dict, contexto: str = "") -> dict:
+    """La deliberación del principal SIN ESCRIBIR NADA: arma las entradas desde
+    la sesión y llama a `deliberacion.deliberar` con las búsquedas de verdad
+    inyectadas. La usan la tarea en segundo plano y `banco_deliberacion.py`
+    (que no puede escribir en la base). Del motor sólo toma el contraste y las
+    constancias que faltan: el juez no sabe qué propuso."""
+    import deliberacion as _delib
+    import fase6_rag as _f6r
+    import fase_rama as _fr_d
+    material = ses["material"]
+    problemas = _te.problemas_de(r)
+    e = r.encargo
+    tipo = str(getattr(e, "tipo_asunto", "") or "") if e else ""
+    materia = str(getattr(e, "materia", "") or "") if e else ""
+    coleccion = (getattr(e, "coleccion_estatal", "") or None) if e else None
+    fuentes = list(getattr(r.fases, "fuentes", None) or []) + ["", ""]
+    glob = dict((resp or {}).get("global") or {})
+    constancias = [c for c in (glob.get("constancias") or [])
+                   if isinstance(c, dict) and c.get("indispensable")]
+    _pi = _delib.indice_principal(problemas)
+    _pral = _delib._pregunta(problemas[_pi]) if problemas else ""
+    _hecho = " ".join(str((problemas[_pi] if problemas else {}).get(k) or "")
+                      for k in ("combate", "resolvio")).strip()
+    _embed_leyes = (lambda t: get_dense_embedding(t, modelo=EMBEDDING_MODEL))
+
+    async def _buscar(pregunta: str, figura: str):
+        # LA BÚSQUEDA DE SIEMPRE —conceptual, co-citación, rerank—, REAPUNTADA
+        # a la pregunta decisiva. Sin filtros de payload en Qdrant (no se crean
+        # índices en producción): el escalón lo pone el código.
+        return await _f6r.material_para(
+            qdrant_client, _embedding_juris, _embed_leyes, pregunta, coleccion,
+            materia=materia, cliente=chat_client, contexto=figura, hecho=_hecho,
+            sede_acto=str(getattr(material, "sede_del_acto", "") or ""),
+            cuaderno=str(getattr(material, "cuaderno", "") or ""))
+
+    async def _reforzar(pregunta: str, resolvio: str, combate: str, ya: list):
+        # EL REFUERZO DIRIGIDO, UNA VEZ POR VÍA, sobre una copia: lo que halle
+        # no toca el material de la sesión.
+        import busqueda_dirigida as _bd
+        import fase6_estudio as _f6m
+        m = _f6m.Material()
+        m.tesis = [dict(t) for t in (ya or [])]
+        m.normas = []
+        _antes = {str(t.get("registro") or "") for t in m.tesis}
+        await _bd.reforzar(chat_client, qdrant_client, _embedding_juris,
+                           [{"pregunta": pregunta, "resolvio": resolvio, "combate": combate}],
+                           m, materia=materia, coleccion_estatal=coleccion or "")
+        return [t for t in m.tesis if str(t.get("registro") or "") not in _antes]
+
+    _internet = None
+    if os.getenv("DELIBERACION_WEB", "0") == "1":
+        # La línea de internet ya se buscó sobre la pregunta del principal al
+        # proponer (0.14 USD) y lo confirmado está en el material. Reapuntarla
+        # a la pregunta decisiva cuesta otro tanto: aparte y apagado.
+        async def _internet(pregunta: str):
+            import fase_internet as _fi
+            _w = await asyncio.wait_for(_fi.precedentes_verificados(
+                qdrant_client, pregunta, " ".join((r.fases.parrafos_acto() or [])[:3])[:1500],
+                tipo, embed_juris=_embedding_juris), timeout=75.0)
+            return list(_w.get("tesis") or [])
+
+    _espejo = []
+    for x in (getattr(material, "espejo", None) or []):
+        if isinstance(x, dict) and _delib._pregunta({"pregunta": x.get("problema")}) == _pral:
+            _espejo = [f for f in (x.get("filas") or []) if isinstance(f, dict)]
+            break
+    _tasa = ""
+    try:
+        import tabla_circuito as _tc
+        _s = ((_tc.TABLA_CIRCUITO.get(tipo) or {}).get("sentidos") or {})
+        if _s:
+            _tasa = ("en este circuito, " + ", ".join(
+                f"{k} {v.get('frecuencia')} de cada 100" for k, v in _s.items()
+                if isinstance(v, dict) and v.get("frecuencia") is not None)
+                + " (dato del circuito, no de este asunto)")
+    except Exception:
+        _tasa = ""
+    _a_quo = ""
+    try:
+        if tipo == "amparo_revision":
+            _a_quo = _fr_d.que_hizo_el_juzgado(
+                r.fases, declarado=str((glob.get("contexto") or {}).get("resolvio") or ""))
+    except Exception:
+        _a_quo = ""
+    _, _marco = await _taller_parametro(r, ses, material)
+    return await _delib.deliberar(
+        chat_client, problemas=problemas, material=material,
+        resumen_acto="\n".join(r.fases.parrafos_acto() or []),
+        resumen_conceptos="\n".join(r.fases.parrafos_conceptos() or []),
+        textos={"acto": str(fuentes[0] or ""), "escrito": str(fuentes[1] or ""),
+                "constancia": _con_autos(r, contexto)},
+        tipo_asunto=tipo, es_recurso=bool(e and e.es_recurso),
+        recurrente=_taller_recurrente(r),
+        contraste=list((resp or {}).get("contraste") or []),
+        constancias_faltantes=constancias,
+        resolvio_a_quo=_a_quo,
+        resolutivo_recurrida=str(getattr(r.fases, "resolutivo_recurrida", "") or ""),
+        # EN UN RECURSO, EL «QUEJOSO» DEL FORMULARIO ES QUIEN RECURRE (AR
+        # 631/2025: así salió amparada la tercera interesada). Los puntos que
+        # nombran al quejoso salen del resolutivo del juzgado; si no, la fórmula
+        # genérica dice «la parte quejosa», no el nombre de otro.
+        quejoso=(str(getattr(e, "quejoso", "") or "") if (e and not e.es_recurso) else ""),
+        tenemos_conceptos=bool(str(getattr(e, "conceptos_violacion", "") or "").strip()) if e else None,
+        marco=_marco, buscar=_buscar, reforzar=_reforzar, internet=_internet,
+        filas_propias=_espejo, tasa_base=_tasa,
+        region=(os.getenv("DELIBERACION_REGION", "") or None),
+        clave_propia=os.getenv("DELIBERACION_CLAVE_PROPIA", ""))
+
+
+async def _taller_predeliberar(email: str, numero: str, r, ses: dict, resp: dict,
+                               contexto: str = "") -> None:
+    """La tarea en segundo plano: marca «deliberacion» con la huella del
+    adelanto, latido mientras corre, y el documento cuando termina. Si ya hay
+    una lista con la misma clave, o una en curso viva, no se repite."""
+    huella = ""
+    try:
+        import deliberacion as _delib
+        huella = _te.huella_contraste(r)
+        clave = _delib.clave_de(huella, contexto, [
+            str(t.get("registro") or "") for t in (getattr(ses.get("material"), "tesis", None) or [])
+            if isinstance(t, dict)])
+        _prev = _taller_leer_marca(email, numero, "deliberacion")
+        if isinstance(_prev, dict) and _prev.get("huella") == huella and (
+                (_prev.get("estado") == "listo" and _prev.get("clave") == clave)
+                or (_prev.get("estado") == "en_curso" and not _te.abandonada(_prev))):
+            return
+        _desde = time.time()
+        if not _taller_guardar_marca(email, numero, "deliberacion", {
+                "huella": huella, "clave": clave, "estado": "en_curso", "desde": _desde}, huella):
+            return
+        _t0 = time.perf_counter()
+        doc = await _taller_con_latido(email, numero, "deliberacion", huella, _desde,
+                                       _taller_deliberar_nucleo(r, ses, resp, contexto))
+        doc = json.loads(json.dumps(doc, ensure_ascii=False, default=str))
+        _seg = time.perf_counter() - _t0
+        _taller_guardar_marca(email, numero, "deliberacion", {
+            "huella": huella, "clave": clave, "estado": "listo", "formato": _delib.FORMATO,
+            "segundos": round(_seg, 1), "deliberacion": doc}, huella)
+        print(f"   ⚖️ DELIBERACIÓN de {numero}: {doc.get('estado')} en {_seg:.0f} s · "
+              f"{(doc.get('uso') or {}).get('coste_usd')} USD")
+    except Exception as ex:
+        print(f"   ⚠️ la deliberación de {numero} falló: {err(ex)}")
+        if huella:
+            _taller_guardar_marca(email, numero, "deliberacion",
+                                  {"huella": huella, "estado": "fallo",
+                                   "error": str(ex)[:200]}, huella)
 
 
 def _taller_avance(email: str, numero: str) -> dict:
@@ -37398,6 +37585,9 @@ async def taller_proponer(
     _resp = await _taller_proponer_nucleo(user_email, numero, ses, contexto)
     _taller_registrar_uso(user_email, numero, "propuesta")
     _taller_guardar_global(user_email, numero, ses["resultado"], _resp)
+    # Una propuesta calculada aquí (con contexto del secretario, o sin la
+    # precalculada) también lleva su deliberación, si la bandera lo permite.
+    _taller_lanzar_deliberacion(user_email, numero, ses["resultado"], ses, _resp, contexto)
     return _resp
 
 
