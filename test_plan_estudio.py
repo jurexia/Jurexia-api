@@ -179,7 +179,8 @@ PLAN_BUENO = {
          "diferencia": None, "pendiente": None},
         {"id": "C3.b", "problema_id": 1, "vicio": "fondo", "ataca": "P1", "reitera": None,
          "dato": None, "etiqueta": "infundado", "razon": "fondo_desestimado", "trat": "desarrolla",
-         "diferencia": "precedente", "pendiente": "razon"}],
+         # plan-6: sin «pendiente: razon» (la Decisión 6 se retiró; V0 lo rechaza).
+         "diferencia": "precedente", "pendiente": None}],
     "premisas": [
         {"id": "M1", "responde_a": ["P1"], "fuentes": {"tesis": ["T1"], "normas": []},
          "anclas": ["confesión", "dentro de la parcela", "extensión, no identidad"],
@@ -223,8 +224,20 @@ def seg(d, sid):
 
 # ═══════════════════════════════════════════════════════════════════════════
 print("\n1 · CATÁLOGOS, NORMALIZACIÓN Y VERIFICACIÓN LITERAL")
-ok(len(pe.RAZONES) == 18 and "cosa_juzgada_amparo_previo" in pe.RAZONES,
-   "las 17 razones tipificadas de §4.2 (con esencialmente_fundado aparte: 18 claves)")
+ok(len(pe.RAZONES) == 20 and "cosa_juzgada_amparo_previo" in pe.RAZONES
+   and {"innecesario_por_suficiencia", "deriva_de_desestimado"} <= set(pe.RAZONES),
+   "las 17 razones tipificadas de §4.2 (con esencialmente_fundado aparte: 18 claves) y las dos de la "
+   "dependencia dentro del problema (plan-6)")
+ok(pe.RAZONES["innecesario_por_suficiencia"]["clase"] == pe.NO_SE_ESTUDIA
+   and pe.RAZONES["deriva_de_desestimado"]["clase"] == pe.NO_PROSPERA
+   and pe.RAZONES["deriva_de_desestimado"].get("con_p")
+   and pe._implica("deriva_de_desestimado") == "inoperante"
+   and pe._implica("innecesario_por_suficiencia") == "innecesario"
+   and "deriva_de_desestimado" in pe._RAZONES_DE_INOPERANTE,
+   "innecesario por suficiencia no se estudia; deriva de lo desestimado es inoperante y nombra la proposición")
+ok(pe.anclas_de_razon("los artículos 2284 y 2294 del Código Civil")["articulos"] == ["2284", "2294"]
+   and pe.anclas_de_razon("arts. 14, 16 y 17; artículo 49, fracción II")["articulos"] == ["14", "16", "17", "49"],
+   "«artículos 2284 y 2294» da los dos números (antes sólo el primero), y la fracción no es artículo")
 ok(pe.norm_id("c1.A") == "C1.a" and pe.norm_id("ad2.b") == "AD2.b" and pe.norm_id("C1a") == "C1.a"
    and pe.norm_id("nada") == "", "los identificadores se normalizan y lo que no es id no casa")
 ok(pe.norm_sentido("Fundado pero insuficiente") == "fundado_insuficiente"
@@ -284,7 +297,11 @@ ok(not any("C2.a" in x and "etiqueta" in x for x in _v0(_d)),
    "plan-4: dentro de un problema inoperante cabe un argumento infundado (coherencia, no igualdad)")
 _d = mutar(lambda d: seg(d, "C1.a").update(etiqueta="innecesario"))
 ok(any("C1.a" in x and "sin estudio" in x for x in _v0(_d)),
-   "dentro de un problema que se estudia, ningún argumento se declara sin estudio")
+   "dentro de un problema que NO prospera, ningún argumento se declara sin estudio (confirmar exige "
+   "desestimarlos todos)")
+ok(pe.etiqueta_fuera("innecesario", "fundado") == "" and pe.etiqueta_fuera("sin_materia", "fundado") != ""
+   and pe.etiqueta_fuera("innecesario", "infundado") != "",
+   "plan-6: dentro de un problema que PROSPERA cabe «innecesario» (suficiencia); otro sin estudio, no")
 _c_f = crit(s1="fundado")
 _d = mutar(lambda d: [seg(d, x).update(etiqueta="fundado", razon="fundado") for x in ("C1.a", "C1.b", "C3.a", "C3.b")]
            + [seg(d, "C1.b").update(etiqueta="infundado", razon="fondo_desestimado")])
@@ -417,28 +434,47 @@ _c_f = crit(s1="fundado")
 _d = mutar(lambda d: None)
 _r, _av = _rep(_d, c=_c_f)
 # plan-5 (AR 631/2025): UNO lo funda —el primero que ataca la proposición
-# toral—, no todos; los demás conservan lo que razonó el planificador.
+# toral—, no todos: los demás no heredan su sentido. plan-6 (28-sep-2026): lo
+# que por su cuenta sería infundado, dentro de un problema que ya prospera por
+# ése, es INNECESARIO POR SUFICIENCIA (lo que declara un colegiado), no un
+# «fundado» heredado ni un infundado que el estudio tenga que desarrollar.
 ok(seg(_r, "C1.a")["etiqueta"] == "fundado"
-   and all(seg(_r, x)["etiqueta"] == "infundado" for x in ("C1.b", "C3.a", "C3.b"))
+   and all(seg(_r, x)["etiqueta"] == "innecesario" and seg(_r, x)["razon"] == "innecesario_por_suficiencia"
+           and seg(_r, x)["trat"] == "no_se_estudia" and seg(_r, x)["con"] == "C1.a"
+           for x in ("C1.b", "C3.a", "C3.b"))
    and _r["propuestas"] == [{"seg": "C1.a", "de": "fundado", "a": "infundado",
                              "por_que": "según el planificador, ninguno de los argumentos de este "
                                         "problema lo funda"}]
    and any("problema 1" in a and "C1.a" in a for a in _av)
    and any("problema 1" in a and "conservan" in a for a in _r["avisos_al_secretario"])
-   and pe.problemas_sin_quien_los_funde(_r["segmentos"], pe.problemas_del_criterio(_c_f, fases())) == [],
-   "un problema FUNDADO que ningún argumento funda: lo funda UNO (el que ataca la toral), los demás "
-   "conservan su calificación, y la otra va a PROPUESTA del problema")
+   and pe.problemas_sin_quien_los_funde(_r["segmentos"], pe.problemas_del_criterio(_c_f, fases())) == []
+   and pe.validar(_r, _c_f, SEGS_N, fases(), material(), "") == [],
+   "un problema FUNDADO que ningún argumento funda: lo funda UNO (el que ataca la toral), los demás son "
+   "innecesarios por suficiencia (no heredan su sentido), la otra va a PROPUESTA del problema y el plan vale")
 _r, _ = _rep(_d, c=_c_f, tocados=[PREG1])
 ok(seg(_r, "C1.a")["etiqueta"] == "fundado"
-   and all(seg(_r, x)["etiqueta"] == "infundado" for x in ("C1.b", "C3.a", "C3.b")) and _r["propuestas"] == [],
+   and all(seg(_r, x)["etiqueta"] == "innecesario" for x in ("C1.b", "C3.a", "C3.b")) and _r["propuestas"] == [],
    "en un problema que el secretario tocó a mano, ni se propone")
+# El 642/2024: la reconvención pide una CONSECUENCIA DISTINTA de la que da el
+# principal (diferencia «consecuencia»): no es innecesaria por suficiencia y se
+# queda con su calificación.
 _d = mutar(lambda d: [seg(d, x).update(etiqueta="fundado", razon="fundado") for x in ("C1.a", "C3.a", "C3.b")]
-           + [seg(d, "C1.b").update(etiqueta="infundado", razon="fondo_desestimado")])
+           + [seg(d, "C1.b").update(etiqueta="infundado", razon="fondo_desestimado", diferencia="consecuencia")])
 _r, _av = _rep(_d, c=_c_f)
 ok(seg(_r, "C1.b")["etiqueta"] == "infundado" and seg(_r, "C1.a")["etiqueta"] == "fundado"
+   and seg(_r, "C1.b")["dependencia"] == "autonomo"
    and _r["propuestas"] == [] and pe.validar(_r, _c_f, SEGS_N, fases(), material(), "") == [],
-   "plan-4 (el 642): un argumento infundado dentro de un problema fundado se queda con su calificación, "
-   "sin propuesta y el plan vale")
+   "plan-4 (el 642): un argumento infundado que pide una consecuencia distinta, dentro de un problema "
+   "fundado, se queda con su calificación, sin propuesta y el plan vale")
+_d_sin = copy.deepcopy(_d)
+seg(_d_sin, "C1.b")["diferencia"] = None
+_r_sin, _ = _rep(_d_sin, c=_c_f)
+ok(seg(_r_sin, "C1.b")["etiqueta"] == "innecesario" and seg(_r_sin, "C1.b")["razon"] == "innecesario_por_suficiencia"
+   and all(seg(_r_sin, x)["dependencia"] == "con_el_principal" and seg(_r_sin, x)["con"] == "C1.a"
+           for x in ("C3.a", "C3.b"))
+   and pe.validar(_r_sin, _c_f, SEGS_N, fases(), material(), "") == [],
+   "plan-6: sin esa consecuencia distinta, el infundado es innecesario por suficiencia y los fundados de "
+   "fondo contra la misma proposición van con el principal")
 _d2 = copy.deepcopy(_d)
 _d2["propuestas"] = [{"seg": "C1.b", "de": "fundado", "a": "infundado", "por_que": "la Sala sí lo examinó"},
                      {"seg": "C3.a", "de": "fundado", "a": "inoperante", "por_que": "no combate"},
@@ -586,7 +622,14 @@ ok("REMITE C3.a" in _g and "→ apartado 1 (M1)" in _g and "proposición: P1" in
    "la remisión lleva destino y proposición")
 ok(_g.count("objeción aquí, una vez") == 1 and _g.index("objeción aquí") < _g.index("APARTADO 2"),
    "la objeción, una vez, en el apartado donde se contesta la unidad")
-ok("PENDIENTE DE RAZÓN: C3.b (precedente)" in _g and "ADVERTENCIAS" in _g, "el pendiente de razón, primero en ADVERTENCIAS")
+# plan-6: la Decisión 6 se retiró. Nada va a ADVERTENCIAS por eso: arriba,
+# la JERARQUÍA del problema, y lo que va con el principal en su mismo
+# apartado entra en su renglón.
+ok("PENDIENTE DE RAZÓN" not in _g and "ADVERTENCIAS" not in _g
+   and "JERARQUÍA DEL PROBLEMA 1 (infundado): DECIDE C1.a (ataca P1) · CON EL PRINCIPAL: C1.b, C3.a, C3.b" in _g
+   and "decide el problema 1 · con el principal: C1.b (P1) · dato (escrito)" in _g
+   and "APLICA C1.b" not in _g,
+   "sin pendiente de razón: la jerarquía arriba y el que va con el principal, dentro de su renglón")
 ok("dato (escrito): «una superficie de 2.5 hectáreas" in _g, "el dato verificado, literal, con su fuente")
 ok("EXTENSIÓN (techo, no meta)" not in _g and "≤" not in _g,
    "sin techo por apartado en el guion (David, 26-sep: la brevedad no es el objetivo)")
@@ -609,20 +652,40 @@ ok(_b.count("EL GUION DEL ESTUDIO") == 1 and "DESVIACIONES DEL GUION" in _b and 
 ok(pe.bloque("") == "", "sin guion no hay bloque")
 
 # ═══════════════════════════════════════════════════════════════════════════
-print("\n7 · DECISIÓN 6: LA RAZÓN QUE FALTA")
-_con = pe.aplicar_razones(_pb, pe.leer_razones_segmento(json.dumps(
+print("\n7 · LA DECISIÓN 6, RETIRADA (plan-6): NINGUNA RAZÓN POR ARGUMENTO")
+# Un plan-5 guardado con un pendiente de razón (como los de producción).
+_pv = copy.deepcopy(_pb)
+seg(_pv, "C3.b")["pendiente"] = "razon"
+# COMPATIBILIDAD: una pantalla anterior puede mandar la razón que escribió. Va
+# ANTES de resolver: una razón ya escrita manda.
+_con = pe.aplicar_razones(_pv, pe.leer_razones_segmento(json.dumps(
     {"c3.B": "Lo resuelto en el 1114/2017 no vincula aquí: es otro juicio y otra acción."})))
 ok(seg(_con, "C3.b")["pendiente"] is None and "otra acción" in seg(_con, "C3.b")["razon_secretario"],
-   "la razón que escribió entra al segmento como suya")
-_gc = pe.vista(_con, "estandar")
+   "compatibilidad: la razón que una pantalla anterior escribió entra al segmento como suya")
+_conr = pe.resolver_por_dependencia(_con)
+_gc = pe.vista(_conr, "estandar")
 ok("razón del secretario para este argumento: «Lo resuelto en el 1114/2017" in _gc
-   and "PENDIENTE DE RAZÓN" not in _gc, "y en el guion ya no está pendiente")
-ok(seg(pe.aplicar_razones(_pb, {"C3.b": "   "}), "C3.b")["pendiente"] == "razon",
-   "una caja vacía no cuenta: sigue pendiente")
+   and "PENDIENTE DE RAZÓN" not in _gc and seg(_conr, "C3.b")["dependencia"] == "autonomo",
+   "…y manda: no se resuelve por consecuencia, y el guion no dice PENDIENTE DE RAZÓN")
+_vacia = pe.resolver_por_dependencia(pe.aplicar_razones(_pv, {"C3.b": "   "}))
+ok(seg(_vacia, "C3.b")["pendiente"] is None and seg(_vacia, "C3.b")["dependencia"] == "con_el_principal"
+   and seg(_vacia, "C3.b")["con"] == "C1.a" and seg(_vacia, "C3.b")["depende_de"] == "P1"
+   and "PENDIENTE DE RAZÓN" not in pe.vista(_vacia),
+   "sin razón escrita ya no queda nada pendiente: se resuelve por consecuencia del principal")
+ok(pe.resolver_por_dependencia(_vacia) == _vacia, "resolver por dependencia es idempotente")
 ok(pe.leer_razones_segmento("{roto") == {} and pe.leer_razones_segmento("") == {},
    "un JSON roto se trata como vacío")
 ok(seg(pe.aplicar_razones(_pb, {"C1.a": "otra cosa"}), "C1.a").get("razon_secretario") is None,
-   "sólo se aplica a los pendientes de razón")
+   "sólo se aplica a los pendientes de razón (un plan-6 no los tiene: no hace nada)")
+ok(any("C3.b" in x and "pendiente de razón" in x for x in _v0(_pv)),
+   "V0 rechaza el pendiente de razón que quede")
+_p7 = pe.prompt_plan(tipo_asunto="amparo_directo", probs=pe.problemas_del_criterio(crit(), fases()),
+                     segs=SEGS_N, resumen_acto="r", tramos=pe._tramos_del_escrito(fases()), indice=_ind, n=3)
+ok('"pendiente": null | "sentido",' in _p7 and "pendiente «razon»" not in _p7
+   and "No inventes esa razón" not in _p7 and "Dentro de un problema que se estudia, ningún segmento" not in _p7
+   and "DENTRO DE CADA PROBLEMA QUE SE ESTUDIA DECIDE UN SEGMENTO" in _p7
+   and "Depender no es reiterar" in _p7,
+   "el prompt ya no pide la razón por argumento: describe la dependencia del principal")
 
 # ═══════════════════════════════════════════════════════════════════════════
 print("\n8 · LA CLAVE")
@@ -750,8 +813,25 @@ for forma in ("estandar", "moderna"):
     ok(_blq in _v4 and _v4.index(_blq) < _v4.rindex("Escribe el estudio de fondo.")
        and _v4.rstrip().endswith("Nada más.") and f6._RECUERDA_GUION.strip() in _v4,
        f"{forma}: con guion, el bloque antes de «Escribe el estudio de fondo.» y el recordatorio al final")
-    ok(_v4.replace("\n" + _blq, "", 1).replace("\n" + f6._RECUERDA_GUION.rstrip("\n"), "", 1) == _v3,
-       f"{forma}: la v4 = la v3 + el guion, ni un carácter más")
+    # plan-6: con JERARQUÍA en el guion, la v3 lleva además sus cinco ajustes
+    # (`fase6_estudio._REEMPLAZOS_JERARQUIA`); deshechos, ni un carácter más.
+    _v4_sin = _v4.replace("\n" + _blq, "", 1).replace("\n" + f6._RECUERDA_GUION.rstrip("\n"), "", 1)
+    for _viejo, _nuevo in f6._REEMPLAZOS_JERARQUIA:
+        _v4_sin = _v4_sin.replace(_nuevo, _viejo, 1)
+    ok(_v4_sin == _v3, f"{forma}: la v4 = la v3 + el guion (y los ajustes de su jerarquía), ni un carácter más")
+    # (El de la regla de las marcas sólo está con inventario: aquí no lo hay.)
+    _aplican = [(_v, _n) for _v, _n in f6._REEMPLAZOS_JERARQUIA if _v in _v3]
+    ok(pe._RX_JERARQUIA in _g and len(_aplican) == 4 and all(_n in _v4 for _, _n in _aplican),
+       f"{forma}: con JERARQUÍA en el guion entran los ajustes del texto heredado")
+    _g_sin = "\n".join(x for x in _g.splitlines() if pe._RX_JERARQUIA not in x)
+    _v4_sj = p93("v4", forma, guion=_g_sin)
+    ok(_v4_sj.replace("\n" + pe.bloque(_g_sin), "", 1).replace("\n" + f6._RECUERDA_GUION.rstrip("\n"), "", 1)
+       == _v3, f"{forma}: sin JERARQUÍA, la v4 = la v3 + el guion, ni un carácter más")
+
+
+_rm = f6._regla_marcas("concepto de violación", False)
+ok(f6._REEMPLAZOS_JERARQUIA[0][0] in _rm and f6._REEMPLAZOS_JERARQUIA[0][1] in f6._con_jerarquia(_rm),
+   "…y el de la regla de las marcas (v3/v4 con inventario), también")
 
 
 class _CliEstudio:
@@ -1009,8 +1089,12 @@ _r = resultado()
 out = asyncio.run(_resolver(ns, _r, razones=json.dumps({"C3.b": "No vincula: es otro juicio."})))
 ok(out["estado"] == "usado" and len(_mod.kw) == 1 and _r.encargo.variante_estudio == "v4",
    "sin plan en la fila: se calcula dentro de la tarea y se usa")
-ok("EXPONE M1" in _r.encargo.guion and "razón del secretario para este argumento: «No vincula" in _r.encargo.guion,
-   "el guion va al encargo, con la razón que el secretario escribió (Decisión 6)")
+ok("EXPONE M1" in _r.encargo.guion and "JERARQUÍA DEL PROBLEMA 1" in _r.encargo.guion
+   and "PENDIENTE DE RAZÓN" not in _r.encargo.guion
+   and "razón del secretario para este argumento" not in _r.encargo.guion
+   and not any(s.get("pendiente") == "razon" for s in _r.encargo.plan["plan"]["segmentos"]),
+   "el guion va al encargo con la jerarquía y sin pendientes; `razones_segmento` es inerte (Decisión 6 "
+   "retirada: un plan-6 no deja nada pendiente)")
 ok(_b.filas[0]["plan"]["planes"][out["clave"]]["estado"] == "listo" and _b.filas[0]["plan"]["corridas"] == 1,
    "y queda en la fila, con su corrida contada")
 _fi = ns["_taller_plan_ficha"](types.SimpleNamespace(encargo=_r.encargo))
@@ -1233,14 +1317,21 @@ ok("premisa M1 ya expuesta en el apartado 1" in _l3.get("DESARROLLA C3.b", ""),
 # (g) Las marcas del plan: las unidades que prosperan y ⟦M⟧/⟦U⟧ en el bloque.
 _pf, _ = _rep(mutar(lambda d: [seg(d, x).update(etiqueta="fundado", razon="fundado")
                                for x in ("C1.a", "C1.b", "C3.a", "C3.b")]), c=crit(s1="fundado"))
-_gf = pe.vista(_pf, "estandar")
+# plan-6: sólo si el asunto CONCEDE (el AR 631/2025, «revoca y niega», no
+# tiene efectos); sin el dato, no se dice.
+_gf = pe.vista(_pf, "estandar", concede=True)
 ok("UNIDADES QUE PROSPERAN (de ellas salen los efectos): U1 (C1.a, C1.b, C3.a, C3.b)" in _gf
    and "UNIDADES QUE PROSPERAN" not in _g, "el guion dice qué unidades prosperan (y ninguna si nada prospera)")
+ok("UNIDADES QUE PROSPERAN" not in pe.vista(_pf, "estandar")
+   and "UNIDADES QUE PROSPERAN" not in pe.vista(_pf, "estandar", concede=False),
+   "…y sólo si el asunto concede: sin el dato, o si niega, no las dice")
 _bf = pe.bloque(_gf)
 ok("MARCAS DEL PLAN" in _bf and "identificador M" in _bf and "identificador U" in _bf,
    "la v4 pide ⟦M⟧ donde se expone la premisa y ⟦U⟧ en cada efecto (w2_final §4.7)")
 # (h) La ficha no se lleva textos largos a `estado`.
-_fl = pe.para_ficha(pe.aplicar_razones(_pb, {"C3.b": "palabra " * 500}))
+_pv_f = copy.deepcopy(_pb)
+seg(_pv_f, "C3.b")["pendiente"] = "razon"             # un plan-5 guardado (compatibilidad)
+_fl = pe.para_ficha(pe.aplicar_razones(_pv_f, {"C3.b": "palabra " * 500}))
 ok(len(seg(_fl, "C3.b")["razon_secretario"].split()) <= 60 and all(len(str(s.get("cita", "")).split()) <= 40
                                                                    for s in _fl["segmentos"]),
    "la ficha recorta la cita y la razón del secretario")
@@ -1436,9 +1527,17 @@ _u1 = next(u for u in _r["unidades"] if "C1.a" in u["segmentos"])
 ok(_v0r(_r) == [] and _intacto(_r), f"reparado, pasa V0: {_v0r(_r)[:2]}")
 ok("M1" not in [m["id"] for m in _r["premisas"]] and _u1["premisa"] is None
    and [m["id"] for m in _r["premisas"]] == ["M2"], "la premisa sin rastro se retira y su unidad queda sin premisa")
-ok(all(seg(_r, x)["trat"] == "desarrolla" and seg(_r, x).get("sin_premisa") for x in ("C1.a", "C1.b", "C3.a"))
+# plan-6: la respuesta se construye UNA vez, en el que decide (C1.a); los
+# demás de la unidad aplican lo construido ahí (en el 83a4 del 631 se
+# desarrollaban diez por su cuenta desde la misma razón).
+ok(seg(_r, "C1.a")["trat"] == "desarrolla" and seg(_r, "C1.a").get("sin_premisa")
+   and seg(_r, "C1.b")["trat"] == "aplica" and seg(_r, "C3.a")["trat"] == "remite"
+   and all(seg(_r, x).get("sin_premisa") for x in ("C1.b", "C3.a"))
    and seg(_r, "C2.a")["trat"] == "aplica" and not seg(_r, "C2.a").get("sin_premisa"),
-   "lo que se contestaba con ella (aplica, remite) pasa a «desarrolla»; lo de otras unidades, no")
+   "sin su premisa, el primero de la unidad desarrolla y los demás aplican lo construido ahí; lo de "
+   "otras unidades, no")
+ok(any(a.startswith("M1 se retiró") and "los demás aplican lo construido ahí" in a
+       for a in _r["avisos_al_secretario"]), "y el aviso lo dice")
 ok(any(a.startswith("M1 se retiró") and "U1" in a for a in _r["avisos_al_secretario"]), "y se le dice al secretario")
 _g = pe.vista(_r, "estandar")
 _b = pe.bloque(_g)
@@ -1527,10 +1626,18 @@ _r, _ = _rep(_d)
 ok(any("C2.a" in x and "inoperancia" in x for x in _v0r(_r)) and seg(_r, "C2.a")["razon"] == "fondo_desestimado",
    "«inoperante» con una razón que no es de inoperancia: el código no elige cuál; V0 pide otro plan")
 
-# (d) FALSA ALARMA CORREGIDA: el pendiente de razón no lleva razón.
-_d = mutar(lambda d: seg(d, "C3.b").update(razon=None))
-ok(not any("C3.b" in x for x in _v0(_d)), "un segmento pendiente de razón sin razón del catálogo pasa (el prompt pide no inventarla)")
-ok(not any("mezcla" in x for x in _v0(_d)), "…y no «mezcla razones» en su unidad")
+# (d) EL PENDIENTE DE RAZÓN YA NO EXISTE (plan-6). Hasta plan-5 pasaba sin
+# razón (falsa alarma corregida el 26-sep: el prompt pedía no inventarla);
+# retirada la Decisión 6, V0 lo rechaza y `reparar` lo resuelve por
+# consecuencia del principal.
+_d = mutar(lambda d: seg(d, "C3.b").update(razon=None, pendiente="razon"))
+ok(any("C3.b" in x and "pendiente de razón" in x for x in _v0(_d))
+   and any("C3.b" in x and "razón fuera del catálogo" in x for x in _v0(_d)),
+   "V0: el pendiente de razón se rechaza, y ya no exime de la razón")
+_r, _ = _rep(_d)
+ok(seg(_r, "C3.b")["pendiente"] is None and seg(_r, "C3.b")["razon"] == "fondo_desestimado"
+   and seg(_r, "C3.b")["dependencia"] == "con_el_principal" and _v0r(_r) == [],
+   "…y reparado se contesta por consecuencia del principal (infundado por las mismas razones), y pasa")
 _d = mutar(lambda d: seg(d, "C1.b").update(razon=None))
 ok(any("C1.b" in x and "razón fuera del catálogo" in x for x in _v0(_d)),
    "sin pendiente, la razón vacía sigue siendo una falta")
@@ -1618,8 +1725,8 @@ ok(_plan is not None and _info["intentos"] == 1 and len(_cli.kw) == 1 and _info[
 ok(_plan and any("M2 se retiró" in a for a in _plan["avisos_al_secretario"])
    and any("U1 juntaba" in a for a in _plan["avisos_al_secretario"]),
    "…con las dos correcciones dichas al secretario")
-ok(pe.PLAN_VERSION == "plan-5", "la versión del plan sube: un plan-4 (la razón escrita como calificación "
-                                 "heredaba la del problema) no se reutiliza")
+ok(pe.PLAN_VERSION == "plan-6", "la versión del plan sube: un plan-5 (con pendientes de razón) ni un plan-4 "
+                                 "(la razón escrita como calificación heredaba la del problema) se reutilizan")
 # (j) Una propuesta es una CALIFICACIÓN: la razón que el planificador puso ahí
 # (642/2024: «fundado → fondo_desestimado») se traduce; el botón del panel
 # pondría si no una razón como sentido.

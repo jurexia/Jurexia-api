@@ -3402,10 +3402,52 @@ Nada más."""
 # línea al final que lo recuerda. El bloque sólo trae descripciones de sus
 # rótulos: ni una frase para copiar (lección del ejemplo que se firma literal).
 _MARCA_ESCRIBE = "\nEscribe el estudio de fondo."
+# (Hasta el 28-sep-2026 terminaba «…y lo PENDIENTE DE RAZÓN primero en
+# ADVERTENCIAS»: la Decisión 6 se retiró —plan-6— y nada va ahí por eso.)
 _RECUERDA_GUION = (
     "EL GUION DE ARRIBA MANDA LA ORGANIZACIÓN: un apartado por cada APARTADO, "
-    "cada premisa sólo donde dice EXPONE, cada argumento con la respuesta que "
-    "le asigna, y lo PENDIENTE DE RAZÓN primero en ADVERTENCIAS.\n")
+    "cada premisa sólo donde dice EXPONE y cada argumento con la respuesta que "
+    "le asigna.\n")
+
+# LA JERARQUÍA DEL GUION (plan-6, 28-sep-2026, AR 631/2025). El texto que la
+# v3 hereda de la v2 sólo deja declarar algo innecesario, o contestarlo por
+# consecuencia, si lo dice el CRITERIO del secretario (0ad0379: el «sin
+# materia» es del criterio, no del estudio). La jerarquía que calcula el plan
+# deriva del sentido que él fijó para el principal, así que vale como su
+# criterio; pero con ese texto intacto el modelo contestaba igual cada
+# argumento, o lo ponía en DESVIACIONES DEL GUION. SÓLO cuando el guion trae
+# JERARQUÍA se ajusta, por reemplazo sobre la v3 ya armada: el texto de
+# `_prompt_estudio_v2` —y sus instantáneas— no se toca, ni la v1 (congelada).
+_REEMPLAZOS_JERARQUIA = (
+    ("  que su criterio —su calificación o su razón— lo decida así; y entonces, si",
+     "  que su criterio —su calificación o su razón— lo decida así, o que la\n"
+     "  JERARQUÍA del guion lo resuelva por consecuencia de su principal; y entonces, si"),
+    ("  calificación o en su razón—: esa decisión es suya, no del estudio.",
+     "  calificación o en su razón—, o para lo que la JERARQUÍA del guion resuelve\n"
+     "  por consecuencia del principal: esa decisión es suya, no del estudio."),
+    ("  adicional ninguno de sus argumentos, salvo que la razón del secretario lo\n"
+     "  diga de ese argumento.",
+     "  adicional ninguno de sus argumentos, salvo que la razón del secretario lo\n"
+     "  diga de ese argumento o que la JERARQUÍA del guion lo resuelva por\n"
+     "  consecuencia de su principal."),
+    ("     que sólo manda a lo ya dicho deja el argumento sin respuesta.",
+     "     que sólo manda a lo ya dicho deja el argumento sin respuesta. Lo que la\n"
+     "     JERARQUÍA del guion resuelve con su principal no necesita otra\n"
+     "     proposición: el puente es la dependencia."),
+    ("  revocan. Si el secretario la eligió, respétala y di en qué parte se le da la\n"
+     "  razón y en cuál no.",
+     "  revocan. Si el secretario la eligió, respétala y di en qué parte se le da la\n"
+     "  razón y en cuál no; dentro de un grupo que la JERARQUÍA del guion resuelve\n"
+     "  con su principal, se acota una vez para el grupo, no por argumento."),
+)
+
+
+def _con_jerarquia(base: str) -> str:
+    """La v3 con los cinco ajustes de la JERARQUÍA. Cada uno, una vez; el que
+    no encuentra su texto no hace nada (la v3 sigue valiendo tal cual)."""
+    for viejo, nuevo in _REEMPLAZOS_JERARQUIA:
+        base = base.replace(viejo, nuevo, 1)
+    return base
 
 
 def _prompt_estudio_v4(args: dict) -> str:
@@ -3419,6 +3461,8 @@ def _prompt_estudio_v4(args: dict) -> str:
     blq = _pe.bloque(guion)
     if not blq:
         return base
+    if _pe._RX_JERARQUIA in guion:
+        base = _con_jerarquia(base)
     i = base.rfind(_MARCA_ESCRIBE)
     if i < 0:
         return base.rstrip() + "\n" + blq + "\n" + _RECUERDA_GUION

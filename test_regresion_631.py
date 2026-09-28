@@ -165,6 +165,16 @@ PLAN_631 = {
 }
 
 
+# LA TRADUCCIÓN SOLA (577c700, plan-5). Desde plan-6 lo que en un problema que
+# prospera no lo funda es innecesario por suficiencia —la jerarquía lo
+# resuelve después de traducir—; para ver la traducción sin ella, cada uno pide
+# aquí una consecuencia distinta (lo único que la jerarquía no toca).
+PLAN_631_C = copy.deepcopy(PLAN_631)
+for _x in PLAN_631_C["segmentos"]:
+    if _x["id"] in ("A1.b", "A1.c", "A1.d", "A1.e"):
+        _x["diferencia"] = "consecuencia"
+
+
 def _norm(d):
     p = pe.normalizar(copy.deepcopy(d))
     p["tipo_asunto"] = "amparo_revision"
@@ -183,7 +193,7 @@ def seg(p, sid):
 print("\n1 · EL PLAN: LA RAZÓN ESCRITA COMO CALIFICACIÓN NO HEREDA LA DEL PROBLEMA")
 ok(pe.etiqueta_fuera("fondo_desestimado", "fundado") != "",
    "el caso reproduce la trampa: «fondo_desestimado» no es una calificación del catálogo")
-_r, _av = _rep(PLAN_631)
+_r, _av = _rep(PLAN_631_C)
 _et = {s["id"]: s["etiqueta"] for s in _r["segmentos"]}
 ok(_et["A1.a"] == "fundado", "el argumento que el planificador fundó sigue fundado")
 ok(all(_et[x] == "infundado" for x in ("A1.b", "A1.c", "A1.d", "A1.e")),
@@ -201,9 +211,22 @@ ok(_et["A2.a"] == "innecesario", "el accesorio que no se estudia conserva su sen
 _f = pe.validar(_r, crit(), SEGS, fases(), material(), "", suplencia={})
 ok(not any("etiqueta" in x or "problema 1" in x for x in _f),
    f"V0 no rechaza las calificaciones del plan reparado: {[x for x in _f if 'etiqueta' in x][:3]}")
+# plan-6: SIN esa consecuencia distinta, lo que el planificador desestimó dentro
+# del problema que prospera por A1.a es innecesario por suficiencia —nunca
+# «fundado» heredado (el 631), ni un infundado que el estudio desarrolle—.
+_r6, _ = _rep(PLAN_631)
+_et6 = {s["id"]: s["etiqueta"] for s in _r6["segmentos"]}
+ok(_et6["A1.a"] == "fundado"
+   and all(_et6[x] == "innecesario" and seg(_r6, x)["razon"] == "innecesario_por_suficiencia"
+           and seg(_r6, x)["con"] == "A1.a" and seg(_r6, x)["trat"] == "no_se_estudia"
+           for x in ("A1.b", "A1.c", "A1.d", "A1.e")),
+   f"plan-6: los desestimados, innecesarios por suficiencia (decide A1.a), ninguno fundado: {_et6}")
+ok(any("leídas como la calificación que esa razón implica" in a and "A1.b" in a
+       for a in _r6["avisos_al_secretario"]),
+   "…y la traducción de su razón se sigue diciendo: se tradujo antes de resolverlos")
 
 print("\n2 · EL PLAN: TODOS DESESTIMADOS DENTRO DE UN PROBLEMA FUNDADO → LO FUNDA UNO, NO TODOS")
-_d = copy.deepcopy(PLAN_631)
+_d = copy.deepcopy(PLAN_631_C)
 _d["segmentos"][0].update(etiqueta="fondo_desestimado", razon="fondo_desestimado",
                           trat="desarrolla", diferencia="norma")
 _r2, _av2 = _rep(_d)
@@ -218,12 +241,13 @@ ok(pe.problemas_sin_quien_los_funde(_r2["segmentos"], pe.problemas_del_criterio(
    "el sentido del secretario tiene quien lo funde")
 
 print("\n3 · EL PLAN: LA ETIQUETA VACÍA SE LEE DE SU RAZÓN")
-_d = copy.deepcopy(PLAN_631)
+_d = copy.deepcopy(PLAN_631_C)
 _d["segmentos"][2].update(etiqueta="", razon="no_combate(P1)")
 _r3, _ = _rep(_d)
 ok(seg(_r3, "A1.c")["etiqueta"] == "inoperante",
    f"vacía con razón «no_combate» → «inoperante», no «fundado»: {seg(_r3, 'A1.c')['etiqueta']}")
-ok(pe.PLAN_VERSION == "plan-5", "la versión del plan sube: un plan-4 guardado con la herencia no se reutiliza")
+ok(pe.PLAN_VERSION == "plan-6", "la versión del plan sube: ni un plan-4 guardado con la herencia ni un plan-5 "
+                                 "con pendientes de razón se reutilizan")
 _pr = pe.prompt_plan(tipo_asunto="amparo_revision", probs=pe.problemas_del_criterio(crit(), fases()),
                      segs=SEGS, resumen_acto=ACTO, tramos=[("escrito", ESCRITO)],
                      indice=pe.indice_material(material(), fases()))
