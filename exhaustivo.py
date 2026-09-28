@@ -322,7 +322,7 @@ def _ordinales(p: str) -> set:
 
 
 def sin_materia_por_su_cuenta(parrafos: list, mapa: dict, segs: list,
-                              criterios: list, problemas: list) -> list:
+                              criterios: list, problemas: list, plan: dict = None) -> list:
     """Los párrafos del cuerpo que declaran sin estudio algo que el criterio
     manda estudiar. [{parrafo, ids, conceptos, sentidos, texto}].
 
@@ -331,10 +331,17 @@ def sin_materia_por_su_cuenta(parrafos: list, mapa: dict, segs: list,
     (fundado o infundado). Sin marcas —o si el párrafo no lleva ninguna—, por
     los ordinales de concepto que nombra el párrafo o el último apartado
     abierto; y si no nombra ninguno, sólo cuando el criterio entero no tiene
-    ninguna calificación que admita no estudiar."""
+    ninguna calificación que admita no estudiar.
+
+    CON PLAN (v4, plan-6), la etiqueta del argumento en el plan manda sobre la
+    de su problema, como en las guardas de la reparación: el innecesario por
+    suficiencia o el que cae por derivar lo decidió la jerarquía sobre el
+    sentido que el secretario fijó para el principal, y declararlo así no es
+    «por su cuenta» (en el 631 lo registraba en sombra)."""
     ps = list(parrafos or [])
     fin_cuerpo, _ = partes(ps)
     rep = reparto(criterios, problemas)
+    _et_plan = etiquetas_del_plan(plan)
     por_id = {str(_get(s, "id")): s for s in (segs or [])}
     en_parrafo = {}
     for sid, idxs in (mapa or {}).items():
@@ -362,9 +369,10 @@ def sin_materia_por_su_cuenta(parrafos: list, mapa: dict, segs: list,
         if _declara_los_demas(p) and not propios:
             # «…hace innecesario examinar los restantes»: habla de otros
             # problemas. Sólo se acusa si el criterio no tiene ninguno que
-            # admita no estudiarse.
+            # admita no estudiarse (ni el plan, un innecesario por suficiencia).
             sentidos = [_norm_sentido(_get(c, "sentido")) for c in (criterios or [])]
-            if bool(criterios) and not _hay_permitido(criterios):
+            if bool(criterios) and not _hay_permitido(criterios) \
+                    and not any(v not in FONDO for v in _et_plan.values()):
                 fuera.append({"parrafo": i, "ids": [], "conceptos": [], "sentidos": sorted(set(sentidos)),
                               "texto": " ".join(p.split()[:24])})
             continue
@@ -373,6 +381,8 @@ def sin_materia_por_su_cuenta(parrafos: list, mapa: dict, segs: list,
             for sid in ids:
                 cs = criterios_del_segmento(por_id[sid], rep)
                 ss = [_norm_sentido(_get(c, "sentido")) for c in cs if _get(c, "sentido")]
+                if _et_plan.get(sid):
+                    ss = [_et_plan[sid]]
                 sentidos.extend(ss)
                 if ss and all(s in FONDO for s in ss):
                     malos.append(sid)
@@ -550,15 +560,52 @@ def sin_mayor_beneficio(faltan: list, segs: list, criterios: list, problemas: li
     return fuera
 
 
-def revisar_texto(estudio: str, segs: list, criterios: list, problemas: list) -> dict:
+RAZONES_DE_CONSECUENCIA = ("innecesario_por_suficiencia", "deriva_de_desestimado")
+
+
+def sin_consecuencia_del_plan(faltan: list, plan, mapa: dict = None, para_efectos: bool = False) -> list:
+    """Quita de `faltan` lo que el PLAN resuelve por consecuencia de su
+    principal (plan-6, 28-sep-2026, AR 631/2025): los innecesarios por
+    suficiencia, los que caen por derivar de lo desestimado y los que van con
+    el principal si su marca está en un párrafo del que decide. Ahí la
+    declaración deriva del sentido que el secretario fijó para el principal,
+    como la del mayor beneficio (`sin_mayor_beneficio`, su molde); sin esto,
+    en un «revoca y niega» —sin efectos— cada innecesario con dato disparaba
+    la reparación dirigida: una llamada más al modelo del estudio que insertaba
+    párrafos que contradicen la suficiencia.
+
+    SALVO EN UNA CONCESIÓN PARA EFECTOS (`para_efectos`): lo que la
+    responsable tendrá que volver a resolver se nombra en los EFECTOS con su
+    dato (0ad0379; el 174/2026 y el 43/2025), y la regla sigue como estaba."""
+    if not isinstance(plan, dict) or para_efectos:
+        return list(faltan or [])
+    por_id = {str(s.get("id")): s for s in plan.get("segmentos") or [] if isinstance(s, dict)}
+    fuera = []
+    for f in faltan or []:
+        s = por_id.get(str(f.get("id"))) or {}
+        if s.get("razon") in RAZONES_DE_CONSECUENCIA:
+            continue
+        if s.get("dependencia") == "con_el_principal" and s.get("con") and mapa is not None \
+                and set((mapa or {}).get(str(f.get("id"))) or []) & set((mapa or {}).get(str(s["con"])) or []):
+            continue
+        fuera.append(f)
+    return fuera
+
+
+def revisar_texto(estudio: str, segs: list, criterios: list, problemas: list, plan: dict = None) -> dict:
     """Los dos controles sobre el estudio CON sus marcas. Nunca lanza. El de
-    la marca honesta ya sin lo que el criterio dejó fuera por mayor beneficio."""
+    la marca honesta ya sin lo que el criterio dejó fuera por mayor beneficio
+    ni lo que el plan (v4, plan-6) resuelve por consecuencia del principal."""
     try:
         import marcas as _mc
         limpio, mapa = _mc.separar_marcas(estudio or "")
         ps = _mc.parrafos(limpio)
-        return {"sin_dato": sin_mayor_beneficio(sin_su_dato(ps, mapa, segs), segs, criterios, problemas),
-                "sin_materia": sin_materia_por_su_cuenta(ps, mapa, segs, criterios, problemas)}
+        fin_cuerpo, fin_ef = partes(ps)
+        efectos = "\n".join(ps[fin_cuerpo:fin_ef])
+        _para_efectos = bool(efectos.strip()) and not es_lisa_y_llana(efectos)
+        faltan = sin_mayor_beneficio(sin_su_dato(ps, mapa, segs), segs, criterios, problemas)
+        return {"sin_dato": sin_consecuencia_del_plan(faltan, plan, mapa, _para_efectos),
+                "sin_materia": sin_materia_por_su_cuenta(ps, mapa, segs, criterios, problemas, plan=plan)}
     except Exception as ex:
         return {"sin_dato": [], "sin_materia": [], "error": type(ex).__name__}
 

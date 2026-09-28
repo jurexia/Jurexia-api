@@ -520,6 +520,54 @@ try:
 finally:
     ra.f6.redactar_en_vivo, ra.f6.redactar, ra._terminar, ra._litis_y_material = _orig
 
+# ═══════════════════════════════════════════════════════════════════════════
+print("\n7 · plan-6 (AR 631/2025): LO QUE EL PLAN RESUELVE POR CONSECUENCIA NO SE REABRE")
+# El plan del estudio: C1.a decide su problema (fundado) y C1.b es innecesario
+# por suficiencia —lo que declara un colegiado—; en un «revoca y niega» no hay
+# EFECTOS y, sin esto, la reparación dirigida gastaba una llamada en volver a
+# contestarlo.
+PLAN6 = {"segmentos": [
+    {"id": "C1.a", "etiqueta": "fundado", "razon": "fundado", "dependencia": "decide"},
+    {"id": "C1.b", "etiqueta": "innecesario", "razon": "innecesario_por_suficiencia",
+     "dependencia": "innecesario", "con": "C1.a", "depende_de": "P1"},
+    {"id": "C2.a", "etiqueta": "innecesario", "razon": "cae_con_principal"},
+    {"id": "C2.b", "etiqueta": "innecesario", "razon": "cae_con_principal"}]}
+_SIN_EF = ESTUDIO.split("\n\nEFECTOS DE LA CONCESIÓN")[0]
+ok([f["id"] for f in X.revisar_texto(_SIN_EF, SEGS, CRIT, PROB)["sin_dato"]] == ["C1.b", "C2.a"],
+   "sin el plan, los dos declarados sin estudio se acusan (como siempre)")
+ok([f["id"] for f in X.revisar_texto(_SIN_EF, SEGS, CRIT, PROB, plan=PLAN6)["sin_dato"]] == ["C2.a"],
+   "con el plan, el innecesario por suficiencia ya no: su declaración es del principal (sin efectos)")
+ok([f["id"] for f in X.revisar_texto(ESTUDIO, SEGS, CRIT, PROB, plan=PLAN6)["sin_dato"]] == ["C1.b", "C2.a"],
+   "…salvo en una concesión PARA EFECTOS: su dato sigue yendo a los EFECTOS (0ad0379)")
+_p_deriva = {"segmentos": [{"id": "C1.b", "etiqueta": "inoperante", "razon": "deriva_de_desestimado"}]}
+ok(X.sin_consecuencia_del_plan([{"id": "C1.b"}], _p_deriva) == [],
+   "el que cae por derivar de lo desestimado, tampoco se reabre")
+_p_con = {"segmentos": [{"id": "C1.b", "etiqueta": "fundado", "dependencia": "con_el_principal", "con": "C1.a"}]}
+ok(X.sin_consecuencia_del_plan([{"id": "C1.b"}], _p_con, {"C1.b": [1], "C1.a": [1]}) == []
+   and X.sin_consecuencia_del_plan([{"id": "C1.b"}], _p_con, {"C1.b": [3], "C1.a": [1]}) == [{"id": "C1.b"}],
+   "el que va con el principal sale si su marca está en el párrafo del que decide; si no, se sigue acusando")
+ok(X.sin_consecuencia_del_plan([{"id": "C1.b"}], None) == [{"id": "C1.b"}],
+   "sin plan (v3), nada cambia")
+ok([x["ids"] for x in X.sin_materia_por_su_cuenta(PS, MAPA, SEGS, CRIT, PROB)] == [["C1.b"]]
+   and X.sin_materia_por_su_cuenta(PS, MAPA, SEGS, CRIT, PROB, plan=PLAN6) == [],
+   "en sombra: con el plan, la etiqueta del argumento manda sobre la de su problema (casa con el plan)")
+_mat4 = f6.Material(tipo_asunto="amparo_directo", variante="v4", inventario=SEGS, problemas=PROB)
+ok([f["id"] for f in ra._por_completar(_mat4, CRIT, _SIN_EF, PLAN6)] == ["C2.a"]
+   and [f["id"] for f in ra._por_completar(_mat4, CRIT, _SIN_EF)] == ["C1.b", "C2.a"],
+   "`_por_completar` recibe el plan del encargo")
+for nombre in ("resolver", "resolver_en_vivo"):
+    _fn = next(n for n in ARBOL_RA.body if isinstance(n, ast.AsyncFunctionDef) and n.name == nombre)
+    ok("_por_completar(material, criterios, estudio, _plan_del_estudio(r))" in ast.get_source_segment(SRC_RA, _fn),
+       f"{nombre}: le pasa el plan con que se escribió el estudio")
+_r_pl = types.SimpleNamespace(encargo=types.SimpleNamespace(plan={"estado": "usado", "plan": PLAN6}))
+ok(ra._plan_del_estudio(_r_pl) is PLAN6 and ra._plan_del_estudio(types.SimpleNamespace()) is None,
+   "el plan del encargo, o None (v3)")
+ok(all(ra._RX_ROTULO_GUION.match(x) for x in (
+    "JERARQUÍA DEL PROBLEMA 1 (fundado): DECIDE A1.b", "  INNECESARIOS POR SUFICIENCIA A1.m, A1.p · decide A1.b",
+    "CAEN POR DERIVAR A1.k · de P1")) and not ra._RX_ROTULO_GUION.match(
+    "Resultan innecesarios por suficiencia los restantes agravios."),
+   "los rótulos de la jerarquía que se cuelen en el estudio se limpian; la prosa, no")
+
 print()
 if FALLOS:
     print(f"FALLAN {len(FALLOS)}: " + " · ".join(FALLOS))

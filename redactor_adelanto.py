@@ -1262,7 +1262,7 @@ async def resolver(cliente, r: Resultado, criterios: list[f6.Criterio],
     # LA REPARACIÓN DIRIGIDA (v3/v4, p2-exhaustivo): lo mismo que el gemelo en
     # vivo, en el mismo sitio —antes de los efectos, las constancias y los
     # preceptos, que leen el estudio ya completado—.
-    _faltan = _por_completar(material, criterios, estudio)
+    _faltan = _por_completar(material, criterios, estudio, _plan_del_estudio(r))
     if _faltan:
         with cronometrar("completar el estudio"):
             estudio = await _completar_estudio(cliente, r, criterios, material, estudio,
@@ -1467,7 +1467,7 @@ async def resolver_en_vivo(cliente, r: Resultado, criterios: list[f6.Criterio],
     estudio = _congruencia_pegar(material, estudio, _meta)
     # LA REPARACIÓN DIRIGIDA (v3/v4, p2-exhaustivo): igual que en `resolver`.
     # La pantalla ve «completando» mientras corre la llamada; sólo si la hay.
-    _faltan = _por_completar(material, criterios, estudio)
+    _faltan = _por_completar(material, criterios, estudio, _plan_del_estudio(r))
     if _faltan:
         yield {"tipo": "completando"}
         with cronometrar("completar el estudio"):
@@ -1615,6 +1615,10 @@ _RX_ROTULO_GUION = re.compile(
     r"|APARTADO \d+ ·"
     r"|(?:APLICA|REMITE|DESARROLLA|RESIDUAL|NO SE ESTUDIA) " + _ID_PLAN + r"\b"
     r"|EXPONE M\d+\b"
+    # Los de la jerarquía (plan-6, 28-sep-2026): tampoco los escribe una
+    # sentencia, en mayúsculas y seguidos de su dato del plan.
+    r"|JERARQUÍA DEL PROBLEMA \d+"
+    r"|(?:INNECESARIOS POR SUFICIENCIA|CAEN POR DERIVAR) " + _ID_PLAN + r"\b"
     r")")
 _RX_DESVIACIONES = re.compile(r"^[ \t>*#\-]*DESVIACIONES DEL GUION\b")
 
@@ -1690,7 +1694,10 @@ def _marcas_y_cobertura(r, e, material, estudio: str, advertencias: str,
                 import exhaustivo as _ex_t
                 _ps_t = _mc_t.parrafos(limpio)
                 _pr_t = list(getattr(material, "problemas", None) or [])
-                _sm = _ex_t.sin_materia_por_su_cuenta(_ps_t, mapa, segs, criterios or [], _pr_t)
+                _pl_t = (getattr(e, "plan", None) or {})
+                _pl_t = _pl_t.get("plan") if isinstance(_pl_t, dict) else None
+                _sm = _ex_t.sin_materia_por_su_cuenta(_ps_t, mapa, segs, criterios or [], _pr_t,
+                                                      plan=_pl_t if isinstance(_pl_t, dict) else None)
                 cob["exhaustivo"] = {
                     "sin_dato": _ex_t.sin_su_dato(_ps_t, mapa, segs),
                     "sin_materia": [{k: v for k, v in h.items() if k != "texto"} for h in _sm],
@@ -1736,10 +1743,21 @@ def _f6_con_inventario(material) -> bool:
 # antes de los efectos, las constancias y los preceptos—, con las mismas dos
 # funciones. Sólo v3/v4 (las que traen inventario y marcas); en la v1 y la v2
 # `_por_completar` devuelve [] sin mirar nada.
-def _por_completar(material, criterios, estudio: str) -> list:
+def _plan_del_estudio(r):
+    """El plan (v4) con que se escribió este estudio, o None (v3)."""
+    _pl = (getattr(getattr(r, "encargo", None), "plan", None) or {})
+    _pl = _pl.get("plan") if isinstance(_pl, dict) else None
+    return _pl if isinstance(_pl, dict) else None
+
+
+def _por_completar(material, criterios, estudio: str, plan: dict = None) -> list:
     """Los argumentos cuya respuesta es sólo una declaración de sin estudio,
     sin su dato en los efectos ni en otra respuesta (`exhaustivo.sin_su_dato`).
-    Sin modelo. Nunca lanza."""
+    Con el PLAN (v4, plan-6), sin lo que éste resuelve por consecuencia de su
+    principal —innecesarios por suficiencia, los que caen por derivar—, salvo
+    en una concesión para efectos (`exhaustivo.sin_consecuencia_del_plan`): en
+    el AR 631/2025, un «revoca y niega», cada uno disparaba una llamada más al
+    modelo que los volvía a contestar. Sin modelo. Nunca lanza."""
     try:
         if not _f6_con_inventario(material):
             return []
@@ -1750,7 +1768,7 @@ def _por_completar(material, criterios, estudio: str) -> list:
         if not segs:
             return []
         return _ex.revisar_texto(estudio or "", segs, criterios,
-                                 list(getattr(material, "problemas", None) or []))["sin_dato"]
+                                 list(getattr(material, "problemas", None) or []), plan=plan)["sin_dato"]
     except Exception as _ex_p:
         print(f"   ⚠️ COMPLETAR: no se pudo revisar: {type(_ex_p).__name__}")
         return []
