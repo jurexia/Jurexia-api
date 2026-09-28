@@ -493,10 +493,17 @@ def hidratar_apoyos(apoyos, catalogo: dict, tribunal: str = "", circuito: int = 
     return fuera, avisos
 
 
+# Una cantidad no es un registro: «$600000», «600000 pesos». Sin esto, la razón
+# que habla de una condena se leería como una cita fuera del acervo.
+_RX_REGISTRO_SUELTO = re.compile(r"(?<![$\d.,])\b(\d{6,7})\b(?!\s*(?:pesos|m\.?n\.?|m2|metros))",
+                                 re.I)
+
+
 def registros_sueltos(texto: str, catalogo: dict) -> list:
     """Las cifras de registro que un texto libre nombra y el acervo del asunto
     no tiene (para avisar: la razón del motor viaja tal cual al resolver)."""
-    return [r for r in dict.fromkeys(_RX_REGISTRO.findall(str(texto or ""))) if r not in catalogo]
+    return [r for r in dict.fromkeys(_RX_REGISTRO_SUELTO.findall(str(texto or "")))
+            if r not in catalogo]
 
 
 # ═══ EL DESENLACE, POR CÓDIGO ═══════════════════════════════════════════════

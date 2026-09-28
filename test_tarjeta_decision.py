@@ -238,6 +238,9 @@ ok(len(ap2) == 1 and "EN PARTE" in (ap2[0]["vigencia"] or ""),
    "la abandonada EN PARTE se enseña con su sello, no se quita")
 ap3, av3 = td.hidratar_apoyos([{"id": "T7"}], cat, TRIBUNAL)
 ok(not ap3 and av3, "un id del catálogo sin registro no se pinta")
+ok(td.registros_sueltos("como dice la tesis (9999993) y la 2026918, con una condena de $600000 "
+                        "y otra de 700000 pesos", cat) == ["9999993"],
+   "en la razón, un registro fuera del acervo se señala; una cantidad no es un registro")
 
 print("\n3 · EL DESENLACE, POR CÓDIGO")
 D = td.desenlace_de
@@ -364,6 +367,12 @@ r_mismo["global"]["alternativa"]["sentido"] = "inoperante"
 t_m = armar(r_mismo)
 ok(t_m["vias"]["opuesta"] is None and any("mismo sentido" in a for a in t_m["avisos"]),
    "una «alternativa» en el mismo sentido no es vía contraria: columna apagada y aviso")
+r_rz = copy.deepcopy(RESP)
+r_rz["global"]["alternativa"]["razon"] = RAZON_ALT + " Lo sostiene la tesis (9999993)."
+t_rz = armar(r_rz)
+ok(t_rz["vias"]["opuesta"]["razon"] == r_rz["global"]["alternativa"]["razon"]
+   and any("9999993" in a and "vía contraria" in a for a in t_rz["avisos"]),
+   "la razón no se reescribe (viaja tal cual al resolver), pero su registro suelto se avisa")
 r_sr = copy.deepcopy(RESP)
 r_sr["global"]["alternativa"]["razon"] = ""
 t_sr = armar(r_sr)
