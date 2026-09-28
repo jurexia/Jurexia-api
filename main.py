@@ -1889,8 +1889,8 @@ def _build_precedentes_system_prompt(circuit: str, tribunal: Optional[str] = Non
 from esfuerzo_redaccion import (  # noqa: E402
     ACABADO_PLATINUM, INSTRUCCION_CONTINUAR, INSTRUCCION_MODIFICAR,
     MARCA_REEMPLAZA, OFERTA_TRAS_REVISION, PLANES_PLATINUM, PLANES_PRO,
-    decidir_redaccion, intencion_del_mensaje, normalizar_esfuerzo,
-    normalizar_intencion, tipo_de_ajuste,
+    bloque_despacho, decidir_redaccion, intencion_del_mensaje,
+    normalizar_esfuerzo, normalizar_intencion, tipo_de_ajuste,
 )
 
 
@@ -3669,6 +3669,14 @@ class ChatRequest(BaseModel):
     # lo que ocurre—; el escalón sigue saliendo de `esfuerzo` y del plan.
     intencion: Optional[str] = Field(
         None, description="Decisión explícita: 'redactar' o 'consultar'. Ausente: decide el detector.")
+    # El perfil del despacho (28-sep-2026): con qué nombre y cédula firma el
+    # abogado, su domicilio procesal, sus autorizados, su ciudad y su rol. Sólo
+    # se usa al redactar; cada campo se recorta a su tope en
+    # esfuerzo_redaccion.bloque_despacho, que lee sólo las claves que conoce.
+    # Cualquier forma se admite y la que no es diccionario se ignora: un perfil
+    # mal formado no puede tumbar la consulta.
+    despacho: Optional[Any] = Field(
+        None, description="Perfil del despacho: rol, nombre, cedula, domicilio, contacto, autorizados, ciudad.")
 
 
 class IntencionRequest(BaseModel):
@@ -17985,6 +17993,15 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                 if _tipo_ajuste and is_chat_drafting and not (is_drafting and draft_tipo):
                     dynamic_injections.append(
                         INSTRUCCION_MODIFICAR if _tipo_ajuste == "modificar" else INSTRUCCION_CONTINUAR)
+
+                # EL PERFIL DEL DESPACHO (28-sep-2026): al redactar —por el chat
+                # o por la tarjeta «Escrito legal»—, los datos que el abogado
+                # guardó para no volver a escribirlos en cada escrito.
+                if (is_chat_drafting or is_drafting) and request.despacho:
+                    _despacho = bloque_despacho(request.despacho)
+                    if _despacho:
+                        dynamic_injections.append(_despacho)
+                        print("   🏛️ PERFIL DEL DESPACHO: datos del abogado para el escrito")
 
                 # Agregar historial conversacional, con tope. Ver
                 # `_recortar_historial`: una conversación que no cabe en la

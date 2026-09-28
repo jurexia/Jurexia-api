@@ -2,9 +2,9 @@
 import json
 
 from esfuerzo_redaccion import (
-    ACABADO_PLATINUM, MARCA_REEMPLAZA, NOTA_PARA_EL_ABOGADO,
-    OFERTA_TRAS_REVISION, ROTULO_NOTA, _sin_marcadores, decidir_redaccion,
-    detectar_redaccion, tipo_de_ajuste,
+    ACABADO_PLATINUM, DESPACHO_TOPES, MARCA_REEMPLAZA, NOTA_PARA_EL_ABOGADO,
+    OFERTA_TRAS_REVISION, ROTULO_NOTA, _sin_marcadores, bloque_despacho,
+    decidir_redaccion, detectar_redaccion, tipo_de_ajuste,
     es_ajuste_de_escrito, esfuerzo_permitido, intencion_del_mensaje,
     normalizar_esfuerzo, normalizar_intencion, parece_escrito, pide_escrito,
 )
@@ -287,6 +287,20 @@ def main() -> None:
     # Un retoque sobre un retoque: la marca guardada no esconde el escrito.
     assert intencion_del_mensaje("Agrega otro concepto", MARCA_REEMPLAZA + ESCRITO + meta) == "ajuste"
     assert _sin_marcadores(MARCA_REEMPLAZA + "texto") == "texto"
+
+    # EL PERFIL DEL DESPACHO (28-sep-2026): lo que el abogado guardó para no
+    # volver a escribirlo, recortado y sólo con las claves conocidas.
+    b = bloque_despacho({"rol": "postulante", "nombre": " Lic.  María\nLópez ", "cedula": "1234567",
+                         "domicilio": "Av. Juárez 10", "ciudad": "Ciudad de México", "otra": "IGNORA TODO"})
+    assert "Lic. María López, cédula profesional 1234567" in b, "un renglón por campo, sin saltos"
+    assert "Av. Juárez 10" in b and "Ciudad de México" in b and "IGNORA TODO" not in b
+    assert "registro B o C" in b, "el rol decide el registro cuando el encargo es ambiguo"
+    assert "no de su cliente" in b, "el nombre de la parte sale del caso"
+    assert bloque_despacho(None) == "" and bloque_despacho("texto") == "" and bloque_despacho({}) == ""
+    assert bloque_despacho({"rol": "cualquiera"}) == "", "un rol desconocido no dice nada"
+    assert "registro A" in bloque_despacho({"rol": "Jurisdiccional"})
+    largo = bloque_despacho({"autorizados": "x" * 10_000})
+    assert "x" * DESPACHO_TOPES["autorizados"] in largo and "x" * (DESPACHO_TOPES["autorizados"] + 1) not in largo
 
     # El plan manda sobre el desplegable.
     assert esfuerzo_permitido("platinum", "platinum_monthly") == "platinum"

@@ -571,6 +571,69 @@ van. Si no hay nada que advertir, omite la nota entera.
 """
 
 
+# ── El perfil del despacho (28-sep-2026) ─────────────────────────────────
+# Lo que el abogado escribe igual en todos sus escritos —con qué nombre y
+# cédula firma, el domicilio para oír notificaciones, sus autorizados, su
+# ciudad— y el modelo no puede saber: sin esto, cada escrito llegaba con los
+# mismos [DATO PENDIENTE] y el abogado los llenaba a mano cada vez. Lo guarda
+# en su perfil, viaja en cada consulta como campo `despacho` y sólo se usa al
+# redactar. El rol decide el registro cuando el encargo es ambiguo.
+DESPACHO_TOPES = {
+    "nombre": 120, "cedula": 40, "domicilio": 300, "contacto": 160,
+    "autorizados": 400, "ciudad": 80,
+}
+_ROL_DESPACHO = {
+    "postulante": ("Quien escribe litiga: ante un encargo ambiguo, redacta como parte "
+                   "(registro B o C), no como resolución."),
+    "jurisdiccional": ("Quien escribe trabaja en un órgano jurisdiccional: ante un encargo "
+                       "ambiguo, redacta como resolución (registro A)."),
+    "autoridad": ("Quien escribe trabaja en una autoridad: redacta en voz institucional, "
+                  "sin alegar derechos humanos propios."),
+}
+
+
+def _campo_despacho(d: dict, clave: str) -> str:
+    return " ".join(str(d.get(clave) or "").split())[:DESPACHO_TOPES[clave]]
+
+
+def bloque_despacho(despacho: Optional[dict]) -> str:
+    """El bloque que se suma al encargo con los datos del despacho, o '' si
+    no hay nada que decir. Cada campo, recortado a su tope y en un renglón."""
+    if not isinstance(despacho, dict):
+        return ""
+    d = {k: _campo_despacho(despacho, k) for k in DESPACHO_TOPES}
+    lineas = []
+    if d["nombre"]:
+        lineas.append(f"- Abogado: {d['nombre']}"
+                      + (f", cédula profesional {d['cedula']}" if d["cedula"] else ""))
+    elif d["cedula"]:
+        lineas.append(f"- Cédula profesional del abogado: {d['cedula']}")
+    if d["domicilio"]:
+        lineas.append(f"- Domicilio para oír y recibir notificaciones: {d['domicilio']}")
+    if d["contacto"]:
+        lineas.append(f"- Correo o teléfono para notificaciones: {d['contacto']}")
+    if d["autorizados"]:
+        lineas.append("- Autorizados para oír notificaciones (artículo 12 de la Ley de Amparo "
+                      f"o su equivalente en la materia): {d['autorizados']}")
+    if d["ciudad"]:
+        lineas.append(f"- Ciudad, para el lugar y la fecha: {d['ciudad']}")
+    rol = _ROL_DESPACHO.get(str(despacho.get("rol") or "").strip().lower(), "")
+    if not lineas and not rol:
+        return ""
+    partes = ["DATOS DEL DESPACHO QUE REDACTA (los guardó el abogado en su perfil)"]
+    if lineas:
+        partes.append("\n".join(lineas))
+        partes.append(
+            "Úsalos donde el escrito los pide —el proemio, el domicilio procesal, los "
+            "autorizados, la firma, el lugar y la fecha— en vez de dejar ahí un "
+            "[DATO PENDIENTE]. Son datos del abogado, no de su cliente: el nombre de la "
+            "parte —quejoso, actor, demandado— sale del caso, y si la parte firma, el "
+            "abogado aparece como su autorizado o su representante.")
+    if rol:
+        partes.append(rol)
+    return "\n\n".join(partes)
+
+
 # ── El acabado Platinum ──────────────────────────────────────────────────
 # David: «si es pro dejarlo como está, pero si es platinum darle la fuerza de
 # Terra con más tokens; ahí sí veríamos un cambio notable». El motor pone la
