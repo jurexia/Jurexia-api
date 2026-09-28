@@ -3709,6 +3709,11 @@ class ChatRequest(BaseModel):
         None, description="Perfil del despacho: rol, nombre, cedula, domicilio, contacto, autorizados, ciudad.")
 
 
+class RevisionRequest(BaseModel):
+    """El escrito de la hoja, para revisarlo antes de presentar."""
+    texto: str = Field(..., max_length=300_000)
+
+
 class IntencionRequest(BaseModel):
     """Lo que pregunta la etiqueta del compositor mientras el abogado escribe."""
     mensaje: str = Field(..., max_length=8000)
@@ -15543,6 +15548,38 @@ async def _smart_rag_for_document(
 async def redaccion_intencion(req: IntencionRequest):
     motivo = intencion_del_mensaje(req.mensaje, req.anterior or "")
     return {"intencion": "redactar" if motivo else "consultar", "motivo": motivo}
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# ENDPOINT: LA REVISIÓN ANTES DE PRESENTAR (28-sep-2026)
+# ══════════════════════════════════════════════════════════════════════════════
+# Lo que el abogado revisaba a ojo antes de firmar y se puede comprobar sin
+# modelo: los requisitos de la demanda de amparo (artículos 108 y 175 de la
+# Ley de Amparo), los datos pendientes y las plantillas sin llenar, el cierre
+# y las frases rotas. Sin costo y sin guardar nada; en un hilo, porque un
+# escrito largo son unos cientos de milisegundos de expresiones regulares.
+# No calcula el plazo, a propósito: ver revision_escrito.py.
+from revision_escrito import revisar_escrito  # noqa: E402
+
+# Dos a la vez. El grupo de hilos lo comparten las consultas de perfil y de
+# cuota del chat, y no está en RATE_LIMITED_PATHS para no gastar el cupo del
+# chat del abogado cada vez que revisa: una avalancha de escritos de 300 mil
+# caracteres espera aquí su turno en vez de acaparar los hilos, y si el turno
+# no llega a tiempo, 503 (el panel dice «vuelve a intentarlo»).
+_REVISION_SEM = asyncio.Semaphore(2)
+_REVISION_ESPERA = 15.0
+
+
+@app.post("/redaccion/revisar")
+async def redaccion_revisar(req: RevisionRequest):
+    try:
+        await asyncio.wait_for(_REVISION_SEM.acquire(), timeout=_REVISION_ESPERA)
+    except asyncio.TimeoutError:
+        raise HTTPException(status_code=503, detail="La revisión está ocupada; vuelve a intentarlo en un momento.")
+    try:
+        return await asyncio.to_thread(revisar_escrito, req.texto)
+    finally:
+        _REVISION_SEM.release()
 
 
 # ══════════════════════════════════════════════════════════════════════════════

@@ -18,10 +18,12 @@ devuelve a la pantalla:
     se marca como breve; el prompt ya no empuja la extensión en todo;
   · el perfil del despacho va al redactar, no en una consulta, recortado y
     sólo con las claves conocidas; uno mal formado se ignora;
+  · /redaccion/revisar revisa el escrito de la hoja sin modelo, dos a la vez;
   · con un documento adjunto, /analyze-document redacta cuando el mensaje
     encarga un escrito o la etiqueta dice «Escrito», con el motor del escalón
     que permite el plan; lo demás se sigue analizando.
 """
+import asyncio
 import json
 import sys
 from types import SimpleNamespace
@@ -176,6 +178,43 @@ ok(st == 200 and llamada is not None and ("x" * (er.DESPACHO_TOPES["nombre"] + 1
    "un campo enorme se recorta a su tope")
 st, cuerpo, llamada = pedir("Redacta una demanda de amparo", despacho="no es un diccionario")
 ok(st == 200 and llamada is not None and "DATOS DEL DESPACHO" not in ultimo_mensaje(llamada), "un perfil mal formado se ignora")
+
+print("── la revisión antes de presentar ──")
+r = cliente.post("/redaccion/revisar", json={"texto": "Demanda de amparo indirecto. AUTORIDAD RESPONSABLE: X. "
+                                                     "CONCEPTOS DE VIOLACIÓN. PROTESTO LO NECESARIO"})
+j = r.json() if r.status_code == 200 else {}
+ok(r.status_code == 200 and j.get("tipo") == "amparo_indirecto"
+   and any("decir verdad" in h["que"] and h["nivel"] == "falta" for h in j.get("hallazgos", [])),
+   "/redaccion/revisar dice lo que falta, con su fundamento")
+ok(cliente.post("/redaccion/revisar", json={"texto": "x" * 300_001}).status_code == 422,
+   "un texto mayor que el tope se rechaza")
+# Dos a la vez: cada revisión devuelve su turno, aunque truene, y sin turno
+# libre a tiempo la respuesta es 503 en vez de una espera sin fin.
+for _ in range(5):
+    cliente.post("/redaccion/revisar", json={"texto": "PROTESTO LO NECESARIO"})
+ok(main._REVISION_SEM._value == 2, "cada revisión devuelve su turno")
+_revisar_de_verdad = main.revisar_escrito
+
+
+def _truena(texto):
+    raise RuntimeError("falla a propósito")
+
+
+main.revisar_escrito = _truena
+try:
+    cliente.post("/redaccion/revisar", json={"texto": "algo"})
+except RuntimeError:
+    pass
+finally:
+    main.revisar_escrito = _revisar_de_verdad
+ok(main._REVISION_SEM._value == 2, "también cuando la revisión truena")
+_sem, _espera = main._REVISION_SEM, main._REVISION_ESPERA
+main._REVISION_SEM, main._REVISION_ESPERA = asyncio.Semaphore(0), 0.05
+try:
+    r = cliente.post("/redaccion/revisar", json={"texto": "algo"})
+finally:
+    main._REVISION_SEM, main._REVISION_ESPERA = _sem, _espera
+ok(r.status_code == 503, "sin turno libre a tiempo, 503")
 
 print("── adjuntar y redactar en un paso ──")
 # /analyze-document redacta cuando el mensaje encarga un escrito (o la
