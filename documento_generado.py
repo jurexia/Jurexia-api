@@ -430,11 +430,71 @@ _RX_COLA_HUERFANA = re.compile(
     r"|por|de|del|la|el|los|las|y|e)\s*$", re.I)
 
 
+# ═══ EL ANUNCIO QUE CONTESTA NO SE CONVIERTE EN APOYO (AR 631/2025) ═══════
+# El modelo escribía bien la distinción —«Respecto de la jurisprudencia de
+# registro 2015679, de rubro «…», no resulta aplicable, porque exige una
+# comparación…»— y aquí se rehacía el anuncio con la fórmula por omisión: salía
+# «Sirve de apoyo la jurisprudencia… 2015679…» y, debajo del rubro, «La
+# jurisprudencia en cita no resulta aplicable…». Es, palabra por palabra, la
+# cita contradictoria de la Solución del 631 (verificación del 28-sep-2026,
+# líneas 112-114), y la misma vuelta convertía «La recurrente invoca la
+# jurisprudencia…» en «Sirve de apoyo…»: la tesis de la parte reciclada como
+# apoyo del proyecto. El defecto era del compositor, no del modelo.
+#
+# Se conserva el arranque del modelo cuando CONTESTA el criterio: lo niega
+# («no resulta aplicable», «tampoco», «resulta inaplicable»), se lo atribuye a
+# quien lo invocó («la recurrente invoca», «la responsable citó») o lo toma
+# como tema («respecto de», «en cuanto a»). Nunca si nombra un órgano —ése lo
+# pone el acervo—, y la negación de «no obstante» o «no sólo» no cuenta.
+_RX_ANUNCIO_CONTESTA = re.compile(
+    r"(?:\b(?:no|tampoco|ni|sin\s+que)\b(?!\s+(?:obstante|s[óo]lo|solamente|[úu]nicamente))"
+    r".{0,60}?\b(?:aplicables?|aplica[n]?|aplicaci[óo]n|apoyo|sustento|obsta[n]?|"
+    r"obste[n]?|obst[áa]culo|rige[n]?|gobierna[n]?|resuelve[n]?|sostiene[n]?)\b"
+    r"|\binaplicables?\b"
+    r"|\b(?:la|el|los|las)\s+(?:parte\s+)?(?:recurrentes?|quejos[oa]s?|inconformes?|"
+    r"terceros?(?:\s+interesad[oa]s?)?|autoridad(?:\s+responsable)?|responsable|"
+    r"adherentes?|a\s+quo|juzgado(?:\s+de\s+distrito)?|juez(?:\s+de\s+distrito)?|"
+    r"sala\s+responsable)\b.{0,60}?\b(?:invoc|cit|apoy|sustent|fund|transcrib|aleg|adu)\w*"
+    r"|^(?:respecto|acerca|tocante|en\s+cuanto|por\s+lo\s+que\s+(?:hace|ve|toca)|"
+    r"en\s+relaci[óo]n|con\s+relaci[óo]n)\b)", re.I)
+_RX_VERBO_CONTESTA = re.compile(
+    r"^(.{0,90}?)\s*(?:,\s*)?(?:la|el|las|los)?\s*"
+    r"(?:jurisprudencias?|tesis|criterios?|precedentes?)\b", re.I | re.S)
+_RX_ORGANO_EN_ANUNCIO = re.compile(
+    r"\b(?:primera|segunda)\s+sala\b|\bpleno\b|suprema\s+corte|colegiad", re.I)
+
+
+def es_anuncio_que_contesta(lead: str) -> bool:
+    """¿El arranque del modelo contesta el criterio en vez de apoyarse en él?"""
+    v = " ".join((lead or "").split())
+    return bool(v) and not _RX_ORGANO_EN_ANUNCIO.search(v) \
+        and bool(_RX_ANUNCIO_CONTESTA.search(v))
+
+
+def _lead_que_contesta(v: str) -> str:
+    """El arranque que contesta, en singular (cada cita se anuncia sola) y sin
+    el artículo que queda colgando; la preposición de «respecto de» se queda."""
+    v = v.strip().rstrip(",;:")
+    v = re.sub(r"[\s,;:]*\b(?:la|el|los|las|y|e)\s*$", "", v, flags=re.I).strip()
+    for a, b in ((r"\bresultan\b", "resulta"), (r"\baplicables\b", "aplicable"),
+                 (r"\bson\b", "es"), (r"\binaplicables\b", "inaplicable"),
+                 (r"\bsirven\b", "sirve"), (r"\brigen\b", "rige"),
+                 (r"\bgobiernan\b", "gobierna"), (r"\bobstan\b", "obsta")):
+        v = re.sub(a, b, v, flags=re.I)
+    return v
+
+
 def _verbo_de_enlace(anuncio: str) -> str:
     """Lo único del anuncio que escribe el modelo y merece conservarse."""
     a = " ".join((anuncio or "").split())
     if not a:
         return _POR_DEFECTO
+    # En plural también —«No resultan aplicables las jurisprudencias…»—, que
+    # `_RX_VERBO` no lee.
+    mc = _RX_VERBO_CONTESTA.match(a)
+    if mc and mc.group(1).strip() and not _RX_FORMULA_ENLACE.match(mc.group(1).strip()) \
+            and es_anuncio_que_contesta(mc.group(1)):
+        return _lead_que_contesta(mc.group(1))
     m = _RX_VERBO.match(a)
     if m and m.group(1).strip():
         v = m.group(1).strip().rstrip(",;:")
@@ -491,7 +551,12 @@ def anuncio_de(t: dict, anuncio_del_modelo: str = "") -> str:
     # obligatoriedad va de suyo y escribirla suena a énfasis de quien no está
     # seguro; en una tesis aislada, en cambio, decir que sólo orienta es
     # información necesaria y es lo que evita que se lea como vinculante.
-    if t.get("obligatoria"):
+    # EL QUE CONTESTA NO LLEVA «COMO CRITERIO ORIENTADOR»: «No resulta
+    # aplicable, como criterio orientador, la tesis aislada…» es un
+    # contrasentido. Lo que se distingue no orienta nada.
+    if es_anuncio_que_contesta(verbo):
+        frase = f"{verbo} {sustantivo}"
+    elif t.get("obligatoria"):
         # Un verbo con inciso propio —«Es aplicable, además»— pide cerrar la
         # coma antes del sustantivo, o queda «además la jurisprudencia».
         frase = (f"{verbo}, {sustantivo}" if "," in verbo
@@ -574,6 +639,11 @@ def escribir_cita(doc, t: dict, anuncio: str, notas: list) -> None:
     # SE CONSERVA EN EL CUERPO CUANDO ES CORTO. Una tesis de cuatro renglones
     # leída al pie es una molestia sin ganancia; el problema son las de
     # trescientas palabras.
+    # LO QUE QUEDA EN EL CUERPO BASTA PARA QUE LA EXPLICACIÓN SE ENTIENDA (AR
+    # 631/2025, 28-sep-2026): el anuncio con su registro digital —lo pone
+    # `anuncio_de`— y el rubro; el texto, sólo en la nota. La regla la dice el
+    # estudio con sus palabras antes o después de la cita, y `_sin_eco` ya no
+    # la borra cuando el texto está al pie (ver `UMBRAL_ECO_AL_PIE`).
     cuerpo = _sin_coletilla_de_organo(t.get("texto") or "")
     _al_pie = len(cuerpo.split()) > MAX_PALABRAS_TESIS_CUERPO
     # Atado sólo si su texto va debajo; si va al pie, el rubro fluye y el aire
@@ -2604,7 +2674,25 @@ def _con_sujeto_tras_cita(cola: str, tesis: dict) -> str:
     return f"{nombre} {c}"
 
 
-def _sin_eco(texto: str, cuerpo_tesis: str) -> str:
+# CUÁNTO SE PARECE UNA FRASE A LA TESIS PARA SER ECO. Con el texto en el
+# cuerpo, el 72 % de sus palabras: el lector acaba de leerla arriba. Con el
+# texto AL PIE —lo normal: toda tesis de más de `MAX_PALABRAS_TESIS_CUERPO`
+# palabras baja a la nota—, el lector del cuerpo sólo ve el rubro, y la frase
+# que dice qué sostiene la tesis es justo lo que la hace hablar (AR 631/2025,
+# 28-sep-2026: «después de citar tesis hay que hacerlas hablar»). Ahí sólo se
+# borra la copia casi literal, que duplica la nota sin decir nada.
+UMBRAL_ECO_EN_CUERPO = 0.72
+UMBRAL_ECO_AL_PIE = 0.92
+
+
+def _texto_al_pie(t: dict) -> bool:
+    """¿El texto de esta tesis baja a la nota? La misma condición que usa
+    `escribir_cita`: si cambia una, cambia la otra."""
+    return len(_sin_coletilla_de_organo((t or {}).get("texto") or "").split()) \
+        > MAX_PALABRAS_TESIS_CUERPO
+
+
+def _sin_eco(texto: str, cuerpo_tesis: str, al_pie: bool = False) -> str:
     """Quita del párrafo las frases que repiten la tesis ya transcrita.
 
     Pedirlo en el prompt no basta: se dijo en el cuerpo y al final, y aun así
@@ -2612,16 +2700,20 @@ def _sin_eco(texto: str, cuerpo_tesis: str) -> str:
     aquí, que es donde no falla, y QUIRÚRGICAMENTE: se borran las frases que
     repiten y se conserva lo que aplica el criterio al caso, que es lo único
     que el lector no tiene ya delante.
+
+    `al_pie`: el texto de la tesis bajó a la nota. Entonces la explicación
+    propia se queda y sólo se borra la copia casi literal (ver arriba).
     """
     if not (cuerpo_tesis or "").strip():
         return texto
     voc = [set(_norm_palabras(f)) for f in _frases_de(cuerpo_tesis)]
     if not voc:
         return texto
+    umbral = UMBRAL_ECO_AL_PIE if al_pie else UMBRAL_ECO_EN_CUERPO
     quedan = []
     for frase in re.split(r"(?<=[.])\s+", texto or ""):
         p = set(_norm_palabras(frase))
-        if len(p) >= 8 and any(len(p & v) / max(1, len(p)) > 0.72 for v in voc):
+        if len(p) >= 8 and any(len(p & v) / max(1, len(p)) > umbral for v in voc):
             continue                       # el lector acaba de leerla arriba
         quedan.append(frase)
     return " ".join(x for x in quedan if x.strip()).strip()
@@ -3251,9 +3343,15 @@ _RX_CITA_ENCADENADA = re.compile(
     r"(?:jurisprudencia|tesis|criterio)\b)", re.I)
 
 
-def _desencadenar(cola: str, tesis: list) -> str:
+def _desencadenar(cola: str, tesis: list, contesta: str = "") -> str:
     """Si la cola es «y la jurisprudencia …, de rubro «B»», la devuelve como
-    anuncio propio; si no, cadena vacía."""
+    anuncio propio; si no, cadena vacía.
+
+    `contesta`: el arranque de la primera cuando la contestaba (ver
+    `es_anuncio_que_contesta`). La segunda de «No resultan aplicables la X… y
+    la Y…» no puede salir «También sirve de apoyo» (AR 631/2025): se anuncia
+    con «Tampoco resulta aplicable» si la primera se negó, y con el mismo
+    arranque si se atribuyó a quien la invocó."""
     c = (cola or "").lstrip(" ,;")
     m = _RX_CITA_ENCADENADA.match(c)
     if not m:
@@ -3265,7 +3363,36 @@ def _desencadenar(cola: str, tesis: list) -> str:
         mr = _RX_REGISTRO_EN_PROSA.search(resto)
         if not (mr and any(str(t.get("registro") or "") == mr.group(1) for t in (tesis or []))):
             return ""
+    if contesta:
+        if re.search(r"\b(?:no|tampoco|ni|sin\s+que)\b|inaplicable", contesta, re.I):
+            return "Tampoco resulta aplicable " + resto
+        return contesta[:1].upper() + contesta[1:] + " " + resto
     return "También sirve de apoyo " + resto
+
+
+# LA MEDIA FRASE QUE SIGUE A UNA CITA QUE SE CONTESTA. «No resulta aplicable la
+# jurisprudencia…, de rubro «…», porque exige…»: al bajar el rubro a su bloque,
+# la cola quedaba «porque exige…», en minúscula y sin sujeto. Se le da el
+# arranque que pide su conector; el razonamiento es el del modelo.
+_RX_COLA_CAUSAL = re.compile(
+    r"^(?:porque|pues|ya\s+que|toda\s+vez\s+que|dado\s+que|puesto\s+que|"
+    r"en\s+virtud\s+de\s+que|en\s+tanto\s+que)\b", re.I)
+_RX_COLA_ADVERSATIVA = re.compile(r"^(?:pero|mas|empero)\s+", re.I)
+
+
+def _cola_tras_contestar(cola: str) -> str:
+    c = (cola or "").lstrip()
+    if not c or not c[0].islower():
+        return c
+    if _RX_COLA_CAUSAL.match(c):
+        return "Ello, " + c
+    m = _RX_COLA_ADVERSATIVA.match(c)
+    if m:
+        return "Sin embargo, " + c[m.end():]
+    # «…, de rubro «X», que resolvía…»: el relativo es el criterio.
+    if re.match(r"^que\s+(?!se\b)[a-záéíóúñ]", c):
+        return "Ese criterio " + c[4:]
+    return c
 
 
 # EL LENGUAJE DEL PROYECTO. El motor le enseña al estudio «la objeción más
@@ -3314,6 +3441,7 @@ def _escribir_estudio(doc, estudio, tesis, notas, normas=None) -> int:
         str(x) for x in (estudio if isinstance(estudio, (list, tuple)) else [estudio]))
     citadas = 0
     ultima_tesis = None
+    ultima_al_pie = False
     _pies_de_ley = len(notas)          # los que ya había antes de este estudio
     transcritos = set()
     transcritas_tesis = set()
@@ -3351,20 +3479,29 @@ def _escribir_estudio(doc, estudio, tesis, notas, normas=None) -> int:
             cola = t[m_r.end():].lstrip(" ,;:.")
             escribir_cita(doc, hallada, antes.rstrip(" ,;:"), notas)
             citadas += 1
+            # ¿La contestaba? Entonces la cita que la sigue en la misma frase
+            # y la media frase de detrás se anuncian como lo que son.
+            _v_ant = _verbo_de_enlace(antes.rstrip(" ,;:"))
+            _contesta = _v_ant if es_anuncio_que_contesta(_v_ant) else ""
             # LA SEGUNDA TESIS DE LA MISMA FRASE se anuncia por su cuenta.
-            _otra = _desencadenar(cola, tesis)
+            _otra = _desencadenar(cola, tesis, _contesta)
             if _otra:
                 _pendientes.insert(0, _otra)
                 ultima_tesis = hallada
+                ultima_al_pie = _texto_al_pie(hallada)
                 continue
-            cola = _sin_eco(cola, hallada.get("texto") or "")
+            cola = _sin_eco(cola, hallada.get("texto") or "",
+                            al_pie=_texto_al_pie(hallada))
             cola = _con_sujeto_tras_cita(cola, hallada)
+            if _contesta:
+                cola = _cola_tras_contestar(cola)
             if len(cola.split()) > 6 or _es_pregunta(cola):
                 parrafo_con_citas(doc, cola, notas)
             ultima_tesis = hallada
+            ultima_al_pie = _texto_al_pie(hallada)
             continue
         if ultima_tesis is not None:
-            t = _sin_eco(t, ultima_tesis.get("texto") or "")
+            t = _sin_eco(t, ultima_tesis.get("texto") or "", al_pie=ultima_al_pie)
             ultima_tesis = None
             if len(t.split()) < 6 and not _es_pregunta(t):
                 continue
