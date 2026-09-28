@@ -574,6 +574,32 @@ van. Si no hay nada que advertir, omite la nota entera.
 """
 
 
+# ── El documento adjunto, material del escrito (28-sep-2026) ────────────
+# «Redacta el recurso contra esta sentencia» con la sentencia adjunta llegaba
+# a /analyze-document, que ANALIZA: el abogado recibía un análisis y tenía que
+# volver a pedir el escrito. Ahora, si el mensaje encarga un escrito (o la
+# etiqueta dice «Escrito»), ese mismo paso redacta, con el motor del Esfuerzo
+# y el prompt de redacción, más esto: el riesgo propio de redactar sobre un
+# documento es atribuirle lo que no dice.
+INSTRUCCION_DOCUMENTO_BASE = """
+────────────────────────────────────────────────────────────────
+ EL DOCUMENTO ADJUNTO ES EL MATERIAL DEL ESCRITO
+────────────────────────────────────────────────────────────────
+El abogado adjuntó un documento y pide un escrito sobre él. Léelo entero
+antes de escribir.
+- Si es la resolución que se combate —sentencia, auto, acuerdo, acto de
+  autoridad—, lo que dijo sale DE AHÍ y con sus palabras: cita textualmente
+  las consideraciones que atacas, con su considerando o su página, y nunca le
+  atribuyas un razonamiento que no está en el texto. Un agravio contra algo
+  que la resolución no dijo es inoperante.
+- Si es un documento del caso —contrato, demanda contraria, acta,
+  notificación—, los nombres, las fechas, las cantidades y los números de
+  expediente salen de ahí; lo que no esté, [DATO PENDIENTE: …].
+- La fecha de notificación y el plazo: si el documento los trae, úsalos; si
+  no, dilo en la nota para el abogado.
+"""
+
+
 # ── El perfil del despacho (28-sep-2026) ─────────────────────────────────
 # Lo que el abogado escribe igual en todos sus escritos —con qué nombre y
 # cédula firma, el domicilio para oír notificaciones, sus autorizados, su

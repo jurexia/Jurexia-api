@@ -15,8 +15,12 @@ devuelve a la pantalla:
     «Consulta» manda;
   · la marca guardada en el historial no vuelve al modelo;
   · el perfil del despacho va al redactar, no en una consulta, recortado y
-    sólo con las claves conocidas; uno mal formado se ignora.
+    sólo con las claves conocidas; uno mal formado se ignora;
+  · con un documento adjunto, /analyze-document redacta cuando el mensaje
+    encarga un escrito o la etiqueta dice «Escrito», con el motor del escalón
+    que permite el plan; lo demás se sigue analizando.
 """
+import json
 import sys
 from types import SimpleNamespace
 
@@ -147,6 +151,92 @@ ok(st == 200 and ("x" * (er.DESPACHO_TOPES["nombre"] + 1)) not in ultimo_mensaje
    "un campo enorme se recorta a su tope")
 st, cuerpo, llamada = pedir("Redacta una demanda de amparo", despacho="no es un diccionario")
 ok(st == 200 and "DATOS DEL DESPACHO" not in ultimo_mensaje(llamada), "un perfil mal formado se ignora")
+
+print("── adjuntar y redactar en un paso ──")
+# /analyze-document redacta cuando el mensaje encarga un escrito (o la
+# etiqueta dice «Escrito»), con el motor del escalón que permite el plan.
+import fitz  # noqa: E402
+import random  # noqa: E402
+
+_PLAN = {"sub": "platinum_monthly"}
+
+
+class _Consulta:
+    def __getattr__(self, nombre):
+        return lambda *a, **k: self
+
+    def execute(self):
+        return SimpleNamespace(data=[{"subscription_type": _PLAN["sub"], "email": "abogada@despacho.mx",
+                                      "estado": None, "queries_used": 0, "queries_limit": 100}], count=0)
+
+
+class _SupabaseFalso:
+    def table(self, *a, **k):
+        return _Consulta()
+
+    def rpc(self, *a, **k):
+        return _Consulta()
+
+
+main.supabase_admin = _SupabaseFalso()
+# Texto variado: el lector de PDF mide la riqueza del texto nativo antes de
+# fiarse de él (_texto_nativo_sirve), y uno repetido lo mandaría al OCR.
+_palabras = ("sentencia juicio amparo indirecto considerando niega acto reclamado afecta interés jurídico "
+             "quejoso acreditó titular licencia funcionamiento establecimiento autoridad municipal clausura "
+             "visita verificación acta fundamentación motivación artículo constitucional audiencia defensa "
+             "pruebas documentales pericial informe justificado tercero juzgado distrito materia "
+             "administrativa resolución recurso revisión tribunal colegiado plazo notificación expediente "
+             "foja agravio concepto violación suplencia improcedencia sobreseimiento suspensión").split()
+random.seed(7)
+_pdf = fitz.open()
+_pdf.new_page().insert_textbox(fitz.Rect(50, 50, 560, 800), "CONSIDERANDO TERCERO. " + " ".join(
+    f"{random.choice(_palabras)}{random.randint(1, 99) if i % 7 == 0 else ''}" for i in range(420)), fontsize=9)
+PDF = _pdf.tobytes()
+
+
+def adjuntar(prompt, **campos):
+    LLAMADAS.clear()
+    r = cliente.post("/analyze-document", files={"file": ("sentencia.pdf", PDF, "application/pdf")},
+                     data={"prompt": prompt, "user_id": "u-1", "usar_acervo": "0", **campos})
+    eventos = [json.loads(l[6:]) for l in r.text.splitlines() if l.startswith("data: ")]
+    en_flujo = [k for k in LLAMADAS if k.get("stream")]
+    return r.status_code, eventos, (en_flujo[-1] if en_flujo else None)
+
+
+def sistema(llamada):
+    return (llamada or {}).get("messages", [{}])[0].get("content", "")
+
+
+st, ev, ll = adjuntar("Redacta el recurso de revisión contra esta sentencia", esfuerzo="platinum",
+                      despacho=json.dumps({"nombre": "Lic. María López", "rol": "postulante"}))
+ok(st == 200 and ll is not None and ll["model"] == main.REDACTOR_PLATINUM_MODEL
+   and ll.get("max_completion_tokens") == main.REDACTOR_PLATINUM_MAX_TOKENS,
+   "el encargo con documento se redacta con el motor Platinum y su tope")
+ok("ELIGE EL REGISTRO" in sistema(ll) and "ESCALÓN PLATINUM" in sistema(ll)
+   and "EL DOCUMENTO ADJUNTO ES EL MATERIAL DEL ESCRITO" in sistema(ll),
+   "con el prompt de redacción, el acabado y la regla de no atribuirle al documento lo que no dice")
+ok("Lic. María López" in (ll or {}).get("messages", [{}, {}])[1].get("content", "")
+   and "CONSIDERANDO TERCERO" in (ll or {}).get("messages", [{}, {}])[1].get("content", ""),
+   "con el documento y el perfil del despacho")
+ok({"modo": "PLATINUM"} in ev and any(e.get("progreso") == "Redactando el escrito…" for e in ev),
+   "la pantalla recibe el escalón y el paso dice «Redactando el escrito…»")
+_PLAN["sub"] = "pro_monthly"
+st, ev, ll = adjuntar("Redacta el recurso de revisión contra esta sentencia", esfuerzo="platinum")
+ok(ll and ll["model"] == main.REDACTOR_PRO_MODEL and {"modo": "PRO"} in ev, "con plan Pro, Platinum baja a Pro")
+_PLAN["sub"] = "gratuito"
+st, ev, ll = adjuntar("Redacta el recurso de revisión contra esta sentencia", esfuerzo="platinum")
+ok(ll and ll["model"] == main.DOCUMENT_MODEL and {"modo": "PROFESIONAL"} in ev,
+   "sin plan, el Básico con el motor de documentos")
+_PLAN["sub"] = "platinum_monthly"
+st, ev, ll = adjuntar("¿Qué plazos corren según esta sentencia?", esfuerzo="platinum")
+ok(ll and "ELIGE EL REGISTRO" not in sistema(ll) and not any("modo" in e for e in ev),
+   "una pregunta sobre el documento sigue siendo análisis")
+st, ev, ll = adjuntar("Redacta el recurso de revisión contra esta sentencia", esfuerzo="pro", intencion="consultar")
+ok(ll and "ELIGE EL REGISTRO" not in sistema(ll), "«Consulta» en la etiqueta manda: se analiza")
+st, ev, ll = adjuntar("Revisa esta sentencia y dime qué agravios caben", esfuerzo="pro", intencion="redactar")
+ok(ll and "ELIGE EL REGISTRO" in sistema(ll), "«Escrito» en la etiqueta manda: se redacta")
+st, ev, ll = adjuntar("Analiza este documento y genera un resumen ejecutivo completo")
+ok(ll and "ELIGE EL REGISTRO" not in sistema(ll), "sin nada, como siempre: se analiza")
 
 print(f"\n{'TODO PASA' if not FALLOS else f'{len(FALLOS)} FALLA(S)'}")
 sys.exit(1 if FALLOS else 0)

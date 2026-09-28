@@ -1888,9 +1888,10 @@ def _build_precedentes_system_prompt(circuit: str, tribunal: Optional[str] = Non
 # interruptor.
 from esfuerzo_redaccion import (  # noqa: E402
     ACABADO_PLATINUM, INSTRUCCION_MODIFICAR, INSTRUCCION_SEGUIR_ESCRITO,
-    MARCA_REEMPLAZA, OFERTA_TRAS_REVISION, PLANES_PLATINUM, PLANES_PRO,
-    bloque_despacho, decidir_redaccion, intencion_del_mensaje,
-    normalizar_esfuerzo, normalizar_intencion, tipo_de_ajuste,
+    INSTRUCCION_DOCUMENTO_BASE, MARCA_REEMPLAZA, OFERTA_TRAS_REVISION,
+    PLANES_PLATINUM, PLANES_PRO, bloque_despacho, decidir_redaccion,
+    esfuerzo_permitido, intencion_del_mensaje, normalizar_esfuerzo,
+    normalizar_intencion, pide_escrito, tipo_de_ajuste,
 )
 
 
@@ -12526,6 +12527,12 @@ async def analyze_document(
     usar_acervo: str = Form("1"),
     # El selector «Fuentes» del chat, separado por comas. Ver fuentes_elegidas.py.
     fuentes: str = Form(None),
+    # ADJUNTAR Y REDACTAR EN UN PASO (28-sep-2026): el Esfuerzo elegido, la
+    # etiqueta «Escrito / Consulta» del compositor y el perfil del despacho
+    # (JSON). Sin ellos, como siempre: se analiza.
+    esfuerzo: str = Form(None),
+    intencion: str = Form(None),
+    despacho: str = Form(None),
 ):
     """
     Analiza un documento completo con Gemini Flash vía OpenRouter.
@@ -12608,6 +12615,27 @@ async def analyze_document(
                     print(f"   👤 Standard user detected ({correo_opaco(user_email)}, plan: {sub_type}) — Extracted char limit: {effective_max_chars:,}")
         except Exception as e:
             print(f"   ⚠️ Error checking subscription for user {user_id} in analyze-document: {err(e)}")
+
+    # ── ¿ANALIZAR O REDACTAR? (28-sep-2026) ───────────────────────────────
+    # «Redacta el recurso contra esta sentencia» con la sentencia adjunta
+    # recibía un análisis, y el abogado tenía que volver a pedir el escrito.
+    # Si el mensaje encarga un escrito —el mismo detector del chat— o la
+    # etiqueta del compositor dice «Escrito», este mismo paso redacta: con el
+    # prompt de redacción, el motor del Esfuerzo que permite el plan y el
+    # perfil del despacho. «Consulta» en la etiqueta manda en sentido contrario.
+    _intencion_doc = normalizar_intencion(intencion)
+    _redactar_doc = _intencion_doc == "redactar" or (_intencion_doc is None and pide_escrito(prompt or ""))
+    _escalon_doc = esfuerzo_permitido(esfuerzo, plan_actual, es_admin) if _redactar_doc else ""
+    _despacho_doc = ""
+    if _redactar_doc and despacho:
+        try:
+            _despacho_doc = bloque_despacho(json.loads(despacho))
+        except (ValueError, TypeError):
+            _despacho_doc = ""
+    if _redactar_doc:
+        print(f"   ✍️ DOCUMENTO + REDACCIÓN: el mensaje encarga un escrito · escalón {_escalon_doc}"
+              f"{' (lo pidió la etiqueta)' if _intencion_doc == 'redactar' else ''}"
+              f"{' · con perfil del despacho' if _despacho_doc else ''}")
 
     # Validate file type
     if extension not in ("pdf", "doc", "docx"):
@@ -13004,6 +13032,12 @@ async def analyze_document(
             print("   📚 Documento sin acervo por petición del llamador (usar_acervo=0)")
         _con_acervo = bool(search_results)
         system_documento = prompt_documento(con_acervo=_con_acervo)
+        if _redactar_doc:
+            # El prompt de redacción del chat —registros, datos pendientes,
+            # nota para el abogado— y lo propio de escribir sobre un documento.
+            system_documento = (SYSTEM_PROMPT_CHAT_DRAFTING
+                                + (ACABADO_PLATINUM if _escalon_doc == "platinum" else "")
+                                + "\n" + INSTRUCCION_DOCUMENTO_BASE)
         if _con_acervo:
             system_documento += "\n\nCONTEXTO JURÍDICO RECUPERADO:\n" + context_xml
         if _fuentes_doc:
@@ -13020,11 +13054,24 @@ async def analyze_document(
 
     CONTENIDO DEL DOCUMENTO:
     {extracted_text}"""
+        if _despacho_doc:
+            full_user_message += "\n\n" + _despacho_doc
 
-        _paso("Redactando el análisis…")
+        _paso("Redactando el escrito…" if _redactar_doc else "Redactando el análisis…")
         t_pre_llm = _time.time()
         model_to_use = DOCUMENT_MODEL_PLATINUM if is_platinum_or_admin else DOCUMENT_MODEL
         esfuerzo_doc = DOCUMENT_ESFUERZO_PLATINUM if is_platinum_or_admin else DOCUMENT_ESFUERZO
+        # Al redactar, el motor del escalón, como en el chat. El Básico se
+        # queda con el del análisis de documentos, que lee documentos largos.
+        max_salida_doc = None
+        if _escalon_doc == "platinum":
+            model_to_use, esfuerzo_doc, max_salida_doc = (
+                REDACTOR_PLATINUM_MODEL, REDACTOR_PLATINUM_ESFUERZO, REDACTOR_PLATINUM_MAX_TOKENS)
+        elif _escalon_doc == "pro":
+            model_to_use, esfuerzo_doc, max_salida_doc = (
+                REDACTOR_PRO_MODEL, REDACTOR_PRO_ESFUERZO, REDACTOR_PRO_MAX_TOKENS)
+        elif _escalon_doc == "basico":
+            model_to_use, esfuerzo_doc = DOCUMENT_MODEL, DOCUMENT_ESFUERZO
         _via_doc = ("OpenRouter" if "/" in model_to_use
                     else "Gemini directo (clave nueva)" if _gemini_doc.es_modelo_gemini_directo(model_to_use)
                     else f"OpenAI, razonamiento {esfuerzo_doc}")
@@ -13064,6 +13111,7 @@ async def analyze_document(
             "full_user_message": full_user_message,
             "model_to_use": model_to_use,
             "esfuerzo_doc": esfuerzo_doc,
+            "max_salida_doc": max_salida_doc,
             "_marcador_previas": _marcador_previas,
             "_web_tasks_doc": _web_tasks_doc,
             "extracted_text": extracted_text,
@@ -13108,6 +13156,13 @@ async def analyze_document(
             full_user_message = _p["full_user_message"]
             model_to_use = _p["model_to_use"]
             esfuerzo_doc = _p.get("esfuerzo_doc")
+            max_salida_doc = _p.get("max_salida_doc")
+
+            # El escalón con que se redacta, para la insignia de la pantalla
+            # (como <!--MODE:…--> en el chat). Sólo al redactar.
+            if _redactar_doc:
+                _modo = {"platinum": "PLATINUM", "pro": "PRO"}.get(_escalon_doc, "PROFESIONAL")
+                yield f"data: {json.dumps({'modo': _modo})}\n\n"
             _marcador_previas = _p["_marcador_previas"]
             _web_tasks_doc = _p["_web_tasks_doc"]
 
@@ -13142,6 +13197,10 @@ async def analyze_document(
 
             async def _abrir(_modelo: str, _esfuerzo: Optional[str] = None):
                 _cliente, _parametros = _via_documento(_modelo, _esfuerzo)
+                # Al redactar con el motor del escalón, su tope de salida.
+                if max_salida_doc and _modelo in (REDACTOR_PRO_MODEL, REDACTOR_PLATINUM_MODEL) \
+                        and "max_completion_tokens" in _parametros:
+                    _parametros = {**_parametros, "max_completion_tokens": max_salida_doc}
                 return await _crear_con_amortiguador(
                     _cliente,
                     etiqueta="analyze-document",
