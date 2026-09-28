@@ -179,6 +179,40 @@ def _sin_rotulo(texto: str) -> str:
     return t.strip()
 
 
+# EL ACUERDO QUE CREÓ EL TRIBUNAL NO SE GENERALIZA (verificación de normas,
+# 27-sep-2026). El 28/2017 del CJF crea el TERCER Tribunal Colegiado en Materias
+# Administrativa y Civil del Vigésimo Segundo Circuito (su artículo 1 le da
+# denominación, competencia y jurisdicción). El nombre del tribunal ya se
+# volvía marcador, pero el 28/2017 se quedaba fijo: el Primero o el Segundo del
+# mismo circuito —o cualquier otro— fundaban su competencia en el acuerdo de
+# creación de otro órgano. El 3/2013 sí es de todos (punto tercero: la
+# jurisdicción de cada circuito) y sigue vigente: el OAJ lo invoca en 2026.
+_RX_TERCERO_XXII = re.compile(
+    r"Tercer\s+Tribunal\s+Colegiado\s+en\s+Materias\s+Administrativa\s+y\s+Civil\s+"
+    r"del\s+Vig[ée]simo\s+Segundo", re.I)
+_RX_CON_28_2017 = re.compile(
+    r"(Acuerdo\s+General\s+3/2013)(?:,?\s*en\s+relaci[óo]n\s+con\s+el\s+art[íi]culo\s+1\s+"
+    r"del\s+diverso\s+28/2017,?|\s+y\s+el\s+art[íi]culo\s+1\s+del\s+diverso\s+28/2017,?)"
+    r"\s*ambos\s+(del\s+Pleno)", re.I)
+
+
+_RX_ES_TERCERO = re.compile(r"\bterc(?:er|ero)\b|\b3(?:er|o|º)\b", re.I)
+_RX_ES_XXII = re.compile(r"vig[ée]simo\s+segundo|\bXXII\b|quer[ée]taro", re.I)
+
+
+def sin_acuerdo_ajeno(texto: str, tribunal: str) -> str:
+    """Quita el 28/2017 si el tribunal no es el que ese acuerdo creó.
+
+    Se quita sólo cuando el nombre dice CLARAMENTE otro tribunal: con cualquier
+    grafía del Tercero del Vigésimo Segundo («Materia» en singular, «XXII»,
+    «de Circuito en Materias…») se queda (revisión del código, 27-sep-2026).
+    """
+    t = tribunal or ""
+    if not t.strip() or (_RX_ES_TERCERO.search(t) and _RX_ES_XXII.search(t)):
+        return texto
+    return _RX_CON_28_2017.sub(r"\1 \2", texto or "")
+
+
 def texto_de(tipo: str, ident: str, datos: dict) -> tuple:
     """(párrafo listo, marcadores en hueco). Vacío si no hay plantilla."""
     a = apartado(tipo, ident)
@@ -188,6 +222,7 @@ def texto_de(tipo: str, ident: str, datos: dict) -> tuple:
     if not pl.strip():
         return "", []
     relleno, faltan = rellenar(_a_marcadores(_sin_rotulo(pl)), datos)
+    relleno = sin_acuerdo_ajeno(relleno, str((datos or {}).get("tribunal") or ""))
     return relleno, faltan
 
 

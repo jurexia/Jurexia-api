@@ -751,40 +751,87 @@ def _bloque_criterio(criterios: list[Criterio], materia: str = "",
     import tipos_asunto as _ta_ef
     _concede_ef = any(_ta_ef.prospera(str(getattr(c, "sentido", "") or ""))
                       for c in criterios)
+    # LOS EFECTOS SON DEL AMPARO (27-sep-2026). El bloque se pedía en los cuatro
+    # tipos en cuanto un planteamiento prosperaba, y en una queja o una
+    # revisión fiscal fundada no hay concesión que tenga efectos: el modelo los
+    # escribía y el documento los tiraba en silencio. En la revisión de amparo
+    # sólo los hay cuando es ESTE tribunal el que concede o modifica los efectos
+    # de la concesión; si confirma, niega, sobresee o repone, no.
+    _tipo_ef = _ta_ef.normalizar(tipo_asunto) or "amparo_directo"
+    _cuando_ef = []
+    if _tipo_ef in ("queja", "revision_fiscal"):
+        _concede_ef = False
+    elif _tipo_ef == "amparo_revision":
+        _cuando_ef = ["SÓLO SI, al resolver esta revisión, ESTE tribunal concede el",
+                      "amparo —revoca la negativa o el sobreseimiento y concede— o",
+                      "modifica los efectos de la concesión. Si confirma, niega,",
+                      "sobresee o repone el procedimiento, no escribas efectos."]
+    # LOS EFECTOS: DE TRES A CINCO, BREVES Y EN INFINITIVO (David, 27-sep-2026:
+    # «los efectos no están bien configurados, son muy extensos… inicia con
+    # "Efectos. 1. Deje insubsistente…" cuando debería decir "Efectos. Con
+    # fundamento en el artículo … de la Ley de Amparo, la autoridad responsable
+    # deberá: …", con efectos más reducidos pero que comprendan el objetivo de
+    # la concesión. Regularmente los efectos son 3 a máximo 5»). La apertura la
+    # escribe el documento (`tipos_asunto.APERTURA_EFECTOS`); aquí sólo las
+    # órdenes, y por eso en infinitivo: cuelgan de «deberá:». Medido en los 642,
+    # 103 y 93/2026 del 26-sep: cinco o seis órdenes de 40 a 75 palabras que
+    # volvían a argumentar el estudio.
+    #
     # EN LA v2, LOS EFECTOS SE DESCRIBEN (fila 14b de la propuesta). La lista
     # «1. Deje insubsistente…; 2. Deje sin efectos…; 3. Admita…» es un ejemplo
     # con la forma exacta de una sentencia, y un ejemplo así se firma literal
     # —ya pasó con cuatro moldes de este mismo prompt—. Lo que sigue dice qué
     # tiene que tener cada orden, no cómo se escribe. El rótulo se queda: es el
     # que permite al compositor recogerlos sin adivinar.
+    _letra_ef = {2: "dos", 3: "tres", 4: "cuatro", 5: "cinco", 6: "seis"}
+    _max_ef = _letra_ef.get(_ta_ef.EFECTOS_MAX, str(_ta_ef.EFECTOS_MAX))
+    _n_ef = (f"{_letra_ef.get(_ta_ef.EFECTOS_MIN, str(_ta_ef.EFECTOS_MIN))} A "
+             f"{_max_ef}").upper()
     if _concede_ef and _v2c:
         lineas += ["",
-                   "── LOS EFECTOS, AL FINAL Y CON ESTE RÓTULO ──",
+                   "── LOS EFECTOS, AL FINAL Y CON ESTE RÓTULO ──"] + _cuando_ef + [
                    "Después del último párrafo del estudio escribe, en su propia línea",
                    "y sin nada más, el rótulo:",
                    "",
                    "    EFECTOS DE LA CONCESIÓN",
                    "",
                    "y debajo las órdenes a la responsable como LISTA NUMERADA, una por",
-                   "párrafo: cada una empieza por el verbo en imperativo, dice sobre qué",
-                   "acto o actuación recae y se puede verificar en la ejecución sin",
-                   "interpretarla. Sin prosa entre ellas, y ninguna que remita a «los",
-                   "lineamientos de esta ejecutoria» en lugar de decir qué hay que hacer.",
-                   "Los efectos se escriben SÓLO aquí: el estudio no los adelanta.",
+                   "párrafo, SIN frase de introducción: el documento abre el considerando",
+                   "con el fundamento —el artículo 77 de la Ley de Amparo— y con quien debe",
+                   "cumplir —la autoridad responsable—, seguido de la palabra deberá y dos",
+                   "puntos.",
+                   f"DE {_n_ef} ÓRDENES según la complejidad del asunto; nunca más de",
+                   f"{_max_ef}. Juntas comprenden el objetivo de la concesión: qué deja",
+                   "insubsistente la responsable, qué emite o repone en su lugar, qué tiene",
+                   "que decidir de nuevo y con qué alcance, y que lo demás lo resuelve con",
+                   "plenitud de jurisdicción. Lo que recae sobre el mismo acto va en UNA orden.",
+                   "Cada orden es UNA oración breve —de ordinario no más de cuarenta",
+                   "palabras— que EMPIEZA CON EL VERBO EN INFINITIVO, porque cuelga de esa",
+                   "palabra; dice sobre qué acto o actuación recae y se puede verificar",
+                   "en la ejecución sin interpretarla. Dice QUÉ hacer, no por qué: no",
+                   "repite las razones del estudio ni enumera pruebas una por una.",
+                   "Ninguna remite a «los lineamientos de esta ejecutoria» en lugar de decir",
+                   "qué hay que hacer. Sin prosa entre ellas. Los efectos se escriben SÓLO",
+                   "aquí: el estudio no los adelanta.",
                    "Cuando la concesión deja en manos de la responsable argumentos que el",
-                   "estudio no contestó, una de esas órdenes dice cuáles son, cada uno con",
-                   "su dato: es lo que la obliga a examinarlos al volver a resolver.",
+                   "estudio no contestó, una de esas órdenes dice cuáles son —una sola,",
+                   "aunque sean varios—, cada uno con su dato en pocas palabras: es lo que",
+                   "la obliga a examinarlos al volver a resolver.",
                    "SI LA CONCESIÓN ES POR UNA VIOLACIÓN PROCESAL, la responsable NO",
-                   "puede dictar otra sentencia de inmediato: los efectos ordenan la",
+                   "puede dictar otra sentencia de inmediato: las órdenes disponen la",
                    "REPOSICIÓN en el orden en que ha de cumplirse —qué se deja",
                    "insubsistente; qué actuación viciada y qué resolución que la confirmó",
                    "se dejan sin efectos; qué se admite, se practica o se ordena en su",
-                   "lugar; qué trámite sigue para la contraparte; y sólo al final, cerrada",
-                   "de nuevo la instrucción, el dictado de la sentencia de fondo con",
-                   "plenitud de jurisdicción—.", ""]
+                   "lugar y cómo sigue el trámite; y sólo al final, cerrada de nuevo la",
+                   "instrucción, el dictado de la sentencia de fondo con plenitud de",
+                   f"jurisdicción—, agrupando los pasos para no pasar de {_max_ef}.", ""]
     elif _concede_ef:
+        # LA v1 ESTÁ CONGELADA (test_prompt_v2.py): sus efectos siguen como
+        # estaban y el documento los pasa a infinitivo al componerlos
+        # (`documento_generado.componer_efectos`). Sólo se le dice CUÁNDO en la
+        # revisión, que antes los pedía también cuando se negaba.
         lineas += ["",
-                   "── LOS EFECTOS, AL FINAL Y CON ESTE RÓTULO ──",
+                   "── LOS EFECTOS, AL FINAL Y CON ESTE RÓTULO ──"] + _cuando_ef + [
                    "Después del último párrafo del estudio escribe, en su propia línea",
                    "y sin nada más, el rótulo:",
                    "",
@@ -3675,7 +3722,11 @@ _RX_PARRAFO_CoIDH = re.compile(r"p[áa]rr(?:afo)?s?\.?\s*\d+|§\s*\d+", re.I)
 
 _RX_ORDEN_NUMERADA = re.compile(
     r"^\s*(?:\d+[.)]|[a-z][.)])\s*(?:deje|dej[eé]|declare|reponga|emita|dicte"
-    r"|resuelva|ordene|deber[áa]|proceda|realice|valore)", re.I | re.M)
+    r"|resuelva|ordene|deber[áa]|proceda|realice|valore"
+    # EN INFINITIVO desde el 27-sep-2026: las órdenes cuelgan de «deberá:».
+    r"|dejar|declarar|reponer|emitir|dictar|resolver|ordenar|proceder|realizar"
+    r"|valorar|admitir|analizar|examinar|reiterar|pronunciarse|hecho\s+lo\s+anterior)",
+    re.I | re.M)
 
 
 # LA SEGUNDA QUE NO SOBREVIVIÓ. El hallazgo más vistoso del análisis era que las
@@ -3800,10 +3851,10 @@ def _convencional_completo(estudio: str) -> str:
 
 
 _RX_REPOSICION = re.compile(
-    r"insubsistente|sin\s+efectos|reponga|reposici[óo]n|admita|admitir|emplace|"
-    r"corra\s+traslado|traslado|desahog", re.I)
+    r"insubsistente|sin\s+efectos|reponga|reponer|reposici[óo]n|admita|admitir|emplace|"
+    r"emplazar|corra\s+traslado|traslado|desahog", re.I)
 _RX_NUEVA_SENTENCIA = re.compile(
-    r"nueva\s+(?:sentencia|resoluci[óo]n)|dicte\s+otra|otra\s+(?:sentencia|resoluci[óo]n)|"
+    r"nueva\s+(?:sentencia|resoluci[óo]n)|dicte\s+otra|dictar\s+otra|otra\s+(?:sentencia|resoluci[óo]n)|"
     r"plenitud\s+de\s+jurisdicci[óo]n", re.I)
 
 
@@ -3826,8 +3877,8 @@ def _efectos_de_reposicion(estudio: str, criterios: list, violacion_procesal: bo
             "sentencia de inmediato. Los efectos tienen que ordenar la reposición "
             "paso a paso —dejar insubsistente la sentencia, dejar sin efectos la "
             "actuación viciada y la resolución del recurso que la confirmó, admitir "
-            "lo que se desechó, correr traslado, desahogar y abrir alegatos, y sólo "
-            "entonces dictar la nueva sentencia—. Un «dicte otra» aquí produce "
+            "lo que se desechó y seguir el procedimiento, y sólo entonces dictar la "
+            "nueva sentencia—, en no más de cinco órdenes. Un «dictar otra» aquí produce "
             "requerimientos de cumplimiento defectuoso (artículos 192 a 196 de la "
             "Ley de Amparo).")
 
@@ -3853,11 +3904,12 @@ def _cierre_operativo(estudio: str, criterios: list) -> str:
     if not concede or "efecto" not in (estudio or "").lower():
         return ""
     if not _RX_ORDEN_NUMERADA.search(estudio or ""):
-        return ("Se concede y los efectos van en prosa. Las sentencias mejor "
-                "calificadas los escriben como lista numerada de órdenes en "
-                "imperativo a la responsable —«1. Deje insubsistente el laudo; "
-                "2. Dicte otro en el que…»—, cada una verificable. Así se "
-                "cumplen y así se comprueba su cumplimiento.")
+        return ("Se concede y los efectos van en prosa. Van como lista "
+                "numerada de tres a cinco órdenes en infinitivo, que cuelgan de "
+                "«Con fundamento en el artículo 77 de la Ley de Amparo, la "
+                "autoridad responsable deberá:» —«1. Dejar insubsistente el "
+                "laudo; 2. Dictar otro en el que…»—, cada una verificable. Así "
+                "se cumplen y así se comprueba su cumplimiento.")
     return ""
 
 

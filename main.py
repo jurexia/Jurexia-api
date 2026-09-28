@@ -31829,6 +31829,8 @@ async def taller_tipos():
             "excepciones_de_plazo": [
                 {"clave": e["clave"], "cuando": e["cuando"],
                  "dias": e["dias"], "fundamento": e["fundamento"],
+                 # Los plazos de años (art. 17, fr. II y III) se enseñan en años.
+                 "anios": e.get("anios") or 0,
                  "en_cualquier_tiempo": e["dias"] is None}
                 for e in _ta.excepciones_de(clave)],
             # Para que la pantalla pueda decirle qué va a recibir.
@@ -34770,13 +34772,17 @@ def _taller_recuperar_sesion(email: str, numero: str):
     # cómputo como notificación personal —surtió el 8, venció el 15 de
     # enero, EXTEMPORÁNEA— con el 10 de diciembre declarado a mano, que da el
     # 19 de enero y en tiempo. La misma puerta que el adelanto.
+    import tipos_asunto as _ta_cp
     computo = _f0.computar(encargo.notificacion, encargo.presentacion,
                            encargo.regla_surtimiento, encargo.plazo,
                            encargo.responsable,
                            getattr(encargo, "dias_inhabiles_extra", None),
                            getattr(encargo, "tipo_asunto", "") or "amparo_directo",
                            getattr(encargo, "inhabiles_responsable", "") or None,
-                           surtio_manual=_f0.surtio_manual_de(encargo)[0])
+                           surtio_manual=_f0.surtio_manual_de(encargo)[0],
+                           plazo_anios=_ta_cp.anios_de(
+                               getattr(encargo, "tipo_asunto", "") or "amparo_directo",
+                               getattr(encargo, "excepcion_plazo", "") or ""))
     resultado = _ra.Resultado(ruta="", computo=computo, fases=f, encargo=encargo,
                               partes=partes, avisos=list(est.get("avisos") or []))
     tmp = est.get("tmp") or ""

@@ -692,6 +692,12 @@ def prompt_reparacion(estudio: str, criterios: list, material, faltan: list,
             partes_f.append(f"lo que dice hoy el estudio en el párrafo que lo marca: «{' '.join(hoy.split())}»")
         filas.append("\n   ".join(partes_f))
     concede = any(_ta.prospera(str(_get(c, "sentido") or "")) for c in (criterios or []))
+    # QUE LOS EFECTOS EXISTAN DE VERDAD (revisión del código, 27-sep-2026): el
+    # estudio ya no los escribe en la queja, en la revisión fiscal ni en la
+    # revisión que no concede, y decirle al modelo que están ahí producía
+    # órdenes sin sitio donde insertarse.
+    if concede and not re.search(r"(?m)^\s*(?:⟦[^⟧]*⟧\s*)?EFECTOS\b", estudio or ""):
+        concede = False
     _linea_plan = ("\n- El argumento que trae su calificación en el plan se contesta con ella: es la suya\n"
                    "  dentro del sentido de su problema, y no cambia la del problema."
                    if any(_et.get(f["id"]) for f in faltan) else "")
@@ -718,10 +724,12 @@ QUÉ ESCRIBES POR CADA ARGUMENTO DE LA LISTA — una de dos piezas:
   responsable tendrá que volver a resolver por la concesión: una orden que nombra lo que el
   argumento plantea —el hecho, la prueba, el precepto o el precedente que trae—, no la omisión
   que se le reprocha a la responsable, entre lo que ella deberá examinar al volver a resolver.
-  En imperativo y en la misma persona gramatical que las órdenes que ya están en los EFECTOS,
-  sobre qué recae, verificable en la ejecución, y sin adelantar el resultado.
-  Si varios argumentos de la lista los examinará la responsable en el mismo acto, UNA sola
-  orden los nombra a todos, cada uno con su dato, y su marca lleva todos sus identificadores.
+  En INFINITIVO, como las órdenes que ya están en los EFECTOS —cuelgan de la frase con que el
+  documento los abre, la autoridad responsable deberá—, en una oración breve: sobre qué recae,
+  verificable en la ejecución, y
+  sin adelantar el resultado. Los efectos no pasan de cinco órdenes: si varios argumentos de
+  la lista los examinará la responsable en el mismo acto, UNA sola orden los nombra a todos,
+  cada uno con su dato, y su marca lleva todos sus identificadores.
 - EL PÁRRAFO QUE LO CONTESTA, cuando su criterio es de fondo y la concesión no alcanza lo que
   el argumento combate —ataca una consideración que queda en pie—, o cuando no hay concesión:
   la razón y la calificación que el criterio fija para su problema, aplicadas a su dato propio.
@@ -729,7 +737,7 @@ QUÉ ESCRIBES POR CADA ARGUMENTO DE LA LISTA — una de dos piezas:
   con un conector que lo enlace, y no contradice la calificación de su apartado. Un argumento
   cuyo criterio lo desestima —infundado, inoperante— no va a los EFECTOS: lleva su párrafo.
 {"En este asunto se concede: los EFECTOS existen al final del estudio." if concede else
- "En este asunto no se concede: no hay EFECTOS; toda pieza es un párrafo."}
+ "En este asunto no hay EFECTOS: toda pieza es un párrafo."}
 
 LÍMITES:
 - No cambias ninguna calificación ni el sentido: el criterio es del secretario.{_linea_plan}
@@ -743,6 +751,11 @@ CÓMO LO ENTREGAS — cada pieza en su propio renglón, y nada más:
 - el párrafo empieza con la marca del argumento: su identificador entre ⟦ y ⟧, como en el
   estudio;
 - la orden para los efectos empieza con la palabra EFECTO, un espacio y la marca, sin número.
+- SI YA HAY UNA ORDEN SOBRE EL MISMO ACTO O LA MISMA ACTUACIÓN (ya ordena considerar esos
+  alegatos, valorar esa prueba, examinar ese concepto), NO añadas otra: reescribe esa orden
+  ENTERA con el dato incorporado, en infinitivo, y entrégala con la palabra EFECTO, un espacio,
+  la marca, un espacio, la palabra SUSTITUYE, el número de esa orden y dos puntos, y después
+  la orden completa. Dos órdenes sobre lo mismo son una repetición que el tribunal corrige.
 Cada argumento de la lista queda en una pieza, sola o compartida: ninguno se queda fuera, y
 ninguno pierde su dato por compartirla.
 
@@ -768,6 +781,8 @@ Escribe ahora las piezas, una por renglón."""
 _RX_PIEZA_EFECTO = re.compile(r"^\s*[-*•]?\s*EFECTOS?\s*[:.\-–—]?\s*(⟦[^⟦⟧\n]{1,400}⟧)\s*(.+?)\s*$")
 _RX_PIEZA_PARRAFO = re.compile(r"^\s*[-*•]?\s*(⟦[^⟦⟧\n]{1,400}⟧)\s*(.+?)\s*$")
 _RX_NUMERO = re.compile(r"^\s*(?:\d{1,2}|[a-z])\s*[.)\-–]\s+")
+_RX_SUSTITUYE = re.compile(r"^\s*SUSTITUYE\s+(?:A\s+LA\s+)?(?:ORDEN\s+)?(\d{1,2})\s*[:.\-–—]\s*", re.I)
+_RX_PREFIJO_SUST = re.compile(r"^§(\d{1,2})§\s*")
 _RX_REGISTRO = re.compile(r"(?:registro(?:\s+digital)?|reg\.)\s*:?\s*(\d{6,7})\b", re.I)
 _RX_CALIF = re.compile(r"\b(?:resulta\w*|es|son|se\s+(?:estima|considera|califica)\w*(?:\s+de)?)\s+"
                        r"(?:\w+\s+){0,2}(fundad|infundad|inoperant|inefica|inatendibl)\w*", re.I)
@@ -780,7 +795,9 @@ SIN_ESTUDIO = {"innecesario", "sin_materia"}
 # considere o «al emitir la nueva sentencia, examine…»; ninguna casa aquí.
 _RX_RESULTADO = re.compile(
     r"\b(?:condene|absuelva|conceda|otorgue|niegue|reconozca|revoque|confirme|decrete|"
-    r"declare\s+(?:procedente|improcedente|fundad\w*|infundad\w*|la\s+nulidad|nul\w+|"
+    # EN INFINITIVO desde el 27-sep-2026: las órdenes cuelgan de «deberá:».
+    r"condenar|absolver|conceder|otorgar|negar|reconocer|revocar|confirmar|decretar|"
+    r"(?:declare|declarar)\s+(?:procedente|improcedente|fundad\w*|infundad\w*|la\s+nulidad|nul\w+|"
     r"prescrit\w*|la\s+prescripci\w+|la\s+caducidad|caduc\w+|probad\w+|acreditad\w+))\b", re.I)
 
 
@@ -824,7 +841,15 @@ def parsear(texto: str, pedidos: list) -> tuple:
             fuera.append({"ids": ids, "motivo": "marca dentro del texto"})
             continue
         if es_ef:
-            cuerpo = _RX_NUMERO.sub("", cuerpo)
+            # «SUSTITUYE 4: …» —la orden reescrita que reemplaza a la 4 en
+            # lugar de añadir una quinta sobre lo mismo (27-sep-2026, 93/2026:
+            # «4. Considerar… los alegatos» y «6. Considerar… los alegatos»)—.
+            # Viaja como prefijo interno «§4§ » hasta `insertar`.
+            msu = _RX_SUSTITUYE.match(cuerpo)
+            if msu:
+                cuerpo = f"§{int(msu.group(1))}§ " + _RX_NUMERO.sub("", cuerpo[msu.end():]).strip()
+            else:
+                cuerpo = _RX_NUMERO.sub("", cuerpo)
         n = len(cuerpo.split())
         if not (MIN_PALABRAS_PIEZA <= n <= MAX_PALABRAS_PIEZA):
             fuera.append({"ids": ids, "motivo": f"extensión fuera de rango ({n} palabras)"})
@@ -946,6 +971,7 @@ def insertar(estudio: str, parrafos_: list, efectos_: list, segs_por_id: dict) -
     fin_cuerpo, fin_ef = partes(textos)
     informe = {"parrafos": [], "efectos": [], "sin_sitio": []}
     tras = {}                       # renglón → [textos a insertar después]
+    sustituidas = {}                # renglón → la orden reescrita que lo reemplaza
     for ids, t in parrafos_:
         dentro = [b for b in bl[:fin_cuerpo] if set(b[2]) & set(ids)]
         if not dentro:
@@ -972,7 +998,32 @@ def insertar(estudio: str, parrafos_: list, efectos_: list, segs_por_id: dict) -
             m = re.match(r"^\s*(\d{1,2})\s*[.)]\s+", ult[3])
             ml = re.match(r"^\s*([a-y])\s*\)\s+", ult[3])
             n = int(m.group(1)) if m else None
-            letra = ml.group(1) if ml and not m else None
+            # SI LA ÚLTIMA ES UN INCISO DE UNA LISTA NUMERADA, la orden nueva
+            # sigue la numeración de primer nivel: un «c)» en infinitivo no
+            # concuerda con los incisos que cuelgan de «en la que:».
+            if n is None:
+                _nums = [int(mm.group(1)) for b in ordenes
+                         for mm in [re.match(r"^\s*(\d{1,2})\s*[.)]\s+", b[3])] if mm]
+                if _nums:
+                    n = max(_nums)
+            letra = ml.group(1) if ml and n is None else None
+            for ids, t in list(efectos_):
+                ms_ = _RX_PREFIJO_SUST.match(t)
+                if not ms_:
+                    continue
+                k_ = int(ms_.group(1))
+                objetivo = next((b for b in efs
+                                 if re.match(rf"^\s*{k_}\s*[.)]\s+", b[3])), None)
+                if objetivo is not None:
+                    # Se conserva la marca que el renglón traiga delante.
+                    _pref = re.match(r"^\s*((?:⟦[^⟧]*⟧\s*)*)", lineas[objetivo[1]]).group(1)
+                    sustituidas[objetivo[1]] = f"{_pref}{k_}. {t[ms_.end():].strip()}"
+                    informe["efectos"].append({"ids": ids, "sustituye": k_})
+                    efectos_ = [x for x in efectos_ if x is not (ids, t) and x != (ids, t)]
+                else:
+                    # La orden a sustituir no existe: se añade al final.
+                    efectos_ = [(i2, _RX_PREFIJO_SUST.sub("", t2)) if (i2, t2) == (ids, t)
+                                else (i2, t2) for i2, t2 in efectos_]
             for ids, t in efectos_:
                 if n is not None:
                     n += 1
@@ -986,7 +1037,7 @@ def insertar(estudio: str, parrafos_: list, efectos_: list, segs_por_id: dict) -
                 informe["efectos"].append({"ids": ids})
     nuevas = []
     for k, ln in enumerate(lineas):
-        nuevas.append(ln)
+        nuevas.append(sustituidas.get(k, ln))
         for t in tras.get(k, []):
             nuevas.extend(["", t])
     return "\n".join(nuevas), informe

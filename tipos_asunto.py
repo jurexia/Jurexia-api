@@ -46,13 +46,14 @@ PLAZOS = {
         "dias": 15,
         "fundamento": "artículo 17 de la Ley de Amparo",
         "excepciones": [
-            {"clave": "autoaplicativa", "dias": 30,
-             "cuando": "Se reclama una norma general autoaplicativa o el procedimiento de extradición",
-             "fundamento": "artículo 17, fracción I, de la Ley de Amparo"},
-            {"clave": "penal_prision", "dias": 2920,
+            # LA AUTOAPLICATIVA NO ES DEL AMPARO DIRECTO (verificación de
+            # normas, 27-sep-2026): los treinta días de la fracción I operan en
+            # el indirecto; en el directo la norma no es acto reclamado
+            # (artículo 175, fracción IV). Se quitó de aquí.
+            {"clave": "penal_prision", "dias": 2920, "anios": 8,
              "cuando": "Se reclama sentencia definitiva condenatoria que impone pena de prisión",
              "fundamento": "artículo 17, fracción II, de la Ley de Amparo (hasta ocho años)"},
-            {"clave": "agrario_nucleo", "dias": 2555,
+            {"clave": "agrario_nucleo", "dias": 2555, "anios": 7,
              "cuando": "El acto priva de derechos agrarios a un núcleo de población ejidal o comunal",
              "fundamento": "artículo 17, fracción III, de la Ley de Amparo (siete años)"},
             {"clave": "vida_libertad", "dias": None,
@@ -294,6 +295,17 @@ def plazo_de(tipo: str, excepcion: str = "") -> dict:
             "en_cualquier_tiempo": False}
 
 
+def anios_de(tipo: str, excepcion: str = "") -> int:
+    """Los años del plazo si la excepción los fija (art. 17, fr. II y III), o 0.
+    Los «dias» de esas excepciones (2920, 2555) se conservan por compatibilidad
+    con encargos guardados, pero NO se cuentan: un plazo de años va de fecha a
+    fecha (verificación de normas, 27-sep-2026)."""
+    for e in PLAZOS.get(normalizar(tipo), {}).get("excepciones", []):
+        if excepcion and e["clave"] == excepcion:
+            return int(e.get("anios") or 0)
+    return 0
+
+
 def excepciones_de(tipo: str) -> list:
     """Lo que hay que PREGUNTARLE al secretario, porque no se deduce del acto."""
     return list(PLAZOS.get(normalizar(tipo), {}).get("excepciones", []))
@@ -511,6 +523,107 @@ COMPETENCIA = {
 }
 
 
+# LA CADENA DE LA COMPETENCIA, POR TIPO, CONTRA LA LEY VIGENTE (27-sep-2026).
+# El prompt de la estructura daba a los cuatro tipos la del amparo directo y
+# cerraba con «37 de la Ley Orgánica», que era la competencia de los colegiados
+# en la ley de 1995; en la de 2024 el 37 es la oficina de correspondencia común
+# y la competencia es el 35. Las fracciones, verificadas en el texto vigente
+# (DOF 20-12-2024, última reforma 28-11-2025): I directo (inciso de la materia),
+# II revisión en los casos del 81 (la de suspensión), III queja, V revisión de
+# la sentencia de audiencia y la remitida por la SCJN, VI revisión fiscal. El
+# 210 es el que deja al OAJ fijar circuitos y jurisdicción. Es el respaldo: la
+# fórmula que se escribe sale del banco (`banco.texto_de`).
+CADENA_COMPETENCIA = {
+    "amparo_directo": (
+        "los artículos 103, fracción I, y 107, fracción V, de la Constitución; "
+        "33, fracción II, 34 y 170, fracción I, de la Ley de Amparo; y 35, "
+        "fracción I, y 210 de la Ley Orgánica del Poder Judicial de la "
+        "Federación"),
+    "amparo_revision": (
+        "los artículos 107, fracción VIII, último párrafo, de la Constitución; "
+        "81, fracción I, inciso e), y 84 de la Ley de Amparo; y 35, fracción V, "
+        "y 210 de la Ley Orgánica del Poder Judicial de la Federación —si lo "
+        "recurrido es la interlocutoria de suspensión, 81, fracción I, inciso a) "
+        "o b), y 35, fracción II—"),
+    "queja": (
+        "los artículos 103 y 107 de la Constitución; 97, fracción I, de la Ley "
+        "de Amparo, con el inciso del supuesto; y 35, fracción III, y 210 de la "
+        "Ley Orgánica del Poder Judicial de la Federación"),
+    "revision_fiscal": (
+        "los artículos 104, fracción III, de la Constitución; 35, fracción VI, y "
+        "210 de la Ley Orgánica del Poder Judicial de la Federación; y 63, "
+        "párrafo primero, de la Ley Federal de Procedimiento Contencioso "
+        "Administrativo —nunca la Ley de Amparo—"),
+}
+
+
+def cadena_competencia(tipo: str) -> str:
+    return CADENA_COMPETENCIA.get(normalizar(tipo) or "amparo_directo",
+                                  CADENA_COMPETENCIA["amparo_directo"])
+
+
+# LA COMPETENCIA DE LA REVISIÓN DEPENDE DE LO QUE SE RECURRE (27-sep-2026).
+# El banco emite una sola fórmula —la de la sentencia de audiencia: 81, fr. I,
+# inciso e), y 84 de la Ley de Amparo; 35, fr. V, de la Ley Orgánica— y salía
+# también cuando lo recurrido era la interlocutoria de la suspensión
+# definitiva, que es el inciso a) (o el b), si se recurre lo que modificó o
+# revocó esa suspensión) y la fracción II del 35. Se decide por el PROEMIO de
+# la resolución recurrida —«VISTOS para resolver el incidente de suspensión…»—
+# y no por el expediente entero: una sentencia de audiencia menciona el
+# incidente de suspensión de pasada.
+# SÓLO EL PROEMIO, y sólo su fórmula: «VISTOS para resolver el incidente de
+# suspensión…» o «INTERLOCUTORIA». Una sentencia de audiencia dice en su
+# trámite «ordenó tramitar por cuerda separada el incidente de suspensión
+# relativo» y con la fórmula suelta pasaba por interlocutoria (revisión del
+# código, 27-sep-2026).
+_RX_PROEMIO_SUSPENSION = re.compile(
+    r"(?:V\s*I\s*S\s*T\s*O\s*S?|RESOLUCI[ÓO]N\s+INTERLOCUTORIA|INTERLOCUTORIA)"
+    r"[^.]{0,220}?(?:para\s+)?resolver[^.]{0,80}?(?:el\s+|los\s+autos\s+del\s+)?"
+    r"incidente\s+de\s+suspensi[óo]n", re.I)
+_RX_AUDIENCIA = re.compile(r"audiencia\s+constitucional", re.I)
+_RX_MODIFICA_SUSP = re.compile(
+    r"(?:modific|revoc)\w*\s+(?:el\s+|la\s+)?(?:acuerdo|auto|interlocutoria|resoluci[óo]n)"
+    r"[^.]{0,120}suspensi[óo]n\s+definitiva", re.I)
+_RX_CONSTITUCIONALIDAD = re.compile(
+    r"inconstitucionalidad\s+de\s+(?:la|el|los|las)\s+(?:ley|art[íi]culo|norma|decreto|reglamento)|"
+    r"(?:expedici[óo]n|promulgaci[óo]n|aprobaci[óo]n)[^.]{0,80}(?:ley|decreto|reglamento)", re.I)
+
+
+def competencia_revision(texto_comp: str, proemio: str, fuente: str = "") -> tuple:
+    """(competencia, avisos) para la revisión, según lo recurrido."""
+    avisos = []
+    t = texto_comp or ""
+    if (proemio and _RX_PROEMIO_SUSPENSION.search(proemio[:700])
+            and not _RX_AUDIENCIA.search(proemio)):
+        inciso = "b" if _RX_MODIFICA_SUSP.search(proemio) else "a"
+        nuevo = t
+        nuevo = re.sub(r"una\s+sentencia\s+dictada\s+en\s+un\s+juicio\s+de\s+amparo\s+indirecto",
+                       "una resolución dictada en el incidente de suspensión de un juicio de amparo indirecto",
+                       nuevo, count=1)
+        nuevo = nuevo.replace("81, fracción I, inciso e) y 84",
+                              f"81, fracción I, inciso {inciso}), y 84")
+        nuevo = nuevo.replace("35, fracción V y 210", "35, fracción II y 210")
+        if nuevo != t:
+            avisos.append(
+                "LO RECURRIDO ES LA INTERLOCUTORIA DE SUSPENSIÓN: la competencia "
+                f"se fundó en el artículo 81, fracción I, inciso {inciso}), de la "
+                "Ley de Amparo y en la fracción II del 35 de la Ley Orgánica, no "
+                "en los de la sentencia de audiencia. Compruébalo.")
+            t = nuevo
+    elif fuente and _RX_CONSTITUCIONALIDAD.search(fuente):
+        avisos.append(
+            "SE IMPUGNÓ LA CONSTITUCIONALIDAD DE UNA NORMA. Si el problema "
+            "subsiste en la revisión, este tribunal conoce por DELEGACIÓN de la "
+            "SCJN y la competencia cambia: artículo 83 de la Ley de Amparo en "
+            "relación con el punto cuarto, fracción I, inciso que corresponda, "
+            "del Acuerdo General 2/2025 (12a.) y el punto segundo del 11/2025 "
+            "(12a.), ambos del Pleno de la SCJN (DOF 19 y 22-09-2025), y la "
+            "fracción V del 35 de la Ley Orgánica («remitidos por la Suprema "
+            "Corte»). Si la norma es federal y no hay jurisprudencia, no hay "
+            "delegación: se remite a la SCJN.")
+    return t, avisos
+
+
 def competencia_de(tipo: str) -> dict:
     """La cadena propia del tipo, o {} si la toma del banco."""
     return COMPETENCIA.get(normalizar(tipo), {})
@@ -606,6 +719,46 @@ CIERRE = {
 }
 
 
+# EL SUPLETORIO DE LA LEY DE AMPARO ES EL CÓDIGO NACIONAL (27-sep-2026). Desde
+# la reforma publicada en el DOF el 13-03-2025, el artículo 2o. de la Ley de
+# Amparo dice: «A falta de disposición expresa se aplicará en forma supletoria
+# el Código Nacional de Procedimientos Civiles y Familiares». La existencia del
+# acto se fundaba en los artículos 129 y 202 del Código Federal —el texto de
+# 2013—. Los equivalentes del Nacional: 312, fracción II (informes de personas
+# funcionarias en ejercicio de sus funciones: el informe justificado), 312,
+# fracción VIII (actuaciones judiciales de toda especie: los autos) y 344 (los
+# documentos públicos hacen prueba plena). Hay criterio de un Pleno Regional
+# (PR.A.C.CS. J/8 K (12a.)) que lo aplica de inmediato y engroses de la casa de
+# 2025 que siguen citando el Federal: si el tribunal decide conservarlo, es esta
+# línea.
+SUPLETORIO_DOCUMENTALES = (
+    "los artículos 312, fracciones II y VIII, y 344 del Código Nacional de "
+    "Procedimientos Civiles y Familiares, de aplicación supletoria a la Ley de "
+    "Amparo conforme a su artículo 2o.")
+
+
+# LOS EFECTOS ABREN CON SU FUNDAMENTO Y CUELGAN DE «DEBERÁ:» (27-sep-2026).
+# David: «inicia con "Efectos. 1. Deje insubsistente…" cuando debería decir:
+# "Efectos. Con fundamento en el artículo … de la Ley de Amparo, la autoridad
+# responsable deberá: …", con efectos más reducidos pero que comprendan el
+# objetivo de la concesión. Regularmente los efectos son 3 a máximo 5 en
+# función de la complejidad del caso».
+#
+# EL PRECEPTO ES EL 77. Es el que manda que «en el último considerando de la
+# sentencia que conceda el amparo» se determinen con precisión los efectos; el
+# 93 son las reglas con que el colegiado resuelve la REVISIÓN. En su propio
+# banco, la apertura que funda los efectos lo hace con el 77 («Efectos del fallo
+# protector. De conformidad con el artículo 77 de la Ley de Amparo…») y los
+# encabezados de resolutivo que los apoyan citan el 77.
+#
+# Y LAS ÓRDENES VAN EN INFINITIVO: cuelgan de «deberá:». «Deberá: 1. Deje
+# insubsistente…» no concuerda; «deberá: 1. Dejar insubsistente…» sí, y es como
+# lo escribe el esqueleto medido del banco (`ad-c6-efectos`).
+APERTURA_EFECTOS = ("Con fundamento en el artículo 77 de la Ley de Amparo, la "
+                    "autoridad responsable deberá:")
+EFECTOS_MIN, EFECTOS_MAX = 3, 5
+
+
 def cierre_de(tipo: str) -> dict:
     return CIERRE.get(normalizar(tipo), CIERRE["amparo_directo"])
 
@@ -616,8 +769,15 @@ def parrafo_cierre(tipo: str, concede: bool, calificacion: str = "") -> str:
     c = cierre_de(tipo)
     desenlace = c["positivo"] if concede else c["negativo"]
     if concede:
-        return (f"En ese sentido, al resultar {calificacion or 'fundado'} "
-                f"lo planteado, lo procedente es {desenlace}.")
+        # «AL RESULTAR FUNDADOS LO PLANTEADO» no concuerda: la calificación
+        # llega en plural («fundados», «esencialmente fundados») y el sujeto
+        # era singular. El sujeto es el del tipo, como en la rama negativa.
+        _cal = (calificacion or "fundados").strip()
+        # «sin materia» no se pluraliza: «unos fundados y otros sin materia».
+        if not _cal.split()[-1].endswith("s") and not _cal.endswith("sin materia"):
+            _cal = _cal + "s"
+        return (f"En ese sentido, al resultar {_cal} los {v['combate']} "
+                f"planteados, lo procedente es {desenlace}.")
     return (f"En ese sentido, ante la ineficacia de los {v['combate']} "
             f"planteados, lo procedente es {desenlace}.")
 
@@ -946,8 +1106,11 @@ _INCISO_97 = [
     # «nulidad de notificación» en singular, y «de actuaciones»: el resultando
     # real decía «el incidente de nulidad de notificación de emplazamiento» y
     # la exigencia del plural lo dejaba fuera.
+    # LA REPOSICIÓN DE AUTOS NO VA AQUÍ (verificación de normas, 27-sep-2026):
+    # la resolución que decide el incidente de reposición de constancias se
+    # recurre en REVISIÓN, artículo 81, fracción I, inciso c); el e) del 97 es
+    # sólo para lo que no admite expresamente la revisión.
     (r"incidente\s+de\s+nulidad\s+de\s+(?:notificaci[óo]n(?:es)?|actuaciones)"
-     r"|incidente\s+de\s+reposici[óo]n\s+de\s+autos"
      r"|dictad[ao]s?\s+despu[ée]s\s+de\s+(?:la\s+)?sentencia", "e"),
 ]
 
@@ -1778,9 +1941,12 @@ TECNICA_RESOLUCION["recurso_revoca_o_modifica"] = {
 TECNICA_RESOLUCION["revision_fiscal_reenvio"] = {
     "cuando": ("La REVISIÓN FISCAL es fundada y se revoca la sentencia de la "
                "Sala, quedando conceptos de anulación sin estudiar."),
-    "fuente": ("artículos 103, 107 y 104, fracción I-B, de la Constitución, y "
-               "50 de la Ley Federal de Procedimiento Contencioso "
-               "Administrativo (antes 237 del Código Fiscal de la Federación)"),
+    # 104, FRACCIÓN III: la I-B no existe desde la reforma del 06-06-2011, y
+    # el 103 y el 107 son el régimen del amparo, que no gobierna este recurso
+    # (verificación de normas, 27-sep-2026).
+    "fuente": ("artículos 104, fracción III, de la Constitución, y 50 de la Ley "
+               "Federal de Procedimiento Contencioso Administrativo (antes 237 "
+               "del Código Fiscal de la Federación)"),
     "tecnica": [
         "SÍ HAY REENVÍO, y ésta es la diferencia con el amparo en revisión. "
         "Ahí el colegiado asume jurisdicción; aquí NO puede: el estudio de los "
@@ -2298,11 +2464,14 @@ LEGITIMACION = {
                   "le resulta desfavorable."),
         "fundamento": "artículo 6º de la Ley de Amparo"},
     "queja": {
+        # EL 97 ES LA PROCEDENCIA, NO LA LEGITIMACIÓN (verificación de normas,
+        # 27-sep-2026): legitima ser PARTE del juicio de amparo, artículo 5o.,
+        # que es como lo funda la variante del banco (qj-c3-quejoso).
         "molde": ("El recurso fue interpuesto por {parte}{rep}, quien está "
-                  "legitimad{a} para hacerlo conforme al artículo 97 de la Ley "
-                  "de Amparo, por ser parte en el juicio de amparo en que se "
-                  "dictó el auto recurrido y resultarle desfavorable."),
-        "fundamento": "artículo 97 de la Ley de Amparo"},
+                  "legitimad{a} para hacerlo en términos del artículo 5o. de la "
+                  "Ley de Amparo, por ser parte en el juicio de amparo en que "
+                  "se dictó el auto recurrido y resultarle desfavorable."),
+        "fundamento": "artículo 5o. de la Ley de Amparo"},
     "revision_fiscal": {
         # AQUÍ NO ES «QUIEN RESIENTE EL PERJUICIO»: es la autoridad, y sólo
         # por conducto de su unidad de defensa jurídica. Lo dice el propio 63.
