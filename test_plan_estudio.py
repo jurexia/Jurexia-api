@@ -934,6 +934,17 @@ ok('"plan": _taller_plan_ficha(res)' in ast.get_source_segment(SRC_MAIN, FN["_ta
 _pd_src = ast.get_source_segment(SRC_MAIN, FN["_taller_plan_para"])
 ok("e.plan, e.guion = {}, \"\"" in _pd_src and 'e.variante_estudio = "v3"' in _pd_src,
    "el plan y el guion se ponen SIEMPRE; sin plan, la v3")
+# plan-6: una razón ya escrita manda (compatibilidad) y va ANTES; lo que quede
+# se resuelve por dependencia; después el guion, con `concede`. Y la pantalla
+# (GET /taller/plan) recibe el plan guardado resuelto igual: sin la caja.
+ok(_pd_src.index("_pe.aplicar_razones(") < _pd_src.index("_pe.resolver_por_dependencia(")
+   < _pd_src.index("_pe.vista(") and "concede=_pe.concede_de(r, crit)" in _pd_src,
+   "el resolver: aplicar_razones → resolver_por_dependencia → vista (con concede)")
+ok("_pe.resolver_por_dependencia(" in ast.get_source_segment(SRC_MAIN, FN["taller_plan"]),
+   "GET /taller/plan resuelve por dependencia el plan guardado (un plan-4/5 deja de enseñar la caja)")
+ok(all("resolver_por_dependencia" not in ast.get_source_segment(SRC_MAIN, FN[n])
+       for n in ("taller_resolver_stream", "taller_resolver")),
+   "los gemelos no duplican la lógica: la llevan `_taller_plan_para` y plan_estudio")
 ok(os.path.exists(os.path.join(AQUI, "migraciones", "2026-09-26_taller_plan.sql"))
    and "ADD COLUMN IF NOT EXISTS plan jsonb" in open(os.path.join(
        AQUI, "migraciones", "2026-09-26_taller_plan.sql"), encoding="utf-8").read(),

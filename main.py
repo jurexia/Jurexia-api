@@ -33968,8 +33968,11 @@ async def _taller_plan_para(user_email: str, numero: str, r, ses, crit, *,
     vacíos. Con un plan listo de la misma clave, se usa; con uno en curso de
     la misma clave, se espera; si no, se calcula aquí. Todo con un tope de
     120 s, y si no llega, el estudio va SIN plan —la v3— y se dice arriba.
-    Decisión 6: la razón que el secretario escribió para un segmento
-    pendiente entra al guion como suya (`razones_segmento`)."""
+    La razón por argumento ya no se pide (Decisión 6 retirada el 28-sep-2026,
+    plan-6): si una pantalla anterior manda una escrita para un plan guardado
+    con pendientes, sigue entrando como suya (`razones_segmento`, antes), y
+    lo demás se resuelve por dependencia del principal
+    (`plan_estudio.resolver_por_dependencia`) antes de armar el guion."""
     import plan_estudio as _pe
     e = getattr(r, "encargo", None)
     if e is None:
@@ -34049,8 +34052,14 @@ async def _taller_plan_para(user_email: str, numero: str, r, ses, crit, *,
         print(f"   ⚠️ PLAN de {numero}: {err(ex)}")
         avisos.append(f"el plan falló ({type(ex).__name__})")
     if plan:
+        # Una razón ya escrita manda (compatibilidad) y va PRIMERO; lo que quede
+        # pendiente en un plan-4/5 guardado se resuelve por dependencia del
+        # principal (plan-6, AR 631/2025): el guion ya no dice PENDIENTE DE
+        # RAZÓN ni pone nada primero en ADVERTENCIAS por eso. `concede`: las
+        # unidades de las que salen los efectos sólo si el asunto concede.
         plan = _pe.aplicar_razones(plan, _pe.leer_razones_segmento(razones_segmento))
-        e.guion = _pe.vista(plan, getattr(e, "formato", "") or "")
+        plan = _pe.resolver_por_dependencia(plan)
+        e.guion = _pe.vista(plan, getattr(e, "formato", "") or "", concede=_pe.concede_de(r, crit))
         e.plan = {"estado": "usado", "clave": k, "avisos": avisos, "plan": plan}
         print(f"   🧭 PLAN de {numero} al estudio: clave {k[:8]} · "
               f"{time.time() - t0:.0f} s de espera · guion de {len(e.guion)} caracteres")
@@ -37406,8 +37415,16 @@ async def taller_plan(numero: str, user_email: str):
     if not ses:
         raise HTTPException(404, "No hay un adelanto reciente de ese expediente.")
     import plan_estudio as _pe
-    return _pe.estado_para_pantalla(_taller_plan_leer(user_email, numero),
-                                    _te.huella_contraste(ses["resultado"]), time.time())
+    v = _pe.estado_para_pantalla(_taller_plan_leer(user_email, numero),
+                                 _te.huella_contraste(ses["resultado"]), time.time())
+    # EL PLAN GUARDADO, NORMALIZADO COMO LO USARÁ EL RESOLVER (plan-6, 28-sep-
+    # 2026): un plan-4/5 de la fila trae pendientes de razón y la pantalla
+    # enseñaba la caja «Razón que tu criterio no contesta» (la Decisión 6,
+    # retirada). Resueltos por dependencia del principal, la caja no sale; la
+    # fila no se toca.
+    if isinstance(v, dict) and isinstance(v.get("plan"), dict):
+        v["plan"] = _pe.resolver_por_dependencia(v["plan"])
+    return v
 
 
 @app.post("/taller/plan/pedir")
@@ -37419,10 +37436,11 @@ async def taller_plan_pedir(
     contexto: str = Form(""),
     suplencia: str = Form(""),
     formato: str = Form(""),
-    # DECISIÓN 6 DE DAVID (opción a). Se acepta para que el pedido y la
-    # generación manden el mismo formulario, pero NO entra en la clave: la
-    # razón que el secretario escribe para un segmento pendiente se aplica al
-    # plan ya hecho (`plan_estudio.aplicar_razones`), sin gastar una corrida.
+    # DECISIÓN 6 DE DAVID, RETIRADA (28-sep-2026, plan-6): el panel ya no pide
+    # una razón por argumento. Se sigue aceptando —y fuera de la clave— para
+    # que una pantalla anterior no rompa y el pedido y la generación manden el
+    # mismo formulario; una razón ya escrita se aplica al plan hecho
+    # (`plan_estudio.aplicar_razones`) y lo demás se resuelve por dependencia.
     razones_segmento: str = Form(""),
     # LOS MISMOS CAMPOS DE DECISIÓN QUE LOS DOS GEMELOS. Sin ellos el criterio
     # de aquí no sería el del resolver y la clave no casaría nunca: la pantalla
@@ -37656,11 +37674,12 @@ async def taller_resolver_stream(
     # confirmar = como antes. Está en los DOS gemelos: el mismo formulario tiene
     # que dar la misma sentencia por cualquiera de las dos puertas.
     suplencia: str = Form(""),
-    # DECISIÓN 6 DE DAVID (opción a, 26-sep-2026): la razón que el secretario
-    # escribe en el panel para un argumento que su criterio no contesta, JSON
-    # {"C3.e": "texto"}. Entra al guion del plan como SUYA; sin ella, el estudio
-    # lo desarrolla con el material y lo pone primero en ADVERTENCIAS. En los
-    # DOS gemelos: el mismo formulario, la misma sentencia.
+    # DECISIÓN 6 DE DAVID, RETIRADA (28-sep-2026, plan-6): el panel ya no pide
+    # la razón de un argumento que el criterio no contesta; lo que depende del
+    # principal se resuelve por consecuencia (`plan_estudio.resolver_por_
+    # dependencia`). Se acepta por compatibilidad, JSON {"C3.e": "texto"}: una
+    # razón ya escrita entra al guion como SUYA. En los DOS gemelos: el mismo
+    # formulario, la misma sentencia.
     razones_segmento: str = Form(""),
 ):
     """La sentencia, viéndose escribir.
@@ -38204,11 +38223,12 @@ async def taller_resolver(
     # confirmar = como antes. Está en los DOS gemelos: el mismo formulario tiene
     # que dar la misma sentencia por cualquiera de las dos puertas.
     suplencia: str = Form(""),
-    # DECISIÓN 6 DE DAVID (opción a, 26-sep-2026): la razón que el secretario
-    # escribe en el panel para un argumento que su criterio no contesta, JSON
-    # {"C3.e": "texto"}. Entra al guion del plan como SUYA; sin ella, el estudio
-    # lo desarrolla con el material y lo pone primero en ADVERTENCIAS. En los
-    # DOS gemelos: el mismo formulario, la misma sentencia.
+    # DECISIÓN 6 DE DAVID, RETIRADA (28-sep-2026, plan-6): el panel ya no pide
+    # la razón de un argumento que el criterio no contesta; lo que depende del
+    # principal se resuelve por consecuencia (`plan_estudio.resolver_por_
+    # dependencia`). Se acepta por compatibilidad, JSON {"C3.e": "texto"}: una
+    # razón ya escrita entra al guion como SUYA. En los DOS gemelos: el mismo
+    # formulario, la misma sentencia.
     razones_segmento: str = Form(""),
 ):
     """La sentencia, con el criterio del secretario dentro."""
