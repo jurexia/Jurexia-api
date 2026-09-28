@@ -259,8 +259,13 @@ _RX_REGLA = re.compile(
     r"|De\s+lo\s+(?:anterior|transcrito)\s+se\s+(?:advierte|desprende|colige|sigue)"
     r"|por\s+regla\s+general|la\s+regla\s+general\s+es)", re.I)
 
-# Y dónde termina: el primer anclaje al caso ajeno. Ahí se corta, porque los
-# hechos de ESE expediente no son los de éste y no deben cruzar.
+# Y dónde empieza su aplicación: el primer anclaje al caso ajeno. Hasta el
+# 28-sep-2026 el tramo se CORTABA ahí, para que los hechos de ESE expediente no
+# cruzaran; pero así el molde enseñaba a derivar la regla y nunca a aplicarla,
+# que es la mitad de la técnica (AR 631/2025: citas con su regla y sin su
+# aplicación). Ahora sigue hasta el final de ese primer párrafo de aplicación,
+# con tope, y va rotulado para que se lea como lo que es: la forma de aplicar,
+# con hechos que no son los del asunto.
 _RX_CASO = re.compile(
     r"(En\s+el\s+caso\s+concreto|En\s+la\s+especie|En\s+el\s+caso\s+a\s+estudio"
     r"|En\s+el\s+asunto\s+que\s+nos\s+ocupa|el\s+quejoso|la\s+quejosa"
@@ -269,6 +274,14 @@ _RX_CASO = re.compile(
 # Y cuánto se recoge HACIA ATRÁS: la derivación no se entiende sin la
 # transcripción que la precede, que es el primer eslabón de la cadena.
 ANTES_DE_LA_REGLA = 900
+# Cuánto se toma de la aplicación y cuánto cabe en todo el tramo. Si no cabe,
+# se recorta por DELANTE —la transcripción de la fuente—, nunca la derivación
+# ni la aplicación.
+TOPE_APLICACION = 800
+TOPE_TRAMO = 2600
+# El rótulo que separa la regla de su aplicación dentro del tramo. Es un dato
+# del bloque, no una frase para la sentencia: `bloque` dice lo que significa.
+ROTULO_APLICACION = "[aplicación a su expediente — sus hechos no son los tuyos]"
 
 def _limpiar(trozos: list) -> str:
     """Los trozos en orden, sin línea repetida y sin basura de PDF."""
@@ -288,11 +301,13 @@ def _limpiar(trozos: list) -> str:
 
 
 def _tramo_de_regla(texto: str) -> str:
-    """La transcripción, su derivación y el límite. Hasta que empiece el caso ajeno.
+    """La transcripción, su derivación, el límite y su primera aplicación.
 
     Es molde de FORMA: cómo se transcribe un precepto, cómo se deriva la regla,
-    cómo se enuncia su frontera. Nunca fundamento, y nunca hechos de otro: el
-    tramo se corta en el primer anclaje al expediente ajeno.
+    cómo se enuncia su frontera y cómo se pasa al expediente elemento por
+    elemento. Nunca fundamento. La aplicación va detrás de `ROTULO_APLICACION`
+    y sólo su primer párrafo (hasta `TOPE_APLICACION` caracteres): enseña el
+    paso, no el caso ajeno.
 
     SE BUSCA A PARTIR DE LA MITAD del documento. El estudio de fondo va después
     de la competencia, la oportunidad y la legitimación, y esos apartados traen
@@ -313,8 +328,58 @@ def _tramo_de_regla(texto: str) -> str:
     # dejaría el tramo en nada.
     desde = m.start() - ini
     c = _RX_CASO.search(resto, desde)
-    tramo = resto[:c.start()] if c else resto[:2600]
-    return tramo.strip()[:2600]
+    if not c:
+        return resto.strip()[:TOPE_TRAMO]
+    # La aplicación empieza en el renglón del anclaje; si ese renglón es el
+    # mismo de la derivación, en la frase que lo contiene.
+    ini_linea = resto.rfind("\n", 0, c.start()) + 1
+    if ini_linea > desde:
+        ini_ap = ini_linea
+    else:
+        _f = resto.rfind(". ", desde, c.start())
+        ini_ap = _f + 2 if _f >= 0 else c.start()
+    regla = resto[:ini_ap].strip()
+    # Y acaba al final de ese párrafo, con tope y cortada en fin de frase.
+    fin_ap = resto.find("\n", c.start())
+    fin_ap = len(resto) if fin_ap < 0 else fin_ap
+    aplic = resto[ini_ap:fin_ap].strip()
+    if len(aplic) > TOPE_APLICACION:
+        _cut = aplic.rfind(". ", 0, TOPE_APLICACION)
+        aplic = aplic[:_cut + 1] if _cut > 200 else aplic[:TOPE_APLICACION]
+    cabe = TOPE_TRAMO - len(aplic) - len(ROTULO_APLICACION) - 2
+    if len(regla) > cabe:
+        # Se recorta por delante (la transcripción), en un salto de renglón si
+        # lo hay; la derivación, que está al final, se queda.
+        regla = regla[-cabe:]
+        _nl = regla.find("\n")
+        if 0 <= _nl < 300:
+            regla = regla[_nl + 1:]
+    if not aplic:
+        return regla.strip()
+    return (regla.strip() + "\n" + ROTULO_APLICACION + "\n" + aplic).strip()
+
+
+# EL TOPE DEL BLOQUE. Se mostraban los primeros 1,400 caracteres de cada
+# tramo: con la aplicación detrás, ése es justo el trozo que se perdía. Si el
+# tramo no cabe, se recorta por delante (la transcripción) y la aplicación se
+# queda entera.
+TOPE_MOLDE_EN_BLOQUE = 2000
+
+
+def _molde_para_el_bloque(tramo: str) -> str:
+    t = tramo or ""
+    if len(t) <= TOPE_MOLDE_EN_BLOQUE:
+        return t
+    i = t.find(ROTULO_APLICACION)
+    if i < 0:
+        return t[:TOPE_MOLDE_EN_BLOQUE]
+    cola = t[i:]
+    cabe = max(0, TOPE_MOLDE_EN_BLOQUE - len(cola))
+    cabeza = t[:i][-cabe:] if cabe else ""
+    _nl = cabeza.find("\n")
+    if 0 <= _nl < 300:
+        cabeza = cabeza[_nl + 1:]
+    return (cabeza + cola)[-TOPE_MOLDE_EN_BLOQUE:]
 
 
 # ── EL SONDEO ─────────────────────────────────────────────────────────────────
@@ -603,15 +668,18 @@ def bloque(s: Sondeo, sentido_propuesto: str = "") -> str:
         L.append("")
 
     if s.moldes:
-        L += ["3. MOLDE DE FORMA — así construye la regla un tribunal que escribe bien.",
+        L += ["3. MOLDE DE FORMA — así construye la regla un tribunal que escribe bien,",
+              "   y así la aplica.",
               "   COPIA LA FORMA, NUNCA EL CONTENIDO: los hechos de estos asuntos NO",
               "   son los de tu expediente y no puedes traerlos. Fíjate en cómo",
-              "   transcriben el precepto, cómo derivan la regla en abstracto y cómo",
-              "   enuncian su límite:", ""]
+              "   transcriben el precepto, cómo derivan la regla en abstracto, cómo",
+              "   enuncian su límite y, debajo del rótulo de aplicación, cómo pasan",
+              "   de la regla a la constancia de su expediente, elemento por",
+              "   elemento. De ese último trozo sólo sirve el paso, nunca el dato:", ""]
         for m in s.moldes[:3]:
             L.append(f"   ── {m.get('tribunal') or 'colegiado'} "
                      f"(calidad {m.get('calidad')}) ──")
-            for ln in str(m["tramo"])[:1400].splitlines():
+            for ln in _molde_para_el_bloque(str(m["tramo"])).splitlines():
                 L.append(f"   {ln}")
             L.append("")
 

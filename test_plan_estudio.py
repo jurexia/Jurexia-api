@@ -829,14 +829,29 @@ for forma in ("estandar", "moderna"):
     ok(p93("v4", forma) == _v3 and p93("v4", forma, guion="") == _v3,
        f"{forma}: sin guion, la v4 ES la v3 (el plan falló o venció)")
     ok(_blq in _v4 and _v4.index(_blq) < _v4.rindex("Escribe el estudio de fondo.")
-       and _v4.rstrip().endswith("Nada más.") and f6._RECUERDA_GUION.strip() in _v4,
-       f"{forma}: con guion, el bloque antes de «Escribe el estudio de fondo.» y el recordatorio al final")
+       and _v4.rstrip().endswith("Nada más.") and f6._RECUERDA_GUION.strip() in _v4
+       and f6._RECUERDA_TECNICA.strip() in _v4,
+       f"{forma}: con guion, el bloque antes de «Escribe el estudio de fondo.» y los recordatorios al final")
     # plan-6: con JERARQUÍA en el guion, la v3 lleva además sus cinco ajustes
-    # (`fase6_estudio._REEMPLAZOS_JERARQUIA`); deshechos, ni un carácter más.
-    _v4_sin = _v4.replace("\n" + _blq, "", 1).replace("\n" + f6._RECUERDA_GUION.rstrip("\n"), "", 1)
+    # (`fase6_estudio._REEMPLAZOS_JERARQUIA`); y con guion, la técnica de la
+    # cita (`_REEMPLAZOS_TECNICA`, AR 631/2025, 28-sep-2026). Deshechos los
+    # dos —la técnica primero, que se aplicó después—, ni un carácter más.
+    _rec = (f6._RECUERDA_GUION + f6._RECUERDA_TECNICA).rstrip("\n")
+    _v4_sin = _v4.replace("\n" + _blq, "", 1).replace("\n" + _rec, "", 1)
+    for _viejo, _nuevo in f6._REEMPLAZOS_TECNICA:
+        if _viejo == f6._TECNICA_PARTE_VIEJA:
+            _nuevo = _nuevo + f6._TECNICA_PARTE_GRUPO
+        _v4_sin = _v4_sin.replace(_nuevo, _viejo, 1)
     for _viejo, _nuevo in f6._REEMPLAZOS_JERARQUIA:
         _v4_sin = _v4_sin.replace(_nuevo, _viejo, 1)
-    ok(_v4_sin == _v3, f"{forma}: la v4 = la v3 + el guion (y los ajustes de su jerarquía), ni un carácter más")
+    ok(_v4_sin == _v3, f"{forma}: la v4 = la v3 + el guion (y los ajustes de su jerarquía y de la "
+                       f"técnica de la cita), ni un carácter más")
+    _tec = [(_v, _n) for _v, _n in f6._REEMPLAZOS_TECNICA if _v in _v3]
+    ok(len(_tec) == 6 and "Antes este ejemplo" not in _v4 and "bórralo" not in _v4
+       and "LA CITA, SU REGLA Y SU APLICACIÓN" in _v4 and "SALVO EL CRITERIO QUE INVOCÓ OTRO" in _v4
+       and f6._TECNICA_PARTE_GRUPO.strip() in _v4,
+       f"{forma}: con guion entran los seis ajustes de la técnica (sin inventario falta el de las marcas), "
+       f"sin el comentario filtrado ni la orden de borrar lo que sigue a la cita")
     # (El de la regla de las marcas sólo está con inventario: aquí no lo hay.)
     _aplican = [(_v, _n) for _v, _n in f6._REEMPLAZOS_JERARQUIA if _v in _v3]
     # (Cuatro del plan-6 y tres de su revisión adversarial, 28-sep-2026: la
@@ -845,13 +860,19 @@ for forma in ("estandar", "moderna"):
        f"{forma}: con JERARQUÍA en el guion entran los ajustes del texto heredado ({len(_aplican)})")
     _g_sin = "\n".join(x for x in _g.splitlines() if pe._RX_JERARQUIA not in x)
     _v4_sj = p93("v4", forma, guion=_g_sin)
-    ok(_v4_sj.replace("\n" + pe.bloque(_g_sin), "", 1).replace("\n" + f6._RECUERDA_GUION.rstrip("\n"), "", 1)
-       == _v3, f"{forma}: sin JERARQUÍA, la v4 = la v3 + el guion, ni un carácter más")
+    _v4_sj = _v4_sj.replace("\n" + pe.bloque(_g_sin), "", 1).replace("\n" + _rec, "", 1)
+    ok(f6._TECNICA_PARTE_GRUPO.strip() not in _v4_sj,
+       f"{forma}: sin JERARQUÍA, nada del grupo de consecuencia en la técnica")
+    for _viejo, _nuevo in f6._REEMPLAZOS_TECNICA:
+        _v4_sj = _v4_sj.replace(_nuevo, _viejo, 1)
+    ok(_v4_sj == _v3, f"{forma}: sin JERARQUÍA, la v4 = la v3 + el guion y la técnica, ni un carácter más")
 
 
 _rm = f6._regla_marcas("concepto de violación", False)
 ok(f6._REEMPLAZOS_JERARQUIA[0][0] in _rm and f6._REEMPLAZOS_JERARQUIA[0][1] in f6._con_jerarquia(_rm),
    "…y el de la regla de las marcas (v3/v4 con inventario), también")
+ok(f6._REEMPLAZOS_TECNICA[-1][0] in _rm and f6._REEMPLAZOS_TECNICA[-1][1] in f6._con_tecnica(f6._con_jerarquia(_rm)),
+   "…y el de la técnica en la regla de las marcas (el precedente que trae la parte), sobre la jerarquía")
 
 
 class _CliEstudio:

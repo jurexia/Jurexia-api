@@ -3468,6 +3468,197 @@ def _con_jerarquia(base: str) -> str:
     return base
 
 
+# ═══ LA CITA, SU REGLA Y SU APLICACIÓN (AR 631/2025, 28-sep-2026) ═══════════
+# David: «un diálogo jurídico que revele una argumentación de alta calidad.
+# Después de citar tesis hay que hacerlas hablar. Y después aplicarlas al caso
+# concreto. Es lo que se estila.» La técnica se midió a mano en diez
+# sentencias de la Corte y cinco engroses del colegiado (82 + 19 usos de
+# criterio: ninguno sin su regla dicha ni su aplicación; de catorce criterios
+# invocados por otro, ninguno reciclado como apoyo) y está en
+# redactor-sentencias/scjn_estilo/estilo_scjn_tesis.md. En la Solución del 631
+# quedaban seis de nueve sin regla ni aplicación, y la causa estaba en el
+# propio texto que la v4 hereda de la v2:
+#   · «DESPUÉS DE LA CITA, NO LA REPITAS» decía que el documento transcribe la
+#     tesis debajo de la cita —la baja a la nota— y mandaba borrar lo que se
+#     escribiera tras ella «si se entiende sin conocer el expediente», que es
+#     justo extraer la regla en abstracto: prohibía hacerla hablar;
+#   · «la que sólo refuerza lo ya fundado NO se cita» chocaba con la regla 4 de
+#     la arquitectura y con la Corte, donde el cierre es el 28 % de sus usos;
+#   · la tesis que invoca la parte sólo tenía una fórmula de apertura, y un
+#     comentario de desarrollo se había colado dentro del prompt.
+# Se sustituye aquí, sobre la v3 ya armada y SÓLO con guion, como la
+# JERARQUÍA: el texto de `_prompt_estudio_v2` —y sus instantáneas— no se toca,
+# ni la v1, congelada (su copia del comentario filtrado, en la «ÚNICA
+# EXCEPCIÓN» de la v1, se queda: quitarla movería su instantánea).
+# DESCRIPCIONES, NUNCA FRASES PARA COPIAR (lección medida tres veces en este
+# proyecto): ninguna frase nueva entre comillas.
+_TECNICA_MEDIDA_VIEJA = (
+    "  LA MEDIDA: cada premisa que decide, con su apoyo —el que de verdad la\n"
+    "  sostiene, y como máximo dos—. Ninguna tesis se cita dos veces en el estudio:\n"
+    "  si la misma vuelve a servir, se la nombra como ya citada y se aplica. La que\n"
+    "  sólo refuerza lo ya fundado NO se cita. Si de veras ninguna de las que tienes\n"
+    "  sostiene una premisa, razónala sin ella y sigue: pero que eso sea la\n"
+    "  excepción, no la norma.")
+_TECNICA_MEDIDA_NUEVA = (
+    "  LA MEDIDA: cada premisa que decide, con su apoyo —el que de verdad la\n"
+    "  sostiene, y como máximo dos—. Ninguna tesis se cita dos veces en el estudio:\n"
+    "  si la misma vuelve a servir, se la nombra como ya citada y se aplica. Una\n"
+    "  tesis que cierra un razonamiento tuyo es legítima —así usa la Corte más de\n"
+    "  la cuarta parte de sus citas— sólo si el párrafo anterior ya dijo, con tus\n"
+    "  palabras, la misma proposición que ella sostiene y ya la aplicó a un dato\n"
+    "  del caso; si no, no cierra nada: o la haces hablar y la aplicas, o no la\n"
+    "  citas. La Corte y los engroses del colegiado que sirven de referencia\n"
+    "  citan poco: un criterio por cada mil seiscientas palabras de estudio, de\n"
+    "  media. En uno de dos mil a dos mil quinientas palabras lo usual es de tres\n"
+    "  a cinco; más suele ser una fila de rubros sin regla. No es una cuota que\n"
+    "  alcanzar. Si de veras ninguna de las que tienes sostiene una premisa,\n"
+    "  razónala sin ella y sigue: pero que eso sea la excepción, no la norma.")
+_TECNICA_PARTE_VIEJA = (
+    "  ÚNICA EXCEPCIÓN: citarlo para DISTINGUIRLO cuando la contraparte lo invocó o\n"
+    "  cuando el asunto se parece y hay que explicar por qué no gobierna. Entonces\n"
+    "  no se abre con «sirve de apoyo» sino con «no resulta aplicable el criterio…,\n"
+    "  porque…», que es lo contrario y se lee como lo que es.Antes este ejemplo nombraba una Sala concreta y el modelo lo copiaba\n"
+    "  cambiando sólo el número: así una tesis aislada del Pleno salió publicada como\n"
+    "  «jurisprudencia de la Primera Sala», y la nota al pie de la misma página —que\n"
+    "  sí sale del acervo— la desmentía. Tú escribes el verbo que ata la cita a tu\n"
+    "  razonamiento; de identificarla se encarga el documento. Escribir «la jurisprudencia de registro X, de rubro\n"
+    "  «Y», establece que…» deja la cita partida por la mitad y sin transcripción.")
+_TECNICA_PARTE_NUEVA = (
+    "  SALVO EL CRITERIO QUE INVOCÓ OTRO —la parte, la responsable o el órgano\n"
+    "  recurrido—, o el que sin que nadie lo invocara parece gobernar el asunto:\n"
+    "  ése se contesta, y nunca se recicla como apoyo del proyecto. En la\n"
+    "  Corte, de catorce criterios invocados por otro, ninguno volvió como apoyo:\n"
+    "  once se distinguieron, dos se confirmaron con su regla y uno se acotó. Se\n"
+    "  identifica, se dice en una frase para qué lo invocó y se elige UNA de tres\n"
+    "  respuestas:\n"
+    "  · APLICA Y LE DA LA RAZÓN: pasa a ser premisa, con su regla dicha con tus\n"
+    "    palabras y aplicada a la constancia como cualquier otra, y se dice\n"
+    "    expresamente que en ese punto asiste razón a quien lo invocó.\n"
+    "  · APLICA, PERO NO ALCANZA LO QUE PRETENDE: se concede su regla y se traza\n"
+    "    su frontera con el dato del caso que queda fuera de ella.\n"
+    "  · NO APLICA Y SE DISTINGUE: primero el supuesto de hecho o normativo que\n"
+    "    resolvía —qué tuvo enfrente quien lo emitió y cuál es su punto\n"
+    "    decisivo—; después su razón, si la diferencia está ahí; luego el dato\n"
+    "    concreto del expediente que saca a este asunto de ese supuesto; y la\n"
+    "    conclusión, sin descalificar el criterio en sí. Al menos dos oraciones\n"
+    "    con contenido: decir que se refiere a otra cosa sin decir a cuál no\n"
+    "    distingue nada.\n"
+    "  Cuando se distingue o se acota, el arranque del párrafo lo dice —se lo\n"
+    "  atribuye a quien lo invocó, o niega que sea aplicable—, nunca un verbo de\n"
+    "  apoyo. Varios criterios de la parte con una misma premisa se contestan\n"
+    "  juntos: la premisa común se enuncia una vez y se prueba contra los hechos.\n"
+    "  Si la parte invoca criterios genéricos —exhaustividad, fundamentación,\n"
+    "  igualdad—, se formula la regla que su argumento necesitaría y se dice que\n"
+    "  ninguno la sostiene y qué supuestos sí cubren.\n"
+    "  Tú escribes el arranque que ata la cita a tu razonamiento; de\n"
+    "  identificarla —el tipo, el órgano, el registro, el rubro— se encarga el\n"
+    "  documento. La regla que atribuyes a un criterio nunca va dentro de la\n"
+    "  oración que anuncia su cita: esa oración termina en el rubro, ahí se\n"
+    "  corta el párrafo y el texto baja a la nota; la regla va antes del anuncio\n"
+    "  o en el párrafo que sigue.")
+# Sólo con JERARQUÍA en el guion (encaje con el plan-6): dentro de un grupo que
+# se resuelve por consecuencia, la técnica completa no; en el principal, sí.
+_TECNICA_PARTE_GRUPO = (
+    "\n  Dentro de un grupo que la JERARQUÍA del guion resuelve por consecuencia de\n"
+    "  su principal, manda lo que ella describe para las tesis de la parte; la\n"
+    "  respuesta completa, con su técnica, es la del principal.")
+_TECNICA_DESPUES_VIEJA = (
+    "- DESPUÉS DE LA CITA, NO LA REPITAS: ÚSALA. Es lo que más se rompe. El\n"
+    "  documento transcribe el texto íntegro de la tesis debajo de la cita, palabra\n"
+    "  por palabra; si después vuelves a contar lo que dice, el lector se encuentra\n"
+    "  lo mismo dos veces y la sentencia engorda sin decir nada nuevo. Si la tesis\n"
+    "  es la PREMISA de tu razonamiento, lo que sigue a la cita es UNA frase que\n"
+    "  extrae su punto con palabras tuyas —más abstracta que el texto transcrito— y\n"
+    "  lo gira de inmediato a este asunto: por qué eso decide ESTE caso. Si lo que\n"
+    "  escribes tras la cita se entiende sin conocer el expediente, es un resumen de\n"
+    "  la tesis: bórralo.")
+_TECNICA_DESPUES_NUEVA = (
+    "- LA CITA, SU REGLA Y SU APLICACIÓN. Es lo que más se rompe, y lo que separa\n"
+    "  un engrose de una lista de rubros. Medido en diez sentencias de la Corte y\n"
+    "  cinco engroses del colegiado: de ciento una citas, ninguna quedó sin su\n"
+    "  regla dicha ni su aplicación; en un proyecto generado aquí quedaron seis\n"
+    "  de nueve. El texto de una tesis larga NO queda debajo de la cita: baja a\n"
+    "  la nota al pie, y en el cuerpo quedan el anuncio con su registro y el\n"
+    "  rubro. Quien lee el proyecto no sabe qué sostiene la tesis si tú no lo\n"
+    "  dices. Antes de invocar un criterio decide para qué lo traes, porque eso\n"
+    "  fija lo que va alrededor:\n"
+    "  · PREMISA —su regla decide el punto—. En el mismo tramo, antes del anuncio\n"
+    "    o en el párrafo que sigue al rubro, dices con tus palabras la regla que\n"
+    "    sostiene: más general y más corta que su texto, sin nombrar todavía a\n"
+    "    las partes, en una a tres oraciones (entre cuarenta y ciento veinte\n"
+    "    palabras, más o menos). Si contiene requisitos o supuestos, cuáles son y\n"
+    "    cuál pone en juego este asunto; su razón, cuando la aplicación depende\n"
+    "    de ella; su alcance o su límite; y, si interpreta otra ley u otra época,\n"
+    "    por qué vale aquí. Luego pasas al expediente: cada elemento de la regla\n"
+    "    contra la constancia que lo activa —fecha, foja, documento, cifra, quién\n"
+    "    hizo qué—, con los términos de la regla y no los del texto de la tesis,\n"
+    "    en una extensión igual o mayor que la de la regla, hasta la consecuencia\n"
+    "    para el argumento. Si la tesis es corta, el documento deja su texto\n"
+    "    debajo del rubro; aun entonces lo que sigue es su regla dicha por ti y\n"
+    "    su aplicación, no otra tesis.\n"
+    "  · CIERRE de un razonamiento ya hecho: sólo con la condición de LA MEDIDA\n"
+    "    —la misma proposición, dicha y aplicada en el párrafo anterior—. Detrás\n"
+    "    no va nada.\n"
+    "  · FÓRMULA PROCESAL —la adhesión sin materia, la inoperancia por novedad,\n"
+    "    el mayor beneficio—: la aplicación va en el mismo párrafo y la cita lo\n"
+    "    cierra.\n"
+    "  · CRITERIO QUE INVOCÓ OTRO: una de las tres respuestas descritas arriba.\n"
+    "  Si un criterio no cabe en ninguna de las cuatro, no se invoca. Hacerla\n"
+    "  hablar no es repetirla: una paráfrasis pegada a su texto es eco, y la\n"
+    "  prueba es que tu regla sea más abstracta y más corta que la tesis. Y nunca\n"
+    "  pongas dos anuncios seguidos sin prosa tuya entre ellos, salvo que los dos\n"
+    "  sostengan la misma proposición y la digas una vez; tres o más seguidos son\n"
+    "  una fila de rubros sin regla.")
+_REEMPLAZOS_TECNICA = (
+    (_TECNICA_MEDIDA_VIEJA, _TECNICA_MEDIDA_NUEVA),
+    (_TECNICA_PARTE_VIEJA, _TECNICA_PARTE_NUEVA),
+    (_TECNICA_DESPUES_VIEJA, _TECNICA_DESPUES_NUEVA),
+    # «2. EXPONER LA PREMISA»: si la premisa sale de un criterio, su regla,
+    # sus elementos, su razón y su alcance.
+    ("     punto extraído. Cada premisa se expone UNA vez en todo el estudio.",
+     "     punto extraído —si sale de un criterio, su regla dicha con tus palabras,\n"
+     "     los elementos que este asunto pone en juego, su razón y su alcance: lo\n"
+     "     describe LA CITA, SU REGLA Y SU APLICACIÓN—. Cada premisa se expone UNA\n"
+     "     vez en todo el estudio."),
+    # «4. APLICAR»: el dato propio que es un precedente de la parte.
+    ("\n\n  5. REMITIR CON CONTENIDO.",
+     "\n     Si ese dato propio es un criterio que la parte invocó, su respuesta es\n"
+     "     una de las tres que se describen para el criterio que invocó otro, no\n"
+     "     volver a citarlo como apoyo.\n\n  5. REMITIR CON CONTENIDO."),
+    # La regla 4 de la arquitectura: las dos posiciones de la Corte.
+    ("   Nunca abras un tramo con la cita: ése es el patrón de las medias, donde la\n"
+     "   tesis sustituye al razonamiento en vez de apoyarlo.",
+     "   Nunca abras un tramo con la cita: ése es el patrón de las medias, donde la\n"
+     "   tesis sustituye al razonamiento en vez de apoyarlo. Si el anuncio va\n"
+     "   primero, el párrafo que sigue al rubro retoma el criterio y dice su regla\n"
+     "   antes de aplicarla: las dos posiciones las usa la Corte, y ninguna admite\n"
+     "   la cita sin su regla dicha."),
+    # La regla de las marcas (sólo con inventario): el precedente que trae.
+    ("  reiteran otro se nombran juntos en el párrafo que los contesta.",
+     "  reiteran otro se nombran juntos en el párrafo que los contesta. Si el dato\n"
+     "  propio es un precedente que la parte invocó, su respuesta es una de las\n"
+     "  tres que se describen para el criterio que invocó otro, nunca volver a\n"
+     "  citarlo como apoyo."),
+)
+# Lo último que se lee es lo que más se obedece (va con el del guion).
+_RECUERDA_TECNICA = (
+    "Y CADA CRITERIO QUE CITES, CON SU REGLA DICHA POR TI Y APLICADA A UNA "
+    "CONSTANCIA DEL EXPEDIENTE: ninguno en fila sin regla, ninguno de la parte "
+    "como apoyo.\n")
+
+
+def _con_tecnica(base: str, jerarquia: bool = False) -> str:
+    """La v3 con la técnica de la cita. Cada ajuste, una vez; el que no
+    encuentra su texto no hace nada (la regla de las marcas sólo está con
+    inventario). Con JERARQUÍA, además, lo del criterio de la parte dentro de
+    un grupo de consecuencia."""
+    for viejo, nuevo in _REEMPLAZOS_TECNICA:
+        if jerarquia and viejo == _TECNICA_PARTE_VIEJA:
+            nuevo = nuevo + _TECNICA_PARTE_GRUPO
+        base = base.replace(viejo, nuevo, 1)
+    return base
+
+
 def _prompt_estudio_v4(args: dict) -> str:
     import copy as _copy_v4
     import plan_estudio as _pe
@@ -3479,16 +3670,20 @@ def _prompt_estudio_v4(args: dict) -> str:
     blq = _pe.bloque(guion)
     if not blq:
         return base
-    if _pe._RX_JERARQUIA in guion:
+    _jer = _pe._RX_JERARQUIA in guion
+    if _jer:
         base = _con_jerarquia(base)
+    # LA TÉCNICA DE LA CITA, con guion (ver `_REEMPLAZOS_TECNICA`).
+    base = _con_tecnica(base, _jer)
+    _recuerda = _RECUERDA_GUION + _RECUERDA_TECNICA
     i = base.rfind(_MARCA_ESCRIBE)
     if i < 0:
-        return base.rstrip() + "\n" + blq + "\n" + _RECUERDA_GUION
+        return base.rstrip() + "\n" + blq + "\n" + _recuerda
     con = base[:i] + "\n" + blq + base[i:]
     j = con.rfind("\nNada más.")
     if j >= 0 and not con[j + len("\nNada más."):].strip():
-        return con[:j] + "\n" + _RECUERDA_GUION.rstrip("\n") + con[j:]
-    return con.rstrip() + "\n" + _RECUERDA_GUION
+        return con[:j] + "\n" + _recuerda.rstrip("\n") + con[j:]
+    return con.rstrip() + "\n" + _recuerda
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -4120,9 +4315,416 @@ def preceptos_fuera(estudio: str, material: Material) -> tuple:
     return fuera, pares
 
 
+# ═══ 1-duodecies · LA TESIS QUE NO HABLA (AR 631/2025, 28-sep-2026) ═════════
+# David: «Después de citar tesis hay que hacerlas hablar. Y después aplicarlas
+# al caso concreto. Es lo que se estila.» Medido a mano en 82 usos de criterio
+# de diez sentencias de la Suprema Corte y 19 de cinco engroses de este
+# tribunal (redactor-sentencias/scjn_estilo/anotacion/anotacion.csv): NINGUNO
+# queda sin su regla dicha ni su aplicación. En la Solución del AR 631/2025
+# (verificación del 28-sep) quedaban seis de nueve: una pila de cuatro rubros
+# sin una palabra entre ellos, dos más de la recurrente al final sin nada
+# detrás, y una tesis de la recurrente anunciada con «Sirve de apoyo» y
+# declarada inaplicable en el renglón siguiente.
+#
+# Es un control de TEXTO, determinista y sin modelo, y por eso es tosco: no
+# sabe si una frase «dice la regla» de una tesis; mide si la prosa que la
+# rodea comparte su vocabulario (el del rubro) o remite a ella. Por eso se
+# calibró sobre los mismos textos anotados —la Corte y los engroses deben dar
+# CERO; el 631, entre seis y ocho— y los umbrales de abajo son los que salieron
+# de esa calibración, no una intuición. La reproduce test_tesis_que_hablan.py
+# (§1) cuando el recurso está en disco.
+#
+# Lee las dos formas del texto: la del modelo —el anuncio y el rubro en el
+# mismo párrafo— y la compuesta —el anuncio acaba en dos puntos y el rubro va
+# en el párrafo siguiente, con el texto al pie—, que es la forma del 631 y de
+# los engroses con que se calibró.
+
+# Las pistas de que un texto en mayúsculas es el rubro de un criterio y no el
+# nombre de una parte ni la transcripción de una constancia.
+_RX_PISTA_CRITERIO = re.compile(
+    r"\b(?:rubros?|jurisprudencias?|tesis|registro|criterios?|precedentes?|"
+    r"ejecutoria|intitulan|t[íi]tulo|siguientes?\s*:|transcribe|en\s+cita)\b", re.I)
+_RX_REG_EN_CITA = re.compile(
+    r"registro\s+(?:digital\s*)?(?:n[úu]mero\s*)?[:\s]\s*(\d{6,7})\b", re.I)
+_RX_RUBRO_COMILLAS = re.compile(r"[“«\"]\s*([A-ZÁÉÍÓÚÑÜ][^”»\"«“\n]{20,1500}?)\s*[”»\"]")
+_RX_RUBRO_SIN_COMILLAS = re.compile(
+    r"(?<![\wÁÉÍÓÚÑÜáéíóúñü])((?:[A-ZÁÉÍÓÚÑÜ][A-ZÁÉÍÓÚÑÜ0-9.,;()\-–/°º]*[ \t]+){7,}"
+    r"[A-ZÁÉÍÓÚÑÜ0-9][A-ZÁÉÍÓÚÑÜ0-9.,;()\-–/°º]*)")
+
+# El verbo que ata la cita al razonamiento como APOYO. Negado —«no resulta
+# aplicable», «sin que sea aplicable»— es lo contrario, y se mira aparte.
+_RX_VERBO_APOYO = re.compile(
+    r"\b(?:sirve[n]?\s+de\s+(?:apoyo|sustento)|(?:es|son|resulta[n]?)\s+aplicables?|"
+    r"cobra[n]?\s+aplicaci[óo]n|tiene[n]?\s+aplicaci[óo]n|robustece[n]?|corrobora[n]?|"
+    r"(?:encuentra|halla)\s+(?:apoyo|sustento)|tiene\s+sustento|apoya[n]?\s+(?:lo\s+anterior|"
+    r"esta|esa|dicha|tal)|sustenta[n]?\s+(?:lo\s+anterior|esta|esa|dicha|tal)|"
+    r"en\s+apoyo\s+de\s+(?:lo\s+anterior|esta|esa|tal)|ilustra[n]?)\b", re.I)
+_RX_NIEGA_ANTES = re.compile(r"(?:\bno|\bni|\bsin\s+que|\btampoco)\s+(?:\w+\s+){0,2}$", re.I)
+_RX_NO_APLICA = re.compile(
+    r"\b(?:no\s+(?:le\s+)?(?:resulta[n]?|es|son|sea[n]?|cobra[n]?|tiene[n]?)\s+"
+    r"(?:exactamente\s+|directamente\s+)?(?:aplicables?|aplicaci[óo]n)|inaplicables?|"
+    r"no\s+(?:es|resulta)\s+(?:el\s+caso\s+de\s+)?aplicarl[ao]s?|no\s+se\s+aplica[n]?\b|"
+    r"no\s+aplica[n]?\b|no\s+(?:sirve[n]?|puede[n]?\s+servir)\s+de\s+apoyo)", re.I)
+# Lo que dice que el criterio de la parte se distinguió, se acotó o que a la
+# parte le asiste razón: cualquiera de las tres respuestas de la técnica.
+_RX_CONTESTA_CRITERIO = re.compile(
+    r"\b(?:no\s+(?:resulta[n]?|es|son|sea[n]?)\s+aplicables?|inaplicables?|"
+    r"se\s+distingue|supuestos?\s+(?:distint|divers)|no\s+corresponde[n]?|"
+    r"a\s+diferencia\s+de|hechos\s+que\s+(?:dieron|le\s+dieron)\s+origen|"
+    r"hechos\s+que\s+dieron\s+lugar|no\s+sostiene[n]?|ninguno\s+de\s+ellos|ninguna\s+de\s+ellas|"
+    r"al\s+margen\s+de\s+(?:la\s+)?validez|(?:asiste|tiene)\s+(?:la\s+)?raz[óo]n|"
+    r"no\s+alcanza|no\s+llega\s+a|debe\s+entenderse\s+en\s+el\s+contexto|"
+    r"premisa\s+(?:f[áa]ctica|distinta|diversa)|se\s+refiere\s+(?:exclusivamente\s+)?a\s+"
+    r"(?:un|una|el|la|los|las)\s+supuesto)", re.I)
+# La remisión expresa al criterio en lo que sigue: «el criterio en cita»,
+# «conforme a esa jurisprudencia», «trasladados esos lineamientos». «Lo
+# anterior» NO cuenta: en el 631 abre la aplicación de la premisa propia, no
+# la de la tesis, y el ¶93 de la verificación es justo ese caso.
+_RX_REMITE_CRITERIO = re.compile(
+    r"\b(?:en\s+cita|citad[oa]s?|invocad[oa]s?|transcrit[oa]s?|precitad[oa]s?|"
+    r"(?:dich[oa]s?|es[ea]s?|est[ea]s?|aquel(?:la|los|las)?|tal(?:es)?)\s+"
+    r"(?:criterios?|tesis|jurisprudencias?|precedentes?|ejecutorias?|lineamientos)|"
+    r"(?:del?|al|el|la|los|las)\s+(?:criterios?|tesis|jurisprudencias?|precedentes?|ejecutorias?)\s+"
+    r"(?:en\s+cita|citad|invocad|referid|aludid|mencionad|que\s+antecede|anterior|transcrit)|"
+    r"conforme\s+a\s+(?:dich|es|est|la\s+juris|la\s+tesis|el\s+criterio)|"
+    r"de\s+acuerdo\s+con\s+(?:dich|es|est|la\s+juris|la\s+tesis|el\s+criterio)|"
+    r"trasladad[oa]s?|en\s+ell[oa]s?\s+se\s+(?:destac|sostuv|estableci|determin|precis|dijo)|"
+    r"en\s+todos\s+ellos|deja\s+en\s+claro|doctrina\s+jurisprudencial|"
+    r"(?:el|la)\s+(?:Pleno|Primera\s+Sala|Segunda\s+Sala|Suprema\s+Corte)\s+"
+    r"(?:ha\s+)?(?:sostuv|consider|determin|estableci|resolvi|precis|sostien|consider))", re.I)
+
+# LA CITA QUE SE NARRA NO ES DEL ESTUDIO: «Sirvieron de apoyo a la
+# determinación del Colegiado las jurisprudencias…», «Cita las tesis de
+# rubro…». Es el relato de lo que hizo otro —el inferior, la parte— y su pila
+# no es una pila del estudio. Salió en dos extractos de la Corte fuera de la
+# muestra anotada (ADR 1461/2014, ¶45; ADR 499/2015, resumen de agravios).
+_RX_NARRA_CITA = re.compile(
+    r"\b(?:cit(?:a|an|ó|aron)|invoc(?:a|an|ó|aron)|se\s+apoy(?:a|ó|aron)|"
+    r"apoy(?:ó|aron)\s+su|sustent(?:ó|aron)\s+su|fund(?:ó|aron)\s+su|"
+    r"transcribi(?:ó|eron)|sirvieron\s+de\s+apoyo\s+a\s+la\s+determinaci[óo]n|"
+    r"en\s+apoyo\s+de\s+su\s+(?:planteamiento|argumento|postura|pretensi[óo]n))\b", re.I)
+
+# Palabras que no distinguen un criterio de otro: están en la prosa de
+# cualquier estudio y, contadas, harían «hablar» a cualquier rubro.
+_VACIAS_CRITERIO = frozenset("""
+para como entre sobre deben debe puede pueden cuando este esta estos estas dicho
+dicha dichos dichas cual cuales mismo misma todo toda todos todas otro otra otros
+otras tanto sino solo aunque donde desde hasta ante bajo tras segun respecto
+conforme relativo relativa relativos relativas tambien porque pues aquel aquella
+amparo juicio sentencia leyes articulo articulos constitucion constitucional
+politica estados unidos mexicanos federal general caso casos parte partes
+autoridad autoridades derecho derechos tribunal tribunales colegiado colegiados
+circuito suprema corte justicia nacion sala pleno tesis jurisprudencia criterio
+criterios registro digital rubro texto materia cuyo cuya cuyos cuyas sera seran
+fue fueron sido tiene tienen haber hacer debe deberan asimismo ello ellos ellas
+dicho mismo cada contra existe existen resulta resultan virtud efecto
+""".split())
+
+
+def _pal_criterio(t: str) -> set:
+    """Las raíces (seis letras) de las palabras con contenido."""
+    import unicodedata as _ud
+    t = _ud.normalize("NFKD", (t or "").lower())
+    t = "".join(c for c in t if not _ud.combining(c))
+    return {w[:6] for w in re.findall(r"[a-z]{4,}", t) if w not in _VACIAS_CRITERIO}
+
+
+def _parece_rubro(r: str, suelto: bool = False) -> bool:
+    letras = [c for c in r if c.isalpha()]
+    if len(letras) < 20:
+        return False
+    if sum(1 for c in letras if c.isupper()) / len(letras) < 0.85:
+        return False
+    pal = [w for w in r.split() if any(c.isalpha() for c in w)]
+    if len(pal) < (8 if suelto else 5):
+        return False
+    # «R E S U E L V E» y los ordinales no son rubros.
+    if sum(1 for w in pal if len(w.strip(".,;:()")) >= 4) < 4:
+        return False
+    return True
+
+
+def citas_de_criterios(texto: str, tesis=None) -> list:
+    """Cada criterio citado en el texto, en orden, con su rubro y su registro.
+
+    Un rubro es un texto en mayúsculas —entre comillas, o suelto si es largo—
+    con una pista de cita cerca (jurisprudencia, tesis, rubro, registro…) o
+    pegado a otro rubro: así no cuentan el nombre de una parte ni una
+    constancia transcrita en mayúsculas. El registro que va a menos de 250
+    caracteres del rubro, sin otro rubro en medio, es el suyo; el que queda
+    solo se busca en `tesis` (el material) para tener su rubro.
+
+    Devuelve dicts {ini, fin, rubro, registro}: posiciones sobre `texto`."""
+    t = texto or ""
+    por_reg = {str(x.get("registro") or ""): x for x in (tesis or []) if isinstance(x, dict)}
+    rubros = []
+    for m in _RX_RUBRO_COMILLAS.finditer(t):
+        if _parece_rubro(m.group(1)):
+            rubros.append([m.start(), m.end(), m.group(1), True])
+    sueltos = []
+    for m in _RX_RUBRO_SIN_COMILLAS.finditer(t):
+        if any(a <= m.start(1) < b or a < m.end(1) <= b for a, b, _, _ in rubros):
+            continue
+        sueltos.append([m.start(1), m.end(1), m.group(1), False])
+    # UN RUBRO SUELTO SE PARTE EN TROZOS en cuanto trae una minúscula —«2o.»,
+    # «(10a.)», «Bis»—: en la calibración, un solo rubro de la Corte salía como
+    # tres citas seguidas y hacía una pila que no existe. Los trozos separados
+    # por una o dos palabras cortas y sin comillas en medio son el mismo rubro.
+    unidos = []
+    for x in sueltos:
+        if unidos:
+            hueco = t[unidos[-1][1]:x[0]]
+            if len(hueco) <= 20 and len(hueco.split()) <= 2 and not re.search(r"[“”«»\"\n]", hueco):
+                unidos[-1][1] = x[1]
+                unidos[-1][2] = t[unidos[-1][0]:x[1]]
+                continue
+        unidos.append(x)
+    rubros += [x for x in unidos if _parece_rubro(x[2], suelto=True)]
+    rubros.sort()
+    buenos = []
+    for a, b, r, _q in rubros:
+        antes = t[max(0, a - 250):a]
+        despues = t[b:b + 250]
+        pegado = bool(buenos) and a - buenos[-1][1] <= 60
+        if _RX_PISTA_CRITERIO.search(antes) or _RX_REG_EN_CITA.search(despues[:120]) or pegado:
+            buenos.append([a, b, r])
+    citas = [{"ini": a, "fin": b, "rubro": r, "registro": ""} for a, b, r in buenos]
+    for m in _RX_REG_EN_CITA.finditer(t):
+        reg = m.group(1)
+        # El rubro más cercano sin registro, a menos de 250 caracteres y sin
+        # otro rubro entre los dos.
+        mejor, dist = None, 251
+        for c in citas:
+            if c["registro"]:
+                continue
+            d = (c["ini"] - m.end()) if c["ini"] >= m.end() else (m.start() - c["fin"])
+            if 0 <= d < dist:
+                entre = [x for x in citas if x is not c and
+                         min(m.end(), c["fin"]) <= x["ini"] < max(m.start(), c["ini"])]
+                if not entre:
+                    mejor, dist = c, d
+        if mejor is not None:
+            mejor["registro"] = reg
+            mejor["ini"], mejor["fin"] = min(mejor["ini"], m.start()), max(mejor["fin"], m.end())
+            continue
+        if any(c["ini"] <= m.start() < c["fin"] for c in citas):
+            continue
+        x = por_reg.get(reg) or {}
+        citas.append({"ini": m.start(), "fin": m.end(),
+                      "rubro": str(x.get("rubro") or ""), "registro": reg})
+    citas.sort(key=lambda c: c["ini"])
+    return citas
+
+
+# Lo que en el hueco entre dos citas no es prosa propia: el anuncio y la ficha.
+_RX_FORMULA_CITA = re.compile(
+    r"\b(?:sirve[n]?\s+de\s+(?:apoyo|sustento)|(?:es|son|resulta[n]?)\s+aplicables?|"
+    r"as[íi]\s+como|tambi[ée]n|asimismo|igualmente|y|e|la|el|las|los|de|del|al|a|en|"
+    r"que|se|su|sus|con|por|jurisprudencias?|tesis|aisladas?|criterios?|rubros?|"
+    r"textos?|siguientes?|registros?|digital|n[úu]mero|primera|segunda|sala|pleno|"
+    r"suprema|corte|justicia|naci[óo]n|tribunal(?:es)?|colegiados?|circuito|alto|"
+    r"ese|este|orientador|obligatori[oa]|como|carácter|[ée]poca|ídem|idem|ib[íi]d|"
+    r"transcribe|continuaci[óo]n|intitulan?|t[íi]tulo|n[úu]meros?)\b", re.I)
+
+
+def _palabras_propias(t: str) -> int:
+    t = re.sub(r"\(?\b\d+[a-z]?\.?\s*/?\s*J?\.?\s*\d+/\d{2,4}\s*(?:\(\d+a\.\))?\)?", " ", t or "")
+    t = _RX_FORMULA_CITA.sub(" ", t)
+    return len([w for w in re.findall(r"[A-Za-zÁÉÍÓÚÑÜáéíóúñü]{3,}", t)])
+
+
+# LOS UMBRALES, DE LA CALIBRACIÓN (28-sep-2026): con ellos, 0 avisos en las
+# diez sentencias anotadas de la Corte, 0 en los cinco engroses, 0 en los otros
+# 109 extractos de la Corte y 18 engroses Kingston, y 7 en la Solución del 631.
+UMBRAL_HABLA_ANTES = 0.40     # del rubro, dicho en los dos párrafos de antes
+UMBRAL_HABLA_DESPUES = 0.34   # del rubro, retomado en lo que sigue
+MIN_PROSA_ENTRE_CITAS = 8     # menos que esto entre dos citas es una pila
+VENTANA_DESPUES = 1600        # caracteres de lo que sigue a la cita
+# LO QUE LA CALIBRACIÓN DEJÓ EN SOMBRA: la «huérfana» suelta. Medida por el
+# vocabulario, la cita que no habla del 631 y el corolario de la Corte —que
+# cierra un razonamiento dicho con otras palabras que las del rubro— dan las
+# mismas cifras: con los umbrales de arriba acusaba 21 citas de las diez
+# sentencias de la Corte y 2 de los engroses, que no tienen ninguna. Se mide
+# y se registra; al secretario sólo le llega lo que la calibración separa sin
+# error: la pila sin prosa, la contradicción y la tesis de la parte reciclada.
+DEFECTOS_AL_SECRETARIO = ("apilada", "contradictoria", "de la parte")
+
+
+def tesis_sin_hablar(estudio: str, tesis=None, de_la_parte=None,
+                     rubros_de_la_parte=None, traza: list = None) -> list:
+    """1-duodecies: los criterios citados que no hablan.
+
+    Por cada cita (ver `citas_de_criterios`) y cada pila —citas seguidas con
+    menos de `MIN_PROSA_ENTRE_CITAS` palabras propias entre ellas— se mide si
+    «habla»: si los dos párrafos de antes comparten al menos el
+    `UMBRAL_HABLA_ANTES` de las palabras de su rubro, o lo que sigue (hasta la
+    próxima cita) el `UMBRAL_HABLA_DESPUES`, o lo que sigue remite a ella
+    («el criterio en cita», «trasladados esos lineamientos»…). Defectos:
+      · «apilada»: tres o más seguidas, sin remisión detrás y con la mayoría
+        sin hablar (la Corte apila hasta seis, pero enuncia enseguida la
+        premisa que comparten: JRC AD 13/2017, ¶72-73);
+      · «contradictoria»: anunciada con un verbo de apoyo y declarada
+        inaplicable en lo que sigue (la 2015679 del 631);
+      · «de la parte»: la invocó la parte (`de_la_parte`: registros; o
+        `rubros_de_la_parte`) y se usa con verbo de apoyo, sin ninguna de las
+        tres respuestas de la técnica (aplicarla dándole la razón, acotarla,
+        distinguirla) y sin que lo que sigue la retome;
+      · «huérfana»: no habla. SÓLO EN SOMBRA (ver `DEFECTOS_AL_SECRETARIO`).
+    Sin rubro no se puede medir si habla: esa cita sólo entra en las pilas y
+    en la contradicción.
+
+    Devuelve [{registro, rubro, defectos: [..]}] SÓLO de los que tienen algún
+    defecto, uno por criterio (el mismo registro dos veces es un criterio).
+    `traza`, si se pasa, recibe las medidas de cada cita (para calibrar)."""
+    t = estudio or ""
+    citas = citas_de_criterios(t, tesis)
+    if not citas:
+        return []
+    parte = {str(x) for x in (de_la_parte or []) if str(x).strip()}
+    import unicodedata as _ud
+
+    def _nr(x):
+        x = _ud.normalize("NFKD", (x or "").upper())
+        x = "".join(c for c in x if not _ud.combining(c))
+        return re.sub(r"[^A-Z0-9]+", " ", x).strip()[:60]
+    rub_parte = {_nr(r) for r in (rubros_de_la_parte or []) if len(_nr(r)) >= 25}
+
+    # Las pilas.
+    pilas, actual = [], [0]
+    for k in range(1, len(citas)):
+        hueco = t[citas[k - 1]["fin"]:citas[k]["ini"]]
+        if _palabras_propias(hueco) < MIN_PROSA_ENTRE_CITAS:
+            actual.append(k)
+        else:
+            pilas.append(actual)
+            actual = [k]
+    pilas.append(actual)
+
+    def _inicio_parrafo(pos, atras):
+        """El comienzo del párrafo `atras` párrafos antes del que contiene `pos`."""
+        p = pos
+        for _ in range(atras + 1):
+            j = t.rfind("\n", 0, max(0, p - 1))
+            if j < 0:
+                return 0
+            p = j
+        return p + 1
+
+    malos = {}
+
+    def _marca(c, defecto):
+        clave = c["registro"] or _nr(c["rubro"]) or f"@{c['ini']}"
+        d = malos.setdefault(clave, {"registro": c["registro"], "rubro": c["rubro"],
+                                     "defectos": []})
+        if defecto not in d["defectos"]:
+            d["defectos"].append(defecto)
+
+    for pila in pilas:
+        pri, ult = citas[pila[0]], citas[pila[-1]]
+        tope_atras = citas[pila[0] - 1]["fin"] if pila[0] > 0 else 0
+        antes = t[max(tope_atras, _inicio_parrafo(pri["ini"], 2)):pri["ini"]]
+        sig = citas[pila[-1] + 1]["ini"] if pila[-1] + 1 < len(citas) else len(t)
+        despues = t[ult["fin"]:min(sig, ult["fin"] + VENTANA_DESPUES)]
+        w_antes, w_desp = _pal_criterio(antes), _pal_criterio(despues)
+        remite = bool(_RX_REMITE_CRITERIO.search(despues[:500]))
+        mudas = 0
+        verbo_pila = False
+        narrada = False
+        for k in pila:
+            c = citas[k]
+            # EL ANUNCIO ES EL DE SU PÁRRAFO —o el del anterior, si la cita
+            # abre párrafo, que es la forma compuesta: «…de rubro siguiente:»
+            # y debajo el rubro—. Con una ventana fija de caracteres se colaba
+            # la frase de la cita anterior: en el 631, el «no resulta
+            # aplicable» de la 2015679 hacía pasar por distinguida a la 177529.
+            tope = citas[k - 1]["fin"] if k > 0 else 0
+            ini_par = t.rfind("\n", 0, c["ini"]) + 1
+            if len(t[ini_par:c["ini"]].split()) < 3 and ini_par > 0:
+                ini_par = t.rfind("\n", 0, ini_par - 1) + 1
+            anuncio = t[max(tope, ini_par, c["ini"] - 400):c["ini"]]
+            # El verbo del anuncio; en una pila, «y el de rubro…» hereda el
+            # del primero.
+            m_v = None
+            for m_ in _RX_VERBO_APOYO.finditer(anuncio):
+                if not _RX_NIEGA_ANTES.search(anuncio[:m_.start()][-40:]):
+                    m_v = m_
+            apoyo = bool(m_v) or (k != pila[0] and verbo_pila)
+            if k == pila[0]:
+                verbo_pila = bool(m_v)
+                narrada = bool(_RX_NARRA_CITA.search(anuncio))
+            sig_k = citas[k + 1]["ini"] if k + 1 < len(citas) else len(t)
+            cola = t[c["fin"]:min(sig_k, c["fin"] + 350)]
+            defectos = []
+            w_r = _pal_criterio(c["rubro"])
+            ov_a = ov_d = None
+            habla_despues = remite
+            if len(w_r) >= 3:
+                ov_a = len(w_r & w_antes) / len(w_r)
+                ov_d = len(w_r & w_desp) / len(w_r)
+                habla_despues = remite or ov_d >= UMBRAL_HABLA_DESPUES
+                if ov_a < UMBRAL_HABLA_ANTES and not habla_despues:
+                    defectos.append("huérfana")
+                    mudas += 1
+            if apoyo and _RX_NO_APLICA.search(cola):
+                defectos.append("contradictoria")
+            es_parte = bool((c["registro"] and c["registro"] in parte) or
+                            (c["rubro"] and _nr(c["rubro"]) in rub_parte))
+            if es_parte and apoyo and "contradictoria" not in defectos \
+                    and not habla_despues \
+                    and not _RX_CONTESTA_CRITERIO.search(anuncio + " " + cola):
+                defectos.append("de la parte")
+            if isinstance(traza, list):
+                traza.append({"registro": c["registro"], "rubro": c["rubro"][:70],
+                              "pila": len(pila), "antes": ov_a, "despues": ov_d,
+                              "remite": remite, "apoyo": bool(apoyo), "parte": es_parte,
+                              "defectos": list(defectos), "ini": c["ini"]})
+            for x in defectos:
+                _marca(c, x)
+        if len(pila) >= 3 and not remite and not narrada and mudas * 2 > len(pila):
+            for k in pila:
+                _marca(citas[k], "apilada")
+                if isinstance(traza, list):
+                    for x in traza:
+                        if x["ini"] == citas[k]["ini"] and "apilada" not in x["defectos"]:
+                            x["defectos"].append("apilada")
+    return list(malos.values())
+
+
+def tesis_que_no_hablan(estudio: str, tesis=None, de_la_parte=None,
+                        rubros_de_la_parte=None) -> list:
+    """Lo que `tesis_sin_hablar` dice al secretario: sólo los defectos que la
+    calibración separa sin error (`DEFECTOS_AL_SECRETARIO`)."""
+    fuera = []
+    for d in tesis_sin_hablar(estudio, tesis, de_la_parte, rubros_de_la_parte):
+        dd = [x for x in d["defectos"] if x in DEFECTOS_AL_SECRETARIO]
+        if dd:
+            fuera.append({**d, "defectos": dd})
+    return fuera
+
+
+def registros_de_la_parte(resumen_conceptos: str = "", inventario=None) -> tuple:
+    """(registros, rubros) que invocó la parte, leídos del resumen de sus
+    conceptos o agravios y del inventario. Sin ellos, el control no puede
+    decir que un criterio es de la parte y no lo dice."""
+    textos = [resumen_conceptos or ""]
+    for s in (inventario or []):
+        if isinstance(s, dict):
+            textos += [str(s.get("texto") or ""), str(s.get("cita") or ""),
+                       " ".join(str(a) for a in (s.get("anclas") or []))]
+    todo = "\n".join(textos)
+    regs = set(_RX_REG_EN_CITA.findall(todo))
+    regs |= set(re.findall(r"\bregistros?\s+(?:digitales?\s+)?(?:n[úu]meros?\s+)?(\d{6,7})\b", todo, re.I))
+    rubros = [m.group(1) for m in _RX_RUBRO_COMILLAS.finditer(todo) if _parece_rubro(m.group(1))]
+    return regs, rubros
+
+
 def revisar(estudio: str, criterios: list[Criterio], material: Material,
-            resumen_acto: str = "", marco: str = "") -> list[str]:
-    """Lo comprobable sin modelo. Ninguna de estas es opinión."""
+            resumen_acto: str = "", marco: str = "",
+            resumen_conceptos: str = "") -> list[str]:
+    """Lo comprobable sin modelo. Ninguna de estas es opinión.
+
+    `resumen_conceptos`: lo que se combate, para saber qué criterios invocó la
+    parte (1-duodecies). Sin él se leen del inventario, si lo hay."""
     avisos: list[str] = []
     # CUATRO COMPROBACIONES CAMBIAN CON LA v2 (26-sep-2026): las que
     # acusarían a la salida buena de la limpieza —la de pocas citas, la de
@@ -4267,12 +4869,30 @@ def revisar(estudio: str, criterios: list[Criterio], material: Material,
         # compositor borra el eco después. Decirle al secretario que el
         # proyecto repite una tesis cuando ya no la repite lo manda a buscar
         # algo que no está, y un aviso que no se comprueba deja de leerse.
-        avisos.append(
-            f"{'La tesis' if len(repetidas) == 1 else 'Las tesis'} "
-            f"{', '.join(repetidas)} venían repetidas tras su cita y el eco se "
-            f"BORRÓ al componer. El documento sale limpio; queda dicho por si "
-            f"al leerlo echas en falta el enlace con el caso, que es lo que "
-            f"debía ir ahí: «Conforme a la jurisprudencia citada, es claro que…»")
+        # PERO DESDE EL 28-SEP-2026 SÓLO LO BORRA SI EL TEXTO QUEDÓ EN EL
+        # CUERPO (AR 631/2025): con el texto al pie, la frase que dice qué
+        # sostiene la tesis es la que la hace hablar y se queda; sólo la copia
+        # casi literal se va (`documento_generado.UMBRAL_ECO_AL_PIE`). Para
+        # esas, el aviso no promete un borrado que no ocurre.
+        import documento_generado as _dg_eco
+        _por_reg = {str(t_.get("registro") or ""): t_ for t_ in material.tesis}
+        _al_pie = [r for r in repetidas if _dg_eco._texto_al_pie(_por_reg.get(r) or {})]
+        _en_cuerpo = [r for r in repetidas if r not in _al_pie]
+        if _en_cuerpo:
+            avisos.append(
+                f"{'La tesis' if len(_en_cuerpo) == 1 else 'Las tesis'} "
+                f"{', '.join(_en_cuerpo)} venían repetidas tras su cita y el eco se "
+                f"BORRÓ al componer. El documento sale limpio; queda dicho por si "
+                f"al leerlo echas en falta el enlace con el caso, que es lo que "
+                f"debía ir ahí: «Conforme a la jurisprudencia citada, es claro que…»")
+        if _al_pie:
+            avisos.append(
+                f"{'La tesis' if len(_al_pie) == 1 else 'Las tesis'} "
+                f"{', '.join(_al_pie)} se vuelven a contar tras su cita con palabras "
+                f"muy pegadas a su texto, que va en la nota al pie. Se conserva lo "
+                f"que no es copia literal, porque es lo único que en el cuerpo dice "
+                f"qué sostiene la tesis; revisa que lo diga más corto y más abstracto "
+                f"que la nota, y que después lo aplique al caso.")
 
     # 1-decies. UN CÓDIGO QUE NO ESTÁ EN EL ACERVO NO RIGE AQUÍ. El Código
     #           Nacional de Procedimientos Civiles y Familiares entró en vigor
@@ -4340,6 +4960,55 @@ def revisar(estudio: str, criterios: list[Criterio], material: Material,
             + ("" if _reconstruye else
                " Y el estudio NO deja escrita la versión suplida que examinó: "
                "mencionar la suplencia no es haberla aplicado."))
+
+    # 1-duodecies. LA TESIS QUE NO HABLA (AR 631/2025, 28-sep-2026). Ver
+    #    `tesis_sin_hablar`: la técnica de la Corte es citar, decir la regla
+    #    con palabras propias y aplicarla a una constancia; y el criterio que
+    #    invocó la parte se contesta, no se recicla. Calibrado sobre diez
+    #    sentencias de la Corte y cinco engroses del colegiado (cero avisos) y
+    #    la Solución del 631 (siete de nueve): al secretario llega lo que la
+    #    calibración separa sin error —la fila de rubros sin regla, la cita
+    #    contradictoria y la tesis de la parte como apoyo—; la cita suelta que
+    #    no habla sólo se registra, en sombra (`DEFECTOS_AL_SECRETARIO`).
+    try:
+        _regs_p, _rubs_p = registros_de_la_parte(
+            resumen_conceptos, getattr(material, "inventario", None) or [])
+        _sin_hablar = tesis_sin_hablar(estudio, material.tesis, _regs_p, _rubs_p)
+    except Exception as _e_th:
+        _sin_hablar = []
+        print(f"   ⚠️ 1-duodecies no corrió: {type(_e_th).__name__}")
+    if _sin_hablar:
+        _n_huer = sum(1 for d in _sin_hablar if "huérfana" in d["defectos"])
+        if _n_huer:
+            print(f"   🔎 SOMBRA 1-duodecies · {_n_huer} cita(s) sin regla ni "
+                  f"aplicación medibles (sólo se registra)")
+
+        def _quien(d):
+            return d["registro"] or f"«{(d['rubro'] or '')[:60]}…»"
+        _por = {k: [_quien(d) for d in _sin_hablar if k in d["defectos"]]
+                for k in DEFECTOS_AL_SECRETARIO}
+        _partes_av = []
+        if _por["apilada"]:
+            _partes_av.append(
+                f"EN FILA SIN REGLA: {', '.join(_por['apilada'])} van seguidos, sin "
+                f"prosa propia entre ellos, y nada de lo que sigue dice qué sostienen "
+                f"ni los aplica")
+        if _por["contradictoria"]:
+            _partes_av.append(
+                f"ANUNCIADO COMO APOYO Y DECLARADO INAPLICABLE: {', '.join(_por['contradictoria'])}")
+        if _por["de la parte"]:
+            _partes_av.append(
+                f"DE LA PARTE, COMO APOYO: {', '.join(_por['de la parte'])} los invocó "
+                f"la parte y el estudio los usa con un verbo de apoyo, sin "
+                f"distinguirlos, acotarlos ni decir que le asiste razón")
+        if _partes_av:
+            avisos.append(
+                "CRITERIOS QUE NO HABLAN. " + "; ".join(_partes_av) + ". Cada "
+                "criterio que se cita lleva su regla dicha con palabras propias y "
+                "su aplicación a una constancia del expediente; el que invocó la "
+                "parte se distingue —su supuesto, su razón y el dato del caso que "
+                "lo saca de él—, se acota, o se aplica diciendo que en ese punto "
+                "le asiste razón.")
 
     # 2. El sentido dictado tiene que aparecer… SALVO la inoperancia que la
     #    suplencia prohíbe. Esta regla y la anterior se contradecían: una
@@ -4735,7 +5404,8 @@ async def redactar_en_vivo(cliente, resumen_acto: str, resumen_conceptos: str,
     import marcas as _mc_r
     yield {"tipo": "fin", "estudio": estudio, "advertencias": advertencias,
            "avisos": revisar(_mc_r.sin_marcas(estudio), criterios, material, resumen_acto,
-                             marco if isinstance(marco, str) else ""),
+                             marco if isinstance(marco, str) else "",
+                             resumen_conceptos=resumen_conceptos),
            "meta": meta}
 
 
@@ -4779,7 +5449,8 @@ async def redactar(cliente, resumen_acto: str, resumen_conceptos: str,
     import marcas as _mc_r
     _limpio = _mc_r.sin_marcas(estudio)
     avisos = revisar(_limpio, criterios, material, resumen_acto,
-                     marco if isinstance(marco, str) else "")
+                     marco if isinstance(marco, str) else "",
+                     resumen_conceptos=resumen_conceptos)
     if partes is not None:
         import fase_partes
         avisos.extend(fase_partes.revisar_partes(_limpio, partes))
