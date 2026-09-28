@@ -1111,8 +1111,24 @@ async def _espejo_oaj(qdrant, embed, r: Resultado, circ: str,
     except Exception as exc:
         print(f"   ⚠️ precedentes OAJ omitidos: {exc}")
         return []
-    hablan = [(p, filas) for p, filas in zip(planteamientos, tiros)
-              if not isinstance(filas, BaseException) and filas]
+    # EL PROPIO ASUNTO NO ES SU PRECEDENTE. Si el expediente que se proyecta ya
+    # está resuelto y publicado en la OAJ (un reproceso, un asunto de prueba),
+    # su propia sentencia sale arriba como «precedente» de sí misma. Medido el
+    # 28-sep en la prueba de humo: el AR 17/2025 y el AD 704/2022 se citaban a
+    # sí mismos. Se compara el número «N/AAAA», sea cual sea la grafía de la
+    # ficha («17-2025», «3._ARA_17-2025»).
+    def _num(x):
+        m = re.search(r"(\d{1,5})\s*[/\-]\s*(\d{4})", str(x or ""))
+        return (int(m.group(1)), m.group(2)) if m else None
+    _propio = _num(getattr(e, "numero", ""))
+    hablan = []
+    for p, filas in zip(planteamientos, tiros):
+        if isinstance(filas, BaseException) or not filas:
+            continue
+        if _propio:
+            filas = [f for f in filas if _num(f.get("expediente")) != _propio]
+        if filas:
+            hablan.append((p, filas))
     limpias_de = [[] for _ in hablan]
     vistas = set()
     # SIN REPETIR ENTRE PROBLEMAS, como en el espejo viejo, y EN DOS PASADAS:
