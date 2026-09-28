@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
-"""La fuente OAJ del espejo habla sólo con tabla y al 85%, y si no, calla.
+"""La fuente OAJ del espejo habla sólo con tabla —al 85% «mismo problema», del
+50% al 85% «posible»—, y si no, calla.
 
 Se corre sola y SIN RED: un Qdrant falso que respeta los filtros y el umbral,
 y un embebedor falso que devuelve el propio texto para poder ver qué se
@@ -21,18 +22,27 @@ LO QUE VIGILA, Y POR QUÉ CADA COSA
  · LA CONSULTA ES EL PLANTEAMIENTO ENTERO, como la arma la producción: por
    `consultar()`, que entrega cadenas, y no sólo por `_espejo_propio` con
    dicts a mano, que es como la primera prueba pasó en falso.
- · BAJO EL 85%, NADA. Y el porcentaje se redondea hacia abajo.
+ · LOS DOS NIVELES (David, 28-sep-2026, «opción 1 + 2»): del 85% arriba
+   «mismo_problema», hasta seis; del 50% al 85% «posible», hasta tres y sólo
+   por planteamiento. Bajo el 50%, nada. Cada uno con su probabilidad REAL,
+   redondeada hacia abajo. `umbral_50` sólo endurece, y su `null` calla ese
+   nivel. Una sentencia sale una sola vez, en el nivel de su mejor
+   planteamiento, y una sola búsqueda sirve a los dos niveles.
+ · CON LA TABLA REAL (la del disco, no una copia): hoy el nivel de arriba por
+   planteamiento calla en los cuatro tipos y el de abajo puede hablar.
  · UN NEUN, UNA FILA. Tres planteamientos de la misma sentencia son un
    precedente, no tres. Y un NEUN guardado como 12345.0 sigue siendo el 12345.
- · EL RESPALDO POR TEMA sólo cuando ningún planteamiento pasa, y la fila dice
-   que vino por tema.
+ · EL RESPALDO POR TEMA sólo cuando ningún planteamiento llega al 85%, la fila
+   dice que vino por tema, y por tema no hay «posible».
  · EL FILTRO: otro tribunal u otro tipo no entran aunque se parezcan más.
  · EL MAPA DEL TRIBUNAL al nombre exacto con que la OAJ lo indexa, y sólo si
    CONSTA el circuito 22: un tribunal de otra plaza no es «su propio tribunal».
  · EL FORMATO de la fila, campo por campo, y que viaje entero por la fila de
    la sesión y por la respuesta de /taller.
  · EN EL TALLER: la OAJ primero, sin piso de filas, sin resumen y sin repetir
-   entre problemas; y si calla, el espejo viejo exactamente como antes.
+   entre problemas —el nivel de arriba gana al de abajo aunque venga de un
+   planteamiento posterior—; un planteamiento con sólo posibles se enseña; y
+   si la OAJ calla, el espejo viejo exactamente como antes.
 """
 import asyncio
 import contextlib
@@ -142,7 +152,8 @@ def pl(neun, score_tag="", clase="planteamiento", tipo="Amparo Directo",
 # La forma que escribe el calibrador: [cos_min, cos_max, prob, n].
 CAL = {
     "planteamiento": {
-        # 0.70 es donde la tabla alcanza 0.85 con pares suficientes: el corte.
+        # 0.70 es donde la tabla alcanza 0.85 con pares suficientes: el corte
+        # del nivel de arriba. 0.60 es donde alcanza 0.50: el de «posible».
         "Amparo Directo": [[0.0, 0.60, 0.10, 40], [0.60, 0.70, 0.50, 20],
                            [0.70, 0.75, 0.869, 12], [0.75, 1.0, 0.95, 9]],
     },
@@ -191,6 +202,12 @@ def usar_calibracion(d):
 
 def correr(coro):
     return asyncio.run(coro)
+
+
+def niveles(filas):
+    """([NEUN «mismo problema»], [NEUN «posible»]), en el orden en que salen."""
+    return ([f["neun"] for f in filas if f.get("nivel") == fo.NIVEL_MISMO],
+            [f["neun"] for f in filas if f.get("nivel") == fo.NIVEL_POSIBLE])
 
 
 def callado(fn, *a):
@@ -349,7 +366,104 @@ CONSULTAS.clear()
 q = QdrantFalso([(0.99, pl(804, clase="asunto"))])
 ok(correr(fo.precedentes_oaj(q, embed, PROB, "amparo_directo", ORG3)) == []
    and not CONSULTAS and not q.llamadas,
-   "AD con la tabla real calla, y ni embebe ni consulta")
+   "AD con los tramos de asunto de la tabla real (y sin los de planteamiento) "
+   "calla, y ni embebe ni consulta")
+
+print("\n4c · LA TABLA REAL, LA DEL DISCO: HOY EL 85% CALLA POR PLANTEAMIENTO Y EL 50% HABLA")
+# La de verdad, no una copia de sus tramos: es la que decide qué ve hoy el
+# secretario. Vive fuera del repo del API (la escribe el calibrador en
+# redactor-sentencias), así que se busca junto al módulo —si un día se
+# versiona ahí— o en su carpeta de origen, al lado de este repositorio.
+_AQUI = os.path.dirname(os.path.abspath(fo.__file__))
+_CANDIDATAS = [os.environ.get("OAJ_CALIBRACION_REAL", ""),
+               os.path.join(_AQUI, "oaj_calibracion.json"),
+               os.path.join(_AQUI, "..", "redactor-sentencias", "oaj", "calibracion",
+                            "oaj_calibracion.json")]
+_RUTA_REAL = next((r for r in _CANDIDATAS if r and os.path.isfile(r)), "")
+_DEL_TALLER = {v: k for k, v in fo.TIPOS_OAJ.items()}
+if not _RUTA_REAL:
+    print("   (sin la tabla real a la mano: no se comprobó)")
+else:
+    print(f"   tabla: {os.path.normpath(_RUTA_REAL)}")
+    fo.RUTA_CALIBRACION = _RUTA_REAL
+    creal = fo.cargar_calibracion()
+    tipos_real = sorted((creal.get("planteamiento") or {}))
+    ok(bool(tipos_real) and all(t in _DEL_TALLER for t in tipos_real),
+       f"trae tablas de planteamiento de los tipos del taller ({tipos_real})")
+    c85, c50, cas = {}, {}, {}
+    for tipo in tipos_real:
+        tp = fo.tabla_de(creal, "planteamiento", tipo)
+        ok(tp is not None, f"{tipo}: la tabla de planteamiento se lee entera")
+        c85[tipo] = fo._corte(creal, "planteamiento", tipo, tp)
+        c50[tipo] = fo._corte_posible(creal, "planteamiento", tipo, tp)
+        cas[tipo] = fo._corte(creal, "asunto", tipo, fo.tabla_de(creal, "asunto", tipo))
+
+    # LO DE HOY. Se afirma sólo mientras la tabla sea la del 28-sep: al
+    # recalibrar puede cambiar, y entonces lo que vale es lo de abajo, que no
+    # supone ningún valor.
+    if "28-sep-2026" in str(creal.get("fuente") or ""):
+        ok(all(c85[t] is None for t in tipos_real),
+           "HOY el nivel «mismo problema» por planteamiento calla en los cuatro tipos")
+        ok(any(c50[t] is not None for t in tipos_real),
+           f"y el nivel «posible» puede hablar (corte del 50% en "
+           f"{[t for t in tipos_real if c50[t] is not None]})")
+    else:
+        print(f"   (la tabla ya no es la del 28-sep —«{creal.get('fuente')}»—: "
+              f"lo de «hoy» no se afirma; lo de abajo sí)")
+
+    # LO QUE VALE CON CUALQUIER TABLA: el número que sale es el de la tabla,
+    # cada fila en el nivel que su probabilidad dice, y bajo el corte, nada.
+    for tipo in tipos_real:
+        clave_taller = _DEL_TALLER[tipo]
+        tp = fo.tabla_de(creal, "planteamiento", tipo)
+        sost = [x for x in tp if x[3] is not None and x[3] >= fo.PARES_MINIMOS]
+        if c85[tipo] is None and c50[tipo] is None and cas[tipo] is None:
+            CONSULTAS.clear()
+            q = QdrantFalso([(0.99, pl(880, tipo=tipo))])
+            ok(correr(fo.precedentes_oaj(q, embed, PROB, clave_taller, ORG3)) == []
+               and not CONSULTAS and not q.llamadas,
+               f"{tipo}: sin ningún corte, calla sin embeber")
+            continue
+        if c50[tipo] is None:
+            continue
+        # El tramo sostenido más alto de la franja «posible»: en su punto medio
+        # la tabla da exactamente su probabilidad.
+        franja = [x for x in sost if fo.PROB_POSIBLE <= x[2] < fo.PROB_MINIMA
+                  and x[0] >= c50[tipo]]
+        if not franja:
+            continue
+        cmin, cmax, p, _n = franja[-1]
+        medio = (cmin + cmax) / 2
+        q = QdrantFalso([(medio, pl(881, tipo=tipo)),
+                         (c50[tipo] - 0.001, pl(882, tipo=tipo))])
+        filas = correr(fo.precedentes_oaj(q, embed, PROB, clave_taller, ORG3))
+        pl_filas = [f for f in filas if f["fuente"] == "planteamiento"]
+        ok([(f["neun"], f["nivel"], f["similitud"]) for f in pl_filas]
+           == [(881, "posible", min(int(p * 100 + 1e-9), fo.TOPE_VISIBLE))],
+           f"{tipo}: un coseno de {medio:.4f} sale «{int(p * 100 + 1e-9)}% · "
+           f"posible», el número del tramo; bajo el corte ({c50[tipo]}) nada "
+           f"(salió {[(f['neun'], f['similitud']) for f in pl_filas]})")
+        ok(q.llamadas and q.llamadas[0]["umbral"] == min(
+               c for c in (c85[tipo], c50[tipo]) if c is not None),
+           f"{tipo}: una búsqueda de planteamiento, desde el corte más bajo")
+
+        # Y si el tema de la MISMA sentencia llega al 85% (la revisión fiscal
+        # de hoy), sale arriba por tema y no se repite abajo.
+        if cas[tipo] is not None:
+            ta = fo.tabla_de(creal, "asunto", tipo)
+            alto = [x for x in ta if x[3] is not None and x[3] >= fo.PARES_MINIMOS
+                    and x[2] >= fo.PROB_MINIMA and x[0] >= cas[tipo]]
+            am, aM, ap, _ = alto[0]
+            q = QdrantFalso([(medio, pl(883, tipo=tipo)),
+                             (medio, pl(884, tipo=tipo)),
+                             ((am + aM) / 2, pl(883, clase="asunto", tipo=tipo))])
+            filas = correr(fo.precedentes_oaj(q, embed, PROB, clave_taller, ORG3))
+            ok([(f["neun"], f["nivel"], f["fuente"], f["similitud"]) for f in filas]
+               == [(883, "mismo_problema", "tema", min(int(ap * 100 + 1e-9), 99)),
+                   (884, "posible", "planteamiento", int(p * 100 + 1e-9))],
+               f"{tipo}: el 883 arriba por tema al {int(ap * 100 + 1e-9)}% y "
+               f"no repetido abajo; el 884 posible (salió "
+               f"{[(f['neun'], f['nivel'], f['similitud']) for f in filas]})")
 
 print("\n5 · SIN TABLA NO HAY PORCENTAJE")
 PUNTOS = [(0.80, pl(101)), (0.72, pl(101, "-bis")), (0.71, pl(102)),
@@ -376,10 +490,12 @@ ok(correr(fo.precedentes_oaj(QdrantFalso(PUNTOS), embed, PROB,
                              "amparo_directo", ORG3)) == [],
    "JSON ilegible → []")
 
-usar_calibracion({"planteamiento": {"Amparo Directo": [[0.0, 1.0, 0.80, 50]]}})
-ok(correr(fo.precedentes_oaj(QdrantFalso(PUNTOS), embed, PROB,
-                             "amparo_directo", ORG3)) == [],
-   "una tabla que nunca llega a 0.85 → []")
+usar_calibracion({"planteamiento": {"Amparo Directo": [[0.0, 1.0, 0.45, 50]]}})
+CONSULTAS.clear()
+q = QdrantFalso(PUNTOS)
+ok(correr(fo.precedentes_oaj(q, embed, PROB, "amparo_directo", ORG3)) == []
+   and not CONSULTAS and not q.llamadas,
+   "una tabla que nunca llega a 0.50 → [] sin embeber: ni «mismo problema» ni «posible»")
 
 usar_calibracion(CAL)
 for prob_malo, que in (("¿La constancia de notificación electrónica debía llevar "
@@ -397,8 +513,9 @@ usar_calibracion(CAL)
 CONSULTAS.clear()
 q = QdrantFalso(PUNTOS)
 filas = correr(fo.precedentes_oaj(q, embed, PROB, "amparo_directo", ORG3))
-ok([f["neun"] for f in filas] == [101, 102],
-   f"salen 101 y 102, en orden de coseno (salió {[f['neun'] for f in filas]})")
+ok(niveles(filas) == ([101, 102], [103]),
+   f"101 y 102 «mismo problema» en orden de coseno, 103 (0.65 → 50%) «posible» "
+   f"detrás (salió {niveles(filas)})")
 ok(CONSULTAS == [fo.texto_consulta(PROB)],
    "se embebió «pregunta combate resolvio», una sola vez")
 ll = q.llamadas[0] if q.llamadas else {}
@@ -407,13 +524,14 @@ ok(ll.get("coleccion") == "oaj_precedentes" and ll.get("using") == "dense",
 ok(ll.get("filtro") == {"clase": "planteamiento", "tipo": "Amparo Directo",
                         "organo": ORG3},
    "filtro por clase, tipo y órgano: otro tribunal y otro tipo no entran")
-ok(ll.get("umbral") == 0.70, "a Qdrant se le pide desde el corte de la tabla")
-ok(len(q.llamadas) == 1, "si los planteamientos hablan, no se consulta el respaldo")
+ok(ll.get("umbral") == 0.60,
+   "UNA búsqueda para los dos niveles, pedida desde el corte más bajo (0.60, el del 50%)")
+ok(len(q.llamadas) == 1, "si hay «mismo problema», no se consulta el respaldo")
 f0 = filas[0] if filas else {}
 ok(f0.get("score") == 0.8 and "-bis" not in f0.get("pregunta", ""),
    "del NEUN 101 se queda el MEJOR planteamiento (0.80), no el de 0.72")
 CAMPOS = {"tipo_asunto", "expediente", "fecha", "sentido", "tema", "score",
-          "pdf_url", "similitud", "fuente", "pregunta", "razon",
+          "pdf_url", "similitud", "fuente", "nivel", "pregunta", "razon",
           "calificacion", "autoridad", "neun", "enlace_oaj"}
 ok(all(set(f) == CAMPOS for f in filas), "cada fila trae exactamente los campos pactados")
 ok(f0.get("tipo_asunto") == "Amparo Directo" and f0.get("expediente") == "101/2025"
@@ -428,12 +546,17 @@ ok(isinstance(f0.get("similitud"), int) and isinstance(f0.get("neun"), int),
    "similitud y NEUN son enteros")
 ok(f0.get("similitud") == 95 and (filas[1]["similitud"] if len(filas) > 1 else 0) == 86,
    "0.95 → 95% y 0.869 → 86%: el porcentaje se redondea hacia abajo")
+ok(len(filas) > 2 and filas[2]["similitud"] == 50 and filas[2]["nivel"] == "posible"
+   and filas[2]["pregunta"] and filas[2]["calificacion"] and filas[2]["razon"],
+   "el posible lleva su 50% real, su pregunta, su calificación y su razón")
 
-# Seis como máximo.
+# Seis como máximo, y la séptima «mismo problema» no baja a posible.
 muchos = [(0.80 - i * 0.001, pl(500 + i)) for i in range(10)]
 filas = correr(fo.precedentes_oaj(QdrantFalso(muchos), embed, PROB,
                                   "amparo_directo", ORG3))
-ok(len(filas) == 6, f"como máximo seis filas (salieron {len(filas)})")
+ok(len(filas) == 6 and niveles(filas)[1] == [],
+   f"como máximo seis «mismo problema», y las que sobran no se enseñan como "
+   f"posibles (salieron {niveles(filas)})")
 
 # Nunca «100%».
 usar_calibracion({"planteamiento": {"Amparo Directo": [[0.0, 0.7, 0.2, 30],
@@ -463,7 +586,9 @@ ok([f["neun"] for f in filas] == [12345, 23456, 34567]
 usar_calibracion(_endurecida)
 filas = correr(fo.precedentes_oaj(QdrantFalso(PUNTOS), embed, PROB,
                                   "amparo_directo", ORG3))
-ok([f["neun"] for f in filas] == [101], "con `umbral_85` en 0.76 sólo pasa 101")
+ok(niveles(filas) == ([101], [103]),
+   f"con `umbral_85` en 0.76 sólo 101 arriba; 102 (86% de la tabla) NO baja a "
+   f"«posible» con otro número, y 103 sigue abajo (salió {niveles(filas)})")
 
 print("\n6b · SÓLO EN EL TRIBUNAL DONDE SE MIDIÓ LA TABLA")
 P1TCC = [(0.80, pl(701, organo=ORG1))]
@@ -484,10 +609,10 @@ ok(correr(fo.precedentes_oaj(QdrantFalso(PUNTOS), embed, PROB,
 
 print("\n7 · BAJO EL UMBRAL, NADA")
 usar_calibracion(CAL)
-bajos = [(0.69, pl(101)), (0.60, pl(102)), (0.64, pl(101, clase="asunto"))]
+bajos = [(0.59, pl(101)), (0.50, pl(102)), (0.64, pl(101, clase="asunto"))]
 q = QdrantFalso(bajos)
 ok(correr(fo.precedentes_oaj(q, embed, PROB, "amparo_directo", ORG3)) == [],
-   "planteamientos bajo 0.70 y asunto bajo 0.65 → []")
+   "planteamientos bajo 0.60 (el 50%) y asunto bajo 0.65 → []")
 ok(len(q.llamadas) == 2, "y sí se probó el respaldo antes de callar")
 
 print("\n8 · EL RESPALDO POR TEMA")
@@ -495,12 +620,14 @@ respaldo = [(0.65, pl(101)), (0.70, pl(401, clase="asunto")),
             (0.66, pl(402, clase="asunto")), (0.60, pl(403, clase="asunto"))]
 q = QdrantFalso(respaldo)
 filas = correr(fo.precedentes_oaj(q, embed, PROB, "amparo_directo", ORG3))
-ok([f["neun"] for f in filas] == [401, 402],
-   f"ningún planteamiento pasa → salen los asuntos por tema (salió {[f['neun'] for f in filas]})")
-ok(all(f["fuente"] == "tema" and f["pregunta"] == "" and f["razon"] == ""
-       and f["calificacion"] == "" for f in filas),
+ok(niveles(filas) == ([401, 402], [101]),
+   f"ningún planteamiento llega al 85% → arriba los asuntos por tema, y el "
+   f"posible del planteamiento se queda abajo (salió {niveles(filas)})")
+tema = [f for f in filas if f["fuente"] == "tema"]
+ok(len(tema) == 2 and all(f["pregunta"] == "" and f["razon"] == ""
+                          and f["calificacion"] == "" for f in tema),
    "la fila dice que vino por tema y no finge pregunta, razón ni calificación")
-ok(filas and filas[0]["similitud"] == 90, "con la tabla de `asunto`, no con la de planteamiento")
+ok(tema and tema[0]["similitud"] == 90, "con la tabla de `asunto`, no con la de planteamiento")
 ok(len(q.llamadas) == 2 and q.llamadas[1]["filtro"]["clase"] == "asunto"
    and q.llamadas[1]["umbral"] == 0.65,
    "el respaldo filtra clase=asunto desde su propio corte")
@@ -508,8 +635,100 @@ ok(len(q.llamadas) == 2 and q.llamadas[1]["filtro"]["clase"] == "asunto"
 usar_calibracion({"asunto": CAL["asunto"]})
 filas = correr(fo.precedentes_oaj(QdrantFalso(respaldo), embed, PROB,
                                   "amparo_directo", ORG3))
-ok([f["neun"] for f in filas] == [401, 402],
-   "sin tabla de planteamiento pero con la de asunto, habla el respaldo")
+ok(niveles(filas) == ([401, 402], []),
+   "sin tabla de planteamiento pero con la de asunto, habla el respaldo (y sin posibles)")
+
+# POR TEMA NO HAY «POSIBLE». Una tabla de asunto con un tramo de 60% sostenido:
+# un tema a 0.62 NO sale, y a Qdrant se le pide desde el 85% del tema.
+usar_calibracion({"asunto": {"Amparo Directo": [[0.0, 0.60, 0.20, 50],
+                                                [0.60, 0.65, 0.60, 10],
+                                                [0.65, 1.0, 0.90, 10]]}})
+q = QdrantFalso([(0.62, pl(451, clase="asunto")), (0.70, pl(452, clase="asunto"))])
+filas = correr(fo.precedentes_oaj(q, embed, PROB, "amparo_directo", ORG3))
+ok(niveles(filas) == ([452], []) and q.llamadas and q.llamadas[-1]["umbral"] == 0.65,
+   f"un tema al 60% no se enseña como posible: por tema sólo el 85% "
+   f"(salió {niveles(filas)})")
+q = QdrantFalso([(0.62, pl(451, clase="asunto"))])
+ok(correr(fo.precedentes_oaj(q, embed, PROB, "amparo_directo", ORG3)) == [],
+   "y si sólo hay temas del 60%, calla")
+
+print("\n8b · LOS DOS NIVELES")
+# Del 50% al 85%, tres como máximo, los mejores, con su número real.
+usar_calibracion(CAL)
+cinco = [(0.69 - i * 0.01, pl(560 + i)) for i in range(5)]
+filas = correr(fo.precedentes_oaj(QdrantFalso(cinco), embed, PROB,
+                                  "amparo_directo", ORG3))
+ok(niveles(filas) == ([], [560, 561, 562]),
+   f"sólo posibles: salen tres, los de mejor coseno (salió {niveles(filas)})")
+ok(all(f["similitud"] == 50 and f["nivel"] == "posible"
+       and f["fuente"] == "planteamiento" for f in filas),
+   "con el 50% de la tabla, no más")
+
+# Una sentencia, una vez: su mejor planteamiento decide el nivel.
+filas = correr(fo.precedentes_oaj(
+    QdrantFalso([(0.80, pl(570)), (0.65, pl(570, "-otro")), (0.66, pl(571))]),
+    embed, PROB, "amparo_directo", ORG3))
+ok(niveles(filas) == ([570], [571]),
+   f"el 570 sale arriba por su planteamiento de 0.80 y NO otra vez abajo por el "
+   f"de 0.65 (salió {niveles(filas)})")
+
+# Tema arriba y planteamiento abajo de la misma sentencia: sale arriba, y su
+# lugar entre los tres posibles lo toma el siguiente.
+q = QdrantFalso([(0.69, pl(580)), (0.68, pl(581)), (0.67, pl(582)),
+                 (0.66, pl(583)), (0.70, pl(580, clase="asunto"))])
+filas = correr(fo.precedentes_oaj(q, embed, PROB, "amparo_directo", ORG3))
+ok(niveles(filas) == ([580], [581, 582, 583]),
+   f"el 580 coincide por tema al 90%: no se repite como posible y el 583 entra "
+   f"(salió {niveles(filas)})")
+
+# La tabla llega al 50% pero no al 85%: el nivel de abajo habla solo.
+usar_calibracion({"planteamiento": {"Amparo Directo": [[0.0, 0.70, 0.10, 40],
+                                                       [0.70, 1.0, 0.571, 7]]}})
+q = QdrantFalso([(0.95, pl(590)), (0.72, pl(591)), (0.69, pl(592))])
+filas = correr(fo.precedentes_oaj(q, embed, PROB, "amparo_directo", ORG3))
+ok(niveles(filas) == ([], [590, 591]) and [f["similitud"] for f in filas] == [57, 57],
+   f"sin corte al 85%, un coseno de 0.95 sale como «57% · posible»: su número "
+   f"real, no inflado (salió {[(f['neun'], f['similitud']) for f in filas]})")
+ok(q.llamadas and q.llamadas[0]["umbral"] == 0.70,
+   "y a Qdrant se le pide desde el corte del 50%")
+
+# `umbral_50` sólo endurece; su `null` calla el nivel de abajo.
+_con50 = lambda u50: dict(CAL, umbral_50={"planteamiento": {"Amparo Directo": u50}})
+t = fo.tabla_de(CAL, "planteamiento", "Amparo Directo")
+ok(fo._corte_posible(CAL, "planteamiento", "Amparo Directo", t) == 0.60,
+   "el corte del 50% sale de la tabla con la misma regla que el del 85%")
+ok(fo._corte_posible(_con50(0.66), "planteamiento", "Amparo Directo", t) == 0.66,
+   "`umbral_50` más alto ENDURECE el corte de los posibles")
+ok(fo._corte_posible(_con50(0.40), "planteamiento", "Amparo Directo", t) == 0.60,
+   "`umbral_50` más bajo NO lo ablanda")
+ok(fo._corte_posible(_con50(None), "planteamiento", "Amparo Directo", t) is None,
+   "`umbral_50: null` es «no hay corte fiable del 50%»")
+ok(fo._corte(_con50(None), "planteamiento", "Amparo Directo", t) == 0.70,
+   "y no toca el corte del 85%")
+PNIV = [(0.80, pl(101)), (0.67, pl(102)), (0.63, pl(103))]
+usar_calibracion(_con50(0.66))
+q = QdrantFalso(PNIV)
+filas = correr(fo.precedentes_oaj(q, embed, PROB, "amparo_directo", ORG3))
+ok(niveles(filas) == ([101], [102]) and q.llamadas[0]["umbral"] == 0.66,
+   f"con `umbral_50` en 0.66, el 103 (0.63) queda fuera (salió {niveles(filas)})")
+usar_calibracion(_con50(None))
+q = QdrantFalso(PNIV)
+filas = correr(fo.precedentes_oaj(q, embed, PROB, "amparo_directo", ORG3))
+ok(niveles(filas) == ([101], []) and q.llamadas[0]["umbral"] == 0.70,
+   f"con `umbral_50: null` sólo habla el nivel de arriba, pedido desde su propio "
+   f"corte (salió {niveles(filas)})")
+usar_calibracion({"planteamiento": CAL["planteamiento"],
+                  "umbral_50": {"planteamiento": {"Amparo Directo": None}},
+                  "umbral_85": {"planteamiento": {"Amparo Directo": None}}})
+CONSULTAS.clear()
+q = QdrantFalso(PNIV)
+ok(correr(fo.precedentes_oaj(q, embed, PROB, "amparo_directo", ORG3)) == []
+   and not CONSULTAS and not q.llamadas,
+   "con los dos `null` (y sin tabla de asunto) calla sin embeber")
+usar_calibracion(dict(CAL, umbral_50={"planteamiento": {"Queja": None}}))
+ok(niveles(correr(fo.precedentes_oaj(QdrantFalso(PNIV), embed, PROB,
+                                     "amparo_directo", ORG3))) == ([101], [102, 103]),
+   "el `null` de OTRO tipo no apaga los posibles de éste")
 
 print("\n9 · LOS ERRORES NO TUMBAN NADA")
 usar_calibracion(CAL)
@@ -626,9 +845,58 @@ ok(g1.get("resumen") == "" and g2.get("resumen") == "",
    "sin renglón de resumen, ni con dos filas ni con una («De estos 1 asuntos…»)")
 ok(not any(f["neun"] == 901 for g in esp for f in g["filas"]),
    "nada de lo que sólo habría salido con la pregunta sola")
+ok(all(f["nivel"] == "mismo_problema" for g in esp for f in g["filas"]),
+   "y todas del nivel de arriba: P3 (0.50) queda bajo el corte del 50%")
+
+print("\n12a · EN EL TALLER, CON LOS DOS NIVELES")
+
+
+def por_nivel(consulta):
+    # P1: 101 y 102 posibles. P2: 101 «mismo problema», 102 y 601 posibles.
+    # P3: sólo un posible, 701.
+    if consulta.startswith(PROB["pregunta"] + " "):
+        return [(0.65, pl(101)), (0.66, pl(102))]
+    if consulta.startswith(P2["pregunta"] + " "):
+        return [(0.80, pl(101)), (0.64, pl(102)), (0.62, pl(601))]
+    if consulta.startswith(P3["pregunta"] + " "):
+        return [(0.63, pl(701))]
+    return []
+
+
+_original = fe.espejo
+LLAMADAS_VIEJO = []
+
+
+async def espejo_viejo_espia(*a, **k):
+    LLAMADAS_VIEJO.append(a)
+    return []
+
+
+fe.espejo = espejo_viejo_espia
+try:
+    usar_calibracion(CAL)
+    esp = correr(ra._espejo_propio(QdrantFalso(por_nivel), embed,
+                                   resultado([P1, P2, P3]),
+                                   consultas_como_produccion([P1, P2, P3])))
+finally:
+    fe.espejo = _original
+_grupos = {g["problema"]: [(f["neun"], f["nivel"]) for f in g["filas"]] for g in esp}
+ok(_grupos.get(P2["pregunta"]) == [(101, "mismo_problema"), (601, "posible")],
+   f"el 101 sale ARRIBA en P2, aunque P1 lo tenía como posible y va antes; y el "
+   f"«mismo problema» antes que el posible (P2: {_grupos.get(P2['pregunta'])})")
+ok(_grupos.get(P1["pregunta"]) == [(102, "posible")],
+   f"P1 se queda con el 102 y no repite el 101 (P1: {_grupos.get(P1['pregunta'])})")
+ok(_grupos.get(P3["pregunta"]) == [(701, "posible")],
+   "un planteamiento con SÓLO posibles también se enseña")
+ok(sum(len(v) for v in _grupos.values()) == len({n for v in _grupos.values()
+                                                 for n, _ in v}),
+   "ninguna sentencia sale dos veces en la tarjeta")
+ok(not LLAMADAS_VIEJO,
+   "con sólo posibles la OAJ habla: el espejo viejo ni se consulta")
+ok(all(g["resumen"] == "" and g["cobertura"] == fo.NOTA_COBERTURA for g in esp),
+   "sin renglón de resumen y con la cobertura de la OAJ")
 
 # La OAJ calla (sin tabla) → el espejo viejo, tal como hoy, con su piso.
-_original = fe.espejo
 LLAMADAS_VIEJO = []
 
 

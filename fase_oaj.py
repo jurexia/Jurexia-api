@@ -25,10 +25,11 @@ LO QUE CAMBIA RESPECTO DEL ESPEJO VIEJO, Y POR QUÉ
     nada, y cada tipo de asunto tiene su propia distribución. El coseno se
     convierte con una tabla de calibración isotónica (`oaj_calibracion.json`,
     versionada junto a este módulo) y sólo se enseña lo que la tabla pone en
-    0.85 o más CON AL MENOS TRES PARES DETRÁS. SIN TABLA NO HAY PORCENTAJE: si
-    el JSON no existe, no trae el tipo, o no trae un corte fiable, se devuelve
-    una lista vacía y el taller cae al espejo viejo. Inventar un porcentaje
-    sería de la misma especie que la tesis inventada.
+    0.50 o más CON AL MENOS TRES PARES DETRÁS (ver «Los dos niveles», abajo).
+    SIN TABLA NO HAY PORCENTAJE: si el JSON no existe, no trae el tipo, o no
+    trae un corte fiable, se devuelve una lista vacía y el taller cae al espejo
+    viejo. Inventar un porcentaje sería de la misma especie que la tesis
+    inventada.
 
  3. SÓLO DONDE SE CALIBRÓ. La tabla del 28-sep-2026 se midió dentro del 3TCC;
     entre tribunales el estilo del tema cambia y el corte puede moverse (lo
@@ -37,13 +38,37 @@ LO QUE CAMBIA RESPECTO DEL ESPEJO VIEJO, Y POR QUÉ
     los órganos calibrados, se calla.
 
  4. SIN PISO DE FILAS. El espejo viejo exigía tres sentencias porque su coseno
-    crudo no distinguía el punto del vecino; una coincidencia calibrada al 85%
-    vale sola.
+    crudo no distinguía el punto del vecino; una coincidencia calibrada vale
+    sola.
 
- 5. EL RESPALDO POR TEMA. Si ningún planteamiento pasa, se prueba con los
-    puntos `clase=asunto`, cuyo vector es el de «tipo. tema» de la sentencia,
-    con su propia tabla. La fila lo dice (`fuente: "tema"`): no es lo mismo
-    coincidir en el punto que coincidir en la materia del asunto.
+ 5. EL RESPALDO POR TEMA. Si ningún planteamiento llega al 85%, se prueba con
+    los puntos `clase=asunto`, cuyo vector es el de «tipo. tema» de la
+    sentencia, con su propia tabla. La fila lo dice (`fuente: "tema"`): no es
+    lo mismo coincidir en el punto que coincidir en la materia del asunto.
+
+LOS DOS NIVELES (David, 28-sep-2026: «adelante con la opción 1 + 2»)
+====================================================================
+La tabla del 28-sep no tiene, en ningún tipo, un tramo de planteamiento
+sostenido por tres pares que llegue al 85%: los tramos altos dan entre 0.43 y
+0.67. Con un solo nivel la tarjeta callaba casi siempre, y callaba también lo
+que la medición sí respalda: «hay una probabilidad de 57% de que éste sea el
+mismo problema». Por eso cada fila lleva `nivel`:
+
+ · «mismo_problema»: probabilidad calibrada de 0.85 o más. Lo de siempre;
+   hasta seis. Incluye el respaldo por tema, que sigue exigiendo 0.85.
+ · «posible»: entre 0.50 y 0.85, hasta tres, y SÓLO por planteamiento. El tema
+   del asunto coincide con demasiadas sentencias para que medio acierto diga
+   algo, y un «posible» por tema sería un posible de un posible.
+
+Las dos con su probabilidad REAL de la tabla, hacia abajo y con tope en 99: un
+«posible» se enseña como lo que es, no se sube de nivel ni se le redondea a
+favor. Los dos cortes se sacan de la tabla con la MISMA regla (primer tramo
+sostenido que llega a la probabilidad) y ninguno está escrito aquí: al
+recalibrar, lo que la tabla nueva diga manda.
+
+Una sentencia sale una sola vez: si un planteamiento suyo es «mismo problema»,
+no vuelve a salir como «posible» por otro; si coincidió por tema al 85%, su
+planteamiento al 57% no se repite abajo.
 
 LO QUE SIGUE SIN SER, Y POR LAS MISMAS RAZONES
 ==============================================
@@ -68,6 +93,7 @@ La escribe `redactor-sentencias/oaj/calibracion/calibrar_openai.py`:
       "umbral_85":     {"planteamiento": {...},
                         "asunto": {"Revisión Fiscal": 0.7612,
                                    "Amparo Directo": null}},
+      "umbral_50":     {"planteamiento": {"Queja": null, ...}}   (opcional)
       "organos":       ["<nombre OAJ exacto>" | "3TCC", ...]      (opcional)
     }
 
@@ -75,8 +101,11 @@ La escribe `redactor-sentencias/oaj/calibracion/calibrar_openai.py`:
 columnas) se lee, pero no se sabe cuánto lo sostiene y NO cuenta. `umbral_85`
 presente y `null` es el calibrador diciendo «aquí no hay corte fiable»: se
 calla, no se deduce otro de la tabla. Si trae número, sólo puede ENDURECER el
-corte (ver `_corte`). `organos` son los tribunales en que se midió; si falta,
-vale sólo el 3TCC, que es donde se midió la del 28-sep-2026.
+corte (ver `_corte`). `umbral_50` es lo mismo para el nivel «posible»: la
+tabla del 28-sep no lo trae y manda la tabla; un `null` explícito calla ese
+nivel en esa clase y tipo, y un número sólo lo endurece. `organos` son los
+tribunales en que se midió; si falta, vale sólo el 3TCC, que es donde se midió
+la del 28-sep-2026.
 
 NO LO LLENA ESTE MÓDULO. La colección y la tabla las produce otro proceso; aquí
 sólo se leen. Mientras la tabla no exista, este módulo calla siempre y el
@@ -93,7 +122,13 @@ COLECCION = "oaj_precedentes"
 VECTOR = "dense"            # text-embedding-3-small, 1536, coseno: embed_leyes
 
 # ── LO QUE SE ENSEÑA ─────────────────────────────────────────────────────────
-PROB_MINIMA = 0.85
+# Los dos niveles de la tarjeta (ver «Los dos niveles» arriba). Son los pisos
+# de PROBABILIDAD, no de coseno: el coseno que les corresponde sale de la
+# tabla de cada tipo, y el JSON sólo puede subirlo.
+PROB_MINIMA = 0.85          # «mismo problema»
+PROB_POSIBLE = 0.50         # «posible precedente»
+NIVEL_MISMO = "mismo_problema"
+NIVEL_POSIBLE = "posible"
 # Un tramo de la isotónica sostenido por UN par da «1.0» con un solo ejemplo.
 # El calibrador sólo admite como corte un tramo con tres o más pares; aquí se
 # aplica la misma regla, también para leer el porcentaje.
@@ -102,10 +137,14 @@ PARES_MINIMOS = 3
 # promesa que ningún banco de un centenar de pares sostiene.
 TOPE_VISIBLE = 99
 MOSTRADAS = 6
+# Los posibles van DEBAJO y son menos: tres renglones que hay que revisar a
+# mano ya son trabajo; seis serían una lista que nadie termina.
+MOSTRADAS_POSIBLES = 3
 # Se piden más de las que se muestran porque una sentencia trae varios
 # planteamientos y varios del mismo asunto entran juntos: se queda el mejor de
-# cada NEUN y con treinta suele haber seis distintos.
-PEDIDOS_PLANTEAMIENTO = 30
+# cada NEUN. Con treinta solía haber seis distintos; con los dos niveles hacen
+# falta nueve, y se piden en proporción. Es la misma búsqueda, no otra.
+PEDIDOS_PLANTEAMIENTO = 45
 PEDIDOS_ASUNTO = 12
 # El embebedor topa en 8,192 tokens y el error llega como RetryError envuelto
 # en BadRequestError, que aquí se leería como «no hay precedentes». Un
@@ -127,9 +166,9 @@ ENLACE_OAJ = "https://ejusticia.cjf.gob.mx/BuscadorSISE/"
 NOTA_COBERTURA = (
     "Índice de la OAJ, con el nombre actual del tribunal: lo que publicó con "
     "su denominación anterior no entra. Los planteamientos se comparan con los "
-    "de las sentencias ya leídas y, si ninguno coincide, con el tema de los "
-    "asuntos. Que un asunto no salga aquí no quiere decir que el tribunal no "
-    "lo haya resuelto.")
+    "de las sentencias ya leídas y, si ninguno es el mismo problema, con el "
+    "tema de los asuntos. Que un asunto no salga aquí no quiere decir que el "
+    "tribunal no lo haya resuelto.")
 
 RUTA_CALIBRACION = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                 "oaj_calibracion.json")
@@ -381,27 +420,30 @@ def probabilidad(tabla, coseno: float):
     return p
 
 
-def _corte(cal: dict, clase: str, tipo: str, tabla):
-    """El coseno a partir del cual la tabla puede dar 0.85. None si nunca.
+def _corte(cal: dict, clase: str, tipo: str, tabla, prob: float = PROB_MINIMA,
+           clave: str = "umbral_85"):
+    """El coseno a partir del cual la tabla puede dar `prob`. None si nunca.
 
-    Es el inicio del primer tramo SOSTENIDO que llega a 0.85 —la misma regla
+    Es el inicio del primer tramo SOSTENIDO que llega a `prob` —la misma regla
     con que el calibrador escribe `umbral_85`—: por debajo de él ningún coseno
-    puede pasar, así que se le pide a Qdrant que ni lo mande.
+    puede pasar, así que se le pide a Qdrant que ni lo mande. El corte del
+    nivel «posible» es esta misma función con 0.50 y `umbral_50`: una sola
+    regla para los dos niveles, para que no puedan leer la tabla distinto.
 
-    `umbral_85` del JSON, para esa clase y tipo:
+    `umbral_85` (o `umbral_50`) del JSON, para esa clase y tipo:
       · ausente → manda la tabla;
       · con número → se toma el MÁS ALTO de los dos: si las dos anotaciones
         discrepan, callar es el fallo barato;
       · presente y `null` → el calibrador dejó escrito que ahí no hay corte
-        fiable del 85%. None, y se calla. Ignorarlo y deducir un corte de la
-        tabla fue lo que hacía la primera versión, y con la tabla real ponía
-        «100% de similitud» en el amparo directo sobre un tramo de un par.
+        fiable. None, y se calla. Ignorarlo y deducir un corte de la tabla fue
+        lo que hacía la primera versión, y con la tabla real ponía «100% de
+        similitud» en el amparo directo sobre un tramo de un par.
     """
-    cortes = [cmin for cmin, _c, p, _n in _sostenidos(tabla) if p >= PROB_MINIMA]
+    cortes = [cmin for cmin, _c, p, _n in _sostenidos(tabla) if p >= prob]
     if not cortes:
         return None
     corte = min(cortes)
-    umbrales = ((cal or {}).get("umbral_85") or {})
+    umbrales = ((cal or {}).get(clave) or {})
     umbrales = umbrales.get(clase) if isinstance(umbrales, dict) else None
     if isinstance(umbrales, dict) and tipo in umbrales:
         declarado = _numero(umbrales.get(tipo))
@@ -409,6 +451,11 @@ def _corte(cal: dict, clase: str, tipo: str, tabla):
             return None
         corte = max(corte, declarado)
     return corte
+
+
+def _corte_posible(cal: dict, clase: str, tipo: str, tabla):
+    """El corte del nivel «posible»: 0.50, con `umbral_50`. Ver `_corte`."""
+    return _corte(cal, clase, tipo, tabla, PROB_POSIBLE, "umbral_50")
 
 
 def organos_calibrados(cal: dict) -> set:
@@ -477,10 +524,14 @@ def _txt(pl: dict, k: str) -> str:
     return "" if v.lower() in ("null", "none") else v
 
 
-def _filas(puntos, tabla, corte, fuente: str) -> list:
-    """Lo mejor de cada NEUN, calibrado, filtrado y en el formato de la tarjeta."""
-    # UN PLANTEAMIENTO NO ES UNA SENTENCIA. Tres planteamientos del mismo asunto
-    # entrarían como tres precedentes y son uno: se queda el de mejor coseno.
+def _mejores(puntos, fuente: str) -> list:
+    """[(coseno, NEUN, payload)]: el mejor punto de cada NEUN, de mayor a menor.
+
+    UN PLANTEAMIENTO NO ES UNA SENTENCIA. Tres planteamientos del mismo asunto
+    entrarían como tres precedentes y son uno: se queda el de mejor coseno. Se
+    hace ANTES de repartir por nivel, y así una sentencia cae en un solo nivel,
+    el de su mejor planteamiento: nunca sale arriba por uno y abajo por otro.
+    """
     mejor = {}
     sin_neun = 0
     for p in puntos:
@@ -500,47 +551,84 @@ def _filas(puntos, tabla, corte, fuente: str) -> list:
         _avisar_una_vez(("neun", fuente),
                         f"{sin_neun} puntos ({fuente}) sin NEUN válido; "
                         f"la fuente calla")
+    return [(sc, n, pl) for n, (sc, pl)
+            in sorted(mejor.items(), key=lambda kv: -kv[1][0])]
 
-    filas = []
-    for n, (sc, pl) in sorted(mejor.items(), key=lambda kv: -kv[1][0]):
-        # EL CORTE SE COMPRUEBA AQUÍ TAMBIÉN, no sólo en Qdrant: el
-        # `score_threshold` es una petición al servidor, y el porcentaje es
-        # una afirmación nuestra.
-        if corte is None or sc < corte:
+
+def _fila(sc: float, n: int, pl: dict, prob: float, fuente: str,
+          nivel: str) -> dict:
+    """Una fila en el formato de la tarjeta."""
+    es_pl = fuente == "planteamiento"
+    return {
+        "tipo_asunto": _txt(pl, "tipo"),
+        "expediente": _txt(pl, "alias"),
+        "fecha": _txt(pl, "fecha"),
+        "sentido": _txt(pl, "sentido"),
+        "tema": _txt(pl, "tema"),
+        "score": round(sc, 3),
+        # La OAJ no da PDF por enlace directo; el campo se conserva vacío
+        # para que la fila tenga la misma forma que las del espejo viejo.
+        "pdf_url": "",
+        # Hacia abajo: 0.869 es «86%», nunca «87%», y 0.571 es «57%». El
+        # porcentaje ya es una afirmación; no se redondea a favor. Y con tope:
+        # ver arriba. Vale igual para los dos niveles: un «posible» lleva su
+        # número real, no uno que lo acerque al nivel de arriba.
+        "similitud": min(int(prob * 100 + 1e-9), TOPE_VISIBLE),
+        "fuente": fuente,
+        "nivel": nivel,
+        "pregunta": _txt(pl, "pregunta") if es_pl else "",
+        "razon": _txt(pl, "razon") if es_pl else "",
+        "calificacion": _txt(pl, "calificacion") if es_pl else "",
+        "autoridad": _txt(pl, "autoridad") if es_pl else "",
+        "neun": n,
+        "enlace_oaj": ENLACE_OAJ,
+    }
+
+
+def _repartir(mejores, tabla, fuente: str, corte_mismo, corte_posible,
+              excluir=frozenset()):
+    """(mismo problema, posibles): cada NEUN calibrado y puesto en su nivel.
+
+    `corte_posible` None apaga el nivel de abajo (el respaldo por tema lo
+    llama así: por tema sólo se enseña lo del 85%). `excluir` son NEUN que ya
+    salieron en otro nivel; se saltan ANTES de contar el tope, para que el
+    hueco lo ocupe la siguiente y no quede un renglón menos.
+
+    EL CORTE SE COMPRUEBA AQUÍ TAMBIÉN, no sólo en Qdrant: el
+    `score_threshold` es una petición al servidor, y el porcentaje es una
+    afirmación nuestra. Y cada nivel con SU corte, porque a Qdrant se le pidió
+    desde el más bajo de los dos.
+    """
+    mismas, posibles = [], []
+    for sc, n, pl in mejores:
+        if n in excluir:
             continue
         prob = probabilidad(tabla, sc)
-        if prob is None or prob < PROB_MINIMA:
+        if prob is None:
             continue
-        es_pl = fuente == "planteamiento"
-        filas.append({
-            "tipo_asunto": _txt(pl, "tipo"),
-            "expediente": _txt(pl, "alias"),
-            "fecha": _txt(pl, "fecha"),
-            "sentido": _txt(pl, "sentido"),
-            "tema": _txt(pl, "tema"),
-            "score": round(sc, 3),
-            # La OAJ no da PDF por enlace directo; el campo se conserva vacío
-            # para que la fila tenga la misma forma que las del espejo viejo.
-            "pdf_url": "",
-            # Hacia abajo: 0.869 es «86%», nunca «87%». El porcentaje ya es
-            # una afirmación; no se redondea a favor. Y con tope: ver arriba.
-            "similitud": min(int(prob * 100 + 1e-9), TOPE_VISIBLE),
-            "fuente": fuente,
-            "pregunta": _txt(pl, "pregunta") if es_pl else "",
-            "razon": _txt(pl, "razon") if es_pl else "",
-            "calificacion": _txt(pl, "calificacion") if es_pl else "",
-            "autoridad": _txt(pl, "autoridad") if es_pl else "",
-            "neun": n,
-            "enlace_oaj": ENLACE_OAJ,
-        })
-        if len(filas) >= MOSTRADAS:
-            break
-    return filas
+        if prob >= PROB_MINIMA:
+            # Del 85% para arriba es «mismo problema» o nada. Si el JSON
+            # endureció o anuló ese corte y este coseno no lo pasa, NO baja a
+            # «posible»: su probabilidad no está entre 0.50 y 0.85, y
+            # enseñarla ahí sería ponerle otro número. Y pasada la sexta, la
+            # séptima tampoco baja: el nivel de abajo no es un cajón de sobras.
+            if (corte_mismo is not None and sc >= corte_mismo
+                    and len(mismas) < MOSTRADAS):
+                mismas.append(_fila(sc, n, pl, prob, fuente, NIVEL_MISMO))
+        elif prob >= PROB_POSIBLE:
+            if (corte_posible is not None and sc >= corte_posible
+                    and len(posibles) < MOSTRADAS_POSIBLES):
+                posibles.append(_fila(sc, n, pl, prob, fuente, NIVEL_POSIBLE))
+    return mismas, posibles
 
 
 async def precedentes_oaj(qdrant, embed, problema, tipo_taller: str,
                           organo_oaj: str) -> list:
-    """Los precedentes del propio tribunal para UN planteamiento. Hasta seis.
+    """Los precedentes del propio tribunal para UN planteamiento.
+
+    Hasta seis de nivel «mismo_problema» y, detrás, hasta tres «posible»; cada
+    fila dice el suyo en `nivel` (ver «Los dos niveles»). Primero van todas
+    las del nivel de arriba.
 
     `problema` es el dict de la fase 3 (pregunta, combate, resolvio); cualquier
     otra cosa —una cadena, un dict sin alguna de las tres— calla, porque la
@@ -550,9 +638,9 @@ async def precedentes_oaj(qdrant, embed, problema, tipo_taller: str,
     indexa al tribunal (ver `organo_de`).
 
     Lista vacía en cualquier duda: sin tabla, sin tipo, sin órgano, órgano no
-    calibrado, sin nada que pase del 85%, o con cualquier error. El taller cae
-    entonces al espejo viejo; callar aquí es el fallo barato y nunca tumba la
-    sentencia.
+    calibrado, sin nada que llegue al 50% (o al 85% por tema), o con cualquier
+    error. El taller cae entonces al espejo viejo; callar aquí es el fallo
+    barato y nunca tumba la sentencia.
     """
     try:
         consulta = texto_consulta(problema)
@@ -572,12 +660,15 @@ async def precedentes_oaj(qdrant, embed, problema, tipo_taller: str,
         t_pl = tabla_de(cal, "planteamiento", tipo)
         t_as = tabla_de(cal, "asunto", tipo)
         corte_pl = _corte(cal, "planteamiento", tipo, t_pl)
+        posible_pl = _corte_posible(cal, "planteamiento", tipo, t_pl)
+        # Por tema sólo el nivel de arriba: no se calcula corte «posible».
         corte_as = _corte(cal, "asunto", tipo, t_as)
-        # Sin corte para ninguna de las dos clases no se embebe siquiera: el
-        # porcentaje no se puede decir y no se gasta la llamada.
-        if corte_pl is None and corte_as is None:
+        # Sin ningún corte no se embebe siquiera: el porcentaje no se puede
+        # decir y no se gasta la llamada.
+        if corte_pl is None and posible_pl is None and corte_as is None:
             _avisar_una_vez(("sin_corte", id(cal), tipo),
-                            f"sin corte fiable al 85% para {tipo}; "
+                            f"sin corte fiable (ni al 85% ni al 50% por "
+                            f"planteamiento, ni al 85% por tema) para {tipo}; "
                             f"la fuente OAJ calla en ese tipo")
             return []
 
@@ -587,23 +678,38 @@ async def precedentes_oaj(qdrant, embed, problema, tipo_taller: str,
             print(f"   ⚠️ precedentes OAJ: no se pudo embeber el problema: {e}")
             return []
 
-        if corte_pl is not None:
+        mejores_pl = []
+        cortes_pl = [c for c in (corte_pl, posible_pl) if c is not None]
+        if cortes_pl:
+            # UNA SOLA BÚSQUEDA PARA LOS DOS NIVELES, desde el corte más bajo
+            # que aplique, y luego se reparte. Dos búsquedas devolverían las
+            # mismas sentencias arriba y abajo y habría que casarlas después.
             puntos = await _buscar(qdrant, vector, "planteamiento", tipo,
-                                   organo, PEDIDOS_PLANTEAMIENTO, corte_pl)
-            filas = _filas(puntos, t_pl, corte_pl, "planteamiento")
-            if filas:
-                return filas
+                                   organo, PEDIDOS_PLANTEAMIENTO, min(cortes_pl))
+            mejores_pl = _mejores(puntos, "planteamiento")
+        mismas, posibles = _repartir(mejores_pl, t_pl, "planteamiento",
+                                     corte_pl, posible_pl)
 
-        # EL RESPALDO. Mismo vector: el de la consulta del planteamiento contra
-        # el vector de «tipo. tema» del asunto. Así se midió la tabla de
-        # `asunto` (pares_reales: planteamiento real del taller contra el tema
-        # de la OAJ); con otra forma de consulta su porcentaje no significaría
-        # lo que dice.
-        if corte_as is not None:
+        # EL RESPALDO, cuando ningún planteamiento llega al 85%, aunque haya
+        # posibles: un tema al 90% dice más que un planteamiento al 57%, y los
+        # posibles no son el nivel de arriba. Mismo vector: el de la consulta
+        # del planteamiento contra el vector de «tipo. tema» del asunto. Así se
+        # midió la tabla de `asunto` (pares_reales: planteamiento real del
+        # taller contra el tema de la OAJ); con otra forma de consulta su
+        # porcentaje no significaría lo que dice.
+        if not mismas and corte_as is not None:
             puntos = await _buscar(qdrant, vector, "asunto", tipo,
                                    organo, PEDIDOS_ASUNTO, corte_as)
-            return _filas(puntos, t_as, corte_as, "tema")
-        return []
+            mismas, _ = _repartir(_mejores(puntos, "tema"), t_as, "tema",
+                                  corte_as, None)
+            if mismas:
+                # UNA SENTENCIA, UNA VEZ. Si su tema coincidió al 85%, su
+                # planteamiento al 57% no se repite abajo, y su lugar entre
+                # los tres lo toma el siguiente posible.
+                _, posibles = _repartir(mejores_pl, t_pl, "planteamiento",
+                                        None, posible_pl,
+                                        excluir={f["neun"] for f in mismas})
+        return mismas + posibles
     except Exception as e:
         print(f"   ⚠️ precedentes OAJ: {e}")
         return []

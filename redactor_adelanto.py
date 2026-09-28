@@ -994,7 +994,9 @@ async def _espejo_propio(qdrant, embed, r: Resultado, problemas: list):
     DOS FUENTES, Y SE PRUEBA PRIMERO LA NUEVA. El índice de la OAJ
     (`fase_oaj.py`) busca planteamiento contra planteamiento y da un porcentaje
     calibrado; si no dice nada —sin tabla de calibración, sin colección, nada
-    al 85%—, se cae al acervo viejo exactamente como antes.
+    al 85% ni «posible» al 50%—, se cae al acervo viejo exactamente como antes.
+    Con sólo posibles la OAJ SÍ habla: son su nivel de abajo, con su
+    probabilidad real, y la tarjeta no calla por falta del de arriba.
 
     `problemas` es la lista de CONSULTAS que arma `consultar()` —cadenas: el
     problema global, la pregunta de cada planteamiento y las sintéticas de
@@ -1066,7 +1068,8 @@ async def _espejo_oaj(qdrant, embed, r: Resultado, circ: str,
     Mismo formato que el espejo viejo —{problema, tribunal, filas, resumen,
     cobertura}— para que la tarjeta, la fila de la sesión y el rescate no
     distingan de dónde vino; lo que cambia viaja DENTRO de cada fila
-    (similitud, pregunta, calificación, razón, NEUN).
+    (similitud, nivel, pregunta, calificación, razón, NEUN). En cada grupo van
+    primero las filas «mismo_problema» y detrás las «posible».
     """
     try:
         import fase_oaj as fo
@@ -1103,24 +1106,40 @@ async def _espejo_oaj(qdrant, embed, r: Resultado, circ: str,
     except Exception as exc:
         print(f"   ⚠️ precedentes OAJ omitidos: {exc}")
         return []
-    fuera, vistas = [], set()
-    for p, filas in zip(planteamientos, tiros):
-        if isinstance(filas, BaseException) or not filas:
-            continue
-        limpias = []
-        for f in filas:
-            # SIN REPETIR ENTRE PROBLEMAS, como en el espejo viejo. Aquí la
-            # clave es el NEUN, que identifica la sentencia en la OAJ sin la
-            # ambigüedad de «44/2021», que son cuatro asuntos distintos.
-            k = f.get("neun") or (f.get("tipo_asunto"), f.get("expediente"),
-                                  f.get("fecha"))
-            if k in vistas:
-                continue
-            vistas.add(k)
-            limpias.append(f)
+    hablan = [(p, filas) for p, filas in zip(planteamientos, tiros)
+              if not isinstance(filas, BaseException) and filas]
+    limpias_de = [[] for _ in hablan]
+    vistas = set()
+    # SIN REPETIR ENTRE PROBLEMAS, como en el espejo viejo, y EN DOS PASADAS:
+    # primero el nivel «mismo problema» de todos los planteamientos y después
+    # los posibles. En una sola pasada, una sentencia que es «posible» para el
+    # primer planteamiento y «mismo problema» para el tercero saldría abajo,
+    # como posible, y arriba ya no: el orden de los planteamientos le habría
+    # quitado el nivel que la tabla le da.
+    for pasada_posibles in (False, True):
+        for i, (_p, filas) in enumerate(hablan):
+            for f in filas:
+                # Una fila sin `nivel` es del nivel de arriba: así la
+                # escribía esta fuente antes de los dos niveles.
+                es_posible = f.get("nivel") == fo.NIVEL_POSIBLE
+                if es_posible != pasada_posibles:
+                    continue
+                # Aquí la clave es el NEUN, que identifica la sentencia en la
+                # OAJ sin la ambigüedad de «44/2021», que son cuatro asuntos
+                # distintos.
+                k = f.get("neun") or (f.get("tipo_asunto"), f.get("expediente"),
+                                      f.get("fecha"))
+                if k in vistas:
+                    continue
+                vistas.add(k)
+                limpias_de[i].append(f)
+
+    fuera = []
+    for (p, _filas), limpias in zip(hablan, limpias_de):
         # SIN PISO DE FILAS. `fe.PISO_FILAS` existe porque el coseno crudo del
         # acervo viejo no distinguía el punto del vecino; una coincidencia
-        # calibrada al 85% vale sola.
+        # calibrada vale sola. Y un planteamiento con sólo posibles también
+        # se enseña: el nivel de abajo no necesita al de arriba para hablar.
         if not limpias:
             continue
         # El nombre PARA LEER es el de siempre; el de la OAJ, con su
@@ -1136,9 +1155,12 @@ async def _espejo_oaj(qdrant, embed, r: Resultado, circ: str,
                       "tribunal": largo or organo, "filas": limpias,
                       "resumen": "", "cobertura": fo.NOTA_COBERTURA})
     if fuera:
+        _todas = [f for x in fuera for f in x["filas"]]
+        _pos = sum(1 for f in _todas if f.get("nivel") == fo.NIVEL_POSIBLE)
         print(f"   🪞 espejo del propio tribunal (OAJ, {clave}): "
-              f"{sum(len(x['filas']) for x in fuera)} precedentes en "
-              f"{len(fuera)} de {len(planteamientos)} planteamientos")
+              f"{len(_todas)} precedentes ({len(_todas) - _pos} mismo problema, "
+              f"{_pos} posibles) en {len(fuera)} de {len(planteamientos)} "
+              f"planteamientos")
     return fuera
 
 
