@@ -594,6 +594,12 @@ def _resolver_en_sitio(plan: dict, orden: dict = None, completar_razones: bool =
         decide["dependencia"] = "decide"
         for k in ("con", "depende_de"):
             decide.pop(k, None)
+        _et_d = norm_sentido(decide.get("etiqueta"))
+        if completar_razones and (not decide.get("razon") or _falla_razon(decide["razon"], _et_d)):
+            decide["razon"] = (_et_d if _et_d in ("fundado", "esencialmente_fundado") else "fundado") \
+                if prospera else ("omision_inexistente" if decide.get("vicio") == "omision"
+                                  else "fondo_desestimado")
+            decide["razon_p"] = None
         # (Su tratamiento no se toca: el que `reparar` promueve ya viene
         # contestado; uno que el planificador dejó sin estudio es de contenido
         # y lo rechaza V0.)
@@ -604,7 +610,7 @@ def _resolver_en_sitio(plan: dict, orden: dict = None, completar_razones: bool =
             if era_pendiente:
                 s["pendiente"] = None
             grupo = "autonomo"
-            en_tema = bool(s.get("ataca") and s["ataca"] in tema)
+            en_tema = bool((s.get("ataca") or s.get("razon_p")) in tema)
             propio = bool(s.get("razon_secretario")) or _nunca_depende(s, tipo, clase_p)
             et = norm_sentido(s.get("etiqueta"))
             if propio:
@@ -3244,7 +3250,9 @@ def vista(plan: dict, formato: str = "estandar", concede: bool | None = None) ->
                     dest = expuesta[m["id"]]
                 else:
                     dest = apartado_de.get(s.get("reitera") or "") or vista_u[uid]
-                if trat == "remite" and dest < n_ap:
+                # El que decide y trae aquí a los que van con él no se queda en
+                # una remisión: se contesta aquí, con la premisa ya expuesta.
+                if trat == "remite" and dest < n_ap and s["id"] not in absorbe:
                     _rem = (f"unidad {uid} → apartado {dest}" + (f" ({m['id']})" if m else "")
                             + (f" · proposición: {', '.join(m.get('responde_a') or [])}"
                                if m and m.get("responde_a") else ""))

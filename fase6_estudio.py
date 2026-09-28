@@ -2657,8 +2657,10 @@ def _bloque_sin_calificar(criterios: list) -> str:
 
     David: «si cambio sentido hay que tumbar y regenerar con la premisa del
     cambio de sentido». Si el motor no pudo recalificarlos (dos intentos o 90
-    s), llegan aquí sin sentido: la misma regla que la Decisión 6 del plan —se
-    desarrollan con el material y van PRIMERO en ADVERTENCIAS—. Son DATOS y
+    s), llegan aquí sin sentido: se desarrollan con el material y van PRIMERO
+    en ADVERTENCIAS (la regla que tenía la Decisión 6 para los argumentos,
+    retirada el 28-sep-2026; aquí sigue porque es el PROBLEMA entero el que
+    quedó sin la calificación del secretario). Son DATOS y
     descripciones: ninguna frase que copiar. Sólo la v2 y lo que se arma
     sobre ella (v3, v4); la v1, congelada, sólo recibe el aviso al secretario."""
     sin = [c for c in (criterios or []) if not str(getattr(c, "sentido", "") or "").strip()]
