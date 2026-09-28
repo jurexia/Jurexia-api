@@ -121,6 +121,9 @@ ok(s_ins and "del estado" in s_ins and "None" not in s_ins, "sin entidad no se r
 
 ok("patrón es particular" in l_ins and "escrito de parte" in l_ins,
    "laboral: el patrón es particular salvo que se diga otra cosa, y se entrega escrito de parte")
+ok("Cuando lo que se pide es reclamar" in l_ins and "aviso de rescisión que da el patrón" in l_ins,
+   "laboral: la solicitud de conciliación sólo cuando se reclama; el aviso de rescisión del patrón "
+   "se redacta tal cual (anuncio 5)")
 
 print("\n3b · LA LEY AJENA FUERA DEL CONTEXTO")
 aj = la.es_ley_ajena
