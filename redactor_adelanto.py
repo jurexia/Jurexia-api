@@ -990,6 +990,11 @@ async def _espejo_propio(qdrant, embed, r: Resultado, problemas: list):
 
     NO SE CUELGA DE `fp.sondear`. Aquél es nacional a propósito; éste es del
     tribunal propio y necesita su propio filtro y su propio umbral.
+
+    DOS FUENTES, Y SE PRUEBA PRIMERO LA NUEVA. El índice de la OAJ
+    (`fase_oaj.py`) busca planteamiento contra planteamiento y da un porcentaje
+    calibrado; si no dice nada —sin tabla de calibración, sin colección, nada
+    al 85%—, se cae al acervo viejo exactamente como antes.
     """
     try:
         import fase_espejo as fe
@@ -1006,6 +1011,15 @@ async def _espejo_propio(qdrant, embed, r: Resultado, problemas: list):
         return []
     _txt = [p if isinstance(p, str) else str((p or {}).get("pregunta") or p)
             for p in problemas]
+
+    # UNA SOLA FUENTE POR TARJETA, NO UNA POR PLANTEAMIENTO. La pantalla
+    # enseña UNA nota de cobertura, la del primer grupo, para toda la tarjeta:
+    # mezclar grupos de la OAJ con grupos del acervo viejo pondría la cobertura
+    # de uno debajo de los precedentes del otro. Si la OAJ habla en alguno, la
+    # tarjeta es suya entera.
+    oaj = await _espejo_oaj(qdrant, embed, r, problemas, _txt, clave, largo)
+    if oaj:
+        return oaj
     try:
         tiros = await asyncio.gather(*[
             fe.espejo(qdrant, embed, t, clave, _circ or "22") for t in _txt],
@@ -1035,6 +1049,65 @@ async def _espejo_propio(qdrant, embed, r: Resultado, problemas: list):
     if fuera:
         print(f"   🪞 espejo del propio tribunal ({clave}): "
               f"{sum(len(x['filas']) for x in fuera)} sentencias propias en "
+              f"{len(fuera)} de {len(_txt)} planteamientos")
+    return fuera
+
+
+async def _espejo_oaj(qdrant, embed, r: Resultado, problemas: list,
+                      _txt: list, clave: str, largo: str) -> list:
+    """El espejo desde el índice de la OAJ. [] si no habla en ningún punto.
+
+    Mismo formato que el espejo viejo —{problema, tribunal, filas, resumen,
+    cobertura}— para que la tarjeta, la fila de la sesión y el rescate no
+    distingan de dónde vino; lo que cambia viaja DENTRO de cada fila
+    (similitud, pregunta, calificación, razón, NEUN).
+    """
+    try:
+        import fase_oaj as fo
+    except Exception:
+        return []
+    organo = fo.ORGANOS_OAJ.get(clave, "")
+    if not organo:
+        return []
+    # EL PROBLEMA ENTERO, NO SÓLO LA PREGUNTA. La consulta que casa contra los
+    # planteamientos indexados es «pregunta combate resolvio»; con la pregunta
+    # sola se pierde justo lo que distingue un punto de su vecino.
+    tipo = getattr(r.encargo, "tipo_asunto", "") or ""
+    try:
+        tiros = await asyncio.gather(*[
+            fo.precedentes_oaj(qdrant, embed, p, tipo, organo)
+            for p in problemas], return_exceptions=True)
+    except Exception as exc:
+        print(f"   ⚠️ precedentes OAJ omitidos: {exc}")
+        return []
+    fuera, vistas = [], set()
+    for t, filas in zip(_txt, tiros):
+        if isinstance(filas, BaseException) or not filas:
+            continue
+        limpias = []
+        for f in filas:
+            # SIN REPETIR ENTRE PROBLEMAS, como en el espejo viejo. Aquí la
+            # clave es el NEUN, que identifica la sentencia en la OAJ sin la
+            # ambigüedad de «44/2021», que son cuatro asuntos distintos.
+            k = f.get("neun") or (f.get("tipo_asunto"), f.get("expediente"),
+                                  f.get("fecha"))
+            if k in vistas:
+                continue
+            vistas.add(k)
+            limpias.append(f)
+        # SIN PISO DE FILAS. `fe.PISO_FILAS` existe porque el coseno crudo del
+        # acervo viejo no distinguía el punto del vecino; una coincidencia
+        # calibrada al 85% vale sola.
+        if not limpias:
+            continue
+        # El nombre PARA LEER es el de siempre; el de la OAJ, con su
+        # residencia, es el valor exacto del filtro y no hace falta en pantalla.
+        fuera.append({"problema": t, "tribunal": largo or organo,
+                      "filas": limpias, "resumen": fo.resumen(limpias),
+                      "cobertura": fo.NOTA_COBERTURA})
+    if fuera:
+        print(f"   🪞 espejo del propio tribunal (OAJ, {clave}): "
+              f"{sum(len(x['filas']) for x in fuera)} precedentes en "
               f"{len(fuera)} de {len(_txt)} planteamientos")
     return fuera
 

@@ -36749,6 +36749,11 @@ async def taller_consultar(
         # documento firmado, y meter ahí números de expediente propios acabaría
         # con el modelo copiándolos en la prosa —ya ha pasado tres veces con los
         # ejemplos del prompt—. El espejo es pantalla, no sentencia.
+        #
+        # EL GRUPO VIAJA ENTERO, SIN PROYECTAR CAMPOS. Las filas de la fuente
+        # OAJ (fase_oaj.py) traen similitud, pregunta, calificación, razón y
+        # NEUN además de los siete de siempre; una lista de campos aquí los
+        # perdería sin error. Lo comprueba test_fase_oaj.py.
         "espejo": [x for x in (getattr(material, "espejo", []) or [])
                    if isinstance(x, dict)],
         "avisos": r.avisos,

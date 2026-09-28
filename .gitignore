@@ -98,6 +98,11 @@ scripts/
 # no sella nada y la P. X/2015 vuelve a salir como vigente.
 !datos/vigencia_tesis.json
 !datos/vigencia_curada.json
+# La tabla de calibración de los precedentes de la OAJ (28-sep-2026) que lee
+# fase_oaj.py para convertir el coseno en porcentaje. Sin ella, en Render la
+# fuente OAJ calla siempre —a propósito: sin tabla no se inventa porcentaje— y
+# nadie notaría que la tarjeta volvió al acervo viejo.
+!oaj_calibracion.json
 _catalog_*.json
 sise_*.json
 debug_resp.json
