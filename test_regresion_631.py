@@ -367,7 +367,11 @@ try:
                  "resolvio_a_quo": "niega",               # lo que guardó la sesión
                  "resolutivo_recurrida": fr.resolutivo_recurrida(SENTENCIA)},
                 _est, _c, f0.fecha_en_letra, _ruta,
-                estudio=["Es fundado el primer agravio: la interlocutoria sólo determinó quién "
+                estudio=["Resolución recurrida",
+                         "El Juzgado de Distrito precisó que la protección se concedía para que la "
+                         "Sala Civil Uno dejara insubsistente la resolución reclamada.",
+                         "Solución",
+                         "Es fundado el primer agravio: la interlocutoria sólo determinó quién "
                          "ejecuta, sin modificar las prestaciones; por tanto, se revoca la sentencia "
                          "recurrida y procede negar el amparo."],
                 calificaciones=["fundado"], tipo_asunto="amparo_revision")
@@ -381,6 +385,36 @@ try:
     ok(any("SE TOMÓ DE SU PUNTO RESOLUTIVO" in a for a in _est.avisos)
        and any("revoca_fondo_niega" in a for a in _est.avisos),
        "el aviso dice que manda el resolutivo y la rama es «revoca_fondo_niega»")
+    import ensamblar_adelanto as ens
+    _cg = ens.revisar_congruencia(_ruta, ["fundado"], "amparo_revision")
+    ok(not any("INCONGRUENCIA QUE INVALIDA" in a for a in _cg),
+       f"narrar que el juzgado concedió «para que … dejara insubsistente» no son efectos de "
+       f"este proyecto: sin la alarma de incongruencia {[a[:60] for a in _cg]}")
+    ok(bool(ens._RX_EFECTOS.search("la autoridad responsable deberá dejar insubsistente la resolución"))
+       and bool(ens._RX_EFECTOS.search("la Sala dejará insubsistente la resolución"))
+       and not ens._RX_EFECTOS.search("se concedía para que la Sala dejara insubsistente la resolución"),
+       "«deberá dejar» y «dejará» son órdenes; «dejara» es la narración de otra sentencia")
+    # LA ALARMA VERDADERA SIGUE: efectos escritos en la Solución y un resolutivo que niega.
+    _est2 = dg.Estructura(apertura="V.", visto="para resolver.",
+                          resultandos=[{"titulo": "Presentación de la demanda de amparo indirecto",
+                                        "texto": "Unión Ejemplo, A.C. promovió amparo contra la Sala "
+                                                 "Civil Uno."}],
+                          competencia="", existencia="", procedencia="")
+    _ruta2 = os.path.join(os.path.dirname(_ruta), "ar2.docx")
+    dg.componer({"tipo_asunto": "amparo_revision", "numero": "2/2026",
+                 "encabezado": "AMPARO EN REVISIÓN 2/2026", "quejoso": "Unión Ejemplo, A.C.",
+                 "responsable": "Juzgado Séptimo de Distrito", "magistrado": "M", "secretario": "S",
+                 "tribunal": "Tercer Tribunal Colegiado", "ciudad": "Querétaro",
+                 "resolvio_a_quo": "concede",
+                 "resolutivo_recurrida": fr.resolutivo_recurrida(SENTENCIA)},
+                _est2, _c, f0.fecha_en_letra, _ruta2,
+                estudio=["Solución",
+                         "Es fundado el agravio y la autoridad responsable deberá dejar insubsistente "
+                         "la resolución reclamada."],
+                calificaciones=["fundado"], tipo_asunto="amparo_revision")
+    ok(any("INCONGRUENCIA QUE INVALIDA" in a
+           for a in ens.revisar_congruencia(_ruta2, ["fundado"], "amparo_revision")),
+       "la alarma verdadera sigue: efectos en la Solución y un resolutivo que niega")
 except Exception as ex:  # pragma: no cover
     ok(False, f"el documento no se pudo componer: {type(ex).__name__}: {ex}")
 

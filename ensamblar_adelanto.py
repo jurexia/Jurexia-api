@@ -1416,7 +1416,12 @@ _RX_EFECTOS = re.compile(
     r"(?:como\s+(?:primer|segundo|tercer|cuarto|quinto)\s+efecto"
     r"|efectos?\s+de\s+la\s+concesi[óo]n"
     r"|deber[áa]\s+dejar\s+insubsistente"
-    r"|dejar[áa]\s+insubsistente)", re.I)
+    # «DEJARÁ», CON ACENTO: la orden. «Dejara» es el pretérito de subjuntivo
+    # con que el estudio NARRA la concesión que se revisa —«se concedía para
+    # que la Sala dejara insubsistente…»— y en el AR 631/2025 (28-sep-2026)
+    # disparaba «INCONGRUENCIA QUE INVALIDA» en un proyecto que revocaba y
+    # negaba bien.
+    r"|dejar[áÁ]\s+insubsistente)", re.I)
 
 
 _ORDINALES_CONCEPTO = ("primer", "segundo", "tercer", "cuarto", "quinto",
@@ -1537,7 +1542,19 @@ def revisar_congruencia(ruta: str, calificaciones=None,
 
     concede = bool(_RX_CONCEDE.search(texto))
     niega = bool(_RX_NIEGA.search(texto))
-    efectos = bool(_RX_EFECTOS.search(texto))
+    # EN UN RECURSO, LOS EFECTOS SE BUSCAN DONDE DECIDE ESTE TRIBUNAL: de la
+    # «Solución» en adelante. Antes está la sentencia recurrida narrada, con
+    # SUS efectos, y contarlos como del proyecto acusaba de incongruente a la
+    # revisión que revoca una concesión y niega (AR 631/2025, 28-sep-2026).
+    _k_sol = texto.find("Solución")
+    try:
+        import tipos_asunto as _ta_ef
+        _es_rec_ef = _ta_ef.normalizar(tipo_asunto or "") in ("amparo_revision", "queja",
+                                                            "revision_fiscal")
+    except Exception:
+        _es_rec_ef = False
+    _donde_efectos = texto[_k_sol:] if _es_rec_ef and _k_sol >= 0 else texto
+    efectos = bool(_RX_EFECTOS.search(_donde_efectos))
 
     if concede and niega:
         fuera.append("EL DOCUMENTO CONCEDE Y NIEGA A LA VEZ: aparecen «ampara y "
