@@ -36485,6 +36485,12 @@ async def taller_problema(
             p["pregunta"] = _preg
             p["editado_por_secretario"] = True
     if _jer in ("principal", "accesorio"):
+        # QUIÉN FIJÓ LA JERARQUÍA (AR 631/2025, 28-sep-2026): la tarjeta del
+        # problema principal dice si el principal lo marcó la fase 3 o el
+        # secretario. Sólo si cambia: la marca entra en la huella del
+        # contraste, y reescribir la misma jerarquía no debe recalcularlo.
+        if str(p.get("jerarquia") or "").lower() != _jer:
+            p["jerarquia_por_secretario"] = True
         p["jerarquia"] = _jer
         if _jer == "principal":
             # UN SOLO PRINCIPAL. Si él nombra otro, el que lo era pasa a
@@ -37314,6 +37320,14 @@ async def _taller_proponer_nucleo(user_email: str, numero: str, ses: dict,
             "constancias": list(getattr(glob, "constancias", None) or []),
         },
         "avisos": avisos,
+        # LA LÍNEA DE LA CORTE BUSCADA EN INTERNET: su resumen y las PISTAS que
+        # el acervo no confirmó (AR 631/2025, 28-sep-2026). Vivían sólo en
+        # `ses["internet"]` —y en la propuesta calculada sola, en una sesión
+        # propia que se tira—, así que nadie las leía. Viajan con la respuesta
+        # guardada para que la tarjeta del problema principal (/taller/tarjeta)
+        # las enseñe; las pistas NUNCA se citan. No cambia el formato: la
+        # pantalla de hoy no lee este campo.
+        "internet": (ses.get("internet") if isinstance(ses.get("internet"), dict) else None),
         # Lo que hay que mandar a /taller/resolver para aceptarla tal cual.
         # Esto se manda TAL CUAL a /taller/resolver en el campo `criterios_json`
         # para aceptar la propuesta. El secretario puede editar cualquier razón
@@ -37399,6 +37413,97 @@ async def taller_proponer(
     _taller_registrar_uso(user_email, numero, "propuesta")
     _taller_guardar_global(user_email, numero, ses["resultado"], _resp)
     return _resp
+
+
+# ═══ LA TARJETA «EL PROBLEMA PRINCIPAL Y SU SOLUCIÓN» (AR 631/2025, 28-sep-2026) ═══
+# David: «lo más importante es plantearle al secretario cuál es el problema
+# principal y cuáles son los secundarios (…) Yo te propongo aplicar esta
+# interpretación o esta jurisprudencia (…) ¿o quieres resolver en sentido
+# opuesto? (…) y nada más un botón que me permita ir a resolver con mi
+# criterio». La arma `tarjeta_decision` con lo ya calculado —propuesta formato
+# 2, acervo, contraste, espejo, internet y rama—, SIN MODELO. Contrato:
+# contrato_tarjeta.md (formato 1).
+_TARJETA_MARCAS = ("propuesta", "global_propuesta", "contraste", "deliberacion", "tarjeta")
+
+
+def _taller_leer_marcas(email: str, numero: str, claves: tuple) -> dict:
+    """Varias ramas del estado en UNA lectura (como `_taller_avance`): la fila
+    entera pesa y la tarjeta necesita cinco."""
+    if not supabase_admin:
+        return {}
+    try:
+        r = supabase_admin.table("taller_sesiones") \
+            .select(", ".join(f"estado->{k}" for k in claves)) \
+            .eq("email", (email or "").strip().lower()) \
+            .eq("expediente", numero).limit(1).execute()
+        return dict((r.data or [{}])[0] or {})
+    except Exception as ex:
+        print(f"   ⚠️ no se pudieron leer las marcas de {numero}: {err(ex)}")
+        return {}
+
+
+@app.get("/taller/tarjeta")
+async def taller_tarjeta(numero: str, user_email: str):
+    """La tarjeta del problema principal: el principal y por qué, las dos vías
+    con el mismo peso —desenlace por código, apoyos verificados contra el
+    acervo con su fuerza para este tribunal y su vigencia—, la suerte de cada
+    secundario en cada vía (el árbol, dos pasadas), su tribunal, la línea de la
+    Corte y un estado «claro | reñido | no_alcanza» sin porcentajes.
+
+    NO LLAMA A NINGÚN MODELO y no sube el formato de la propuesta (lo haría
+    recalcular todas las guardadas). Se guarda como marca «tarjeta» con la
+    huella del adelanto —gunicorn -w 2: nada en memoria— y sólo se reescribe
+    si cambió. Si la propuesta aún corre, `estado_calculo: "calculando"`; si
+    no hay, `"sin_propuesta"`.
+    """
+    _taller_puerta(user_email)
+    ses = _taller_recuperar_sesion(user_email, numero)
+    if not ses:
+        raise HTTPException(404, "No hay un adelanto reciente de ese expediente.")
+    import tarjeta_decision as _td
+    r = ses["resultado"]
+    hu = _te.huella_contraste(r)
+    fila = _taller_leer_marcas(user_email, numero, _TARJETA_MARCAS)
+    # LO QUE EL MOTOR PROPUSO ANTES DEL ÁRBOL viaja en la columna `propuestas`
+    # (guarda procesal, 26-sep-2026); la sesión rescatada ya lo trae.
+    _pm = [{"problema": getattr(p, "problema", ""), "sentido": getattr(p, "sentido", ""),
+            "razon": getattr(p, "razon", "") or "", "alcanza": getattr(p, "alcanza", True),
+            "sentido_propio": getattr(p, "sentido_propio", "") or "",
+            "razon_propia": getattr(p, "razon_propia", "") or ""}
+           for p in (ses.get("propuestas") or [])]
+    sel = _td.elegir_marcas(fila, hu, _pm)
+    if sel["estado_calculo"] != "listo":
+        return _td.vacia(sel["estado_calculo"], hu)
+    resp = sel["propuesta"]
+    g = resp.get("global") if isinstance(resp.get("global"), dict) else {}
+    try:
+        import fase_rama as _fr_t
+        _a_quo = _fr_t.que_hizo_el_juzgado(
+            r.fases, declarado=str(((g.get("contexto") or {}) if isinstance(g.get("contexto"), dict)
+                                    else {}).get("resolvio") or ""))
+    except Exception as _ex_aq:
+        print(f"   ⚠️ TARJETA: no se pudo leer qué hizo el juzgado: {err(_ex_aq)}")
+        _a_quo = ""
+    _enc = getattr(r, "encargo", None)
+    rama_info = {"tipo_asunto": str(getattr(_enc, "tipo_asunto", "") or ""),
+                 "resolvio_a_quo": _a_quo,
+                 "tribunal": str(getattr(_enc, "tribunal", "") or ""),
+                 "conceptos_violacion": bool(str(getattr(_enc, "conceptos_violacion", "")
+                                                 or "").strip()),
+                 "necesita_conceptos": bool(resp.get("necesita_conceptos")),
+                 "huella": hu}
+    tarjeta = _td.armar(resp, ses.get("material"), _te.problemas_de(r), sel["contraste"], None,
+                        resp.get("internet") or ses.get("internet"), rama_info,
+                        sel["deliberacion"], propuestas_motor=_pm or None)
+    clave = _td.clave_de(tarjeta)
+    prev = fila.get("tarjeta") if isinstance(fila.get("tarjeta"), dict) else {}
+    if not (prev.get("huella") == hu and prev.get("clave") == clave):
+        _taller_guardar_marca(user_email, numero, "tarjeta",
+                              {"huella": hu, "clave": clave, "desde": time.time(),
+                               "tarjeta": tarjeta}, hu)
+    print(f"   🃏 TARJETA {numero}: principal {((tarjeta.get('principal') or {}).get('numero'))} · "
+          f"{tarjeta.get('estado')} · {len(tarjeta.get('secundarios') or [])} secundario(s)")
+    return tarjeta
 
 
 # ═══ EL PLAN DEL ESTUDIO, PARA LA PANTALLA (Paso 2, 26-sep-2026) ═════════════
