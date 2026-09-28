@@ -66,9 +66,24 @@ favor. Los dos cortes se sacan de la tabla con la MISMA regla (primer tramo
 sostenido que llega a la probabilidad) y ninguno está escrito aquí: al
 recalibrar, lo que la tabla nueva diga manda.
 
+EXACTA O COTA INFERIOR (`cota_inferior` en la fila). La tabla sólo MIDE un
+número dentro de un tramo sostenido. Un coseno que cae en el hueco entre dos
+tramos, o por encima del último sostenido, recibe el número del tramo de abajo:
+la isotónica es monótona, así que la probabilidad verdadera es ésa o más, pero
+no es la que la tabla midió en ese coseno. Con la tabla del 28-sep pasa con las
+coincidencias MÁS altas del amparo directo: de 0.8147 a 0.9157 sólo hay tramos
+de un par, y un 0.85 sale «57%» por el tramo de debajo. La fila lo dice y la
+pantalla escribe «57% o más», en vez de hacer pasar la cota por la medida.
+
 Una sentencia sale una sola vez: si un planteamiento suyo es «mismo problema»,
 no vuelve a salir como «posible» por otro; si coincidió por tema al 85%, su
 planteamiento al 57% no se repite abajo.
+
+Y los posibles son LOS SIGUIENTES, no unos cualesquiera: si un planteamiento
+que la tabla pone en 85% o más se queda fuera porque el JSON endureció o anuló
+el corte de arriba, los posibles de ese planteamiento callan. Todos tendrían un
+coseno menor que el escondido, y el secretario vería como mejor candidato uno
+más débil sin saber que hay otro por encima.
 
 LO QUE SIGUE SIN SER, Y POR LAS MISMAS RAZONES
 ==============================================
@@ -102,14 +117,42 @@ columnas) se lee, pero no se sabe cuánto lo sostiene y NO cuenta. `umbral_85`
 presente y `null` es el calibrador diciendo «aquí no hay corte fiable»: se
 calla, no se deduce otro de la tabla. Si trae número, sólo puede ENDURECER el
 corte (ver `_corte`). `umbral_50` es lo mismo para el nivel «posible»: la
-tabla del 28-sep no lo trae y manda la tabla; un `null` explícito calla ese
-nivel en esa clase y tipo, y un número sólo lo endurece. `organos` son los
-tribunales en que se midió; si falta, vale sólo el 3TCC, que es donde se midió
-la del 28-sep-2026.
+tabla del 28-sep no lo trae y manda la tabla; un número sólo lo endurece.
+
+EL `null` CALLA EN LOS TRES PISOS. `"umbral_50": null` apaga el nivel entero,
+`{"planteamiento": null}` lo apaga en esa clase y `{"planteamiento":
+{"Queja": null}}` en ese tipo; igual con `umbral_85`. Es la forma natural de
+escribir «aquí no», y la primera versión sólo la oía en el piso del tipo: con
+`null` en la raíz el nivel seguía hablando. Un valor que no es número, objeto
+ni `null` tampoco se adivina: calla ese nivel y lo dice el log.
+
+EL CALIBRADOR NO CONSERVA `umbral_50`. `calibrar_openai.py` reescribe el JSON
+entero y no lo escribe: al recalibrar se pierde cualquier `umbral_50` puesto a
+mano. Si se anota uno, hay que volver a ponerlo después de cada calibración.
+`organos` son los tribunales en que se midió; si falta, vale sólo el 3TCC, que
+es donde se midió la del 28-sep-2026.
 
 NO LO LLENA ESTE MÓDULO. La colección y la tabla las produce otro proceso; aquí
 sólo se leen. Mientras la tabla no exista, este módulo calla siempre y el
 taller sigue exactamente como estaba.
+
+EL ORDEN DE DESPLIEGUE: PRIMERO EL FRONT
+========================================
+El front de `main` no conoce `nivel`, `similitud` ni el NEUN: pinta cada fila
+como «una sentencia propia» más, bajo «las sentencias suyas más cercanas a cada
+planteamiento». Un «posible» del 50% se vería igual que una del 95%, y por la
+regla de `_espejo_propio` («si la OAJ habla en alguno, la tarjeta es suya
+entera») reemplazaría al espejo viejo en todos los planteamientos. El front de
+la rama `precedentes-oaj` ya aguanta este API y el anterior (una fila sin
+`nivel` va arriba; una sin `similitud`, como del acervo viejo). Así que:
+
+ 1. el front sale a producción ANTES que este API, o a la vez;
+ 2. `oaj_calibracion.json` se versiona junto a este módulo DESPUÉS de lo
+    anterior: es lo que enciende la fuente (sin él, calla siempre).
+
+Si ese orden no se puede garantizar, `OAJ_POSIBLES=0` en el servicio calla el
+nivel «posible» sin tocar el código, y se quita cuando el front esté arriba.
+Render no relee las variables sin reiniciar el servicio.
 """
 
 import inspect
@@ -140,6 +183,20 @@ MOSTRADAS = 6
 # Los posibles van DEBAJO y son menos: tres renglones que hay que revisar a
 # mano ya son trabajo; seis serían una lista que nadie termina.
 MOSTRADAS_POSIBLES = 3
+
+
+def posibles_activos() -> bool:
+    """¿Habla el nivel «posible»? Interruptor `OAJ_POSIBLES`, encendido si no
+    se dice nada.
+
+    Es la reversa sin despliegue (ver «El orden de despliegue»): si el API
+    llega a producción antes que el front que sabe pintar los dos niveles,
+    `OAJ_POSIBLES=0` calla el nivel de abajo y el de arriba sigue igual. Se lee
+    en cada consulta, no al importar; aun así Render sólo ve el cambio tras
+    reiniciar. Cualquier valor que no sea un «sí» claro lo apaga: una errata
+    en la variable no debe encender lo que se quiso callar.
+    """
+    return os.getenv("OAJ_POSIBLES", "1").strip().lower() in ("1", "true", "si", "sí")
 # Se piden más de las que se muestran porque una sentencia trae varios
 # planteamientos y varios del mismo asunto entran juntos: se queda el mejor de
 # cada NEUN. Con treinta solía haber seis distintos; con los dos niveles hacen
@@ -395,29 +452,42 @@ def _sostenidos(tabla):
     return [t for t in (tabla or []) if t[3] is not None and t[3] >= PARES_MINIMOS]
 
 
-def probabilidad(tabla, coseno: float):
-    """La probabilidad calibrada de ese coseno, o None.
+def lectura(tabla, coseno: float):
+    """(probabilidad, exacta) de ese coseno; (None, False) si no hay dato.
 
     Es la función escalonada de la regresión isotónica, leída SÓLO sobre los
     tramos sostenidos por `PARES_MINIMOS` pares o más: manda el último de ellos
-    cuyo inicio queda por debajo del coseno. Así,
+    cuyo inicio queda por debajo del coseno. `exacta` es True sólo si el coseno
+    cae DENTRO de ese tramo, entre su inicio y su final: ahí la tabla midió ese
+    número. Fuera, el número es una COTA INFERIOR:
 
-    · un coseno que cae en un hueco entre tramos recibe la probabilidad del
-      tramo de ABAJO, que en una tabla monótona es la menor: el hueco se
-      resuelve por el lado de callar;
-    · un tramo de un solo par —el «1.0» de un único ejemplo— no pone
+    · un coseno que cae en un hueco entre tramos sostenidos recibe la
+      probabilidad del tramo de ABAJO, que en una tabla monótona es la menor;
+    · un tramo de uno o dos pares —el «1.0» de un único ejemplo— no pone
       porcentaje: se lee el tramo sostenido de debajo;
-    · por encima del último tramo sostenido se recorta a él, que es lo que
-      hace la isotónica fuera de rango; por debajo del primero no hay dato y no
-      se extrapola: None.
+    · por encima del último tramo sostenido se da el suyo. La isotónica sí
+      tiene datos ahí (de un par), pero ninguno sostenido: lo único que se
+      puede afirmar es «ése o más».
+
+    Por debajo del primer tramo sostenido no hay dato y no se extrapola.
+
+    El final del tramo viene redondeado a cuatro decimales, así que un coseno
+    en la cuarta cifra del borde puede salir como cota sin serlo. Es el lado
+    bueno del error: «57% o más» también es verdad cuando es 57%.
     """
-    p = None
-    for cmin, _cmax, prob, _n in _sostenidos(tabla):
+    p, exacta = None, False
+    for cmin, cmax, prob, _n in _sostenidos(tabla):
         if coseno >= cmin:
-            p = prob
+            p, exacta = prob, coseno <= cmax
         else:
             break
-    return p
+    return p, exacta
+
+
+def probabilidad(tabla, coseno: float):
+    """La probabilidad calibrada de ese coseno, o None. Ver `lectura`: es su
+    número, sin decir si es exacto o cota inferior."""
+    return lectura(tabla, coseno)[0]
 
 
 def _corte(cal: dict, clase: str, tipo: str, tabla, prob: float = PROB_MINIMA,
@@ -438,19 +508,41 @@ def _corte(cal: dict, clase: str, tipo: str, tabla, prob: float = PROB_MINIMA,
         fiable. None, y se calla. Ignorarlo y deducir un corte de la tabla fue
         lo que hacía la primera versión, y con la tabla real ponía «100% de
         similitud» en el amparo directo sobre un tramo de un par.
+
+    El `null` vale en los tres pisos —la clave entera, la clase y el tipo—, y
+    un valor de forma desconocida en cualquiera de ellos calla con aviso. La
+    versión anterior convertía el `null` de la raíz o de la clase en «no dice
+    nada» (`get(...) or {}`), y el nivel que se quiso apagar seguía hablando.
     """
     cortes = [cmin for cmin, _c, p, _n in _sostenidos(tabla) if p >= prob]
     if not cortes:
         return None
     corte = min(cortes)
-    umbrales = ((cal or {}).get(clave) or {})
-    umbrales = umbrales.get(clase) if isinstance(umbrales, dict) else None
-    if isinstance(umbrales, dict) and tipo in umbrales:
-        declarado = _numero(umbrales.get(tipo))
-        if declarado is None:
+    cal = cal if isinstance(cal, dict) else {}
+    if clave not in cal:
+        return corte
+    # Piso por piso: la clave, la clase, el tipo. En cada uno, ausente sigue
+    # bajando, `null` calla, y lo que no se sabe leer calla y se dice.
+    nodo, ruta = cal[clave], clave
+    for piso in (clase, tipo):
+        if nodo is None:
             return None
-        corte = max(corte, declarado)
-    return corte
+        if not isinstance(nodo, dict):
+            _avisar_una_vez(("umbral_forma", id(cal), ruta),
+                            f"`{ruta}` no es un objeto ni null; el nivel que "
+                            f"gobierna calla")
+            return None
+        if piso not in nodo:
+            return corte
+        nodo, ruta = nodo[piso], f"{ruta}.{piso}"
+    if nodo is None:
+        return None
+    declarado = _numero(nodo)
+    if declarado is None:
+        _avisar_una_vez(("umbral_forma", id(cal), ruta),
+                        f"`{ruta}` no es un número ni null; ese nivel calla")
+        return None
+    return max(corte, declarado)
 
 
 def _corte_posible(cal: dict, clase: str, tipo: str, tabla):
@@ -556,7 +648,7 @@ def _mejores(puntos, fuente: str) -> list:
 
 
 def _fila(sc: float, n: int, pl: dict, prob: float, fuente: str,
-          nivel: str) -> dict:
+          nivel: str, exacta: bool = True) -> dict:
     """Una fila en el formato de la tarjeta."""
     es_pl = fuente == "planteamiento"
     return {
@@ -574,6 +666,10 @@ def _fila(sc: float, n: int, pl: dict, prob: float, fuente: str,
         # ver arriba. Vale igual para los dos niveles: un «posible» lleva su
         # número real, no uno que lo acerque al nivel de arriba.
         "similitud": min(int(prob * 100 + 1e-9), TOPE_VISIBLE),
+        # True cuando el coseno no cae dentro de un tramo sostenido y el número
+        # es el del tramo de abajo: la pantalla dice «57% o más» (ver
+        # «Exacta o cota inferior» arriba).
+        "cota_inferior": not exacta,
         "fuente": fuente,
         "nivel": nivel,
         "pregunta": _txt(pl, "pregunta") if es_pl else "",
@@ -587,7 +683,8 @@ def _fila(sc: float, n: int, pl: dict, prob: float, fuente: str,
 
 def _repartir(mejores, tabla, fuente: str, corte_mismo, corte_posible,
               excluir=frozenset()):
-    """(mismo problema, posibles): cada NEUN calibrado y puesto en su nivel.
+    """(mismo problema, posibles, escondidas): cada NEUN calibrado y puesto en
+    su nivel.
 
     `corte_posible` None apaga el nivel de abajo (el respaldo por tema lo
     llama así: por tema sólo se enseña lo del 85%). `excluir` son NEUN que ya
@@ -598,12 +695,20 @@ def _repartir(mejores, tabla, fuente: str, corte_mismo, corte_posible,
     `score_threshold` es una petición al servidor, y el porcentaje es una
     afirmación nuestra. Y cada nivel con SU corte, porque a Qdrant se le pidió
     desde el más bajo de los dos.
+
+    `escondidas` cuenta las sentencias que la tabla pone en 85% o más y el
+    corte de arriba dejó fuera. Eso sólo pasa si el JSON lo endureció o lo
+    anuló (el corte de la tabla es, por construcción, el inicio del primer
+    tramo sostenido que llega al 85%), y entonces LOS POSIBLES CALLAN: todos
+    tienen un coseno menor que el escondido, y enseñarlos sería presentar
+    como mejor candidato a uno más débil, sin decir que hay otro por encima.
     """
     mismas, posibles = [], []
+    escondidas = 0
     for sc, n, pl in mejores:
         if n in excluir:
             continue
-        prob = probabilidad(tabla, sc)
+        prob, exacta = lectura(tabla, sc)
         if prob is None:
             continue
         if prob >= PROB_MINIMA:
@@ -612,14 +717,19 @@ def _repartir(mejores, tabla, fuente: str, corte_mismo, corte_posible,
             # «posible»: su probabilidad no está entre 0.50 y 0.85, y
             # enseñarla ahí sería ponerle otro número. Y pasada la sexta, la
             # séptima tampoco baja: el nivel de abajo no es un cajón de sobras.
-            if (corte_mismo is not None and sc >= corte_mismo
-                    and len(mismas) < MOSTRADAS):
-                mismas.append(_fila(sc, n, pl, prob, fuente, NIVEL_MISMO))
+            if corte_mismo is None or sc < corte_mismo:
+                escondidas += 1
+            elif len(mismas) < MOSTRADAS:
+                mismas.append(_fila(sc, n, pl, prob, fuente, NIVEL_MISMO,
+                                    exacta))
         elif prob >= PROB_POSIBLE:
             if (corte_posible is not None and sc >= corte_posible
                     and len(posibles) < MOSTRADAS_POSIBLES):
-                posibles.append(_fila(sc, n, pl, prob, fuente, NIVEL_POSIBLE))
-    return mismas, posibles
+                posibles.append(_fila(sc, n, pl, prob, fuente, NIVEL_POSIBLE,
+                                      exacta))
+    if escondidas:
+        posibles = []
+    return mismas, posibles, escondidas
 
 
 async def precedentes_oaj(qdrant, embed, problema, tipo_taller: str,
@@ -661,6 +771,13 @@ async def precedentes_oaj(qdrant, embed, problema, tipo_taller: str,
         t_as = tabla_de(cal, "asunto", tipo)
         corte_pl = _corte(cal, "planteamiento", tipo, t_pl)
         posible_pl = _corte_posible(cal, "planteamiento", tipo, t_pl)
+        if posible_pl is not None and not posibles_activos():
+            # La reversa sin despliegue (ver «El orden de despliegue»). Se
+            # apaga ANTES de decidir si se embebe: si sólo hablaba el nivel de
+            # abajo, no se paga una llamada cuyo resultado no se enseña.
+            _avisar_una_vez(("posibles_apagados",),
+                            "OAJ_POSIBLES apagado: el nivel «posible» calla")
+            posible_pl = None
         # Por tema sólo el nivel de arriba: no se calcula corte «posible».
         corte_as = _corte(cal, "asunto", tipo, t_as)
         # Sin ningún corte no se embebe siquiera: el porcentaje no se puede
@@ -687,8 +804,14 @@ async def precedentes_oaj(qdrant, embed, problema, tipo_taller: str,
             puntos = await _buscar(qdrant, vector, "planteamiento", tipo,
                                    organo, PEDIDOS_PLANTEAMIENTO, min(cortes_pl))
             mejores_pl = _mejores(puntos, "planteamiento")
-        mismas, posibles = _repartir(mejores_pl, t_pl, "planteamiento",
-                                     corte_pl, posible_pl)
+        mismas, posibles, escondidas = _repartir(
+            mejores_pl, t_pl, "planteamiento", corte_pl, posible_pl)
+        if escondidas:
+            _avisar_una_vez(("escondidas", id(cal), tipo),
+                            f"{tipo}: un planteamiento que la tabla pone en 85% "
+                            f"o más no pasa el `umbral_85` del JSON; ahí los "
+                            f"posibles callan para no enseñar uno más débil "
+                            f"como el mejor")
 
         # EL RESPALDO, cuando ningún planteamiento llega al 85%, aunque haya
         # posibles: un tema al 90% dice más que un planteamiento al 57%, y los
@@ -698,17 +821,32 @@ async def precedentes_oaj(qdrant, embed, problema, tipo_taller: str,
         # taller contra el tema de la OAJ); con otra forma de consulta su
         # porcentaje no significaría lo que dice.
         if not mismas and corte_as is not None:
-            puntos = await _buscar(qdrant, vector, "asunto", tipo,
-                                   organo, PEDIDOS_ASUNTO, corte_as)
-            mismas, _ = _repartir(_mejores(puntos, "tema"), t_as, "tema",
-                                  corte_as, None)
-            if mismas:
+            # SU PROPIA RED. Antes de los dos niveles esta búsqueda sólo corría
+            # cuando no había nada; ahora corre también con posibles ya
+            # calculados, y una falla suya (un timeout de Qdrant) no puede
+            # llevarse lo que la primera búsqueda sí respondió: se enseña lo
+            # del planteamiento y el tema se da por no encontrado.
+            try:
+                puntos = await _buscar(qdrant, vector, "asunto", tipo,
+                                       organo, PEDIDOS_ASUNTO, corte_as)
+                por_tema, _, _ = _repartir(_mejores(puntos, "tema"), t_as,
+                                           "tema", corte_as, None)
+            except Exception as e:
+                print(f"   ⚠️ precedentes OAJ: falló el respaldo por tema "
+                      f"({e}); se enseña lo del planteamiento")
+                por_tema = []
+            if por_tema:
+                mismas = por_tema
                 # UNA SENTENCIA, UNA VEZ. Si su tema coincidió al 85%, su
                 # planteamiento al 57% no se repite abajo, y su lugar entre
-                # los tres lo toma el siguiente posible.
-                _, posibles = _repartir(mejores_pl, t_pl, "planteamiento",
-                                        None, posible_pl,
-                                        excluir={f["neun"] for f in mismas})
+                # los tres lo toma el siguiente posible. Con los MISMOS cortes
+                # de la primera pasada, para que «escondidas» se cuente con la
+                # misma regla: los posibles sólo reviven si la sentencia
+                # escondida es justo la que salió arriba por tema, que ya está
+                # a la vista.
+                _, posibles, _ = _repartir(mejores_pl, t_pl, "planteamiento",
+                                           corte_pl, posible_pl,
+                                           excluir={f["neun"] for f in mismas})
         return mismas + posibles
     except Exception as e:
         print(f"   ⚠️ precedentes OAJ: {e}")

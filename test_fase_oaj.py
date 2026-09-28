@@ -26,14 +26,19 @@ LO QUE VIGILA, Y POR QUÉ CADA COSA
    «mismo_problema», hasta seis; del 50% al 85% «posible», hasta tres y sólo
    por planteamiento. Bajo el 50%, nada. Cada uno con su probabilidad REAL,
    redondeada hacia abajo. `umbral_50` sólo endurece, y su `null` calla ese
-   nivel. Una sentencia sale una sola vez, en el nivel de su mejor
-   planteamiento, y una sola búsqueda sirve a los dos niveles.
+   nivel en la raíz, en la clase o en el tipo. Una sentencia sale una sola
+   vez, en el nivel de su mejor planteamiento, y una sola búsqueda sirve a los
+   dos niveles. Si el JSON esconde uno que la tabla pone en 85%, los posibles
+   de ese planteamiento callan. `OAJ_POSIBLES=0` calla el nivel de abajo.
+ · EXACTA O COTA: un coseno fuera de todo tramo sostenido lleva el número del
+   de abajo con `cota_inferior` (la pantalla dice «57% o más»).
  · CON LA TABLA REAL (la del disco, no una copia): hoy el nivel de arriba por
    planteamiento calla en los cuatro tipos y el de abajo puede hablar.
  · UN NEUN, UNA FILA. Tres planteamientos de la misma sentencia son un
    precedente, no tres. Y un NEUN guardado como 12345.0 sigue siendo el 12345.
  · EL RESPALDO POR TEMA sólo cuando ningún planteamiento llega al 85%, la fila
-   dice que vino por tema, y por tema no hay «posible».
+   dice que vino por tema, y por tema no hay «posible». Si esa segunda
+   búsqueda falla, los posibles de la primera se quedan.
  · EL FILTRO: otro tribunal u otro tipo no entran aunque se parezcan más.
  · EL MAPA DEL TRIBUNAL al nombre exacto con que la OAJ lo indexa, y sólo si
    CONSTA el circuito 22: un tribunal de otra plaza no es «su propio tribunal».
@@ -86,12 +91,15 @@ class QdrantFalso:
     """Respeta el filtro `must` de igualdad y el `score_threshold`, como Qdrant.
 
     `puntos` es [(score, payload)] o una función texto_consultado → esa lista,
-    para que cada planteamiento pueda recuperar cosas distintas.
+    para que cada planteamiento pueda recuperar cosas distintas. `falla`
+    tumba todas las búsquedas; `falla_clase` sólo las de esa clase (el
+    respaldo por tema que se cae con un timeout).
     """
 
-    def __init__(self, puntos, falla=False):
+    def __init__(self, puntos, falla=False, falla_clase=""):
         self.puntos = puntos
         self.falla = falla
+        self.falla_clase = falla_clase
         self.llamadas = []
 
     async def query_points(self, collection_name, query, using, query_filter,
@@ -101,10 +109,11 @@ class QdrantFalso:
                               "filtro": {c.key: c.match.value
                                          for c in query_filter.must},
                               "consulta": query})
-        if self.falla:
+        filtro = self.llamadas[-1]["filtro"]
+        if self.falla or (self.falla_clase
+                          and filtro.get("clase") == self.falla_clase):
             raise RuntimeError("Qdrant caído (simulado)")
         cands = self.puntos(query) if callable(self.puntos) else self.puntos
-        filtro = self.llamadas[-1]["filtro"]
         fuera = [_Punto(s, pl) for s, pl in cands
                  if all(pl.get(k) == v for k, v in filtro.items())
                  and (score_threshold is None or s >= score_threshold)]
@@ -307,6 +316,18 @@ ok(fo.probabilidad(_uno, 0.76) == 0.3 and fo.probabilidad(_uno, 0.95) == 0.3,
    "un tramo de uno o dos pares NO pone porcentaje: se lee el sostenido de abajo")
 ok(fo._corte({}, "a", "X", _uno) is None,
    "y tampoco es corte: el «1.0» de un solo par no es un 85% fiable")
+# EXACTA O COTA. Dentro de un tramo sostenido la tabla midió ese número; fuera
+# —en un hueco, o encima del último sostenido— es el del tramo de abajo, y
+# sólo se puede decir «ése o más».
+ok(fo.lectura(t, 0.72) == (0.869, True) and fo.lectura(t, 0.99) == (0.95, True),
+   "dentro de un tramo sostenido el número es EXACTO")
+_hueco = fo.tabla_de({"a": {"X": [[0.5, 0.6, 0.5, 5], [0.7, 1.0, 0.9, 5]]}}, "a", "X")
+ok(fo.lectura(_hueco, 0.65) == (0.5, False),
+   "en el hueco entre dos tramos sostenidos, el de abajo y como COTA inferior")
+ok(fo.lectura(_uno, 0.76) == (0.3, False) and fo.lectura(_uno, 0.60) == (0.3, True),
+   "encima del último sostenido (sólo hay tramos de uno o dos pares) es cota; "
+   "dentro de él, exacto")
+ok(fo.lectura(_hueco, 0.4) == (None, False), "por debajo de todo, ni número ni cota")
 _tres = fo.tabla_de({"a": {"X": [[0.5, 0.7, 0.3], [0.7, 1.0, 0.95]]}}, "a", "X")
 ok(_tres is not None and fo.probabilidad(_tres, 0.9) is None
    and fo._corte({}, "a", "X", _tres) is None,
@@ -350,18 +371,19 @@ for tipo in ("Amparo Directo", "Queja"):
 trf = fo.tabla_de(REAL, "asunto", "Revisión Fiscal")
 ok(fo._corte(REAL, "asunto", "Revisión Fiscal", trf) == 0.7612,
    "Revisión Fiscal: el corte es el del calibrador, 0.7612 (tramo de 10 pares)")
-ok(fo.probabilidad(trf, 0.77) == 0.9 and fo.probabilidad(trf, 0.95) == 0.9,
-   "y por encima, 90%: el último tramo sostenido, recortado como la isotónica")
+ok(fo.lectura(trf, 0.77) == (0.9, True) and fo.lectura(trf, 0.95) == (0.9, False),
+   "0.77 cae en el tramo del 90% (exacto); 0.95 queda por encima del último "
+   "tramo medido: 90% como cota inferior, no como medida")
 usar_calibracion(REAL)
 _rf = [(0.95, pl(801, clase="asunto", tipo="Revisión Fiscal")),
        (0.77, pl(802, clase="asunto", tipo="Revisión Fiscal")),
        (0.75, pl(803, clase="asunto", tipo="Revisión Fiscal"))]
 PRF = dict(PROB)
 filas = correr(fo.precedentes_oaj(QdrantFalso(_rf), embed, PRF, "revision_fiscal", ORG3))
-ok([(f["neun"], f["similitud"], f["fuente"]) for f in filas]
-   == [(801, 90, "tema"), (802, 90, "tema")],
-   f"RF en el 3TCC habla por tema al 90%, y 0.75 queda fuera (salió "
-   f"{[(f['neun'], f['similitud']) for f in filas]})")
+ok([(f["neun"], f["similitud"], f["fuente"], f["cota_inferior"]) for f in filas]
+   == [(801, 90, "tema", True), (802, 90, "tema", False)],
+   f"RF en el 3TCC habla por tema al 90% («90% o más» el de 0.95), y 0.75 queda "
+   f"fuera (salió {[(f['neun'], f['similitud'], f['cota_inferior']) for f in filas]})")
 CONSULTAS.clear()
 q = QdrantFalso([(0.99, pl(804, clase="asunto"))])
 ok(correr(fo.precedentes_oaj(q, embed, PROB, "amparo_directo", ORG3)) == []
@@ -438,14 +460,37 @@ else:
                          (c50[tipo] - 0.001, pl(882, tipo=tipo))])
         filas = correr(fo.precedentes_oaj(q, embed, PROB, clave_taller, ORG3))
         pl_filas = [f for f in filas if f["fuente"] == "planteamiento"]
-        ok([(f["neun"], f["nivel"], f["similitud"]) for f in pl_filas]
-           == [(881, "posible", min(int(p * 100 + 1e-9), fo.TOPE_VISIBLE))],
+        ok([(f["neun"], f["nivel"], f["similitud"], f["cota_inferior"])
+            for f in pl_filas]
+           == [(881, "posible", min(int(p * 100 + 1e-9), fo.TOPE_VISIBLE), False)],
            f"{tipo}: un coseno de {medio:.4f} sale «{int(p * 100 + 1e-9)}% · "
-           f"posible», el número del tramo; bajo el corte ({c50[tipo]}) nada "
-           f"(salió {[(f['neun'], f['similitud']) for f in pl_filas]})")
+           f"posible», el número EXACTO del tramo; bajo el corte ({c50[tipo]}) "
+           f"nada (salió {[(f['neun'], f['similitud']) for f in pl_filas]})")
         ok(q.llamadas and q.llamadas[0]["umbral"] == min(
                c for c in (c85[tipo], c50[tipo]) if c is not None),
            f"{tipo}: una búsqueda de planteamiento, desde el corte más bajo")
+
+        # LAS COINCIDENCIAS MÁS ALTAS. Encima del último tramo sostenido, o en
+        # el hueco entre dos, la tabla no midió ese coseno: sale el número del
+        # tramo de abajo y la fila dice que es cota («57% o más»).
+        fuera_de_tramo = []
+        if fo.PROB_POSIBLE <= sost[-1][2] < fo.PROB_MINIMA and sost[-1][0] >= c50[tipo]:
+            fuera_de_tramo.append(("encima del último tramo", sost[-1][1] + 0.01,
+                                   sost[-1][2]))
+        for a, b in zip(sost, sost[1:]):
+            if (a[1] < b[0] and fo.PROB_POSIBLE <= a[2] < fo.PROB_MINIMA
+                    and a[0] >= c50[tipo]):
+                fuera_de_tramo.append(("en un hueco", (a[1] + b[0]) / 2, a[2]))
+                break
+        for donde, cos_, p_ in fuera_de_tramo:
+            q = QdrantFalso([(cos_, pl(885, tipo=tipo))])
+            filas = correr(fo.precedentes_oaj(q, embed, PROB, clave_taller, ORG3))
+            pl_filas = [f for f in filas if f["fuente"] == "planteamiento"]
+            ok([(f["neun"], f["similitud"], f["cota_inferior"]) for f in pl_filas]
+               == [(885, int(p_ * 100 + 1e-9), True)],
+               f"{tipo}: {donde} ({cos_:.4f}) sale «{int(p_ * 100 + 1e-9)}% o más»: "
+               f"cota inferior, no medida (salió "
+               f"{[(f['neun'], f['similitud'], f['cota_inferior']) for f in pl_filas]})")
 
         # Y si el tema de la MISMA sentencia llega al 85% (la revisión fiscal
         # de hoy), sale arriba por tema y no se repite abajo.
@@ -531,8 +576,8 @@ f0 = filas[0] if filas else {}
 ok(f0.get("score") == 0.8 and "-bis" not in f0.get("pregunta", ""),
    "del NEUN 101 se queda el MEJOR planteamiento (0.80), no el de 0.72")
 CAMPOS = {"tipo_asunto", "expediente", "fecha", "sentido", "tema", "score",
-          "pdf_url", "similitud", "fuente", "nivel", "pregunta", "razon",
-          "calificacion", "autoridad", "neun", "enlace_oaj"}
+          "pdf_url", "similitud", "cota_inferior", "fuente", "nivel", "pregunta",
+          "razon", "calificacion", "autoridad", "neun", "enlace_oaj"}
 ok(all(set(f) == CAMPOS for f in filas), "cada fila trae exactamente los campos pactados")
 ok(f0.get("tipo_asunto") == "Amparo Directo" and f0.get("expediente") == "101/2025"
    and f0.get("fecha") == "14-03-2025" and f0.get("sentido") == "concede"
@@ -546,6 +591,8 @@ ok(isinstance(f0.get("similitud"), int) and isinstance(f0.get("neun"), int),
    "similitud y NEUN son enteros")
 ok(f0.get("similitud") == 95 and (filas[1]["similitud"] if len(filas) > 1 else 0) == 86,
    "0.95 → 95% y 0.869 → 86%: el porcentaje se redondea hacia abajo")
+ok(all(f["cota_inferior"] is False for f in filas),
+   "los tres cosenos caen dentro de su tramo: ninguno es cota")
 ok(len(filas) > 2 and filas[2]["similitud"] == 50 and filas[2]["nivel"] == "posible"
    and filas[2]["pregunta"] and filas[2]["calificacion"] and filas[2]["razon"],
    "el posible lleva su 50% real, su pregunta, su calificación y su razón")
@@ -582,13 +629,37 @@ ok([f["neun"] for f in filas] == [12345, 23456, 34567]
    and all(isinstance(f["neun"], int) for f in filas),
    "12345.0, «23456.0» y « 34567 » son NEUN enteros: pandas no apaga la fuente")
 
-# `umbral_85` más estricto que la tabla: 102 (0.71) queda fuera.
+# `umbral_85` más estricto que la tabla: 102 (0.71) queda fuera. Y como la
+# tabla lo pone en 86%, por encima de 103, tampoco se enseña 103: los posibles
+# son LOS SIGUIENTES, y con 102 escondido 103 no lo es.
 usar_calibracion(_endurecida)
-filas = correr(fo.precedentes_oaj(QdrantFalso(PUNTOS), embed, PROB,
-                                  "amparo_directo", ORG3))
-ok(niveles(filas) == ([101], [103]),
+fo._AVISADOS.clear()
+filas, _log = callado(lambda: correr(fo.precedentes_oaj(
+    QdrantFalso(PUNTOS), embed, PROB, "amparo_directo", ORG3)))
+ok(niveles(filas) == ([101], []),
    f"con `umbral_85` en 0.76 sólo 101 arriba; 102 (86% de la tabla) NO baja a "
-   f"«posible» con otro número, y 103 sigue abajo (salió {niveles(filas)})")
+   f"«posible» con otro número, y 103, más débil que el escondido, calla "
+   f"(salió {niveles(filas)})")
+ok("posibles callan" in _log, "y el log dice por qué callaron los posibles")
+
+# El caso de la revisión: sin nada arriba, el endurecido o el `null`
+# escondían 10 (95%) y 11 (86%) y enseñaban 12 (50%) como el mejor candidato.
+_esc = [(0.76, pl(10)), (0.72, pl(11)), (0.65, pl(12))]
+usar_calibracion(CAL)
+ok(niveles(correr(fo.precedentes_oaj(QdrantFalso(_esc), embed, PROB,
+                                     "amparo_directo", ORG3))) == ([10, 11], [12]),
+   "sin anotación: 10 y 11 «mismo problema», 12 posible (el control)")
+for _u85, que in ((0.78, "endurecido a 0.78"), (None, "anulado con null")):
+    usar_calibracion(dict(CAL, umbral_85={"planteamiento": {"Amparo Directo": _u85}}))
+    filas = correr(fo.precedentes_oaj(QdrantFalso(_esc), embed, PROB,
+                                      "amparo_directo", ORG3))
+    ok(niveles(filas) == ([], []),
+       f"con el corte de arriba {que}, 12 no sale como el mejor candidato "
+       f"mientras 10 y 11 se esconden (salió {niveles(filas)})")
+usar_calibracion(dict(CAL, umbral_85={"planteamiento": {"Amparo Directo": 0.78}}))
+ok(niveles(correr(fo.precedentes_oaj(QdrantFalso(_esc[2:]), embed, PROB,
+                                     "amparo_directo", ORG3))) == ([], [12]),
+   "y sin nada escondido encima, el mismo 12 sí habla como posible")
 
 print("\n6b · SÓLO EN EL TRIBUNAL DONDE SE MIDIÓ LA TABLA")
 P1TCC = [(0.80, pl(701, organo=ORG1))]
@@ -652,6 +723,23 @@ q = QdrantFalso([(0.62, pl(451, clase="asunto"))])
 ok(correr(fo.precedentes_oaj(q, embed, PROB, "amparo_directo", ORG3)) == [],
    "y si sólo hay temas del 60%, calla")
 
+# SI EL RESPALDO SE CAE, LO DEL PLANTEAMIENTO SE QUEDA. Con dos niveles la
+# búsqueda por tema corre aunque ya haya posibles (hoy, en toda revisión
+# fiscal); un timeout suyo no puede borrar lo que la primera sí respondió.
+usar_calibracion(CAL)
+_pos = [(0.65, pl(461)), (0.62, pl(462)), (0.70, pl(463, clase="asunto"))]
+q = QdrantFalso(_pos)
+ok(niveles(correr(fo.precedentes_oaj(q, embed, PROB, "amparo_directo", ORG3)))
+   == ([463], [461, 462]),
+   "sin falla: 463 arriba por tema y dos posibles (el control)")
+q = QdrantFalso(_pos, falla_clase="asunto")
+filas, _log = callado(lambda: correr(fo.precedentes_oaj(
+    q, embed, PROB, "amparo_directo", ORG3)))
+ok(niveles(filas) == ([], [461, 462]) and len(q.llamadas) == 2,
+   f"con el respaldo por tema caído, los dos posibles se enseñan igual "
+   f"(salió {niveles(filas)})")
+ok("respaldo por tema" in _log, "y el log dice que fue el respaldo el que falló")
+
 print("\n8b · LOS DOS NIVELES")
 # Del 50% al 85%, tres como máximo, los mejores, con su número real.
 usar_calibracion(CAL)
@@ -686,11 +774,27 @@ usar_calibracion({"planteamiento": {"Amparo Directo": [[0.0, 0.70, 0.10, 40],
                                                        [0.70, 1.0, 0.571, 7]]}})
 q = QdrantFalso([(0.95, pl(590)), (0.72, pl(591)), (0.69, pl(592))])
 filas = correr(fo.precedentes_oaj(q, embed, PROB, "amparo_directo", ORG3))
-ok(niveles(filas) == ([], [590, 591]) and [f["similitud"] for f in filas] == [57, 57],
-   f"sin corte al 85%, un coseno de 0.95 sale como «57% · posible»: su número "
-   f"real, no inflado (salió {[(f['neun'], f['similitud']) for f in filas]})")
+ok(niveles(filas) == ([], [590, 591]) and [f["similitud"] for f in filas] == [57, 57]
+   and not any(f["cota_inferior"] for f in filas),
+   f"sin corte al 85%, un coseno de 0.95 DENTRO de su tramo (0.70-1.0) sale como "
+   f"«57% · posible»: el número que la tabla midió ahí, no inflado (salió "
+   f"{[(f['neun'], f['similitud']) for f in filas]})")
 ok(q.llamadas and q.llamadas[0]["umbral"] == 0.70,
    "y a Qdrant se le pide desde el corte del 50%")
+
+# Con la FORMA de la tabla real del amparo directo: el último tramo sostenido
+# acaba en 0.8147 y encima sólo hay tramos de un par. Ahí la tabla no midió el
+# 57%: es lo menos que puede ser, y la fila lo dice.
+usar_calibracion({"planteamiento": {"Amparo Directo": [
+    [0.0, 0.70, 0.10, 40], [0.786, 0.8147, 0.571, 7],
+    [0.8356, 0.8356, 1.0, 1], [0.9157, 0.9157, 1.0, 1]]}})
+q = QdrantFalso([(0.95, pl(593)), (0.85, pl(594)), (0.80, pl(595))])
+filas = correr(fo.precedentes_oaj(q, embed, PROB, "amparo_directo", ORG3))
+ok([(f["neun"], f["similitud"], f["cota_inferior"]) for f in filas]
+   == [(593, 57, True), (594, 57, True), (595, 57, False)],
+   f"0.95 y 0.85 salen «57% o más» (cota: ningún tramo sostenido los contiene); "
+   f"0.80 cae dentro y es exacto (salió "
+   f"{[(f['neun'], f['similitud'], f['cota_inferior']) for f in filas]})")
 
 # `umbral_50` sólo endurece; su `null` calla el nivel de abajo.
 _con50 = lambda u50: dict(CAL, umbral_50={"planteamiento": {"Amparo Directo": u50}})
@@ -729,6 +833,76 @@ usar_calibracion(dict(CAL, umbral_50={"planteamiento": {"Queja": None}}))
 ok(niveles(correr(fo.precedentes_oaj(QdrantFalso(PNIV), embed, PROB,
                                      "amparo_directo", ORG3))) == ([101], [102, 103]),
    "el `null` de OTRO tipo no apaga los posibles de éste")
+
+# EL `null` EN LA RAÍZ Y EN LA CLASE TAMBIÉN CALLA. Es la forma natural de
+# apagar el nivel entero, y la versión anterior la leía como «no dice nada».
+for _u50, que in ((None, "`\"umbral_50\": null` en la raíz"),
+                  ({"planteamiento": None}, "`{\"planteamiento\": null}` en la clase")):
+    _c = dict(CAL, umbral_50=_u50)
+    ok(fo._corte_posible(_c, "planteamiento", "Amparo Directo", t) is None
+       and fo._corte(_c, "planteamiento", "Amparo Directo", t) == 0.70,
+       f"{que}: sin corte de posibles, y el del 85% intacto")
+    usar_calibracion(_c)
+    ok(niveles(correr(fo.precedentes_oaj(QdrantFalso(PNIV), embed, PROB,
+                                         "amparo_directo", ORG3))) == ([101], []),
+       f"{que}: los posibles callan y el nivel de arriba habla")
+usar_calibracion(dict(CAL, umbral_50={"asunto": None}))
+ok(niveles(correr(fo.precedentes_oaj(QdrantFalso(PNIV), embed, PROB,
+                                     "amparo_directo", ORG3))) == ([101], [102, 103]),
+   "el `null` de OTRA clase no apaga los posibles del planteamiento")
+_c = {"planteamiento": CAL["planteamiento"], "asunto": CAL["asunto"], "umbral_85": None}
+ok(fo._corte(_c, "planteamiento", "Amparo Directo", t) is None
+   and fo._corte(_c, "asunto", "Amparo Directo",
+                 fo.tabla_de(_c, "asunto", "Amparo Directo")) is None
+   and fo._corte_posible(_c, "planteamiento", "Amparo Directo", t) == 0.60,
+   "`\"umbral_85\": null` en la raíz calla el nivel de arriba en las dos clases, "
+   "y no toca el de los posibles")
+# Lo que no es número, objeto ni null no se adivina: calla y se dice.
+for _u50, que in ((0.7, "un número en la raíz"), ("x", "texto en la raíz"),
+                  ({"planteamiento": 0.7}, "un número en la clase"),
+                  ({"planteamiento": {"Amparo Directo": "alto"}}, "una palabra en el tipo")):
+    fo._AVISADOS.clear()
+    _r, _log = callado(fo._corte_posible, dict(CAL, umbral_50=_u50),
+                       "planteamiento", "Amparo Directo", t)
+    ok(_r is None and "umbral_50" in _log,
+       f"`umbral_50` con {que}: el nivel calla y el log lo dice")
+# Un número escrito como texto sí es número (`_numero` lo lee, como en la
+# tabla): no es forma desconocida, y endurece.
+ok(fo._corte_posible(dict(CAL, umbral_50={"planteamiento": {"Amparo Directo": "0.66"}}),
+                     "planteamiento", "Amparo Directo", t) == 0.66,
+   "«\"0.66\"» en el tipo se lee como 0.66 y endurece")
+
+# EL INTERRUPTOR. `OAJ_POSIBLES=0` calla el nivel de abajo sin tocar el de
+# arriba; es la reversa si el API sale antes que el front.
+usar_calibracion(CAL)
+_antes = os.environ.get("OAJ_POSIBLES")
+try:
+    for v, activo in (("0", False), ("no", False), ("", False), ("apagado", False),
+                      ("1", True), ("sí", True), ("TRUE", True)):
+        os.environ["OAJ_POSIBLES"] = v
+        ok(fo.posibles_activos() is activo,
+           f"OAJ_POSIBLES={v!r} → {'encendido' if activo else 'apagado'}")
+    os.environ["OAJ_POSIBLES"] = "0"
+    q = QdrantFalso(PNIV)
+    filas, _log = callado(lambda: correr(fo.precedentes_oaj(
+        q, embed, PROB, "amparo_directo", ORG3)))
+    ok(niveles(filas) == ([101], []) and q.llamadas[0]["umbral"] == 0.70,
+       f"apagado: habla sólo el nivel de arriba, pedido desde su corte (salió "
+       f"{niveles(filas)})")
+    usar_calibracion({"planteamiento": {"Amparo Directo": [[0.0, 0.70, 0.10, 40],
+                                                           [0.70, 1.0, 0.571, 7]]}})
+    CONSULTAS.clear()
+    q = QdrantFalso(PNIV)
+    ok(correr(fo.precedentes_oaj(q, embed, PROB, "amparo_directo", ORG3)) == []
+       and not CONSULTAS and not q.llamadas,
+       "apagado y sin nada que llegue al 85%: calla sin embeber")
+    os.environ.pop("OAJ_POSIBLES")
+    ok(fo.posibles_activos() is True, "sin la variable, encendido")
+finally:
+    if _antes is None:
+        os.environ.pop("OAJ_POSIBLES", None)
+    else:
+        os.environ["OAJ_POSIBLES"] = _antes
 
 print("\n9 · LOS ERRORES NO TUMBAN NADA")
 usar_calibracion(CAL)

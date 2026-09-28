@@ -1068,8 +1068,13 @@ async def _espejo_oaj(qdrant, embed, r: Resultado, circ: str,
     Mismo formato que el espejo viejo —{problema, tribunal, filas, resumen,
     cobertura}— para que la tarjeta, la fila de la sesión y el rescate no
     distingan de dónde vino; lo que cambia viaja DENTRO de cada fila
-    (similitud, nivel, pregunta, calificación, razón, NEUN). En cada grupo van
-    primero las filas «mismo_problema» y detrás las «posible».
+    (similitud, cota_inferior, nivel, pregunta, calificación, razón, NEUN). En
+    cada grupo van primero las filas «mismo_problema» y detrás las «posible».
+
+    Por eso mismo el front de `main`, que no lee `nivel`, pintaría un posible
+    del 50% como una sentencia propia más: el front de la rama sale ANTES que
+    esto (ver «El orden de despliegue» en `fase_oaj`; `OAJ_POSIBLES=0` es la
+    reversa).
     """
     try:
         import fase_oaj as fo
