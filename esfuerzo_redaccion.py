@@ -574,6 +574,56 @@ van. Si no hay nada que advertir, omite la nota entera.
 """
 
 
+# ── La extensión, proporcional al escrito (28-sep-2026) ──────────────────
+# Los prompts empujaban la extensión en todo: «no menos de 1,800 palabras»,
+# «úsalos todos», y en Platinum «no bajan de 3,500» y «al menos diez
+# fuentes». Pedir copias certificadas o autorizar a un pasante devolvía tres
+# mil palabras con marco constitucional: un escrito que nadie presenta así.
+# Ahora la extensión la pide el escrito, y lo que el abogado pide manda:
+#   · si dice cuánto —«breve», «de una cuartilla», «2,000 palabras», «a
+#     fondo»—, eso gana sobre cualquier mínimo;
+#   · si no lo dice y es una promoción de trámite, se le recuerda que lo es.
+_EXTENSION_PEDIDA = re.compile(
+    r"\b(?:breve(?:mente)?|cort[oa]|concis[oa]|sintetic[oa]|resumid[oa]|escuet[oa]|"
+    r"en (?:una|dos|tres) (?:paginas?|cuartillas?|hojas?)|de (?:una|dos|tres) (?:paginas?|cuartillas?|hojas?)|"
+    r"(?:de |en )?(?:no mas de |maximo |hasta |unas |alrededor de )?\d{1,2}(?:[.,]\d{3}|\d{1,3})? "
+    r"(?:palabras|cuartillas|paginas|hojas)|extens[oa]|a fondo|exhaustiv[oa]|detallad[oa]|"
+    r"lo mas completo)\b"
+)
+_TRAMITE = re.compile(
+    r"\b(?:copias? (?:certificadas?|simples?)|autoriz\w*|autorizad[oa]s?|domicilio procesal|"
+    r"(?:senal\w*|cambi\w*|nuevo) (?:de |el |un )?domicilio|difer\w*|exhib\w*|"
+    r"desahog\w* (?:de |la |de la )?prevencion|devolucion de (?:documentos|anexos|originales)|"
+    r"se me tenga|se tenga por|rebeldia|ratific\w*|revoc\w* (?:la |el )?(?:autorizacion|mandato)|"
+    r"que se acuerde|se dicte (?:el |un )?acuerdo|solicitud de acuerdo|prorroga|copias? de traslado|"
+    r"se gire (?:el |un )?oficio|se expida|expedicion de)\b"
+)
+_FONDO = re.compile(
+    r"\b(?:demanda|amparo|recurso|apelacion|agravios?|contestacion|reconvencion|alegatos|"
+    r"estudio de fondo|considerando|sentencia|conceptos? de violacion|queja|revision|denuncia|"
+    r"querella|incidente|proyecto de resolucion)\b"
+)
+
+
+def indicacion_de_extension(mensaje: str) -> str:
+    """Lo que se suma al encargo sobre la extensión, o '' si no hay nada que
+    decir: la que pidió el abogado, o que es una promoción de trámite."""
+    t = _plano(mensaje or "")[:2000]
+    if not t:
+        return ""
+    pedida = _EXTENSION_PEDIDA.search(t)
+    if pedida:
+        return (f"EXTENSIÓN: el abogado la pidió («{pedida.group(0)}»). Manda sobre cualquier mínimo "
+                "de este prompt, también el del escalón: ni lo infles ni lo recortes.")
+    if _TRAMITE.search(t) and not _FONDO.search(t):
+        return ("EXTENSIÓN: es una promoción de trámite. Una o dos cuartillas: el proemio, lo que se "
+                "pide con su fundamento procesal exacto, el punto petitorio y la firma. Sin marco "
+                "constitucional ni jurisprudencia, salvo que el trámite dependa de un criterio en "
+                "disputa; los mínimos de extensión y de fuentes de este prompt son para los escritos "
+                "de fondo, no para éste.")
+    return ""
+
+
 # ── El documento adjunto, material del escrito (28-sep-2026) ────────────
 # «Redacta el recurso contra esta sentencia» con la sentencia adjunta llegaba
 # a /analyze-document, que ANALIZA: el abogado recibía un análisis y tenía que
@@ -678,14 +728,18 @@ ACABADO_PLATINUM = """
 Este escrito lo firma un abogado que pagó el escalón más alto. Todo lo
 anterior sigue rigiendo; esto sube el listón:
 
-- EXTENSIÓN: desarrolla cada apartado hasta agotarlo. Una demanda o un
-  recurso completos no bajan de 3,500 palabras; un estudio de fondo, de
-  3,000. Si el material del contexto da para más, escribe más. Nunca
-  cierres un apartado con una oración que podría haber sido un párrafo.
-- FUNDAMENTACIÓN: integra al menos diez fuentes distintas del contexto
-  cuando existan —Constitución, tratados, ley federal, ley local y
-  jurisprudencia—, cada una tejida en el argumento que sostiene, con su
-  transcripción pertinente y su [Doc ID].
+- EXTENSIÓN, EN LOS ESCRITOS DE FONDO: desarrolla cada apartado hasta
+  agotarlo. Una demanda o un recurso completos no bajan de 3,500 palabras;
+  un estudio de fondo, de 3,000. Si el material del contexto da para más,
+  escribe más. Nunca cierres un apartado con una oración que podría haber
+  sido un párrafo. Una promoción de trámite sigue siendo breve aunque sea
+  Platinum —el acabado se nota en la precisión, no en el largo—, y si el
+  abogado pidió una extensión, ésa manda.
+- FUNDAMENTACIÓN, EN LOS ESCRITOS DE FONDO: integra al menos diez fuentes
+  distintas del contexto cuando existan y sean pertinentes —Constitución,
+  tratados, ley federal, ley local y jurisprudencia—, cada una tejida en el
+  argumento que sostiene, con su transcripción pertinente y su [Doc ID].
+  Una fuente que no sostiene nada no se cita para sumar.
 - ARGUMENTACIÓN EN CAPAS: por cada pretensión o concepto, el argumento
   principal, el subsidiario («aun en el supuesto de que…») y la refutación
   anticipada de lo que opondrá la contraparte o sostendrá la autoridad.

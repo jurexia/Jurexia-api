@@ -14,6 +14,8 @@ devuelve a la pantalla:
   · un encargo nuevo no lleva ni instrucción ni marca, y la etiqueta en
     «Consulta» manda;
   · la marca guardada en el historial no vuelve al modelo;
+  · la extensión: la que pide el abogado manda, y una promoción de trámite
+    se marca como breve; el prompt ya no empuja la extensión en todo;
   · el perfil del despacho va al redactar, no en una consulta, recortado y
     sólo con las claves conocidas; uno mal formado se ignora;
   · con un documento adjunto, /analyze-document redacta cuando el mensaje
@@ -78,6 +80,11 @@ async def _sin_resultados(*a, **k):
     return []
 
 
+# El limitador de peticiones (10 por minuto sin plan) cortaría la prueba a
+# media corrida, y una comprobación en negativo pasaría en vacío.
+import rate_limiter  # noqa: E402
+rate_limiter.SlidingWindowCounter.is_allowed = lambda self, *a, **k: (True, 999, 0)
+
 main.get_deepseek_official_client = lambda *a, **k: _Cliente()
 main.chat_client = _Cliente()
 main.hybrid_search_all_silos = _sin_resultados
@@ -124,7 +131,7 @@ ok(main.INSTRUCCION_CONTINUAR == da.INSTRUCCION_CONTINUAR,
    "el análisis de documentos conserva su instrucción de continuar")
 
 st, cuerpo, llamada = pedir("Redacta ahora un recurso de revisión contra el auto que desechó la demanda")
-ok(er.INSTRUCCION_MODIFICAR not in ultimo_mensaje(llamada) and er.MARCA_REEMPLAZA not in cuerpo,
+ok(llamada is not None and er.INSTRUCCION_MODIFICAR not in ultimo_mensaje(llamada) and er.MARCA_REEMPLAZA not in cuerpo,
    "un encargo nuevo no lleva instrucción de retoque ni marca")
 
 st, cuerpo, llamada = pedir("agrega otro concepto", anterior=er.MARCA_REEMPLAZA + ESCRITO)
@@ -133,8 +140,22 @@ ok(llamada is not None and "REEMPLAZA_ESCRITO" not in llamada["messages"][-2]["c
 ok(cuerpo.count(er.MARCA_REEMPLAZA) == 1, "y el retoque de un retoque también sustituye")
 
 st, cuerpo, llamada = pedir("agrega un concepto de violación", intencion="consultar")
-ok(er.MARCA_REEMPLAZA not in cuerpo and er.INSTRUCCION_MODIFICAR not in ultimo_mensaje(llamada),
+ok(llamada is not None and er.MARCA_REEMPLAZA not in cuerpo and er.INSTRUCCION_MODIFICAR not in ultimo_mensaje(llamada),
    "con la etiqueta en «Consulta», nada de retoque")
+
+print("── la extensión ──")
+st, cuerpo, llamada = pedir("Redacta un escrito solicitando copias certificadas de todo lo actuado")
+ok("promoción de trámite" in ultimo_mensaje(llamada), "una promoción de trámite se marca como breve")
+st, cuerpo, llamada = pedir("Redacta la demanda de amparo, breve")
+ok("el abogado la pidió («breve»)" in ultimo_mensaje(llamada), "lo que pidió el abogado manda")
+st, cuerpo, llamada = pedir("Redacta una demanda de amparo contra la clausura")
+ok(llamada is not None and "EXTENSIÓN:" not in ultimo_mensaje(llamada), "un escrito de fondo, sin indicación")
+st, cuerpo, llamada = pedir("¿Cómo se piden copias certificadas?")
+ok(llamada is not None and "EXTENSIÓN:" not in ultimo_mensaje(llamada), "en una consulta, nada")
+ok("LA EXTENSIÓN LA PIDE EL ESCRITO" in main.SYSTEM_PROMPT_CHAT_DRAFTING
+   and "ÚSALOS TODOS" not in main.SYSTEM_PROMPT_CHAT_DRAFTING
+   and "EXTENSIÓN, EN LOS ESCRITOS DE FONDO" in er.ACABADO_PLATINUM,
+   "el prompt ya no empuja la extensión en todo")
 
 print("── el perfil del despacho ──")
 DESPACHO = {"rol": "postulante", "nombre": "Lic. María López", "cedula": "1234567",
@@ -145,12 +166,12 @@ ok("DATOS DEL DESPACHO" in u and "Lic. María López" in u and "1234567" in u an
    "al redactar, el perfil va con el último mensaje")
 ok("IGNORA TODO" not in u, "sólo las claves que conoce")
 st, cuerpo, llamada = pedir("¿Cuál es el plazo para promover el amparo indirecto?", despacho=DESPACHO)
-ok("DATOS DEL DESPACHO" not in ultimo_mensaje(llamada), "en una consulta, el perfil no se usa")
+ok(llamada is not None and "DATOS DEL DESPACHO" not in ultimo_mensaje(llamada), "en una consulta, el perfil no se usa")
 st, cuerpo, llamada = pedir("Redacta una demanda de amparo", despacho={"nombre": "x" * 5000})
-ok(st == 200 and ("x" * (er.DESPACHO_TOPES["nombre"] + 1)) not in ultimo_mensaje(llamada),
+ok(st == 200 and llamada is not None and ("x" * (er.DESPACHO_TOPES["nombre"] + 1)) not in ultimo_mensaje(llamada),
    "un campo enorme se recorta a su tope")
 st, cuerpo, llamada = pedir("Redacta una demanda de amparo", despacho="no es un diccionario")
-ok(st == 200 and "DATOS DEL DESPACHO" not in ultimo_mensaje(llamada), "un perfil mal formado se ignora")
+ok(st == 200 and llamada is not None and "DATOS DEL DESPACHO" not in ultimo_mensaje(llamada), "un perfil mal formado se ignora")
 
 print("── adjuntar y redactar en un paso ──")
 # /analyze-document redacta cuando el mensaje encarga un escrito (o la

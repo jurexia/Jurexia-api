@@ -4,7 +4,7 @@ import json
 from esfuerzo_redaccion import (
     ACABADO_PLATINUM, DESPACHO_TOPES, MARCA_REEMPLAZA, NOTA_PARA_EL_ABOGADO,
     OFERTA_TRAS_REVISION, ROTULO_NOTA, _sin_marcadores, bloque_despacho,
-    decidir_redaccion, detectar_redaccion, tipo_de_ajuste,
+    decidir_redaccion, detectar_redaccion, indicacion_de_extension, tipo_de_ajuste,
     es_ajuste_de_escrito, esfuerzo_permitido, intencion_del_mensaje,
     normalizar_esfuerzo, normalizar_intencion, parece_escrito, pide_escrito,
 )
@@ -301,6 +301,25 @@ def main() -> None:
     assert "registro A" in bloque_despacho({"rol": "Jurisdiccional"})
     largo = bloque_despacho({"autorizados": "x" * 10_000})
     assert "x" * DESPACHO_TOPES["autorizados"] in largo and "x" * (DESPACHO_TOPES["autorizados"] + 1) not in largo
+
+    # LA EXTENSIÓN, PROPORCIONAL AL ESCRITO (28-sep-2026).
+    for m in ("Redacta un escrito solicitando copias certificadas de todo lo actuado",
+              "Redacta un escrito autorizando al Lic. Pedro Ruiz para oír notificaciones",
+              "Redacta una promoción para exhibir el acta de nacimiento",
+              "Redacta un escrito solicitando el diferimiento de la audiencia",
+              "Hazme un escrito señalando nuevo domicilio para oír notificaciones"):
+        assert "promoción de trámite" in indicacion_de_extension(m), m
+    for m in ("Redacta una demanda de amparo contra la negativa de expedir copias certificadas",
+              "Redacta una demanda de divorcio", "Redacta el recurso de revisión",
+              "Redacta los agravios contra la sentencia que difirió el pago"):
+        assert indicacion_de_extension(m) == "", m
+    for m, dicho in (("Redacta un escrito breve pidiendo que se dicte sentencia", "breve"),
+                     ("Redacta la demanda en no más de 2,000 palabras", "2,000 palabras"),
+                     ("Redacta los agravios, desarrolla a fondo cada uno", "a fondo"),
+                     ("Redacta la solicitud de copias en una cuartilla", "una cuartilla")):
+        r = indicacion_de_extension(m)
+        assert "el abogado la pidió" in r and dicho in r and "Manda sobre cualquier mínimo" in r, (m, r)
+    assert indicacion_de_extension("") == "" and indicacion_de_extension(None) == ""
 
     # El plan manda sobre el desplegable.
     assert esfuerzo_permitido("platinum", "platinum_monthly") == "platinum"

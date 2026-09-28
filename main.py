@@ -1510,7 +1510,7 @@ DEBES IGNORAR todo tono conversacional o introductorio (e.g. "¡Claro! Aquí tie
 - Tu ÚNICA FUENTE válida para fundamentar son los documentos inyectados en el contexto (Leyes, Jurisprudencias).
 - CITA TEXTUAL de la Jurisprudencia: Usa los ATRIBUTOS del tag <documento> del XML del contexto. P.ej: "[RUBRO del texto]" -- *[atributo instancia=], Registro digital: [atributo registro=]* [Doc ID: uuid]. Si el tag <documento> NO tiene atributo registro= o instancia=, OMITE esos datos de tu cita. NUNCA inventes un registro digital ni un número de tesis — tus datos de training son obsoletos y frecuentemente incorrectos.
 - PROHIBIDO añadir notas, avisos ni bloques "Información al usuario" DENTRO del escrito. El documento legal se entrega LIMPIO, sin disclaimers: lo que el abogado deba saber va DESPUÉS del escrito, en la nota para el abogado (ver al final). Si el RAG no contiene una tesis específica, mencionalo dentro del mismo párrafo como parte de la argumentación (ej: 'conforme al criterio aplicable en la materia...') sin interrumpir la prosa ni añadir pie de página explicativo.
-- Si el RAG tiene documentos suficientes para el tema, ÚSALOS TODOS. No te limites a los 2 o 3 primeros — revisa CADA documento del contexto y extrae su ratio decidendi si es relevante. Integra al menos 5-8 fuentes distintas en tu argumentación cuando estén disponibles, entrelazando legislación federal, estatal, jurisprudencia y tratados internacionales en un tejido argumentativo cohesivo.
+- Si el RAG tiene documentos suficientes para el tema, no te limites a los 2 o 3 primeros — revisa CADA documento del contexto y extrae su ratio decidendi si es relevante. En un escrito de fondo integra de 5 a 8 fuentes distintas cuando estén disponibles y sean pertinentes, entrelazando legislación federal, estatal, jurisprudencia y tratados internacionales en un tejido argumentativo cohesivo. Una fuente que no sostiene nada no se cita para sumar, y una promoción de trámite se funda con el precepto procesal exacto.
 
 ────────────────────────────────────────────────────────────────
  MODELOS DE ESTILO (PROHIBIDO CITAR)
@@ -1628,7 +1628,8 @@ reclamación, incidente, revisión fiscal.
 - LARGO: el estudio de fondo de un engrose real tiene una mediana de 3,454
   palabras. No entregues menos de 1,800 salvo que el asunto sea de puro
   trámite. Nunca cortes por brevedad: si crees que terminas, desarrolla los
-  efectos de la concesión, los argumentos reforzadores y las objeciones.
+  efectos de la concesión, los argumentos reforzadores y las objeciones. Si
+  el abogado pidió otra extensión, ésa manda.
 - NUNCA ordenes un sentido que el abogado no pidió. Si te dio su criterio,
   ese criterio manda y tu trabajo es redactarlo mejor de lo que él lo diría,
   no sustituirlo por el tuyo.
@@ -1716,6 +1717,17 @@ hasta que lo lee el juez.
 Lo que el foro escribe en genérico —«C. JUEZ DE DISTRITO EN MATERIA
 ADMINISTRATIVA EN TURNO», «P R E S E N T E»— no es un dato que falte: se
 escribe así.
+
+────────────────────────────────────────────────────────────────
+ EN LOS TRES REGISTROS — LA EXTENSIÓN LA PIDE EL ESCRITO
+────────────────────────────────────────────────────────────────
+Los largos de arriba son de los escritos de fondo. Una promoción de trámite
+—copias, autorizados, domicilio, diferimiento, exhibir un documento,
+desahogar una prevención sencilla— cabe en una o dos cuartillas, con el
+precepto procesal exacto y sin marco constitucional; un escrito intermedio
+—una vista, unos alegatos, un incidente— mide lo que su punto exige. Y si el
+abogado dice cuánto —«breve», «de una cuartilla», «desarrolla a fondo»—,
+eso manda sobre cualquier mínimo.
 """ + NOTA_PARA_EL_ABOGADO
 
 
@@ -1890,8 +1902,8 @@ from esfuerzo_redaccion import (  # noqa: E402
     ACABADO_PLATINUM, INSTRUCCION_MODIFICAR, INSTRUCCION_SEGUIR_ESCRITO,
     INSTRUCCION_DOCUMENTO_BASE, MARCA_REEMPLAZA, OFERTA_TRAS_REVISION,
     PLANES_PLATINUM, PLANES_PRO, bloque_despacho, decidir_redaccion,
-    esfuerzo_permitido, intencion_del_mensaje, normalizar_esfuerzo,
-    normalizar_intencion, pide_escrito, tipo_de_ajuste,
+    esfuerzo_permitido, indicacion_de_extension, intencion_del_mensaje,
+    normalizar_esfuerzo, normalizar_intencion, pide_escrito, tipo_de_ajuste,
 )
 
 
@@ -13056,6 +13068,10 @@ async def analyze_document(
     {extracted_text}"""
         if _despacho_doc:
             full_user_message += "\n\n" + _despacho_doc
+        if _redactar_doc:
+            _extension_doc = indicacion_de_extension(prompt or "")
+            if _extension_doc:
+                full_user_message += "\n\n" + _extension_doc
 
         _paso("Redactando el escrito…" if _redactar_doc else "Redactando el análisis…")
         t_pre_llm = _time.time()
@@ -18052,6 +18068,15 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                 if _tipo_ajuste and is_chat_drafting and not (is_drafting and draft_tipo):
                     dynamic_injections.append(
                         INSTRUCCION_MODIFICAR if _tipo_ajuste == "modificar" else INSTRUCCION_SEGUIR_ESCRITO)
+
+                # LA EXTENSIÓN, PROPORCIONAL AL ESCRITO (28-sep-2026): la que
+                # pidió el abogado manda; si no dijo nada y es una promoción de
+                # trámite, se le recuerda que lo es. Sólo con el prompt del chat.
+                if is_chat_drafting and not (is_drafting and draft_tipo):
+                    _extension = indicacion_de_extension(last_user_message)
+                    if _extension:
+                        dynamic_injections.append(_extension)
+                        print(f"   📏 EXTENSIÓN: {_extension[:70]}…")
 
                 # EL PERFIL DEL DESPACHO (28-sep-2026): al redactar —por el chat
                 # o por la tarjeta «Escrito legal»—, los datos que el abogado
