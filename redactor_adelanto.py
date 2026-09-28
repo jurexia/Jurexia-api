@@ -995,6 +995,12 @@ async def _espejo_propio(qdrant, embed, r: Resultado, problemas: list):
     (`fase_oaj.py`) busca planteamiento contra planteamiento y da un porcentaje
     calibrado; si no dice nada —sin tabla de calibración, sin colección, nada
     al 85%—, se cae al acervo viejo exactamente como antes.
+
+    `problemas` es la lista de CONSULTAS que arma `consultar()` —cadenas: el
+    problema global, la pregunta de cada planteamiento y las sintéticas de
+    inoperancia y sustento— y sólo la usa el espejo viejo. La fuente OAJ no la
+    lee: toma los planteamientos enteros de `r.fases.problemas` (ver
+    `_espejo_oaj`).
     """
     try:
         import fase_espejo as fe
@@ -1017,7 +1023,7 @@ async def _espejo_propio(qdrant, embed, r: Resultado, problemas: list):
     # mezclar grupos de la OAJ con grupos del acervo viejo pondría la cobertura
     # de uno debajo de los precedentes del otro. Si la OAJ habla en alguno, la
     # tarjeta es suya entera.
-    oaj = await _espejo_oaj(qdrant, embed, r, problemas, _txt, clave, largo)
+    oaj = await _espejo_oaj(qdrant, embed, r, _circ, largo)
     if oaj:
         return oaj
     try:
@@ -1053,8 +1059,8 @@ async def _espejo_propio(qdrant, embed, r: Resultado, problemas: list):
     return fuera
 
 
-async def _espejo_oaj(qdrant, embed, r: Resultado, problemas: list,
-                      _txt: list, clave: str, largo: str) -> list:
+async def _espejo_oaj(qdrant, embed, r: Resultado, circ: str,
+                      largo: str) -> list:
     """El espejo desde el índice de la OAJ. [] si no habla en ningún punto.
 
     Mismo formato que el espejo viejo —{problema, tribunal, filas, resumen,
@@ -1066,22 +1072,39 @@ async def _espejo_oaj(qdrant, embed, r: Resultado, problemas: list,
         import fase_oaj as fo
     except Exception:
         return []
-    organo = fo.ORGANOS_OAJ.get(clave, "")
+    e = r.encargo
+    # QUE CONSTE EL CIRCUITO 22, NO QUE NO CONSTE OTRO. `resolver_tribunal`
+    # toma el circuito vacío por el 22, y `circuito_de` devuelve vacío con
+    # «… del Decimoquinto Circuito» o con un tribunal auxiliar: el espejo viejo
+    # ya enseñaba así sentencias de Querétaro a secretarios de otra plaza, y
+    # esta fuente les pondría encima un porcentaje. Aquí se calla.
+    clave, organo = fo.organo_de(getattr(e, "tribunal", ""), circ,
+                                 getattr(e, "ciudad", ""))
     if not organo:
         return []
-    # EL PROBLEMA ENTERO, NO SÓLO LA PREGUNTA. La consulta que casa contra los
-    # planteamientos indexados es «pregunta combate resolvio»; con la pregunta
-    # sola se pierde justo lo que distingue un punto de su vecino.
-    tipo = getattr(r.encargo, "tipo_asunto", "") or ""
+    # LOS PLANTEAMIENTOS ENTEROS, DE LA FASE 3, Y NO LA LISTA DE CONSULTAS.
+    # `consultar()` reduce cada planteamiento a su pregunta y le suma el
+    # problema global y las preguntas sintéticas de inoperancia y sustento:
+    # sirve para el material, pero la tabla de la OAJ se midió con «pregunta
+    # combate resolvio». Con la pregunta sola el porcentaje de la tarjeta no
+    # habría salido de ninguna medición, y las sintéticas, que van antes en la
+    # deduplicación, les quitaban precedentes a los planteamientos reales. Un
+    # planteamiento al que le falte una de las tres piezas no consulta.
+    planteamientos = [
+        p for p in (getattr(getattr(r, "fases", None), "problemas", None) or [])
+        if isinstance(p, dict) and fo.texto_consulta(p)]
+    if not planteamientos:
+        return []
+    tipo = getattr(e, "tipo_asunto", "") or ""
     try:
         tiros = await asyncio.gather(*[
             fo.precedentes_oaj(qdrant, embed, p, tipo, organo)
-            for p in problemas], return_exceptions=True)
+            for p in planteamientos], return_exceptions=True)
     except Exception as exc:
         print(f"   ⚠️ precedentes OAJ omitidos: {exc}")
         return []
     fuera, vistas = [], set()
-    for t, filas in zip(_txt, tiros):
+    for p, filas in zip(planteamientos, tiros):
         if isinstance(filas, BaseException) or not filas:
             continue
         limpias = []
@@ -1102,13 +1125,20 @@ async def _espejo_oaj(qdrant, embed, r: Resultado, problemas: list,
             continue
         # El nombre PARA LEER es el de siempre; el de la OAJ, con su
         # residencia, es el valor exacto del filtro y no hace falta en pantalla.
-        fuera.append({"problema": t, "tribunal": largo or organo,
-                      "filas": limpias, "resumen": fo.resumen(limpias),
-                      "cobertura": fo.NOTA_COBERTURA})
+        #
+        # SIN RENGLÓN DE RESUMEN. El `sentido` de la fila es el del resolutivo
+        # de la SENTENCIA y la coincidencia es con UNO de sus planteamientos
+        # (o con su tema): contarlos cruza las dos escalas que `fase_espejo`
+        # documenta como la causa del error del 45%. Y sin piso de filas, el
+        # renglón salía como «De estos 1 asuntos propios, todos…». Cada fila ya
+        # trae su calificación literal; compara el secretario.
+        fuera.append({"problema": str(p.get("pregunta") or "").strip(),
+                      "tribunal": largo or organo, "filas": limpias,
+                      "resumen": "", "cobertura": fo.NOTA_COBERTURA})
     if fuera:
         print(f"   🪞 espejo del propio tribunal (OAJ, {clave}): "
               f"{sum(len(x['filas']) for x in fuera)} precedentes en "
-              f"{len(fuera)} de {len(_txt)} planteamientos")
+              f"{len(fuera)} de {len(planteamientos)} planteamientos")
     return fuera
 
 
