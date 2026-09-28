@@ -79,6 +79,26 @@ ok(q3 == "Documento: solo_nombre.pdf", "sin instrucción ni texto queda el nombr
 q4 = da.consulta_para_acervo("  varios   espacios\n\ny saltos ", "  texto\tcon\ttabs  ")
 ok(q4 == "varios espacios y saltos\nArranque del documento: texto con tabs", "colapsa espacios y saltos")
 
+# ── La pregunta, buscada por sí sola, con la vía del documento (28-sep-2026) ──────────────
+# Con una demanda de mutuo en vía ordinaria civil de Querétaro, la consulta de siempre no traía
+# el art. 260 del CPC (nueve días para contestar); la pregunta sola, sí (medido con el acervo real).
+dem = ("ACTORA: MARIANA ESQUIVEL ROBLEDO\nQue por medio del presente escrito y en la VÍA ORDINARIA "
+       "CIVIL vengo a demandar al señor RODRIGO ANAYA VILLASEÑOR el pago de…")
+ok(da.via_del_documento(dem) == "juicio ordinario civil", "reconoce la «VÍA ORDINARIA CIVIL»")
+ok(da.via_del_documento("en la vía ejecutiva mercantil demando") == "juicio ejecutivo mercantil",
+   "el ejecutivo mercantil se reconoce como tal")
+ok(da.via_del_documento("promuevo juicio de amparo indirecto contra") == "juicio de amparo indirecto",
+   "reconoce el amparo indirecto")
+ok(da.via_del_documento("un contrato de arrendamiento sin juicio") == "", "sin vía declarada: cadena vacía")
+qs = da.consultas_para_acervo("¿Qué plazo tengo para contestar?", dem, "d.pdf")
+ok(len(qs) == 2, "con pregunta hay dos consultas")
+ok(qs[0] == da.consulta_para_acervo("¿Qué plazo tengo para contestar?", dem, "d.pdf"), "la primera es la de siempre")
+ok(qs[-1] == "¿Qué plazo tengo para contestar?\nTipo de juicio: juicio ordinario civil",
+   "la segunda es la pregunta con la vía")
+ok(len(da.consultas_para_acervo("Analiza este documento y genera un resumen ejecutivo completo", dem, "d.pdf")) == 1,
+   "el resumen por omisión no agrega consulta")
+ok(len(da.consultas_para_acervo("", dem, "d.pdf")) == 1, "sin pregunta, una sola consulta")
+
 print()
 if fallos:
     print(f"{len(fallos)} FALLO(S):")

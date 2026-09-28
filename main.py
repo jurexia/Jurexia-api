@@ -12343,7 +12343,7 @@ DOCUMENT_MAX_CHARS = 200_000  # ~50K tokens — fast TTFT, sufficient for any le
 # 14-sep-2026, cuando esta ruta dejó de trabajar sin acervo. Se conserva el
 # nombre por compatibilidad: `DOCUMENT_SYSTEM_PROMPT` es la variante SIN
 # acervo, la que se usa cuando la búsqueda falla o no devuelve nada.
-from documento_acervo import (prompt_documento, consulta_para_acervo,
+from documento_acervo import (prompt_documento, consulta_para_acervo, consultas_para_acervo,
                               INSTRUCCION_CONTINUAR, NOTA_TRANSCRIPCION_CORTADA)
 
 DOCUMENT_SYSTEM_PROMPT = prompt_documento(con_acervo=False)
@@ -12535,6 +12535,27 @@ def _marcadores_del_sello(texto: str, doc_id_map: Dict[str, "SearchResult"],
 # referencias débiles a sus tareas y una de tres minutos puede ser recogida a
 # medias si nadie la sujeta.
 _PREPARANDO: set = set()
+
+
+def _intercalar_resultados(lotes: List[List["SearchResult"]], tope: int = 36) -> List["SearchResult"]:
+    """Mezcla los resultados de varias consultas turnándose (1.º de cada una, luego el 2.º…),
+    sin repetir fuente, hasta `tope`. Así lo mejor de cada consulta entra aunque la otra
+    traiga treinta resultados propios."""
+    salida: List["SearchResult"] = []
+    vistos = set()
+    largo = max((len(l) for l in lotes), default=0)
+    for i in range(largo):
+        for lote in lotes:
+            if i < len(lote):
+                r = lote[i]
+                clave = getattr(r, "id", None) or id(r)
+                if clave in vistos:
+                    continue
+                vistos.add(clave)
+                salida.append(r)
+                if len(salida) >= tope:
+                    return salida
+    return salida
 
 
 @app.post("/analyze-document")
@@ -12995,17 +13016,33 @@ async def analyze_document(
             _paso("Buscando en el acervo las leyes y tesis aplicables…")
             try:
                 _t_acervo = _time.time()
-                search_results = await asyncio.wait_for(
-                    hybrid_search_all_silos(
-                        query=consulta_para_acervo(prompt, extracted_text, filename),
-                        estado=estado or None,
-                        top_k=30,
-                        # Las cuotas, repartidas sólo entre lo que el abogado
-                        # dejó encendido. None sin selector: como siempre.
-                        fuero=fuentes_sel.fuero_equivalente(_fuentes_doc),
-                    ),
+                # DOS CONSULTAS EN PARALELO (28-sep-2026): la de siempre —instrucción,
+                # ordenamientos y arranque del documento— y la PREGUNTA SOLA con la vía que
+                # declara el documento. En una sola, el arranque de la demanda tapaba lo
+                # preguntado: «¿qué plazo tengo para contestar?» en una demanda de vía
+                # ordinaria civil de Querétaro no traía el art. 260 (nueve días) y el
+                # análisis contestó «no está en el contexto recuperado». Se intercalan y se
+                # quitan los repetidos; si una falla, queda la otra (ver documento_acervo).
+                _consultas_doc = consultas_para_acervo(prompt, extracted_text, filename)
+                _lotes = await asyncio.wait_for(
+                    asyncio.gather(*[
+                        hybrid_search_all_silos(
+                            query=_q,
+                            estado=estado or None,
+                            top_k=30,
+                            # Las cuotas, repartidas sólo entre lo que el abogado
+                            # dejó encendido. None sin selector: como siempre.
+                            fuero=fuentes_sel.fuero_equivalente(_fuentes_doc),
+                        )
+                        for _q in _consultas_doc
+                    ], return_exceptions=True),
                     timeout=25.0,
-                ) or []
+                )
+                _buenos = [l for l in _lotes if isinstance(l, list)]
+                for _l in _lotes:
+                    if isinstance(_l, BaseException):
+                        print(f"   📚 Documento + acervo: una consulta falló ({type(_l).__name__}: {str(_l)[:120]})")
+                search_results = _intercalar_resultados(_buenos, tope=36 if len(_buenos) > 1 else 30)
                 if search_results:
                     doc_id_map = build_doc_id_map(search_results)
                     context_xml = format_results_as_xml(search_results, estado=_entidad_acervo)
