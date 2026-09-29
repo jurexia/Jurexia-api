@@ -3809,6 +3809,17 @@ _A_EFECTOS_DESC = """
 # con los hechos; dentro de un grupo que se resuelve por consecuencia eso
 # sería volver a argumentar lo que el principal ya decidió. Ahí basta una o
 # dos frases en el párrafo del grupo, y nunca el criterio como apoyo.
+#
+# EN LAS DOS DIRECCIONES (integración del 28-sep-2026). Esa frase se escribió
+# pensando en el grupo que CAE con el principal y decía «se distingue» sin más;
+# pero dos renglones arriba, CON EL PRINCIPAL (el problema prospera) dice que
+# el precedente de la parte es un ELEMENTO DE LA PREMISA del que decide. En el
+# 631 con el sentido que dictó David —fundado—, A1.j, A1.o y A1.v traen
+# precedentes de la recurrente dentro del grupo que prospera: el prompt
+# pedía a la vez usarlos como elemento de la premisa y distinguirlos. Ahora
+# cada dirección tiene lo suyo, y en las dos rige lo de la técnica: la
+# respuesta completa es la del principal y el criterio de la parte nunca se
+# vuelve apoyo propio del proyecto (se le da la razón a quien lo invocó).
 _JERARQUIA_DESC = """
 - JERARQUÍA DEL PROBLEMA: cómo se sigue la suerte de cada argumento de la del
   que decide su problema. La calculó el plan sobre el sentido que el
@@ -3844,10 +3855,13 @@ _JERARQUIA_DESC = """
     renglón dice.
   Lo que la jerarquía resuelve por consecuencia recibe la respuesta de su
   grupo, no una propia; y las tesis que la parte invoca dentro de un grupo
-  así no se anuncian ni se transcriben, y nunca como apoyo: si una tocaba lo
-  que decide, se distingue en una o dos frases dentro del párrafo del grupo
-  —el supuesto que resolvía frente al dato del caso—; si no, basta decir por
-  qué no cambian lo resuelto."""
+  así no se anuncian ni se transcriben, y nunca como apoyo propio del
+  proyecto. Si el problema prospera y su regla es un elemento de la premisa
+  del que decide, en el párrafo donde se usa su dato se dice, en una o dos
+  frases, que en ese punto asiste razón a quien la invocó. Si el problema no
+  prospera y una tocaba lo que decide, se distingue en una o dos frases dentro
+  del párrafo del grupo —el supuesto que resolvía frente al dato del caso—;
+  si no, basta decir por qué no cambian lo resuelto."""
 
 
 def bloque(guion: str) -> str:

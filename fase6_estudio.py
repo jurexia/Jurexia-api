@@ -3731,10 +3731,17 @@ _REEMPLAZOS_TECNICA = (
      "     describe LA CITA, SU REGLA Y SU APLICACIÓN—. Cada premisa se expone UNA\n"
      "     vez en todo el estudio."),
     # «4. APLICAR»: el dato propio que es un precedente de la parte.
+    # (Integración del 28-sep-2026: justo encima, el ajuste de la JERARQUÍA
+    # dice que lo del grupo de consecuencia se contesta dentro de la respuesta
+    # del grupo; sin la última cláusula, esta frase pedía además la respuesta
+    # completa de la técnica para el mismo criterio. Sin JERARQUÍA en el guion
+    # no hay grupos y la cláusula no aplica.)
     ("\n\n  5. REMITIR CON CONTENIDO.",
      "\n     Si ese dato propio es un criterio que la parte invocó, su respuesta es\n"
      "     una de las tres que se describen para el criterio que invocó otro, no\n"
-     "     volver a citarlo como apoyo.\n\n  5. REMITIR CON CONTENIDO."),
+     "     volver a citarlo como apoyo; dentro de un grupo que el guion resuelve\n"
+     "     por consecuencia de su principal, la que el guion describe.\n\n"
+     "  5. REMITIR CON CONTENIDO."),
     # La regla 4 de la arquitectura: las dos posiciones de la Corte.
     ("   Nunca abras un tramo con la cita: ése es el patrón de las medias, donde la\n"
      "   tesis sustituye al razonamiento en vez de apoyarlo.",
@@ -3743,6 +3750,28 @@ _REEMPLAZOS_TECNICA = (
      "   primero, el párrafo que sigue al rubro retoma el criterio y dice su regla\n"
      "   antes de aplicarla: las dos posiciones las usa la Corte, y ninguna admite\n"
      "   la cita sin su regla dicha."),
+    # «NO VIVAS DE LA CITA» (integración del 28-sep-2026) pedía la regla del
+    # criterio «en una o dos frases»; la técnica pide de una a tres oraciones
+    # con sus elementos, su razón y su alcance cuando la aplicación depende de
+    # ellos. Una sola medida: la de la técnica.
+    ("  Aquí ha de ser al revés. Del criterio que invoques, trae la REGLA en una o\n"
+     "  dos frases y sigue razonando:",
+     "  Aquí ha de ser al revés. Del criterio que invoques, trae la REGLA dicha\n"
+     "  por ti, con la medida de LA CITA, SU REGLA Y SU APLICACIÓN, y sigue\n"
+     "  razonando:"),
+    # «LA INSTANCIA VA SIEMPRE» (integración del 28-sep-2026) chocaba con «NO
+    # ESCRIBAS TÚ NI EL TIPO NI EL ÓRGANO» del anuncio y con la técnica, que
+    # dice que de identificar la cita se encarga el documento. Las dos valen,
+    # cada una en su sitio: el anuncio lo completa el documento; fuera de él
+    # —la regla dicha por ti, la respuesta al criterio que invocó otro— el
+    # órgano lo dices tú. Sin ejemplos entre comillas: se copiaban.
+    ("- LA INSTANCIA VA SIEMPRE: «de la Primera Sala de la Suprema Corte de Justicia\n"
+     "  de la Nación», «de la Segunda Sala», «del Pleno», «de un Tribunal Colegiado de\n"
+     "  Circuito». Sin ella no se sabe qué peso tiene el criterio.",
+     "- LA INSTANCIA, FUERA DEL ANUNCIO: en la oración que anuncia la cita la pone\n"
+     "  el documento; cuando en tu prosa hables de un criterio —al decir su regla,\n"
+     "  al contestar el que invocó otro—, di de qué órgano es, con su nombre\n"
+     "  completo. Sin ella no se sabe qué peso tiene el criterio."),
     # La regla de las marcas (sólo con inventario): el precedente que trae.
     ("  reiteran otro se nombran juntos en el párrafo que los contesta.",
      "  reiteran otro se nombran juntos en el párrafo que los contesta. Si el dato\n"
@@ -3750,11 +3779,37 @@ _REEMPLAZOS_TECNICA = (
      "  tres que se describen para el criterio que invocó otro, nunca volver a\n"
      "  citarlo como apoyo."),
 )
+# LOS QUE SÓLO ESTÁN EN ALGUNOS ASUNTOS (integración del 28-sep-2026, AR
+# 631/2025). Dos textos de la v2 empujaban a citar en bloque, y la técnica dice
+# que un criterio que no cabe en ninguna de sus cuatro funciones no se invoca:
+#   · «APOYOS PARA ESTA TÉCNICA … son las que hay que citar»: en el 631 (rama
+#     revoca_fondo_niega, sin conceptos de violación) mandaba citar cuatro
+#     tesis, dos de ellas sobre conceptos que descansan en otros desestimados
+#     —un estudio que ese proyecto no puede hacer sin los conceptos—;
+#   · «Apoyos del acervo para esta vía: … (cítalos …)» cuando el secretario
+#     resolvió al revés que el motor.
+# Siguen diciendo DÓNDE están los apoyos; ya no mandan citarlos todos.
+_REEMPLAZOS_TECNICA_CONDICIONALES = (
+    ("y son las que hay que citar al justificarla. Cítalas como las demás, desde "
+     "el texto que se te dio.",
+     "y sostienen los pasos de esta técnica: cada una se cita, desde el texto que "
+     "se te dio, sólo para un paso que de verdad des en este estudio, con su regla "
+     "dicha por ti y aplicada como cualquier otra; la que no sostiene ningún paso "
+     "tuyo no se cita."),
+    (" (cítalos desde su texto, abajo).",
+     " (el que sostenga una premisa tuya se cita desde su texto, abajo, con la "
+     "técnica de la cita; los demás no)."),
+)
+
 # Lo último que se lee es lo que más se obedece (va con el del guion).
+# (Integración del 28-sep-2026: decía «ninguno de la parte como apoyo», y en
+# la dirección en que la parte gana —el 631 con el sentido que dictó David— la
+# técnica y la JERARQUÍA piden reconocerle la razón a quien invocó el criterio
+# que decide. Lo prohibido es reciclarlo como hallazgo propio.)
 _RECUERDA_TECNICA = (
     "Y CADA CRITERIO QUE CITES, CON SU REGLA DICHA POR TI Y APLICADA A UNA "
     "CONSTANCIA DEL EXPEDIENTE: ninguno en fila sin regla, ninguno de la parte "
-    "como apoyo.\n")
+    "reciclado como apoyo propio: a quien lo invocó se le contesta.\n")
 
 
 def _con_tecnica(base: str, jerarquia: bool = False) -> str:
@@ -3766,7 +3821,36 @@ def _con_tecnica(base: str, jerarquia: bool = False) -> str:
         if jerarquia and viejo == _TECNICA_PARTE_VIEJA:
             nuevo = nuevo + _TECNICA_PARTE_GRUPO
         base = base.replace(viejo, nuevo, 1)
+    for viejo, nuevo in _REEMPLAZOS_TECNICA_CONDICIONALES:
+        base = base.replace(viejo, nuevo)
     return base
+
+
+# EL CONSIDERANDO DE LOS CONCEPTOS QUE NADIE ESTUDIÓ NO ESTÁ EN EL GUION
+# (integración del 28-sep-2026, AR 631/2025). El plan organiza el estudio de
+# los AGRAVIOS; cuando el recurso levanta un sobreseimiento (art. 93, frs. I y
+# V) o revoca una concesión y reasume jurisdicción (fr. VI), el prompt pide
+# además un considerando propio para los conceptos de violación. Con el guion
+# diciendo «un apartado por cada APARTADO» y «si el guion te parece equivocado,
+# síguelo igual», el modelo tenía cómo omitir ese considerando o mandarlo a
+# DESVIACIONES DEL GUION. Sólo cuando el prompt trae los conceptos que hay que
+# estudiar —si faltan, se pide lo contrario: no concluir y avisar— se dice
+# dónde va ese considerando y que no es una desviación.
+_MARCAS_CONSIDERANDO_CONCEPTOS = (
+    "LOS CONCEPTOS DE VIOLACIÓN NO ESTUDIADOS,",               # fr. VI, con conceptos
+    "ESTUDIO DE LOS CONCEPTOS DE VIOLACIÓN — UN CONSIDERANDO NUEVO",  # frs. I y V
+)
+_GUION_UN_APARTADO = "- Un apartado por cada APARTADO del guion, en su orden."
+_GUION_Y_CONCEPTOS = (
+    "- Un apartado por cada APARTADO del guion, en su orden. El guion ordena el\n"
+    "  estudio de los agravios: el considerando de los conceptos de violación que\n"
+    "  el tribunal estudia por primera vez, descrito más arriba, va después de su\n"
+    "  último apartado, no está en el guion y no es una desviación de él; y la\n"
+    "  conclusión con que se cierra —si procede conceder o negar— es parte de ese\n"
+    "  considerando, no un párrafo de cierre.")
+_RECUERDA_CONCEPTOS = (
+    "DESPUÉS DEL ÚLTIMO APARTADO DEL GUION, EL CONSIDERANDO DE LOS CONCEPTOS DE "
+    "VIOLACIÓN QUE NADIE ESTUDIÓ, con su conclusión.\n")
 
 
 def _prompt_estudio_v4(args: dict) -> str:
@@ -3786,6 +3870,9 @@ def _prompt_estudio_v4(args: dict) -> str:
     # LA TÉCNICA DE LA CITA, con guion (ver `_REEMPLAZOS_TECNICA`).
     base = _con_tecnica(base, _jer)
     _recuerda = _RECUERDA_GUION + _RECUERDA_TECNICA
+    if any(m in base for m in _MARCAS_CONSIDERANDO_CONCEPTOS):
+        blq = blq.replace(_GUION_UN_APARTADO, _GUION_Y_CONCEPTOS, 1)
+        _recuerda = _RECUERDA_GUION + _RECUERDA_CONCEPTOS + _RECUERDA_TECNICA
     i = base.rfind(_MARCA_ESCRIBE)
     if i < 0:
         return base.rstrip() + "\n" + blq + "\n" + _recuerda
