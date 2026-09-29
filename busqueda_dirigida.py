@@ -228,7 +228,14 @@ async def _ejecutar(qdrant, embed_juris, nombre: str, args: dict,
             art = str(args.get("articulo") or "").strip()
             if not (ley and art):
                 return "Falta la ley o el artículo."
-            d = await _f6r.resolver_articulo(qdrant, coleccion_estatal or "", ley, art)
+            # POR FUERO (rediseño, punto 2; bandera «recuperacion_requisitos»):
+            # sólo se buscaba en la colección del estado, y ninguna ley
+            # FEDERAL se podía leer por aquí («NO lo transcribas»).
+            import contexto_taller as _ct_bd
+            if _ct_bd.rediseno("recuperacion_requisitos") and _f6r.fuero_de(ley) == "federal":
+                d = await _f6r.resolver_articulo(qdrant, [_f6r.COLECCION_FEDERAL], ley, art)
+            else:
+                d = await _f6r.resolver_articulo(qdrant, coleccion_estatal or "", ley, art)
             if not d:
                 return (f"El acervo no tiene el artículo {art} de «{ley}». "
                         f"NO lo transcribas de memoria.")

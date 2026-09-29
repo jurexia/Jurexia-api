@@ -340,6 +340,8 @@ class Material:
     # decisiva y falta la búsqueda de su figura: la propuesta SALE igual (el
     # secretario siempre puede pedirla al motor), pero no como recomendación.
     consulta_estado: dict = field(default_factory=dict)
+    # LA DEMOSTRACIÓN POR REQUISITOS (rediseño, etapa 2; `requisitos.py`).
+    requisitos: dict = field(default_factory=dict)
     # LA FORMA DE LA SENTENCIA —«estandar» o «moderna»—, por la misma razón que
     # la materia: dos redactores arman el prompt y el material llega a los dos.
     # Ver `formato_sentencia.py`.

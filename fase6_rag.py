@@ -350,6 +350,12 @@ def _norma_de(p: dict) -> dict:
         "articulo": p.get("articulo_num") or "",
         "texto": p.get("texto") or p.get("contenido") or "",
         "entidad": p.get("entidad") or "",
+        # LO QUE SE PERDÍA (rediseño, punto 2): la ubicación en el cuerpo legal
+        # y la fuente, para la ficha de la regla. Sólo se añaden campos.
+        "jerarquia": p.get("jerarquia") or p.get("jerarquia_txt") or "",
+        "capitulo": p.get("capitulo") or "",
+        "url_pdf": p.get("url_pdf") or p.get("pdf") or "",
+        "es_transitorio": bool(p.get("es_transitorio")),
     }
 
 
@@ -671,11 +677,15 @@ async def completar_preceptos(qdrant, material, pares: list, coleccion_estatal=N
                 "url": _dela_web.get("url", ""),
                 "dominio": _dela_web.get("dominio", ""),
             }
+            norma_web.setdefault("origen", "citada")
             material.normas.append(norma_web)
             de_la_web.append(f"art. {art} — {cuerpo} ({_dela_web.get('dominio','')})")
             continue
         col, norma = hallado
         norma = await _completar(qdrant, col, norma)
+        # DE DÓNDE VIENE (rediseño, punto 2): lo citado se ordena antes que lo
+        # semántico en la propuesta, que sólo ve las primeras.
+        norma.setdefault("origen", "citada")
         material.normas.append(norma)
         anadidos.append(f"art. {art} — {norma.get('cuerpo_legal')}")
     if anadidos:

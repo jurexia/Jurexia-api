@@ -32585,6 +32585,13 @@ async def taller_adelanto(
         asyncio.ensure_future(_taller_precontrastar(user_email, numero, r))
     except Exception as _exc_pc:
         print(f"   ⚠️ no se pudo adelantar el contraste: {err(_exc_pc)}")
+    # EL ANÁLISIS NEUTRAL DE LA LITIS (rediseño, etapa 2; bandera
+    # «analisis_neutral», cuentas de prueba): sólo depende del adelanto, así
+    # que empieza aquí, junto al contraste, y la propuesta lo espera con tope.
+    try:
+        asyncio.ensure_future(_taller_preanalizar(user_email, numero, r))
+    except Exception as _exc_pa:
+        print(f"   ⚠️ no se pudo adelantar el análisis neutral: {err(_exc_pa)}")
     # Y LA LECTURA DEL ESCRITO PARA EL INVENTARIO DE LA v3/v4 (26-sep-2026):
     # sólo depende del adelanto, así que empieza aquí y se guarda en la fila.
     _taller_preinventariar_suelta(user_email, numero, r)
@@ -33530,6 +33537,134 @@ def _taller_avance(email: str, numero: str) -> dict:
     except Exception as ex:
         print(f"   ⚠️ no se pudo leer el avance de {numero}: {err(ex)}")
         return {}
+
+
+ANALISIS_ESPERA_S = float(os.getenv("ANALISIS_ESPERA_S", "180"))
+
+
+async def _taller_preanalizar(email: str, numero: str, r) -> None:
+    """El análisis neutral de la litis, calculado en cuanto termina el adelanto
+    (rediseño, etapa 2). Corre suelto, con latido, y deja la marca «analisis»
+    {huella del adelanto, huella_analisis, estado, doc}. Sólo con la bandera.
+    Nunca lanza: sin análisis la propuesta se hace como siempre."""
+    import contexto_taller as _ctx_a
+    if not _ctx_a.rediseno("analisis_neutral"):
+        return
+    huella = ""
+    try:
+        import analisis_litis as _al
+        import inventario as _inv_a
+        huella = _te.huella_contraste(r)
+        _ha = _al.huella(r)
+        _desde = time.time()
+        if not _taller_guardar_marca(email, numero, _al.CLAVE_MARCA, {
+                "huella": huella, "huella_analisis": _ha, "estado": "en_curso", "desde": _desde}, huella):
+            return
+        _fuentes = list(getattr(r.fases, "fuentes", []) or []) + ["", ""]
+        _segs = _inv_a.segmentos(r.fases, str(_fuentes[1] or ""), bool(r.encargo and r.encargo.es_recurso))
+        _t0 = time.perf_counter()
+        doc = await _taller_con_latido(email, numero, _al.CLAVE_MARCA, huella, _desde,
+                                       _al.analizar(chat_client, r, _segs, ficha=_taller_ficha_bloque(r)))
+        _seg = time.perf_counter() - _t0
+        _taller_guardar_marca(email, numero, _al.CLAVE_MARCA, {
+            "huella": huella, "huella_analisis": _ha,
+            "estado": "listo" if doc else "fallo", "doc": doc, "segundos": round(_seg, 1)}, huella)
+        print(f"   🔎 ANÁLISIS NEUTRAL adelantado de {numero} en {_seg:.0f} s: "
+              f"{'listo para la propuesta' if doc else 'sin él, la propuesta sigue como siempre'}")
+    except Exception as ex:
+        print(f"   ⚠️ el análisis neutral de {numero} falló: {err(ex)}")
+        if huella:
+            _taller_guardar_marca(email, numero, "analisis", {"huella": huella, "estado": "fallo"}, huella)
+
+
+async def _taller_esperar_analisis(email: str, numero: str, r):
+    """El análisis de ESTE adelanto (y de esta versión), o None. Espera con
+    tope: la propuesta nunca queda bloqueada por él (regla de David)."""
+    import contexto_taller as _ctx_a
+    if not _ctx_a.rediseno("analisis_neutral"):
+        return None
+    try:
+        import analisis_litis as _al
+        _h = _te.huella_contraste(r)
+        doc = await _te.esperar_marca(
+            _h, lambda: _taller_leer_marca(email, numero, _al.CLAVE_MARCA),
+            "el análisis neutral", tope=ANALISIS_ESPERA_S, abandonado=_te.LATIDO_ABANDONADO_S)
+        if doc and doc.get("huella_analisis") == _al.huella(r) and isinstance(doc.get("doc"), dict):
+            return doc["doc"]
+        # NO LO HAY (sesión anterior a la bandera, worker caído, adelanto
+        # cambiado): se calcula AQUÍ, con el mismo tope. Si no llega a tiempo,
+        # se propone sin él —nunca se bloquea— y queda la marca para después.
+        import inventario as _inv_e
+        _fu = list(getattr(r.fases, "fuentes", []) or []) + ["", ""]
+        _segs = _inv_e.segmentos(r.fases, str(_fu[1] or ""), bool(r.encargo and r.encargo.es_recurso))
+        _t0 = time.perf_counter()
+        try:
+            nuevo = await asyncio.wait_for(
+                _al.analizar(chat_client, r, _segs, ficha=_taller_ficha_bloque(r)), timeout=ANALISIS_ESPERA_S)
+        except asyncio.TimeoutError:
+            print(f"   🔎 el análisis neutral de {numero} no llegó en {ANALISIS_ESPERA_S:.0f} s: se propone sin él")
+            return None
+        _taller_guardar_marca(email, numero, _al.CLAVE_MARCA, {
+            "huella": _h, "huella_analisis": _al.huella(r), "estado": "listo" if nuevo else "fallo",
+            "doc": nuevo, "segundos": round(time.perf_counter() - _t0, 1)}, _h)
+        return nuevo
+    except Exception as ex:
+        print(f"   ⚠️ no se pudo recoger el análisis neutral: {err(ex)}")
+        return None
+
+
+REQUISITOS_ESPERA_S = float(os.getenv("REQUISITOS_ESPERA_S", "120"))
+
+
+async def _taller_requisitos(email: str, numero: str, r, ses: dict, analisis=None):
+    """La demostración por requisitos del principal, con sus fuentes sumadas
+    al material (rediseño, etapa 2). Reutiliza la guardada si es de este
+    adelanto; si no, la calcula con tope. None sin la bandera o si falla:
+    nunca bloquea la propuesta."""
+    import contexto_taller as _ctx_r
+    if not _ctx_r.rediseno("recuperacion_requisitos"):
+        return None
+    m = ses.get("material")
+    if m is None:
+        return None
+    _h = _te.huella_contraste(r)
+    ya = getattr(m, "requisitos", None) or {}
+    if isinstance(ya, dict) and ya.get("huella") == _h and ya.get("requisitos"):
+        return ya
+    try:
+        import requisitos as _rq
+        probs = _te.problemas_de(r)
+        pral = next((p for p in probs if isinstance(p, dict) and str(p.get("jerarquia") or "").lower() == "principal"),
+                    probs[0] if probs else None)
+        if not isinstance(pral, dict):
+            return None
+
+        async def _todo():
+            dem = await _rq.demostracion(chat_client, pral, analisis, getattr(m, "decisiva", None),
+                                         _taller_ficha_bloque(r),
+                                         getattr(r.encargo, "tipo_asunto", "") if r.encargo else "")
+            if not dem:
+                return None
+            return await _rq.recuperar(
+                qdrant_client, _embedding_juris, lambda t: get_dense_embedding(t, modelo=EMBEDDING_MODEL),
+                m, dem, coleccion_estatal=getattr(r.encargo, "coleccion_estatal", "") or "",
+                materia=str(getattr(r.encargo, "materia", "") or ""),
+                tipo_asunto=getattr(r.encargo, "tipo_asunto", "") or "", cliente=chat_client,
+                sede_acto=getattr(m, "sede_del_acto", "") or "", cuaderno=getattr(m, "cuaderno", "") or "")
+        dem = await asyncio.wait_for(_todo(), timeout=REQUISITOS_ESPERA_S)
+        if not dem:
+            return None
+        dem["huella"] = _h
+        m.requisitos = dem
+        _taller_guardar_material(email, numero, m, huella=_h)
+        return dem
+    except asyncio.TimeoutError:
+        print(f"   🧩 la demostración por requisitos de {numero} no llegó en {REQUISITOS_ESPERA_S:.0f} s: "
+              f"se propone con el material de siempre")
+        return None
+    except Exception as ex:
+        print(f"   ⚠️ recuperación por requisitos de {numero}: {err(ex)}")
+        return None
 
 
 async def _taller_esperar_contraste(email: str, numero: str, r):
@@ -37656,6 +37791,16 @@ async def _taller_proponer_nucleo(user_email: str, numero: str, ses: dict,
             [str(p.get("pregunta") or "") for p in problemas]
             + (r.fases.parrafos_acto() or [])
             + (r.fases.parrafos_conceptos() or []))
+        # MÁS DE DÓNDE SACAR PRECEPTOS (rediseño, punto 2; bandera
+        # «recuperacion_requisitos»): el texto LITERAL del acto —los resúmenes
+        # pierden artículos— y el precepto de la interpretación conforme de la
+        # pregunta decisiva, que antes sólo iba a internet.
+        import contexto_taller as _ctx_pc
+        if _ctx_pc.rediseno("recuperacion_requisitos"):
+            _fu_pc = list(getattr(r.fases, "fuentes", []) or []) + ["", ""]
+            _ic = ((getattr(ses["material"], "decisiva", None) or {}).get("interpretacion_conforme") or {})
+            _texto_citas += "\n" + str(_fu_pc[0] or "")[:60000] + "\n" + str(
+                (_ic.get("precepto") if isinstance(_ic, dict) else "") or "")
         _pares_prev = sorted(_f6e.preceptos_fuera(_texto_citas, ses["material"])[1])
         if _pares_prev:
             _traidos_prev = await _f6r.completar_preceptos(
@@ -37671,6 +37816,22 @@ async def _taller_proponer_nucleo(user_email: str, numero: str, ses: dict,
     except Exception as _exc_prev:
         print(f"   ⚠️ no se pudo completar el material antes de proponer: "
               f"{type(_exc_prev).__name__}: {str(_exc_prev)[:120]}")
+    # LA LITIS TAMBIÉN ANTES DE PROPONER (rediseño, punto 2; bandera
+    # «recuperacion_requisitos»): hasta hoy el candado de la ley local sólo se
+    # aplicaba al resolver y al planear, y la propuesta veía lo que después se
+    # quitaría del proyecto.
+    try:
+        import contexto_taller as _ctx_lt
+        if _ctx_lt.rediseno("recuperacion_requisitos"):
+            import litis_normativa as _ln_p
+            _litis_p = _ln_p.leyes_de_la_litis(getattr(r, "fases", None))
+            if _litis_p:
+                _bn, _fn = _ln_p.filtrar_normas(ses["material"].normas, _litis_p)
+                if _fn:
+                    ses["material"].normas = _bn
+                    print(f"   ⚖️ LITIS antes de proponer: {len(_fn)} norma(s) fuera")
+    except Exception as _exc_lt:
+        print(f"   ⚠️ litis antes de proponer: {type(_exc_lt).__name__}")
 
     # ═══════════════════════════════════════════════════════════════════════
     # LA LÍNEA DE LA CORTE, BUSCADA EN INTERNET (23-sep-2026)
@@ -37758,6 +37919,14 @@ async def _taller_proponer_nucleo(user_email: str, numero: str, ses: dict,
         print(f"   ⚠️ no se pudo recoger el contraste adelantado: {err(_exc_ec)}")
     if _contraste_previo is not None:
         print(f"   ⚖️ CONTRASTE adelantado recogido: {len(_contraste_previo)} planteamiento(s)")
+    # EL ANÁLISIS NEUTRAL (rediseño, etapa 2): la propuesta lo espera con tope
+    # (decisión 4 de David) y, si no llega, propone sin él.
+    _analisis_p = await _taller_esperar_analisis(user_email, numero, r)
+    # LA RECUPERACIÓN POR REQUISITOS (rediseño, etapa 2; bandera
+    # «recuperacion_requisitos»): la demostración del principal y sus fuentes,
+    # sumadas al material con cupo propio. Con tope; si no llega, se propone
+    # con el material de siempre.
+    _requisitos_p = await _taller_requisitos(user_email, numero, r, ses, _analisis_p)
     _, _param_p = await _taller_parametro(r, ses, ses["material"])
     import dialogo_constitucional as _dc_p
     _quien_p = _dc_p.quien_combate(
@@ -37770,7 +37939,7 @@ async def _taller_proponer_nucleo(user_email: str, numero: str, ses: dict,
         "\n".join(r.fases.parrafos_conceptos() or []),
         bool(r.encargo and r.encargo.es_recurso),
         contexto, contraste_previo=_contraste_previo, marco=_param_p,
-        quien=_quien_p,
+        quien=_quien_p, analisis=_analisis_p, requisitos=_requisitos_p,
         # LA FICHA PROCESAL COMO DATOS (SPEC_E2): la misma que vio el contraste
         # adelantado, armada de la misma sesión.
         ficha=_taller_ficha_bloque(r))

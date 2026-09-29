@@ -292,6 +292,8 @@ BANDERAS_REDISENO = {
     "normas_al_documento": "NORMAS_AL_DOCUMENTO",    # artículos recuperados al .docx (con litis)
     "tesis_parte_al_consultar": "TESIS_PARTE_AL_CONSULTAR",  # decisión 3
     "consulta_provisional": "CONSULTA_PROVISIONAL",  # la tarjeta no recomienda sin la figura
+    "analisis_neutral": "ANALISIS_NEUTRAL",          # etapa 2: análisis de la litis antes de proponer
+    "recuperacion_requisitos": "RECUPERACION_REQUISITOS",  # etapa 2: búsqueda por requisito
 }
 
 

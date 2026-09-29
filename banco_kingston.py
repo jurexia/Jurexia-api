@@ -70,7 +70,8 @@ ETAPAS_CON_ADELANTO = ("antes", "base")
 # base mediría dos cambios a la vez. Toda etapa fija TODAS las banderas; las que
 # no se pidan, apagadas.
 BANDERAS_BASE = {"fuerza_unificada": False, "fuente_tardia_aviso": False, "normas_al_documento": False,
-                 "tesis_parte_al_consultar": False, "consulta_provisional": False}
+                 "tesis_parte_al_consultar": False, "consulta_provisional": False,
+                 "analisis_neutral": False, "recuperacion_requisitos": False}
 AQUI.mkdir(parents=True, exist_ok=True)
 PDFS = AQUI / "pdf"; PDFS.mkdir(exist_ok=True)
 RESULTADOS = AQUI / "resultados.jsonl"
@@ -334,7 +335,6 @@ def comparar(contra: str = "") -> None:
             continue
         por[f["etapa"]][f["asunto"]] = f           # la última de cada asunto manda
     print("\n═══ RESULTADO · banco de REGRESIÓN, contaminado (no es la exactitud del motor) ═══")
-    print("\n═══ RESULTADO ═══")
     for etapa, d in por.items():
         n = len(d); ok = sum(1 for f in d.values() if f.get("acierta"))
         conf = collections.Counter((f["oro"], f["propuesto"]) for f in d.values())

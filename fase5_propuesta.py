@@ -446,9 +446,26 @@ def _bloque_tesis(tesis: list) -> str:
 NORMA_CARACTERES = 4000
 
 
+_PRIORIDAD_ORIGEN = {"requisito": 0, "citada": 1, "figura": 2, "acto": 3}
+
+
 def _bloque_normas(material, limite: int = 10) -> str:
     fuera = []
-    for n in list(getattr(material, "normas", []) or [])[:limite]:
+    normas = list(getattr(material, "normas", []) or [])
+    # LAS NORMAS POR PROCEDENCIA (rediseño, punto 2; bandera
+    # «recuperacion_requisitos»). Lo completado antes de proponer y lo pedido
+    # por un requisito se AÑADÍA AL FINAL y el corte de 10 lo dejaba fuera: el
+    # modelo proponía sin el precepto que se le había traído. Con la bandera,
+    # primero lo que un requisito pidió, lo citado, la figura y la ley del acto;
+    # después lo semántico, y un cupo de 4 más.
+    try:
+        import contexto_taller as _ct5
+        if _ct5.rediseno("recuperacion_requisitos"):
+            normas = sorted(normas, key=lambda n: _PRIORIDAD_ORIGEN.get(str(n.get("origen") or ""), 9))
+            limite += 4
+    except Exception:
+        pass
+    for n in normas[:limite]:
         ley = n.get("cuerpo_legal") or n.get("fuente") or ""
         fuera.append(f"· {ley} — artículo {n.get('articulo','')}: "
                      f"{(n.get('texto','') or '')[:NORMA_CARACTERES]}")
@@ -1382,7 +1399,9 @@ async def proponer(cliente, problemas: list, material, resumen_acto: str = "",
                    contraste_previo: list | None = None,
                    marco: str = "", quien: str = "",
                    ficha: str = "",
-                   decisiva: dict | None = None) -> tuple[list, object, list]:
+                   decisiva: dict | None = None,
+                   analisis: dict | None = None,
+                   requisitos: dict | None = None) -> tuple[list, object, list]:
     """Devuelve (propuestas, global, avisos). No decide nada: propone.
 
     El GLOBAL es la propuesta del asunto entero y sale de la MISMA llamada: es
@@ -1450,7 +1469,12 @@ async def proponer(cliente, problemas: list, material, resumen_acto: str = "",
               max_completion_tokens=MAX_TOKENS_PROPUESTA,
               messages=[{"role": "user", "content": prompt_propuesta(
                   problemas, material, resumen_acto, resumen_conceptos,
-                  es_recurso, contexto, bloque_contraste(contraste),
+                  es_recurso, contexto,
+                  # EL ANÁLISIS NEUTRAL, como DATOS junto al contraste (rediseño,
+                  # etapa 2): las razones que la solución tiene que superar, los
+                  # hechos con su condición y lo que falta. «» sin él.
+                  bloque_contraste(contraste) + __import__("analisis_litis").bloque_propuesta(analisis)
+                  + __import__("requisitos").bloque_propuesta(requisitos),
                   marco=marco, quien=quien, ficha=ficha,
                   decisiva=_bloque_decisiva)}])
     if ESFUERZO_PROPUESTA:

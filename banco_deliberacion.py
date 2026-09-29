@@ -72,7 +72,8 @@ INDICE_OAJ = "/Users/josedavidalcantarmendoza/Documents/IUREXIA-MAC/redactor-sen
 # Las banderas del banco OAJ: por omisión, las de producción para un secretario
 # de fuera (apagadas). `--banderas` las cambia para medir un cambio.
 BANDERAS_OAJ = {"fuerza_unificada": False, "fuente_tardia_aviso": False, "normas_al_documento": False,
-                "tesis_parte_al_consultar": False, "consulta_provisional": False}
+                "tesis_parte_al_consultar": False, "consulta_provisional": False,
+                "analisis_neutral": False, "recuperacion_requisitos": False}
 
 
 def _fecha_de_neun(neun) -> str:

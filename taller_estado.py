@@ -112,6 +112,7 @@ def material_ligero(m) -> dict:
         # ¿LA CONSULTA QUEDÓ PROVISIONAL? (rediseño, etapa 2: si vence la espera
         # de la pregunta decisiva, falta la figura que decide).
         "consulta_estado": dict(getattr(m, "consulta_estado", None) or {}),
+        "requisitos": dict(getattr(m, "requisitos", None) or {}),
         "preceptos_de_internet": _lista(getattr(m, "preceptos_de_internet", []), 24),
         "sondeo": sondeo_ligero(getattr(m, "sondeo", None)),
         # LA PREGUNTA DECISIVA VIAJA CON EL MATERIAL (SPEC E3, AR 631/2025):
@@ -148,6 +149,7 @@ def material_rehidratado(d: dict):
     # corrige un material guardado antes del 29-sep (`obligatoria = vincula`).
     m.tribunal = str(d.get("tribunal") or "")
     m.consulta_estado = dict(d.get("consulta_estado") or {})
+    m.requisitos = dict(d.get("requisitos") or {})
     return m
 
 
