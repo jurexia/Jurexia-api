@@ -3803,6 +3803,12 @@ _A_EFECTOS_DESC = """
   nombra en los EFECTOS, con su dato, entre lo que deberá examinar; si la
   concesión es lisa y llana no queda nada que volver a resolver y no se
   nombran."""
+# LAS TESIS DE LA PARTE DENTRO DE UN GRUPO (AR 631/2025, 28-sep-2026): la
+# técnica de la cita (`fase6_estudio._REEMPLAZOS_TECNICA`) pide contestar el
+# criterio de la parte distinguiéndolo con su supuesto, su razón y el contraste
+# con los hechos; dentro de un grupo que se resuelve por consecuencia eso
+# sería volver a argumentar lo que el principal ya decidió. Ahí basta una o
+# dos frases en el párrafo del grupo, y nunca el criterio como apoyo.
 _JERARQUIA_DESC = """
 - JERARQUÍA DEL PROBLEMA: cómo se sigue la suerte de cada argumento de la del
   que decide su problema. La calculó el plan sobre el sentido que el
@@ -3838,8 +3844,10 @@ _JERARQUIA_DESC = """
     renglón dice.
   Lo que la jerarquía resuelve por consecuencia recibe la respuesta de su
   grupo, no una propia; y las tesis que la parte invoca dentro de un grupo
-  así no se transcriben como apoyo: basta decir por qué no cambian lo
-  resuelto."""
+  así no se anuncian ni se transcriben, y nunca como apoyo: si una tocaba lo
+  que decide, se distingue en una o dos frases dentro del párrafo del grupo
+  —el supuesto que resolvía frente al dato del caso—; si no, basta decir por
+  qué no cambian lo resuelto."""
 
 
 def bloque(guion: str) -> str:
