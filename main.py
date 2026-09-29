@@ -33604,7 +33604,10 @@ def _taller_avance(email: str, numero: str) -> dict:
         return {}
 
 
-ANALISIS_ESPERA_S = float(os.getenv("ANALISIS_ESPERA_S", "180"))
+# 240 y no 180: con el acto y el escrito enteros (analisis-3) el 631/2025 —87 mil
+# + 107 mil— tardó 99 s, y el peor caso que admiten los topes (220 mil + 150
+# mil) se estimó en 170-240 s (revisión, 29-sep). Sólo con «analisis_neutral».
+ANALISIS_ESPERA_S = float(os.getenv("ANALISIS_ESPERA_S", "240"))
 
 
 async def _taller_preanalizar(email: str, numero: str, r) -> None:

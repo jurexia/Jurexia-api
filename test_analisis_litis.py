@@ -197,27 +197,58 @@ _p = al.prompt(_largo, "concepto único", "", [], [], "", False)
 ok("RESOLUTIVOS: se niega. Conste." in _p and "ÍNTEGRO: " in _p and "no pidas su «texto completo»" in _p,
    "el prompt lleva el acto hasta sus resolutivos, dice que va íntegro y prohíbe pedirlo")
 ok(al.VERSION == "analisis-3", "la versión cambia: las marcas del análisis anterior se recalculan")
+_ACTO = "… se niega el amparo. RESUELVE: ÚNICO. Notifíquese. Así lo resolvió el Tribunal. Conste."
+_ESCR = "… por lo expuesto, PIDO se conceda el amparo. PROTESTO LO NECESARIO."
 _F = [{"que": "El texto completo de la sentencia reclamada, incluidos los puntos resolutivos."},
       {"que": "Los resolutivos y el texto íntegro de la sentencia reclamada."},
       {"que": "La parte de la sentencia reclamada posterior al fragmento entregado."},
-      {"que": "La continuación íntegra de la resolución reclamada."},
+      {"que": "Copia íntegra de la sentencia reclamada."},
+      {"que": "El texto íntegro de la sentencia reclamada, especialmente el apartado séptimo sobre legitimación, "
+              "escisión y costas."},
       {"que": "La sentencia completa de primera instancia, más allá de sus puntos resolutivos reproducidos en "
               "la resolución reclamada."},
       {"que": "La totalidad del expediente de primera instancia, pues sólo se entregó el acto reclamado."},
       {"que": "La parte restante de la resolución reclamada y las constancias completas del expediente agrario."},
+      {"que": "El resto de la sentencia reclamada junto con la demanda natural."},
       {"que": "El texto completo del artículo 40 de la Ley de Servicios Auxiliares."},
       {"que": "El texto completo de la demanda de amparo."}]
-_q, _fuera = al.depurar_faltantes(_F, "acto entregado", "escrito entregado")
-ok(len(_fuera) == 5 and [x["que"][:14] for x in _q] == ["La sentencia c", "La totalidad d", "La parte resta",
-                                                         "El texto compl"],
-   "con el acto y el escrito íntegros se quitan los faltantes que los piden a ellos (calibrado: 18 de 128 en el "
-   "banco, ningún otro); se quedan la sentencia de primera instancia, el expediente y lo que pide algo más")
-_q2, _fuera2 = al.depurar_faltantes(_F, "a" * (al.MAX_ACTO + 1), "")
+_q, _fuera = al.depurar_faltantes(_F, _ACTO, _ESCR, es_recurso=False)
+ok(len(_fuera) == 6 and [x["que"][:14] for x in _q] == ["La sentencia c", "La totalidad d", "La parte resta",
+                                                         "El resto de la", "El texto compl"],
+   "amparo directo, acto y escrito íntegros: se quitan los faltantes que piden el acto o la demanda (calibrado: "
+   "16 de 128 en el banco); se quedan la sentencia de primera instancia, el expediente y lo que pide algo más")
+_qr, _fr = al.depurar_faltantes(_F + [{"que": "El texto completo de la sentencia recurrida."},
+                                      {"que": "El texto íntegro del recurso de revisión."}], _ACTO, _ESCR, es_recurso=True)
+ok(_fr == ["El texto completo de la sentencia recurrida.", "El texto íntegro del recurso de revisión."],
+   "en un recurso, el acto es la sentencia recurrida y el escrito el recurso: «la demanda de amparo» y «la "
+   "sentencia reclamada» son documentos que no se subieron y se quedan")
+ok(al.depurar_faltantes(_F, _ACTO, _ESCR)[1] == [], "sin saber el tipo de asunto, no se quita nada")
+_q2, _fuera2 = al.depurar_faltantes(_F, "a" * (al.MAX_ACTO + 1) + " Conste.", "", es_recurso=False)
 ok(not _fuera2 and len(_q2) == len(_F), "recortado o sin entregar, el faltante puede ser cierto y se queda")
-_v7 = al.verificar({"faltantes": _F[:2]}, "acto entregado", "", "", [])
+_incompleto = "La Sala… EN LOS CASOS DONDE EL INSTITUTO DEL FONDO NACIONAL DE LA VIVIENDA 40 i"
+ok(not al.parece_completo(_incompleto) and al.parece_completo(_ACTO) and al.parece_completo(_ESCR, escrito=True)
+   and not al.depurar_faltantes(_F[:1], _incompleto, _ESCR, es_recurso=False)[1]
+   and [l for l in al.prompt(_incompleto, _ESCR, "", [], [], "", False).splitlines()
+        if l.startswith("EL ACTO RECLAMADO (")][0].endswith("puede haberse subido incompleto):")
+   and [l for l in al.prompt(_ACTO, _ESCR, "", [], [], "", False).splitlines()
+        if l.startswith("EL ACTO RECLAMADO (")][0].startswith("EL ACTO RECLAMADO (ÍNTEGRO"),
+   "un acto que no cierra como documento completo (el 400/2024: foja 40, sin resolutivos ni firmas) no se "
+   "rotula ÍNTEGRO y su faltante cierto se queda")
+_v7 = al.verificar({"faltantes": _F[:2]}, _ACTO, "", "", [], es_recurso=False)
 ok(_v7["faltantes"] == [] and len(_v7["faltantes_depurados"]) == 2
    and "texto completo de la sentencia" not in al.bloque_propuesta(_v7),
    "verificar los depura y la propuesta ya no los lee como una omisión de la Sala")
+_pc = al.prompt("a", "b", "x" * 30000 + "FIN", [], [], "", False)
+ok("FIN" in _pc and "SE OMITEN" in _pc.split("CONSTANCIAS")[-1],
+   "las constancias tampoco se cortan por el final sin decirlo: principio y final, con la omisión marcada")
+ok(al.recorte("ABCDEFGHIJ", 0)[0].count("ABCDEFGHIJ") == 0 and al.MAX_TOKENS >= 32000,
+   "un tope de cero no duplica el texto, y la salida tiene margen para el peor caso (32 mil)")
+import os as _os, importlib as _il
+_os.environ["ANALISIS_MAX_ACTO"] = "220k"
+_al2 = _il.reload(al)
+ok(_al2.MAX_ACTO == 220000, "un tope mal escrito en el entorno vale el de omisión en vez de tumbar el módulo")
+del _os.environ["ANALISIS_MAX_ACTO"]
+_il.reload(al)
 
 print()
 if FALLOS:

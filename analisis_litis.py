@@ -67,11 +67,24 @@ VERSION = "analisis-3"
 # «omisión». Los topes cubren todo el banco; si un documento los pasa, van el
 # principio y el FINAL —donde están el estudio y los resolutivos— con la
 # omisión marcada (`recorte`): nunca se corta la cola.
-MAX_ACTO = int(os.getenv("ANALISIS_MAX_ACTO", "220000"))
-MAX_ESCRITO = int(os.getenv("ANALISIS_MAX_ESCRITO", "150000"))
+def _entero_env(nombre: str, defecto: int) -> int:
+    """Un tope del entorno; vacío o mal escrito («220k») vale el de omisión, en
+    vez de tumbar el módulo al importarlo (y con él la justificación y la
+    deliberación, que lo importan)."""
+    try:
+        return max(1, int(str(os.getenv(nombre, "") or defecto).strip()))
+    except ValueError:
+        return defecto
+
+
+MAX_ACTO = _entero_env("ANALISIS_MAX_ACTO", 220000)
+MAX_ESCRITO = _entero_env("ANALISIS_MAX_ESCRITO", 150000)
 MAX_AUTOS = 20000
 PRINCIPIO_SI_RECORTA = 0.25
-MAX_TOKENS = int(os.getenv("ANALISIS_MAX_TOKENS", "24000"))
+# La salida crece con lo que se lee (más razones, hechos y un argumento por
+# segmento: 48 en el 625): el peor caso estimado ronda 19-25 mil tokens entre
+# razonamiento y JSON, al filo de los 24 mil de antes (revisión, 29-sep).
+MAX_TOKENS = _entero_env("ANALISIS_MAX_TOKENS", 32000)
 MODELO = os.getenv("MODELO_ANALISIS", "") or None     # vacío = el de la propuesta
 CLAVE_MARCA = "analisis"
 
@@ -92,6 +105,7 @@ def recorte(texto, tope: int) -> tuple:
     resolutivos) con una marca en medio que dice cuánto se omitió, para que el
     modelo no tome el documento por incompleto ni suponga lo que no leyó."""
     t = str(texto or "")
+    tope = max(1, int(tope or 1))
     if len(t) <= tope:
         return t, 0
     cab = int(tope * PRINCIPIO_SI_RECORTA)
@@ -101,12 +115,34 @@ def recorte(texto, tope: int) -> tuple:
             f"EL PRINCIPIO Y EL FINAL VAN COMPLETOS …]\n" + t[-cola:]), omit
 
 
-def _cabecera(nombre: str, texto, omit: int) -> str:
+# ¿CIERRA COMO UN DOCUMENTO COMPLETO? Que el sistema no lo recortara no dice
+# que lo subido esté entero: el acto del ADA 400/2024 (104 mil) termina en la
+# foja 40, a media transcripción de una jurisprudencia, sin resolutivos ni
+# firmas. Rotularlo «ÍNTEGRO» prohibía pedir lo que de verdad faltaba y
+# borraba el faltante cierto (revisión adversarial, 29-sep). Se mira la cola:
+# medido en los 21 actos del banco, los otros 20 traen alguno de estos signos
+# en sus últimos 8 mil caracteres.
+COLA_CIERRE = 8000
+_RX_CIERRE_ACTO = re.compile(r"RESUELVE|RESOLUTIV|Notif[ií]quese|\bfirman?\b|C[oó]nste|as[ií] lo resolvi"
+                             r"|lo resolvieron|arch[ií]vese", re.I)
+_RX_CIERRE_ESCRITO = re.compile(r"protesto|atentamente|\bpido\b|solicito|por lo expuesto|\bfirma", re.I)
+
+
+def parece_completo(texto, escrito: bool = False) -> bool:
+    """¿Trae su final los signos de cierre de un documento completo?"""
+    t = str(texto or "")
+    return bool(t.strip()) and bool((_RX_CIERRE_ESCRITO if escrito else _RX_CIERRE_ACTO).search(t[-COLA_CIERRE:]))
+
+
+def _cabecera(nombre: str, texto, omit: int, escrito: bool = False) -> str:
     n = len(str(texto or ""))
     if not n:
         return f"{nombre} (no se entregó)"
     if omit:
         return f"{nombre} ({n} caracteres; se omiten {omit} del medio, marcados; el principio y el final van completos)"
+    if not parece_completo(texto, escrito):
+        return (f"{nombre} ({n} caracteres, sin recortar; su final no trae los signos de cierre de un "
+                f"documento completo: puede haberse subido incompleto)")
     return f"{nombre} (ÍNTEGRO: {n} caracteres)"
 
 
@@ -119,7 +155,7 @@ def huella(r) -> str:
     probs = [(_txt((p or {}).get("pregunta")), _txt((p or {}).get("combate")), _txt((p or {}).get("resolvio")))
              for p in (getattr(f, "problemas", None) or []) if isinstance(p, dict)]
     base = json.dumps([VERSION, recorte(fuentes[0], MAX_ACTO)[0], recorte(fuentes[1], MAX_ESCRITO)[0],
-                       str(getattr(f, "autos", "") or "")[:MAX_AUTOS], probs], ensure_ascii=False)
+                       recorte(getattr(f, "autos", "") or "", MAX_AUTOS)[0], probs], ensure_ascii=False)
     return hashlib.sha1(base.encode("utf-8")).hexdigest()[:20]
 
 
@@ -131,6 +167,7 @@ def prompt(acto: str, escrito: str, autos: str, segmentos: list, problemas: list
     recurrida = "la sentencia recurrida" if es_recurso else "el acto reclamado"
     acto_r, acto_om = recorte(acto, MAX_ACTO)
     escr_r, escr_om = recorte(escrito, MAX_ESCRITO)
+    autos_r, autos_om = recorte(autos, MAX_AUTOS)
     segs = "\n".join(f"  {s.get('id')}: {_txt(s.get('texto'), 600)}" for s in (segmentos or [])
                      if isinstance(s, dict) and s.get("id")) or "  (sin inventario)"
     probs = "\n".join(f"  {i}. {_txt((p or {}).get('pregunta'), 400)}"
@@ -179,7 +216,8 @@ REGLAS:
 - Lo revisable y lo firme ya está en la ficha procesal: no lo repitas ni lo contradigas.
 - No califiques: nada de fundado, infundado, inoperante ni sentido propuesto.
 - Cada documento dice en su cabecera si va ÍNTEGRO. Lo que va íntegro no es un faltante:
-  no pidas su «texto completo», su «parte restante» ni sus resolutivos; búscalos en él.
+  no pidas su «texto completo», su «parte restante» ni sus resolutivos; búscalos en él. Si la
+  cabecera dice que puede estar incompleto o que se omitió una parte, sí puedes pedir lo que falte.
 
 FICHA PROCESAL (datos, calculados por código):
 {ficha or '(sin ficha)'}
@@ -195,14 +233,14 @@ INVENTARIO DE ARGUMENTOS DEL ESCRITO (usa estos ids):
 {acto_r}
 >>>
 
-{_cabecera(f"ESCRITO DE LA PARTE ({q}s)", escrito, escr_om)}:
+{_cabecera(f"ESCRITO DE LA PARTE ({q}s)", escrito, escr_om, escrito=True)}:
 <<<
 {escr_r}
 >>>
 
-CONSTANCIAS:
+CONSTANCIAS{f" ({len(str(autos))} caracteres; se omiten {autos_om} del medio, marcados)" if autos_om else ""}:
 <<<
-{str(autos or '')[:MAX_AUTOS] or '(no se entregaron)'}
+{autos_r or '(no se entregaron)'}
 >>>
 
 Responde SÓLO con el JSON."""
@@ -414,37 +452,83 @@ _PARTE_DE = (r"^\s*(?:(?:los|las)\s+)?(?:(?:puntos\s+)?resolutivos\s+y\s+)?(?:el
              r"(?:texto(?:\s+(?:íntegro|integro|completo))?|parte(?:\s+\w+)?|continuación(?:\s+íntegra)?"
              r"|continuacion(?:\s+integra)?|totalidad|resto|(?:puntos\s+)?resolutivos|considerandos"
              r"|páginas\s+\w+|paginas\s+\w+|hojas\s+\w+)\s+(?:de\s+la|del|de\s+los|de\s+las)\s+")
-_RX_FALTA_ACTO = re.compile(_PARTE_DE + r"(?:sentencia|resolución|resolucion|acto)\s+(?:reclamad|recurrid|impugnad)[ao]",
-                            re.I)
-_RX_FALTA_ESCRITO = re.compile(_PARTE_DE + r"(?:demanda\s+de\s+amparo|escrito\s+de\s+(?:demanda|agravios)"
-                               r"|recurso\s+de\s+revisión|recurso\s+de\s+revision|conceptos\s+de\s+violación"
-                               r"|conceptos\s+de\s+violacion|agravios)\b", re.I)
+_COPIA_DE = (r"^\s*(?:(?:una\s+)?copia\s+(?:íntegra|integra|completa)|(?:la|el)\s+(?:versión|version|contenido)"
+             r"\s+(?:íntegr[oa]|integr[oa]|complet[oa]))\s+(?:de\s+la|del)\s+")
+# LOS NOMBRES DEPENDEN DEL TIPO DE ASUNTO (revisión adversarial, 29-sep): en
+# un recurso, «la demanda de amparo» o «el acto reclamado» son documentos que
+# NO se subieron —el escrito es el recurso y el acto la sentencia recurrida—,
+# y en amparo directo «la sentencia recurrida» es la de primera instancia. Sin
+# saber el tipo, no se quita nada.
+_NOMBRES = {
+    False: (r"(?:sentencia|resolución|resolucion|acto)\s+(?:reclamad|impugnad)[ao]",
+            r"(?:demanda\s+de\s+amparo|escrito\s+de\s+demanda(?:\s+de\s+amparo)?"
+            r"|conceptos\s+de\s+violaci[oó]n)"),
+    True: (r"(?:sentencia|resolución|resolucion)\s+recurrid[ao](?!\s+en\s+apelaci)",
+           r"(?:recurso\s+de\s+(?:revisi[oó]n(?:\s+fiscal)?|queja)|escrito\s+de\s+agravios|agravios)"),
+}
 
 
-# Si además pide otra cosa («la parte restante de la resolución reclamada y las
-# constancias completas del expediente agrario», 704/2022), se queda entero:
-# quitarlo borraría lo otro, que sí falta.
-_RX_Y_OTRA = re.compile(r"\by\s+(?:las|los|el|la|sus)\s+(?:constancias|expedientes?|autos|pruebas|anexos"
-                        r"|actuaciones|documentos)\b", re.I)
+def _rx_del_documento(nombre: str):
+    return re.compile(r"(?:" + _PARTE_DE + "|" + _COPIA_DE + r")" + nombre + r"\b"
+                      r"|^\s*(?:(?:la|el)\s+)?" + nombre + r"\s+(?:completa|completo|íntegra|íntegro|integra|integro"
+                      r"|entera|entero)\b", re.I)
 
 
-def depurar_faltantes(faltantes: list, acto: str = "", escrito: str = "") -> tuple:
+_RX_DOC = {k: (_rx_del_documento(a), _rx_del_documento(e)) for k, (a, e) in _NOMBRES.items()}
+
+# Si además pide OTRA cosa («la parte restante de la resolución reclamada y las
+# constancias completas del expediente agrario», 704/2022; «…así como el
+# informe justificado»), se queda entero: quitarlo borraría lo otro, que sí
+# falta. Lo que sigue a «y», «así como», «junto con» o «además de» sólo se
+# tiene por parte del mismo documento si es una de sus partes.
+_RX_CONJ = re.compile(r"(?:,?\s+(?:y|e|así\s+como|asi\s+como|junto\s+con|además\s+de|ademas\s+de)\s+)"
+                      r"(?:(?:el|la|los|las|sus?|un|una)\s+)?([a-záéíóúñ]+)", re.I)
+_PARTES_DEL_DOCUMENTO = frozenset((
+    "resolutivos", "resolutivo", "puntos", "punto", "considerandos", "considerando", "consideraciones",
+    "páginas", "paginas", "página", "pagina", "fojas", "foja", "hojas", "hoja", "apartados", "apartado",
+    "motivación", "motivacion", "fundamentación", "fundamentacion", "estudio", "parte", "partes", "texto",
+    "resto", "análisis", "analisis", "valoración", "valoracion", "razones", "conclusiones", "efectos",
+    "firmas", "firma", "antecedentes", "resultandos", "capítulos", "capitulos"))
+
+
+# Sólo cuenta lo coordinado con el documento mismo, no lo que describe qué
+# parte de él falta: «…reclamada, especialmente el apartado séptimo sobre
+# legitimación, escisión y costas» (529) sigue pidiendo la sentencia.
+_RX_DESCRIPCION = re.compile(r",?\s+(?:especialmente|incluid[oa]s?|en\s+particular|que|pues|porque|ya\s+que"
+                             r"|relativ[oa]s?|sobre|donde|en\s+(?:la|el|los|las)\s+que|a\s+partir|posterior(?:es)?"
+                             r"|desde|hasta|con\s+(?:sus|los|las)\s+(?:resolutivos|considerandos))\b", re.I)
+
+
+def _pide_otra_cosa(resto: str) -> bool:
+    """¿Lo que sigue al nombre del documento coordina OTRO documento?"""
+    m = _RX_DESCRIPCION.search(resto)
+    tramo = resto[:m.start()] if m else resto
+    return any(c.group(1).lower() not in _PARTES_DEL_DOCUMENTO for c in _RX_CONJ.finditer(tramo))
+
+
+def depurar_faltantes(faltantes: list, acto: str = "", escrito: str = "", es_recurso=None) -> tuple:
     """(faltantes que quedan, textos de los quitados): fuera los que piden el
-    acto o el escrito cuando se entregaron ÍNTEGROS y nada más (ver arriba)."""
-    acto_entero = bool(str(acto or "").strip()) and len(str(acto or "")) <= MAX_ACTO
-    escr_entero = bool(str(escrito or "").strip()) and len(str(escrito or "")) <= MAX_ESCRITO
+    acto o el escrito cuando se entregaron ÍNTEGROS —sin recortar y cerrando
+    como un documento completo— y nada más. `es_recurso`: el tipo de asunto
+    decide cómo se llaman los dos documentos; None (no se sabe) = no se quita
+    nada (ver arriba)."""
+    if es_recurso is None:
+        return list(faltantes or []), []
+    rx_acto, rx_escr = _RX_DOC[bool(es_recurso)]
+    acto_entero = len(str(acto or "")) <= MAX_ACTO and parece_completo(acto)
+    escr_entero = len(str(escrito or "")) <= MAX_ESCRITO and parece_completo(escrito, escrito=True)
     quedan, fuera = [], []
     for x in faltantes or []:
         q = _txt((x or {}).get("que")) if isinstance(x, dict) else ""
-        if q and not _RX_Y_OTRA.search(q) and ((acto_entero and _RX_FALTA_ACTO.search(q))
-                                                or (escr_entero and _RX_FALTA_ESCRITO.search(q))):
+        m = (acto_entero and rx_acto.search(q)) or (escr_entero and rx_escr.search(q)) if q else None
+        if m and not _pide_otra_cosa(q[m.end():]):
             fuera.append(q)
         else:
             quedan.append(x)
     return quedan, fuera
 
 
-def verificar(crudo: dict, acto: str, escrito: str, autos: str, segmentos: list) -> dict:
+def verificar(crudo: dict, acto: str, escrito: str, autos: str, segmentos: list, es_recurso=None) -> dict:
     """El análisis limpio: citas comprobadas, referencias válidas, condiciones
     del catálogo y las razones autónomas sin combatir calculadas por código.
     Nunca lanza por la forma de lo que devolvió el modelo."""
@@ -547,7 +631,7 @@ def verificar(crudo: dict, acto: str, escrito: str, autos: str, segmentos: list)
 
     faltantes = [{"que": _txt(x.get("que"), 300), "por_que_importa": _txt(x.get("por_que_importa"), 400)}
                  for x in _lista(d.get("faltantes")) if isinstance(x, dict) and _txt(x.get("que"))]
-    faltantes, depurados = depurar_faltantes(faltantes, acto, escrito)
+    faltantes, depurados = depurar_faltantes(faltantes, acto, escrito, es_recurso)
 
     combatidas = {c for a in argumentos for c in a["combate"]}
     autonomas_sin = [r_["id"] for r_ in razones if r_["relacion"] == "autonoma" and r_["id"] not in combatidas]
@@ -588,11 +672,12 @@ async def analizar(cliente, r, segmentos: list, ficha: str = "") -> dict | None:
         if not m:
             print("   🔎 ANÁLISIS: sin JSON; se propone sin él")
             return None
-        doc = verificar(json.loads(m.group(0)), acto, escrito, autos, segmentos)
+        doc = verificar(json.loads(m.group(0)), acto, escrito, autos, segmentos, es_rec)
         print(f"   🔎 ANÁLISIS NEUTRAL: {len(doc['razones'])} razones "
               f"({len(doc['autonomas_sin_combatir'])} autónomas sin combatir) · "
               f"{len(doc['argumentos'])} argumentos · {len(doc['hechos'])} hechos · "
-              f"{len(doc['faltantes'])} faltantes · {doc['citas_sin_verificar']} citas sin verificar")
+              f"{len(doc['faltantes'])} faltantes ({len(doc.get('faltantes_depurados') or [])} del propio documento, "
+              f"quitados) · {doc['citas_sin_verificar']} citas sin verificar")
         return doc
     except Exception as ex:
         print(f"   🔎 ANÁLISIS: falló ({type(ex).__name__}); se propone sin él")
