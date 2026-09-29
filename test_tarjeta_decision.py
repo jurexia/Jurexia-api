@@ -248,10 +248,27 @@ _c, _n = D("amparo_revision", "concede", "infundado")
 ok(_c and _c[0].startswith("PRIMERO. Se confirma") and "ampara y protege" in _c[1] and _n is None,
    "no prospera contra una concesión: se confirma y se ampara")
 _r, _nr = D("amparo_revision", "concede", "fundado")
-ok(_r[0] == "PRIMERO. Se revoca la sentencia recurrida." and "no ampara" in _r[1],
-   "prospera contra una concesión: se revoca y se niega…")
+# LOS MISMOS PUNTOS QUE EL DOCUMENTO (integración con SPEC B, 28-sep-2026): el
+# verbo del amparo depende del estudio de los conceptos que el juez no estudió,
+# así que va en hueco —antes decía «no ampara», que es lo que se firmó mal en
+# el 631—.
+ok(_r[0] == "PRIMERO. Se revoca la sentencia recurrida." and td.HUECO in _r[1]
+   and "no ampara" not in _r[1],
+   "prospera contra una concesión: se revoca, y el amparo queda en hueco…")
 ok(_nr and "93, fr. VI" in _nr and "reasume jurisdicción" in _nr and "sólo si caen" in _nr,
-   "…pero antes se estudian los conceptos que el juez no estudió (art. 93, fr. VI)")
+   "…porque antes se estudian los conceptos que el juez no estudió (art. 93, fr. VI)")
+_rq, _nrq = D("amparo_revision", "concede", "fundado", quien_recurre="quejoso")
+ok("no ampara" in _rq[1] and not (_nrq and "fr. VI" in _nrq),
+   "si recurre la propia quejosa no se reasume (rige la fr. V): se revoca y se niega")
+_rs, _ = D("amparo_revision", "sobresee_concede", "fundado", sobresee_ademas=True)
+ok(_rs[0] == "PRIMERO. En la materia de la revisión, se revoca la sentencia recurrida.",
+   "si la recurrida también sobreseyó, la revocación se acota a la materia de la revisión")
+_RES_J = ("La Justicia de la Unión ampara y protege a Unión Ejemplo, A.C., contra el acto que "
+          "reclamó a la Sala, por los motivos expuestos en el considerando séptimo de esta sentencia.")
+_rn, _ = D("amparo_revision", "concede", "fundado", resolutivo_recurrida=_RES_J)
+_cn, _ = D("amparo_revision", "concede", "infundado", resolutivo_recurrida=_RES_J)
+ok("Unión Ejemplo, A.C." in _rn[1] and td.HUECO in _rn[1] and "Unión Ejemplo, A.C." in _cn[1],
+   "con el resolutivo del juzgado, los puntos nombran a quien él amparó (577c700)")
 ok("{" not in json.dumps([_c, _r]) and "parte quejosa" in _c[1],
    "sin nombres propios ni marcadores sin rellenar (el encargo del 631 cruzaba los papeles)")
 _s, _ns = D("amparo_revision", "sobresee", "fundado")
@@ -317,8 +334,12 @@ ok([a["registro"] for a in t["linea_corte"]["confirmadas"]] == ["2013721"]
 ok(t["que_la_cambiaria"]["en_contra"] == GLOBAL["en_contra"]
    and t["que_la_cambiaria"]["constancias_indispensables"] == []
    and t["que_la_cambiaria"]["limite_protector"], "lo que la cambiaría")
-ok(t["deliberacion"] is None and t["conceptos_omitidos"] is None and t["independientes"] == [],
-   "sin deliberación ni gancho de conceptos: null")
+ok(t["deliberacion"] is None and t["independientes"] == [], "sin deliberación: null")
+# LOS CONCEPTOS OMITIDOS YA NO SON UN GANCHO: con la función de SPEC B, la vía
+# contraria del 631 (la que revoca la concesión) los pide.
+ok(t["conceptos_omitidos"] and t["conceptos_omitidos"]["hacen_falta"]
+   and t["conceptos_omitidos"]["reasuncion"] == "concesion" and not t["conceptos_omitidos"]["tenemos"],
+   "la vía que revoca una concesión pide los conceptos que el juez no estudió")
 ok(json.loads(json.dumps(t)) == t and td.clave_de(t) == td.clave_de(armar()),
    "JSON puro y estable (la marca no se reescribe si no cambia)")
 _t0 = time.perf_counter()
@@ -437,39 +458,31 @@ ok(t4["independientes"][0]["propuesta"]["sentido"] == "fundado"
    and [a["registro"] for a in t4["independientes"][0]["propuesta"]["apoyos"]] == ["170378"],
    "con su propuesta propia y sus apoyos verificados")
 
-print("\n10 · EL GANCHO DE LOS CONCEPTOS OMITIDOS (con un doble)")
-import fase_rama as _fr
-_llamadas = []
-
-
-def _doble(tipo_asunto, resolvio_a_quo, sentido):
-    _llamadas.append((tipo_asunto, resolvio_a_quo, sentido))
-    return {"hacen_falta": True, "por_que": "art. 93, fr. VI LA: al revocar la concesión",
-            "tenemos": False}
-
-
-_fr.conceptos_omitidos = _doble
-try:
-    t_om = armar()
-finally:
-    del _fr.conceptos_omitidos
-ok(t_om["conceptos_omitidos"] == {"hacen_falta": True,
-                                  "por_que": "art. 93, fr. VI LA: al revocar la concesión",
-                                  "tenemos": False}, "con la función, el campo sale lleno")
-ok(_llamadas == [("amparo_revision", "concede", "fundado")],
-   "se le pregunta por la vía que revoca, con los argumentos que su firma pide")
-
-
-def _rota(**kw):
-    raise RuntimeError("rota")
-
-
-_fr.conceptos_omitidos = _rota
-try:
-    ok(armar()["conceptos_omitidos"] is None, "si la función falla, null (la tarjeta no cae)")
-finally:
-    del _fr.conceptos_omitidos
-ok(armar()["conceptos_omitidos"] is None, "sin la función, null")
+print("\n10 · LOS CONCEPTOS OMITIDOS: LA FUNCIÓN DE SPEC B, LLAMADA DIRECTAMENTE")
+# Antes era un gancho perezoso que se probaba con un doble. Con la función real
+# el gancho le pasaba el sentido DEL MOTOR: en el 631 (motor «infundado», la vía
+# que revoca es la contraria) contestaba que no hacía falta nada.
+import types as _types
+_om = armar()["conceptos_omitidos"]
+ok(_om and _om["hacen_falta"] and _om["fundamento"].startswith("artículo 93, fracción VI"),
+   "con el motor en «infundado», se pregunta por la VÍA CONTRARIA, que es la que revoca")
+ok(armar(rama=dict(RAMA, quien_recurre="quejoso"))["conceptos_omitidos"] is None,
+   "si recurre la propia quejosa, no (rige la fr. V)")
+ok(armar(rama=dict(RAMA, resolvio_a_quo="niega"))["conceptos_omitidos"] is None,
+   "si el juzgado negó, revocar no reasume nada que falte estudiar")
+_om2 = armar(rama=dict(RAMA, conceptos_violacion="PRIMERO. Concepto aportado por el secretario."))
+ok(_om2["conceptos_omitidos"]["tenemos"] and _om2["conceptos_omitidos"]["donde"] == "secretario",
+   "los que aportó el secretario cuentan (el TEXTO, no un booleano)")
+ok(armar(rama=dict(RAMA, conceptos_violacion=True))["conceptos_omitidos"]["tenemos"] is False,
+   "un booleano no se lee como conceptos aportados")
+_DEMANDA = ("DEMANDA DE AMPARO INDIRECTO\nCONCEPTOS DE VIOLACIÓN\nPRIMERO. La resolución reclamada "
+            "altera la cosa juzgada. " + "Argumento. " * 70 + "\nSEGUNDO. No se valoraron las pruebas. "
+            + "Argumento. " * 40 + "\nSUSPENSIÓN\nSe pide la suspensión.")
+_om3 = armar(fases=_types.SimpleNamespace(fuentes=["", ""], autos=_DEMANDA))["conceptos_omitidos"]
+ok(_om3["tenemos"] and _om3["donde"] == "constancias",
+   "con las fases, los toma de la demanda que obra entre las constancias")
+ok(armar(rama=dict(RAMA, tipo_asunto="amparo_directo"))["conceptos_omitidos"] is None,
+   "en amparo directo no aplica")
 
 print("\n11 · LA DELIBERACIÓN, SI EXISTE, SE PROYECTA SOBRE LAS VÍAS")
 DELIB = {"huella": "h631", "estado": "listo", "resultado": {

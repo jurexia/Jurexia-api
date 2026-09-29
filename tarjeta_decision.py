@@ -58,7 +58,6 @@ venir null: la pantalla los tolera.
 from __future__ import annotations
 
 import hashlib
-import inspect
 import json
 import re
 import unicodedata
@@ -243,27 +242,53 @@ def designacion_de(tribunal: str) -> str:
 
 
 _RX_CLAVE_EN_TEXTO = re.compile(r"\[TESIS:\s*([^\]]+)\]")
+# LA CLAVE EN LA LOCALIZACIÓN (de `deliberacion.py`, unificada aquí el
+# 28-sep-2026): el payload del taller no guarda `numero_tesis`, pero el
+# Semanario a veces la escribe en la localización («…; Tesis: PR.A.C.CN. J/7 K
+# (12a.)»). Tres formas: la del Pleno Regional, la de un colegiado con su
+# circuito en romanos y la de la Corte («1a./J. 5/2020»).
+_RX_CLAVE_EN_LOCALIZACION = re.compile(
+    r"(PR\.(?:[A-Z]{1,3}\.)+\s*J/\S+(?:\s+[A-Z]{1,2})?\s*\(\d{1,2}a\.\)"
+    r"|\b(?:[IVXL]+|\([IVX]+\s+Regi[oó]n\))\.\S+\s+[A-Z]{1,2}\s*\(\d{1,2}a\.\)"
+    r"|\b\d?[a-zA-Z]{0,2}\./J\.\s*\d+/\d{2,4}(?:\s*\(\d{1,2}a\.\))?)")
 
 
 def clave_de_tesis(t: dict) -> str:
     """La clave de la tesis («1a./J. 67/2014 (10a.)», «PR.A.C.CN. J/7 K»), de
-    donde esté. El material del taller casi nunca la trae: `_tesis_de` no la
-    guarda (ver las dudas de `fuerza_para_colegiado`)."""
+    donde esté: un campo propio, el encabezado del texto («[TESIS: …]») o la
+    localización. El material del taller casi nunca la trae: `_tesis_de` no la
+    guarda (ver las dudas de `fuerza_para_colegiado`). «» si no consta: nunca
+    se inventa."""
     for k in ("clave", "clave_tesis", "numero_tesis", "tesis"):
         v = _txt(_get(t, k))
         if v:
             return v
     m = _RX_CLAVE_EN_TEXTO.search(str(_get(t, "texto") or "")[:400])
+    if m:
+        return m.group(1).strip()
+    m = _RX_CLAVE_EN_LOCALIZACION.search(str(_get(t, "localizacion") or ""))
     return m.group(1).strip() if m else ""
 
 
+def region_de_clave(clave: str) -> str:
+    """«PR.A.C.CN. J/7 K (12a.)» → «CN». La región va en el último tramo de la
+    sigla del Pleno Regional. «» si la clave no es de un Pleno Regional."""
+    m = re.match(r"\s*PR\.((?:[A-Z]{1,3}\.)+)", str(clave or "").upper())
+    if not m:
+        return ""
+    tramos = [x for x in m.group(1).split(".") if x]
+    return tramos[-1] if tramos and tramos[-1] in _NOMBRE_REGION else ""
+
+
 def _tipo(t: dict) -> str:
-    """«jurisprudencia» | «aislada» | «precedente» | ""."""
+    """«jurisprudencia» | «aislada» | «precedente» | "". La clave también lo
+    dice: «/J.» o «J/» es jurisprudencia aunque el campo `tipo` falte."""
     x = _plano(_get(t, "tipo"))
     loc = _plano(_get(t, "localizacion"))
+    clave = _plano(clave_de_tesis(t)).replace(" ", "")
     if "PRECEDENTE" in x:
         return "precedente"
-    if "JURISPRUDENCIA" in x or loc.startswith("[J]"):
+    if "JURISPRUDENCIA" in x or loc.startswith("[J]") or "/J." in clave or "J/" in clave:
         return "jurisprudencia"
     if "AISLADA" in x or loc.startswith("[TA]"):
         return "aislada"
@@ -279,7 +304,8 @@ def _organo(t: dict) -> str:
     # «PLENO», y el Pleno a secas es el de la Corte.
     if "REGIONAL" in inst or clave.startswith("PR."):
         return "pleno_regional"
-    if "PLENOS DE CIRCUITO" in inst or "PLENO DE CIRCUITO" in inst or clave.startswith("PC."):
+    if ("PLENOS DE CIRCUITO" in inst or "PLENO DE CIRCUITO" in inst or "PLENO EN MATERIA" in inst
+            or clave.startswith("PC.")):
         return "pleno_circuito"
     if ("SALA" in inst or inst == "PLENO" or "SUPREMA CORTE" in inst
             or re.search(r";\s*(PLENO|1A\. SALA|2A\. SALA|3A\. SALA|4A\. SALA)\s*;", loc)):
@@ -290,6 +316,9 @@ def _organo(t: dict) -> str:
 
 
 def _region_de_tesis(t: dict) -> str:
+    r = region_de_clave(clave_de_tesis(t))
+    if r:
+        return r
     c = _plano(clave_de_tesis(t)) + " " + _plano(_get(t, "instancia"))
     if ".CN." in c or "CENTRO-NORTE" in c or "CENTRO NORTE" in c:
         return "CN"
@@ -298,11 +327,51 @@ def _region_de_tesis(t: dict) -> str:
     return ""
 
 
-def fuerza_para_colegiado(tesis: dict, tribunal: str = "", circuito: int = 0) -> dict:
+def _regiones_configuradas() -> dict:
+    """{circuito: región} de `DELIBERACION_REGIONES` («22:CN,1:CS»): la
+    corrección a mano de la tabla medida, si algún día el Consejo mueve un
+    circuito de región. Vacío por omisión. Se lee en cada llamada."""
+    import os
+    out = {}
+    for par in (os.getenv("DELIBERACION_REGIONES", "") or "").split(","):
+        if ":" in par:
+            c, r = par.split(":", 1)
+            try:
+                n = int(c.strip())
+            except ValueError:
+                continue
+            if r.strip().upper() in _NOMBRE_REGION:
+                out[n] = r.strip().upper()
+    return out
+
+
+def region_del_circuito(circuito: int) -> str:
+    """La región del Pleno Regional de un circuito: la configurada a mano
+    (`DELIBERACION_REGIONES`) o la medida (`REGION_DEL_CIRCUITO`); «» si no
+    se sabe."""
+    if not circuito:
+        return ""
+    return _regiones_configuradas().get(circuito) or REGION_DEL_CIRCUITO.get(circuito, "")
+
+
+def fuerza_para_colegiado(tesis: dict, tribunal: str = "", circuito: int = 0, *,
+                          region: str | None = None, clave_propia: str = "") -> dict:
     """La fuerza de un criterio ANTE UN TRIBUNAL COLEGIADO, calculada por
     código: {"fuerza": "obliga"|"orienta"|"pleno_circuito"|"precedente_propio",
-    "fuerza_texto": "…"}. `tribunal`: el nombre del tribunal que resuelve (de
-    ahí salen su circuito, su región y su designación); `circuito` lo fuerza.
+    "fuerza_texto": "…"} y, si depende de un dato que no consta, "por_confirmar":
+    True. `tribunal`: el nombre del tribunal que resuelve (de ahí salen su
+    circuito, su región y su designación); `circuito` lo fuerza; `region`
+    («CN» | «CS») fuerza la del circuito; `clave_propia` («XXII.3o.A.C.») la
+    designación del propio tribunal.
+
+    UNA SOLA DEFINICIÓN (integración del 28-sep-2026, AR 631/2025): la tarjeta
+    y la deliberación escribieron cada una la suya en paralelo. Ésta es la
+    única; `deliberacion.py` la importa. De la de la deliberación se quedan la
+    clave leída de la localización, el Pleno «en materia» como Pleno de
+    Circuito, la región y la clave propia explícitas, la corrección por
+    `DELIBERACION_REGIONES` y la marca `por_confirmar`; de la de la tarjeta, la
+    región MEDIDA de cada circuito, la designación leída del nombre del
+    tribunal y el cuidado de no confundir «XXII.3o.A.C.» con «XXII.3o.A.C.P.».
 
     LA REGLA (SPEC C, 28-sep-2026):
       · Suprema Corte, Pleno o Salas: jurisprudencia o precedente obligatorio
@@ -338,14 +407,15 @@ def fuerza_para_colegiado(tesis: dict, tribunal: str = "", circuito: int = 0) ->
          precedente obligatorio (arts. 222 y 223) se reconoce sólo si el
          Semanario la publicó como jurisprudencia: se lee del `tipo`.
     """
+    tesis = tesis if isinstance(tesis, dict) else {}
     organo = _organo(tesis)
     tipo = _tipo(tesis)
     obligatorio = tipo in ("jurisprudencia", "precedente")
-    circ = circuito or circuito_de(tribunal)
+    circ = int(circuito or 0) or circuito_de(tribunal)
     clave = _plano(clave_de_tesis(tesis)).replace(" ", "")
-    desig = _plano(designacion_de(tribunal)).replace(" ", "") if tribunal else ""
+    desig = _plano(clave_propia or (designacion_de(tribunal) if tribunal else "")).replace(" ", "")
 
-    if organo == "colegiado" and desig and clave.startswith(desig):
+    if organo in ("colegiado", "") and desig and clave.startswith(desig):
         # «XXII.3o.» no puede casar con «XXII.3o.A.C.» de OTRO tribunal ni
         # «XXII.3o.A.C.» con «XXII.3o.A.C.P.»: tras la designación viene un
         # número, la «J/» o el fin.
@@ -356,22 +426,26 @@ def fuerza_para_colegiado(tesis: dict, tribunal: str = "", circuito: int = 0) ->
     if organo == "scjn":
         if obligatorio:
             return {"fuerza": "obliga",
-                    "fuerza_texto": "obliga (art. 217, párr. primero)"}
+                    "fuerza_texto": "obliga (art. 217, párr. primero"
+                                    + ("; arts. 222 y 223" if tipo == "precedente" else "") + ")"}
         return {"fuerza": "orienta", "fuerza_texto": "orienta: aislada de la Suprema Corte"}
     if organo == "pleno_regional":
         if not obligatorio:
             return {"fuerza": "orienta", "fuerza_texto": "orienta: aislada de un Pleno Regional"}
         reg_t = _region_de_tesis(tesis)
-        reg_c = REGION_DEL_CIRCUITO.get(circ, "")
+        reg_c = (region or "").strip().upper() or region_del_circuito(circ)
         if reg_t and reg_c and reg_t == reg_c:
             return {"fuerza": "obliga",
-                    "fuerza_texto": f"obliga: Pleno Regional {_NOMBRE_REGION[reg_c]}, "
+                    "fuerza_texto": f"obliga: Pleno Regional {_NOMBRE_REGION.get(reg_c, reg_c)}, "
                                     f"región de este circuito (art. 217, párr. segundo)"}
         if reg_t and reg_c:
             return {"fuerza": "orienta",
                     "fuerza_texto": f"orienta: Pleno Regional de otra región "
                                     f"({_NOMBRE_REGION.get(reg_t, reg_t)})"}
-        return {"fuerza": "orienta",
+        # SIN LA REGIÓN DE LA TESIS O SIN LA DEL CIRCUITO no se afirma que
+        # obligue: se queda corto y lo dice (`por_confirmar`, que la
+        # deliberación lee para no dejar que el juez decida por «lo que obliga»).
+        return {"fuerza": "orienta", "por_confirmar": True,
                 "fuerza_texto": "orienta: Pleno Regional sin región identificada; si es de la "
                                 "región de este circuito, obliga (art. 217, párr. segundo)"}
     if organo == "pleno_circuito":
@@ -429,6 +503,7 @@ def apoyo_de_tesis(t: dict, tribunal: str = "", circuito: int = 0) -> dict:
     return {"registro": _txt(t.get("registro")), "rubro": _txt(t.get("rubro")),
             "instancia": _txt(t.get("instancia")), "tipo": _tipo(t) or None,
             "fuerza": f["fuerza"], "fuerza_texto": f["fuerza_texto"],
+            **({"por_confirmar": True} if f.get("por_confirmar") else {}),
             "vigencia": _etiqueta_vigencia(_vigencia(t)),
             "de_internet": bool(t.get("de_internet")), "en_acervo": True, "norma": None}
 
@@ -437,6 +512,19 @@ def _apoyo_norma(texto: str) -> dict:
     return {"registro": None, "rubro": None, "instancia": None, "tipo": None,
             "fuerza": None, "fuerza_texto": None, "vigencia": None,
             "de_internet": False, "en_acervo": None, "norma": texto}
+
+
+def _apoyo_precedente_propio(texto: str, fuerza_texto: str = "") -> dict:
+    """Un asunto ya resuelto por ESTE tribunal que la deliberación propone
+    aplicar (su catálogo lo rotula «O»). No es tesis ni tiene registro: se
+    enseña como texto —la pantalla pinta así lo que no tiene registro— con su
+    fuerza, y nunca como voto (fase_espejo.py, «lo que esto no es»)."""
+    return {"registro": None, "rubro": None, "instancia": None, "tipo": None,
+            "fuerza": "precedente_propio",
+            "fuerza_texto": fuerza_texto or "precedente propio (art. 228)",
+            "vigencia": None, "de_internet": False, "en_acervo": None,
+            "norma": f"{texto} de este tribunal (precedente propio)",
+            "precedente_propio": texto}
 
 
 def hidratar_apoyos(apoyos, catalogo: dict, tribunal: str = "", circuito: int = 0,
@@ -456,6 +544,17 @@ def hidratar_apoyos(apoyos, catalogo: dict, tribunal: str = "", circuito: int = 
             reg = _txt(a.get("registro"))
             m = _RX_REGISTRO.search(reg)
             reg = m.group(1) if m else ""
+            # EL PRECEDENTE PROPIO DE LA DELIBERACIÓN (su «O»): sin registro y
+            # sin norma. Antes caía en «llegó sólo con su identificador» y se
+            # tiraba; es un asunto de este tribunal que ya estaba en su
+            # catálogo cerrado, verificado allí contra el espejo.
+            if not reg and _txt(a.get("precedente_propio")):
+                k = "O:" + _plano(a["precedente_propio"])
+                if k not in vistos:
+                    vistos.add(k)
+                    fuera.append(_apoyo_precedente_propio(_txt(a["precedente_propio"]),
+                                                          _txt(a.get("fuerza_texto"))))
+                continue
             txt = reg or _txt(a.get("norma") or a.get("precepto"))
             if not txt and _txt(a.get("id")):
                 # Un identificador del catálogo de la deliberación sin su
@@ -523,7 +622,9 @@ def _rellenar(p: str) -> str:
     return re.sub(r"\{(\w+)\}", lambda m: _GENERICOS.get(m.group(1), HUECO), p)
 
 
-def desenlace_de(tipo_asunto: str, resolvio_a_quo: str, sentido: str) -> tuple:
+def desenlace_de(tipo_asunto: str, resolvio_a_quo: str, sentido: str, *,
+                 quien_recurre: str = "", sobresee_ademas: bool = False,
+                 resolutivo_recurrida: str = "") -> tuple:
     """(puntos resolutivos previstos, nota | None) de un sentido, por código.
 
     AMPARO EN REVISIÓN QUE REVOCA UNA CONCESIÓN (el 631, vía contraria): se
@@ -531,6 +632,16 @@ def desenlace_de(tipo_asunto: str, resolvio_a_quo: str, sentido: str) -> tuple:
     conceptos de violación que el juez no estudió (art. 93, fr. VI, de la Ley
     de Amparo); sólo si caen, se niega. Sin eso, «revoca y niega» es
     prematuro, y la nota lo dice.
+
+    LA MISMA REGLA QUE EL DOCUMENTO (integración del 28-sep-2026): cuándo se
+    reasume lo dice `tipos_asunto.reasuncion` —no se reasume si recurre la
+    propia quejosa— y los puntos salen de `tipos_asunto.puntos_reasuncion`,
+    los mismos con que se compone el resolutivo: el verbo del amparo va en
+    HUECO porque depende de un estudio que aún no se hace, y si la recurrida
+    también sobreseyó, la revocación se acota a la materia de la revisión. Con
+    el resolutivo del juzgado (`resolutivo_recurrida`, la fuente de verdad de
+    577c700) los puntos nombran a quien él amparó; sin él, «la parte quejosa».
+    La deliberación usa esta misma función (`deliberacion.consecuencia_de`).
     """
     try:
         import tipos_asunto as _ta
@@ -547,11 +658,24 @@ def desenlace_de(tipo_asunto: str, resolvio_a_quo: str, sentido: str) -> tuple:
         info = _ta.RAMAS_REVISION.get(rama) or {}
         puntos = [_rellenar(p) for p in (info.get("puntos") or [])]
         nota = info.get("aviso") or None
-        if rama == "revoca_fondo_niega" and a in ("concede", "sobresee_concede"):
+        res = _txt(resolutivo_recurrida)
+        reas = _ta.reasuncion(a, s, quien_recurre=_txt(quien_recurre))
+        if rama == "confirma_concede" and res:
+            puntos = [_rellenar(p) for p in _ta.puntos_confirma_concede(res)]
+        elif rama == "revoca_fondo_niega" and reas == "concesion":
+            puntos = [_rellenar(p) for p in _ta.puntos_reasuncion(
+                "", res, parcial=bool(sobresee_ademas))]
             nota = ("Al revocar la concesión, el tribunal reasume jurisdicción y estudia los "
                     "conceptos de violación que el Juzgado no estudió (art. 93, fr. VI, de la "
                     "Ley de Amparo); sólo si caen, se niega. Si alguno prospera, se concede "
                     "por esa razón.")
+            if sobresee_ademas:
+                nota += (" La sentencia recurrida también sobreseyó: si nadie lo impugnó, ese "
+                         "sobreseimiento queda firme.")
+        elif rama == "revoca_fondo_niega" and res:
+            # SIN REASUNCIÓN (recurre la quejosa): revocar la concesión niega
+            # lo que ella concedió, con las palabras del juzgado (577c700).
+            puntos = [_rellenar(p) for p in (_ta.puntos_revoca_concesion(res) or info.get("puntos") or [])]
         elif rama.startswith("revoca_sobreseimiento"):
             # El sentido del AMPARO sale del estudio de los conceptos, que el
             # tribunal hace por primera vez: no se supone ninguno.
@@ -760,77 +884,77 @@ def _estado_juez(d: dict) -> str:
 
 def _suertes_delib(v: dict) -> dict:
     """{numero: (sentido, razón)} de los secundarios que escribió el abogado
-    de esa vía, sólo si traen una calificación que el árbol reconoce."""
+    de esa vía, sólo si traen una calificación que el árbol reconoce.
+
+    LA FORMA REAL DE LA DELIBERACIÓN (integración del 28-sep-2026): el
+    documento de `deliberacion.deliberar` guarda lo que escribió cada abogado
+    en `secundarios_escritos`, con la suerte como {sentido, razon}; el
+    contrato provisional que se leía aquí decía `secundarios` con la suerte en
+    texto, y con el documento real la tarjeta no veía ninguna. Se leen las dos
+    formas."""
     out = {}
     try:
         import arbol_decision as _ad
     except Exception:                                   # pragma: no cover
         return out
-    for x in (v.get("secundarios") or []):
+    for x in list(v.get("secundarios_escritos") or []) + list(v.get("secundarios") or []):
         if not isinstance(x, dict):
             continue
         try:
             n = int(x.get("numero"))
         except (TypeError, ValueError):
             continue
-        s = _ad._sentido_valido(x.get("sentido"))
-        if not s:
-            s, r = _ad._leer_suerte(_txt(x.get("suerte")))
+        if n in out:
+            continue
+        su = x.get("suerte")
+        if isinstance(su, dict):
+            s, r = _ad._sentido_valido(su.get("sentido")), _txt(su.get("razon"))
         else:
+            s = _ad._sentido_valido(x.get("sentido"))
             r = ""
+            if not s:
+                s, r = _ad._leer_suerte(_txt(su))
         if s:
             out[n] = (s, _txt(x.get("razon")) or r)
     return out
 
 
-# ═══ EL GANCHO DE LOS CONCEPTOS OMITIDOS (SPEC B, otra rama) ═════════════════
+def _catalogo_de_la_deliberacion(delib: dict) -> dict:
+    """{registro: tesis} del catálogo cerrado de la deliberación. Sus tesis
+    salieron de la búsqueda sobre la pregunta decisiva —el acervo, no el
+    modelo— y pasaron allí su verificación (vigencia, lectura, cupo); muchas no
+    están en el material del adelanto, que se buscó con la pregunta del
+    agravio. Sin sumarlas, la tarjeta las tiraba como «fuera del acervo del
+    asunto» y la vía del abogado se quedaba sin apoyos. El documento las
+    guarda sin su texto; para la tarjeta basta el rubro literal."""
+    out = {}
+    for e in ((delib or {}).get("catalogo") or {}).values():
+        if isinstance(e, dict) and e.get("clase") == "tesis" and _txt(e.get("registro")):
+            out.setdefault(_txt(e["registro"]), {
+                "registro": _txt(e["registro"]), "rubro": _txt(e.get("rubro")),
+                "instancia": _txt(e.get("instancia")), "tipo": _txt(e.get("tipo")),
+                "clave": _txt(e.get("clave")), "de_internet": bool(e.get("de_internet"))})
+    return out
+
+
+# ═══ LOS CONCEPTOS QUE EL JUEZ NO ESTUDIÓ (SPEC B) ════════════════════════════
 #
-# Otro implementador escribe la función pura que dice si, al revocar una
-# concesión, hacen falta los conceptos de violación que el juez no estudió y
-# si los tenemos (art. 93, fr. VI). Aquí sólo se engancha: import perezoso, y
-# si no existe (o falla) el campo sale null. Se llama con los argumentos que
-# su firma pida de este fondo común, para no depender de cómo la nombre.
-GANCHOS_OMITIDOS = (("fase_rama", "conceptos_omitidos"),
-                    ("tipos_asunto", "conceptos_omitidos"),
-                    ("conceptos_omitidos", "conceptos_omitidos"))
+# La función de SPEC B —`fase_rama.conceptos_omitidos`, pura, sin modelo— dice
+# si, al prosperar el recurso, el tribunal tiene que estudiar conceptos de
+# violación que nadie estudió (art. 93, frs. I, V y VI) y si ya los tenemos
+# (los aportó el secretario, o están en la demanda de las constancias o en la
+# recurrida). Hasta la integración (28-sep-2026) aquí había un gancho perezoso
+# que la buscaba por nombre y la llamaba con los argumentos que su firma
+# pidiera; con la función real, ese gancho le pasaba el sentido DEL MOTOR, y en
+# el 631 —motor «infundado», la vía que revoca es la contraria— contestaba que
+# no hacía falta nada. Ahora se la llama directamente con el sentido de la vía
+# que prospera, lo que hizo el juzgado, quién recurre y las fases donde buscar.
 
 
-def _conceptos_omitidos(fondo: dict):
-    fn = None
-    for mod, nombre in GANCHOS_OMITIDOS:
-        try:
-            m = __import__(mod)
-        except Exception:
-            continue
-        fn = getattr(m, nombre, None)
-        if callable(fn):
-            break
-        fn = None
-    if fn is None:
-        return None
-    try:
-        sig = inspect.signature(fn)
-        params = sig.parameters
-        if any(p.kind == p.VAR_KEYWORD for p in params.values()):
-            res = fn(**fondo)
-        else:
-            kw = {k: fondo[k] for k in params if k in fondo}
-            if kw:
-                res = fn(**kw)
-            elif len(params) == 1:
-                res = fn(fondo)
-            else:
-                return None
-    except Exception as e:
-        print(f"   ⚠️ TARJETA: conceptos omitidos no disponibles: {type(e).__name__}")
-        return None
-    if not isinstance(res, dict):
-        return None
-    out = dict(res)
-    out.setdefault("hacen_falta", bool(res.get("hacen_falta")))
-    out.setdefault("por_que", _txt(res.get("por_que")) or None)
-    out.setdefault("tenemos", bool(res.get("tenemos")))
-    return _limpio(out)
+def _conceptos_omitidos(rama_info: dict, sentido_via: str, fases=None):
+    import fase_rama as _fr
+    res = _fr.conceptos_omitidos(rama_info, sentido_via, fases)
+    return _limpio(res) if isinstance(res, dict) else None
 
 
 # ═══ EL ESTADO, DETERMINISTA ═════════════════════════════════════════════════
@@ -940,7 +1064,10 @@ def _via(sentido: str, razon: str, efecto: str, apoyos_crudos, catalogo: dict,
         avisos.append(f"La razón de {etiqueta} nombra registros que no están en el acervo del "
                       f"asunto ({', '.join(sueltos[:4])}): no se tienen por citados.")
     puntos, nota = desenlace_de(rama_info.get("tipo_asunto", ""),
-                                rama_info.get("resolvio_a_quo", ""), sentido)
+                                rama_info.get("resolvio_a_quo") or rama_info.get("que_hizo") or "",
+                                sentido, quien_recurre=_txt(rama_info.get("quien_recurre")),
+                                sobresee_ademas=bool(rama_info.get("sobresee_ademas")),
+                                resolutivo_recurrida=_txt(rama_info.get("resolutivo_recurrida")))
     vp = None
     if isinstance(protectora, dict) and _txt(protectora.get("sentido")) \
             and _prospera(protectora["sentido"]) == _prospera(sentido):
@@ -1063,7 +1190,8 @@ def vacia(estado_calculo: str, huella: str = "") -> dict:
 
 
 def armar(propuesta_guardada, material, problemas_fase3, contraste=None, espejo=None,
-          internet=None, rama_info=None, deliberacion=None, *, propuestas_motor=None) -> dict:
+          internet=None, rama_info=None, deliberacion=None, *, propuestas_motor=None,
+          fases=None) -> dict:
     """La tarjeta (formato 1 de contrato_tarjeta.md), sin modelo.
 
     `propuesta_guardada`: la respuesta de /taller/proponer (formato 2):
@@ -1071,12 +1199,16 @@ def armar(propuesta_guardada, material, problemas_fase3, contraste=None, espejo=
       forma guardada (tesis, espejo). `problemas_fase3`: los de la fase 3, en
       su orden. `contraste`: la lista por planteamiento (si None, la de la
       propuesta). `espejo`: si None, el del material. `internet`: ses/marca
-      {pistas, resumen, …}. `rama_info`: {tipo_asunto, resolvio_a_quo,
-      tribunal, circuito?, huella?, conceptos_violacion?, necesita_conceptos?}.
+      {pistas, resumen, …}. `rama_info`: lo de `redactor_adelanto.info_de_rama`
+      —tipo_asunto, que_hizo, quien_recurre, conceptos_violacion (el TEXTO que
+      aportó el secretario), sobresee_ademas— más tribunal, circuito?,
+      resolvio_a_quo?, resolutivo_recurrida?, huella?, necesita_conceptos?.
       `deliberacion`: la marca «deliberacion» (SPEC C2) o None.
       `propuestas_motor`: las propuestas con `sentido_propio`/`razon_propia`
       (lo que el motor propuso antes del árbol; viajan en la columna
       `propuestas` de la fila); si None, las de la respuesta.
+      `fases`: las del adelanto, donde `fase_rama.conceptos_omitidos` busca
+      la demanda entre las constancias o la recurrida que los transcribe.
     """
     resp = propuesta_guardada if isinstance(propuesta_guardada, dict) else {}
     rama_info = dict(rama_info or {})
@@ -1134,6 +1266,9 @@ def armar(propuesta_guardada, material, problemas_fase3, contraste=None, espejo=
     hay_global = bool(glob and glob.get("alcanza", True) is not False and _txt(glob.get("sentido")))
     sentido_motor = _txt(glob.get("sentido")) if hay_global else ""
     delib = _payload_deliberacion(deliberacion)
+    if delib:
+        for reg, t in _catalogo_de_la_deliberacion(delib).items():
+            catalogo.setdefault(reg, t)
     alt = glob.get("alternativa") if isinstance(glob.get("alternativa"), dict) else {}
     recomendada = None
     estado_juez = ""
@@ -1143,7 +1278,11 @@ def armar(propuesta_guardada, material, problemas_fase3, contraste=None, espejo=
     if delib:
         vias_d = {str(k).upper(): v for k, v in (delib.get("vias") or {}).items()
                   if isinstance(v, dict) and _txt(v.get("sentido"))}
-        rec = _txt(delib.get("recomendada")).upper()
+        # LA COLUMNA DE LA IZQUIERDA: la recomendada; si es reñido, la vía en
+        # que coincidieron las dos pasadas del juez (`inclinacion`, que el
+        # documento real guarda aparte y sólo sirve para el ORDEN, nunca como
+        # recomendación); si tampoco, la que coincide con la del motor.
+        rec = _txt(delib.get("recomendada")).upper() or _txt(delib.get("inclinacion")).upper()
         if rec not in vias_d:
             # Sin recomendada (reñido), la columna de la izquierda es la vía
             # que coincide con la del motor, para que «la propuesta» siga
@@ -1275,16 +1414,19 @@ def armar(propuesta_guardada, material, problemas_fase3, contraste=None, espejo=
         estado = "no_alcanza" if duros else estado_juez
     recomendada = "propuesta" if estado == "claro" else None
 
-    # ── LOS CONCEPTOS QUE EL JUEZ NO ESTUDIÓ (gancho, SPEC B) ──
+    # ── LOS CONCEPTOS QUE EL JUEZ NO ESTUDIÓ (SPEC B) ──
+    # Con el sentido de LA VÍA QUE PROSPERA, sea la propuesta o la contraria:
+    # en el 631 el motor propuso «infundado» y la vía que revoca es la otra.
     via_rev = next((v for v in (via_p, via_o) if v and v.get("prospera")), None)
     omitidos = None
     if via_rev is not None:
-        omitidos = _conceptos_omitidos({
-            "tipo_asunto": tipo_asunto, "resolvio_a_quo": _txt(rama_info.get("resolvio_a_quo")),
-            "sentido": via_rev["sentido"], "sentido_global": sentido_motor,
-            "conceptos_violacion": rama_info.get("conceptos_violacion"),
-            "problemas": problemas, "contraste": contraste, "propuesta": resp,
-            "rama_info": rama_info})
+        _ri = dict(rama_info)
+        _ri.setdefault("que_hizo", _txt(rama_info.get("resolvio_a_quo")))
+        # `conceptos_violacion` es el TEXTO que aportó el secretario: un
+        # booleano se leería como «los aportó» (str(True)).
+        if not isinstance(_ri.get("conceptos_violacion"), str):
+            _ri["conceptos_violacion"] = ""
+        omitidos = _conceptos_omitidos(_ri, via_rev["sentido"], fases)
 
     tarjeta = {
         "formato": FORMATO, "estado_calculo": "listo", "huella": huella,

@@ -33075,12 +33075,22 @@ async def _taller_deliberar_nucleo(r, ses: dict, resp: dict, contexto: str = "")
     except Exception:
         _tasa = ""
     _a_quo = ""
+    _info_d = {}
     try:
         if tipo == "amparo_revision":
+            # LA MISMA FUENTE QUE LA TARJETA Y /taller/proponer (integración del
+            # 28-sep-2026): qué hizo el juzgado, quién recurre —sólo la quejosa
+            # excluye la fr. VI— y si la recurrida también sobreseyó.
+            import redactor_adelanto as _ra_d
+            _info_d = _ra_d.info_de_rama(
+                r, declarado=str((glob.get("contexto") or {}).get("resolvio") or ""))
+            _a_quo = str(_info_d.get("que_hizo") or "")
+    except Exception:
+        try:
             _a_quo = _fr_d.que_hizo_el_juzgado(
                 r.fases, declarado=str((glob.get("contexto") or {}).get("resolvio") or ""))
-    except Exception:
-        _a_quo = ""
+        except Exception:
+            _a_quo = ""
     _, _marco = await _taller_parametro(r, ses, material)
     return await _delib.deliberar(
         chat_client, problemas=problemas, material=material,
@@ -33102,6 +33112,12 @@ async def _taller_deliberar_nucleo(r, ses: dict, resp: dict, contexto: str = "")
         tenemos_conceptos=bool(str(getattr(e, "conceptos_violacion", "") or "").strip()) if e else None,
         marco=_marco, buscar=_buscar, reforzar=_reforzar, internet=_internet,
         filas_propias=_espejo, tasa_base=_tasa,
+        # EL TRIBUNAL DEL ENCARGO da el circuito, la región de su Pleno
+        # Regional y su designación (precedente propio), con la regla única de
+        # `tarjeta_decision.fuerza_para_colegiado`; las variables sólo corrigen.
+        tribunal=str(getattr(e, "tribunal", "") or "") if e else "",
+        quien_recurre=str(_info_d.get("quien_recurre") or ""),
+        sobresee_ademas=bool(_info_d.get("sobresee_ademas")),
         region=(os.getenv("DELIBERACION_REGION", "") or None),
         clave_propia=os.getenv("DELIBERACION_CLAVE_PROPIA", ""))
 
@@ -37713,25 +37729,29 @@ async def taller_tarjeta(numero: str, user_email: str):
         return _td.vacia(sel["estado_calculo"], hu)
     resp = sel["propuesta"]
     g = resp.get("global") if isinstance(resp.get("global"), dict) else {}
-    try:
-        import fase_rama as _fr_t
-        _a_quo = _fr_t.que_hizo_el_juzgado(
-            r.fases, declarado=str(((g.get("contexto") or {}) if isinstance(g.get("contexto"), dict)
-                                    else {}).get("resolvio") or ""))
-    except Exception as _ex_aq:
-        print(f"   ⚠️ TARJETA: no se pudo leer qué hizo el juzgado: {err(_ex_aq)}")
-        _a_quo = ""
     _enc = getattr(r, "encargo", None)
-    rama_info = {"tipo_asunto": str(getattr(_enc, "tipo_asunto", "") or ""),
-                 "resolvio_a_quo": _a_quo,
-                 "tribunal": str(getattr(_enc, "tribunal", "") or ""),
-                 "conceptos_violacion": bool(str(getattr(_enc, "conceptos_violacion", "")
-                                                 or "").strip()),
-                 "necesita_conceptos": bool(resp.get("necesita_conceptos")),
-                 "huella": hu}
+    # LO QUE HIZO EL JUZGADO, QUIÉN RECURRE Y SI LA RECURRIDA TAMBIÉN SOBRESEYÓ,
+    # de UNA sola fuente (integración del 28-sep-2026): `info_de_rama` de SPEC
+    # B, la misma que calcula `conceptos_omitidos` en /taller/proponer. Antes
+    # la tarjeta leía por su cuenta qué hizo el juzgado y mandaba los conceptos
+    # del secretario como un booleano, que la función de SPEC B leía como texto.
+    try:
+        import redactor_adelanto as _ra_t
+        _info = _ra_t.info_de_rama(
+            r, declarado=str(((g.get("contexto") or {}) if isinstance(g.get("contexto"), dict)
+                              else {}).get("resolvio") or ""))
+    except Exception as _ex_aq:
+        print(f"   ⚠️ TARJETA: no se pudo leer la rama del asunto: {err(_ex_aq)}")
+        _info = {"tipo_asunto": str(getattr(_enc, "tipo_asunto", "") or "")}
+    rama_info = dict(_info,
+                     resolvio_a_quo=str(_info.get("que_hizo") or ""),
+                     resolutivo_recurrida=str(getattr(r.fases, "resolutivo_recurrida", "") or ""),
+                     tribunal=str(getattr(_enc, "tribunal", "") or ""),
+                     necesita_conceptos=bool(resp.get("necesita_conceptos")),
+                     huella=hu)
     tarjeta = _td.armar(resp, ses.get("material"), _te.problemas_de(r), sel["contraste"], None,
                         resp.get("internet") or ses.get("internet"), rama_info,
-                        sel["deliberacion"], propuestas_motor=_pm or None)
+                        sel["deliberacion"], propuestas_motor=_pm or None, fases=r.fases)
     clave = _td.clave_de(tarjeta)
     prev = fila.get("tarjeta") if isinstance(fila.get("tarjeta"), dict) else {}
     if not (prev.get("huella") == hu and prev.get("clave") == clave):

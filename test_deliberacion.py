@@ -319,10 +319,22 @@ ok(d["crux"] and d["crux"]["que"] and d["crux"]["constancia"] == "la escritura d
 ok(len(d["por_que"]) == 3 and not any("2088888" in x for x in d["por_que"]), "D · el porqué, tres renglones, limpio")
 
 # F · consecuencia y secundarios
-ok(va["rama"] == "revoca_fondo_niega" and any("no ampara ni protege a María López Ruiz" in x for x in va["desenlace"]),
-   "F · vía A: revocar la concesión NIEGA lo que ella concedió, con su sujeto (577c700)")
-ok(va["conceptos_omitidos"]["hacen_falta"] and "93" in va["desenlace_nota"] and "VI" in va["desenlace_nota"],
-   "F · vía A anuncia el estudio de los conceptos omitidos (art. 93, fr. VI)")
+# LA REGLA ÚNICA (integración del 28-sep-2026): los puntos de la vía A son
+# los del documento (`tipos_asunto.puntos_reasuncion`): el sujeto del
+# resolutivo del juzgado (577c700) y el verbo del amparo en hueco, porque sale
+# del estudio de los conceptos que el juez no estudió (SPEC B). Antes decía
+# «no ampara ni protege», que es lo que el 631 firmó sin estudiarlos.
+ok(va["rama"] == "revoca_fondo_niega"
+   and any("a María López Ruiz" in x and "**********" in x for x in va["desenlace"])
+   and not any("no ampara" in x for x in va["desenlace"]),
+   "F · vía A: se revoca la concesión y el amparo de María López Ruiz queda en hueco")
+ok(va["conceptos_omitidos"]["hacen_falta"] and va["conceptos_omitidos"]["reasuncion"] == "concesion"
+   and "93" in va["desenlace_nota"] and "VI" in va["desenlace_nota"],
+   "F · vía A anuncia el estudio de los conceptos omitidos (art. 93, fr. VI), con la función de SPEC B")
+_cq = dl.consecuencia_de("fundado", "amparo_revision", "concede", RESOLUTIVO, quien_recurre="quejoso")
+ok(_cq["conceptos_omitidos"] is None and any("no ampara ni protege a María López Ruiz" in x
+                                             for x in _cq["desenlace"]),
+   "F · si recurre la propia quejosa no se reasume: revocar niega lo que se concedió")
 ok(vb["rama"] == "confirma_concede" and any("ampara y protege a María López Ruiz" in x for x in vb["desenlace"]),
    "F · vía B: se confirma la concesión con el resolutivo del juzgado")
 s2 = d["secundarios"][0]
@@ -335,8 +347,36 @@ ok("sin materia" in va["efecto"] and "cae" in vb["efecto"], "F · el efecto de c
 ok("%" not in dump, "sin porcentajes en ninguna parte")
 
 # ═══ 2 · LA PROYECCIÓN SOBRE LA TARJETA ══════════════════════════════════════
-print("\n2 · la proyección sobre el contrato de la tarjeta")
-t = dl.para_tarjeta(d, sentido_motor="infundado")
+# Desde la integración (28-sep-2026) hay UNA proyección: la de la tarjeta,
+# `tarjeta_decision.armar(…, deliberacion=<marca>)`, sobre el documento REAL que
+# deja `deliberar` en la marca «deliberacion». (Antes había aquí una segunda,
+# `para_tarjeta`, que el servidor no usaba.)
+print("\n2 · la proyección sobre el contrato de la tarjeta (tarjeta_decision.armar)")
+import tarjeta_decision as td
+TRIBUNAL = ("Tercer Tribunal Colegiado en Materias Administrativa y Civil del Vigésimo "
+            "Segundo Circuito")
+RESP_MOTOR = {"formato": 2, "global": {
+    "sentido": "infundado", "razon": "La sustitución alteró la cosa juzgada.", "alcanza": True,
+    "apoyos": ["168958"], "problema_que_decide": P1["pregunta"],
+    "contexto": {"tema_principal": "Es el punto del que depende lo demás."},
+    "checklist": [], "constancias": []},
+    "propuestas": [{"problema": P1["pregunta"], "sentido": "infundado", "razon": "…", "apoyos": ["168958"]},
+                   {"problema": P2["pregunta"], "sentido": "infundado", "razon": "…", "apoyos": []}],
+    "contraste": [{"numero": 1, "razon_toral": "la sustitución alteró la cosa juzgada",
+                   "la_combate": True, "sobrevive": False, "veredicto_previo": "a_examinar"}]}
+RAMA_631 = {"tipo_asunto": "amparo_revision", "que_hizo": "concede", "resolvio_a_quo": "concede",
+            "quien_recurre": "tercero", "resolutivo_recurrida": RESOLUTIVO, "tribunal": TRIBUNAL,
+            "huella": "h631"}
+
+
+def tarjeta(doc, **kw):
+    marca = {"huella": "h631", "clave": "c", "estado": "listo", "formato": dl.FORMATO,
+             "deliberacion": json.loads(json.dumps(doc, ensure_ascii=False))}
+    return td.armar(json.loads(json.dumps(RESP_MOTOR)), material(), [dict(p) for p in PROBLEMAS],
+                    None, None, None, dict(RAMA_631, **kw), marca)
+
+
+t = tarjeta(d)
 ok(t["recomendada"] == "propuesta" and t["estado"] == "claro", "recomendada «propuesta» sólo con «claro»")
 ok(t["vias"]["propuesta"]["sentido"] == "fundado" and t["vias"]["opuesta"]["sentido"] == "infundado",
    "la propuesta es la del juez, aunque el motor propusiera lo contrario")
@@ -348,19 +388,32 @@ ok({"regla", "hechos", "subsuncion", "conclusion"} <= set(t["vias"]["propuesta"]
 ok({"de_la_otra_via", "respuesta"} <= set(t["vias"]["propuesta"]["objecion"]), "la objeción")
 APOYO = {"registro", "rubro", "instancia", "tipo", "fuerza", "fuerza_texto", "vigencia", "de_internet",
          "en_acervo", "norma"}
+_regs_p = [a.get("registro") for a in t["vias"]["propuesta"]["apoyos"] if a.get("registro")]
+ok(_regs_p == ["2015688"] and not any("2015688" in a for a in t["avisos"]),
+   "lo que la escalera trajo (2015688, que no estaba en el material) no se tira como «fuera del acervo»")
 _ap = [a for a in t["vias"]["propuesta"]["apoyos"] if a.get("registro")][0]
-ok(APOYO <= set(_ap) and _ap["fuerza"] in dl.CODIGOS_FUERZA and _ap["en_acervo"] is True, "APOYO del contrato")
+ok(APOYO <= set(_ap) and _ap["fuerza"] == "obliga" and _ap["en_acervo"] is True,
+   "APOYO del contrato, con la fuerza de la regla única (jurisprudencia de Sala: obliga)")
+ok(any(a.get("norma") and "2294" in a["norma"] for a in t["vias"]["propuesta"]["apoyos"]),
+   "la norma que propone el abogado, como norma")
 SUERTE = {"sentido", "de", "por_que", "relacion", "guarda", "recalificar", "previsto"}
 sc = t["secundarios"][0]
 ok(SUERTE <= set(sc["en_propuesta"]) and SUERTE <= set(sc["en_opuesta"])
-   and sc["en_propuesta"]["sentido"] == "innecesario" and sc["en_opuesta"]["sentido"] == "inoperante",
-   "SUERTE en cada vía, del árbol")
+   and sc["en_propuesta"]["sentido"] == "innecesario",
+   "SUERTE en cada vía, del árbol con la lista de los abogados (`checklist` del documento)")
 ok(sc["en_propuesta"]["de"] in ("principal", "arbol", "motor", "secretario")
-   and sc["en_opuesta"]["relacion"] in ("depende", "presupone", "distinto", "autonoma"), "vocabulario de SUERTE")
+   and sc["en_opuesta"]["relacion"] in ("depende", "presupone", "distinto", "autonoma", ""), "vocabulario de SUERTE")
 ok(set(t["que_la_cambiaria"]["crux"]) == {"que", "si_cambia", "constancia"}, "crux del contrato")
 ok(t["deliberacion"]["origen"] == "deliberacion" and t["deliberacion"]["pregunta_decisiva"]
-   and set(t["deliberacion"]["proposicion_toral"]) == {"dice", "cita"}, "el bloque «deliberacion»")
-ok(t["conceptos_omitidos"]["hacen_falta"], "los conceptos omitidos llegan a la tarjeta")
+   and {"dice", "cita"} <= set(t["deliberacion"]["proposicion_toral"]), "el bloque «deliberacion»")
+ok(t["conceptos_omitidos"]["hacen_falta"] and t["conceptos_omitidos"]["reasuncion"] == "concesion",
+   "los conceptos omitidos llegan a la tarjeta (fase_rama.conceptos_omitidos, vía que revoca)")
+ok(any("María López Ruiz" in x and td.HUECO in x for x in t["vias"]["propuesta"]["desenlace"]),
+   "el desenlace de la vía A en la tarjeta es el mismo del documento: el amparo en hueco")
+ok(tarjeta(d, quien_recurre="quejoso")["conceptos_omitidos"] is None,
+   "si recurre la quejosa, la tarjeta no los pide")
+ok("secundarios_escritos" in d["vias"]["A"] and isinstance(d.get("checklist"), list)
+   and isinstance(d.get("catalogo"), dict), "el documento trae lo que la tarjeta lee")
 
 # ═══ 3 · EL JUEZ QUE NO COINCIDE ═════════════════════════════════════════════
 print("\n3 · el juez con sesgo de posición: siempre la Vía 1")
@@ -369,7 +422,7 @@ d3 = correr(cli3)
 ok(d3["estado"] == "reñido" and d3["recomendada"] is None and d3["inclinacion"] is None,
    "si las dos pasadas no coinciden: «reñido», sin recomendación")
 ok(any("no recomiendan la misma vía" in x for x in d3["estado_por_que"]), "y lo dice")
-t3 = dl.para_tarjeta(d3, sentido_motor="infundado")
+t3 = tarjeta(d3)
 ok(t3["recomendada"] is None and t3["vias"]["propuesta"]["sentido"] == "infundado",
    "sin inclinación, la columna izquierda sigue el orden de la propuesta del motor; no se rotula recomendada")
 
@@ -388,6 +441,9 @@ d4 = correr(cli4)
 ok(d4["estado"] == "reñido" and d4["inclinacion"] == "A",
    "coinciden, pero «obliga» no se comprueba: no es «claro» (queda la inclinación)")
 ok(any("obliga" in x for x in d4["estado_por_que"]), "y dice por qué se rebajó")
+t4 = tarjeta(d4)
+ok(t4["recomendada"] is None and t4["estado"] == "reñido" and t4["vias"]["propuesta"]["sentido"] == "fundado",
+   "en la tarjeta: la inclinación sólo ordena las columnas; no se rotula recomendada")
 
 # ═══ 5 · NINGUNA VÍA CON APOYO ══════════════════════════════════════════════
 print("\n5 · ninguna vía con apoyo verificado")
@@ -403,7 +459,8 @@ cli5 = Falso(respuestas(abogado_a=_sin_apoyo("fundado"), abogado_b=_sin_apoyo("i
 d5 = correr(cli5)
 ok(d5["estado"] == "no_alcanza" and d5["recomendada"] is None, "«no_alcanza» por código")
 ok(len(cli5.de("JUEZ")) == 0, "y no se gasta en el juez")
-ok(dl.para_tarjeta(d5)["recomendada"] is None, "la tarjeta no recomienda nada")
+_t5 = tarjeta(d5)
+ok(_t5["recomendada"] is None and _t5["estado"] == "no_alcanza", "la tarjeta no recomienda nada")
 
 # ═══ 6 · UN ABOGADO QUE NO RESPONDE, UNO QUE SE EQUIVOCA DE VÍA ══════════════
 print("\n6 · un abogado mudo y otro que devuelve el sentido de la otra vía")
@@ -433,6 +490,8 @@ ok(_pj.index("1. LO QUE OBLIGA MANDA") < _pj.index("2. EL HECHO ACREDITADO") < _
 # ═══ 8 · LA FUERZA PARA UN COLEGIADO ════════════════════════════════════════
 print("\n8 · fuerza_para_colegiado")
 F = dl.fuerza_para_colegiado
+ok(F is td.fuerza_para_colegiado and dl.clave_de_tesis is td.clave_de_tesis,
+   "UNA sola definición: la de la tarjeta, importada aquí (integración del 28-sep-2026)")
 ok(F({"instancia": "Segunda Sala", "tipo": "JURISPRUDENCIA"})["fuerza"] == "obliga", "J de Sala: obliga")
 ok(F({"instancia": "Pleno", "tipo": "JURISPRUDENCIA"})["fuerza"] == "obliga", "J del Pleno de la Corte: obliga")
 ok(F({"instancia": "Primera Sala", "tipo": "TESIS AISLADA"})["fuerza"] == "orienta", "aislada de la Corte: orienta")
@@ -446,8 +505,12 @@ _pr = {"instancia": "Plenos Regionales", "tipo": "JURISPRUDENCIA", "numero_tesis
 ok(F(_pr)["fuerza"] == "orienta" and F(_pr).get("por_confirmar"), "Pleno Regional sin región confirmada: orienta, por confirmar")
 ok(F(_pr, region="CN")["fuerza"] == "obliga" and F(_pr, region="CS")["fuerza"] == "orienta",
    "Pleno Regional: obliga en su región, orienta en otra")
-os.environ["DELIBERACION_REGIONES"] = "22:CN"
-ok(F(_pr)["fuerza"] == "obliga", "la región del circuito se configura (DELIBERACION_REGIONES)")
+# LA REGIÓN DEL CIRCUITO, MEDIDA (la tabla de la tarjeta: el XXII es
+# Centro-Norte); la variable la CORRIGE, no la suple.
+ok(F(_pr, TRIBUNAL)["fuerza"] == "obliga" and F(_pr, circuito=22)["fuerza"] == "obliga",
+   "con el tribunal (o el circuito), la región medida: el Pleno Regional Centro-Norte obliga al XXII")
+os.environ["DELIBERACION_REGIONES"] = "22:CS"
+ok(F(_pr, circuito=22)["fuerza"] == "orienta", "la región del circuito se corrige (DELIBERACION_REGIONES)")
 os.environ.pop("DELIBERACION_REGIONES", None)
 ok(F({"instancia": "Tribunales Colegiados de Circuito", "tipo": "TESIS AISLADA",
       "numero_tesis": "XXII.3o.A.C.12 C (11a.)"}, clave_propia="XXII.3o.A.C.")["fuerza"] == "precedente_propio",

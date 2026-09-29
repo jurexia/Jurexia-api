@@ -103,16 +103,18 @@ lo apruebe. Con la bandera apagada, este módulo no hace una sola llamada.
 DUDAS PARA DAVID (escritas aquí para que no se decidan en silencio):
   1. Los Plenos de Circuito (extintos desde 2021): su jurisprudencia sale con
      rótulo propio, «Pleno de Circuito», sin afirmar si obliga.
-  2. La región del Pleno Regional a la que pertenece el circuito 22 no consta
-     en el código. Sin ese dato (DELIBERACION_REGIONES, p. ej. «22:CN»), la
-     jurisprudencia de un Pleno Regional sale como «orienta» con la nota «por
-     confirmar»: afirmar que obliga sin saberlo es el mismo error que el
-     rótulo de hoy, en la dirección que más cuesta. Y falta el otro lado: la
-     región del PLENO sale de su clave («PR.A.C.CN. J/7 K»), y el payload del
-     taller (`fase6_rag._tesis_de`) no guarda `numero_tesis`; la localización
-     que sí guarda («[J]; 10a. Época; Pleno; Gaceta S.J.F.…», sesión 462) no la
-     trae. Hasta que `_tesis_de` conserve la clave, todo Pleno Regional sale
-     «por confirmar» (medido sobre la sesión real del 631, sin red).
+  2. La región del Pleno Regional de cada circuito: desde la integración
+     (28-sep-2026) sale de la tabla MEDIDA de la tarjeta
+     (`tarjeta_decision.REGION_DEL_CIRCUITO`: el Vigésimo Segundo, 17 de 17
+     tesis del volcado del Semanario, Centro-Norte), y `DELIBERACION_REGIONES`
+     («22:CS», p. ej.) la corrige si el Consejo mueve un circuito. Falta el
+     otro lado: la región del PLENO sale de su clave («PR.A.C.CN. J/7 K»), y el
+     payload del taller (`fase6_rag._tesis_de`) no guarda `numero_tesis`; la
+     localización que sí guarda («[J]; 10a. Época; Pleno; Gaceta S.J.F.…»,
+     sesión 462) no la trae. Hasta que `_tesis_de` conserve la clave, todo
+     Pleno Regional sale «orienta, por confirmar» (medido sobre la sesión real
+     del 631, sin red): afirmar que obliga sin saberlo es el mismo error que el
+     rótulo de hoy, en la dirección que más cuesta.
   3. El precedente obligatorio de la Corte (arts. 222 y 223 LA) se reconoce
      porque se publica como jurisprudencia o como «precedente»; una aislada de
      la Corte orienta. Si hubiera precedentes obligatorios publicados como
@@ -120,7 +122,8 @@ DUDAS PARA DAVID (escritas aquí para que no se decidan en silencio):
   4. La tesis emitida por el propio tribunal (clave propia, p. ej.
      «XXII.3o.A.C.») se trata como precedente propio (art. 228), no como
      jurisprudencia que obligue. Se reconoce por la clave: la misma falta que
-     en el punto 2 (hoy sólo con `DELIBERACION_CLAVE_PROPIA` y la clave a mano).
+     en el punto 2. La designación del tribunal se lee de su nombre
+     (`tarjeta_decision.designacion_de`) o de `DELIBERACION_CLAVE_PROPIA`.
   5. Nada de esto cambia todavía el rótulo del ESTUDIO (fase6_estudio): es
      sólo para la tarjeta y la deliberación, hasta que David lo decida.
 
@@ -244,152 +247,28 @@ def _plano_mayus(x: Any) -> str:
     return " ".join(t.upper().split())
 
 
-def _regiones() -> dict:
-    """{circuito: región} de `DELIBERACION_REGIONES` («22:CN,1:CS»). Vacío por
-    omisión: la región del circuito 22 está por confirmar (duda 2)."""
-    out = {}
-    for par in (os.getenv("DELIBERACION_REGIONES", "") or "").split(","):
-        if ":" in par:
-            c, r = par.split(":", 1)
-            if c.strip() and r.strip():
-                out[c.strip()] = r.strip().upper()
-    return out
+# UNA SOLA DEFINICIÓN DE LA FUERZA (integración del 28-sep-2026, AR 631/2025).
+# La tarjeta (C1) y esta pieza (C2) escribieron cada una su
+# `fuerza_para_colegiado` en paralelo; la de aquí prefería la de la tarjeta «si
+# existía». Ahora hay una, en `tarjeta_decision` —módulo puro, sin `main` ni
+# base—, y aquí se importa con la clave, la región de la clave y la región del
+# circuito. Lo que sólo tenía ésta (la clave leída de la localización, el Pleno
+# «en materia», la región y la clave propia explícitas, `DELIBERACION_REGIONES`
+# y `por_confirmar`) pasó allá. La región del circuito ya no depende sólo de la
+# variable de entorno: la tarjeta la MIDIÓ en el volcado del Semanario (el
+# Vigésimo Segundo, 17 de 17 tesis, Centro-Norte) y la variable la corrige.
+from tarjeta_decision import (clave_de_tesis, fuerza_para_colegiado,  # noqa: E402
+                              region_de_clave, region_del_circuito)
 
 
-def region_de_clave(clave: str) -> str:
-    """«PR.A.C.CN. J/7 K (12a.)» → «CN». La región va en el último tramo de la
-    sigla del Pleno Regional. «» si la clave no es de un Pleno Regional."""
-    m = re.match(r"\s*PR\.((?:[A-Z]{1,3}\.)+)", str(clave or "").upper())
-    if not m:
-        return ""
-    tramos = [x for x in m.group(1).split(".") if x]
-    return tramos[-1] if tramos else ""
-
-
-_RX_CLAVE_EN_TEXTO = re.compile(
-    r"(PR\.(?:[A-Z]{1,3}\.)+\s*J/\S+(?:\s+[A-Z]{1,2})?\s*\(\d{1,2}a\.\)"
-    r"|\b(?:[IVXL]+|\([IVX]+\s+Regi[oó]n\))\.\S+\s+[A-Z]{1,2}\s*\(\d{1,2}a\.\)"
-    r"|\b\d?[a-zA-Z]{0,2}\./J\.\s*\d+/\d{2,4}(?:\s*\(\d{1,2}a\.\))?)")
-
-
-def clave_de_tesis(t: dict) -> str:
-    """La clave de la tesis («PR.A.C.CN. J/7 K (12a.)», «XXII.3o.A.C.12 C
-    (11a.)»). El payload del taller (`fase6_rag._tesis_de`) no guarda
-    `numero_tesis`: se busca en `localizacion`, donde el Semanario la escribe.
-    «» si no consta."""
-    c = str((t or {}).get("numero_tesis") or (t or {}).get("clave") or "").strip()
-    if c:
-        return c
-    m = _RX_CLAVE_EN_TEXTO.search(str((t or {}).get("localizacion") or ""))
-    return m.group(1).strip() if m else ""
-
-
-_SCJN = ("PLENO DE LA SUPREMA CORTE", "SUPREMA CORTE", "PRIMERA SALA", "SEGUNDA SALA",
-         "TERCERA SALA", "CUARTA SALA", "SALA AUXILIAR")
-
-
-def fuerza_para_colegiado(tesis: dict, *, region: Optional[str] = None,
-                          clave_propia: str = "", circuito: Optional[str] = None) -> dict:
-    """{"fuerza": código, "fuerza_texto": rótulo} de un criterio ANTE UN
-    TRIBUNAL COLEGIADO. Función pura; la escribe también la tarjeta
-    (`tarjeta_decision.fuerza_para_colegiado`) y la integración las unifica.
-
-      SCJN (Pleno o Salas), jurisprudencia o precedente obligatorio
-          (arts. 217 párr. 1, 222 y 223 LA) ............ obliga
-      SCJN, aislada .................................... orienta
-      Pleno Regional de la región del circuito
-          (art. 217 párr. 2) ........................... obliga
-      Pleno Regional de otra región .................... orienta
-      Pleno Regional, región del circuito sin confirmar  orienta (por confirmar)
-      Pleno de Circuito (extinto) ...................... pleno_circuito (sin
-                                                         afirmar si obliga)
-      jurisprudencia de colegiado ...................... orienta (art. 217,
-                                                         párr. tercero)
-      aislada de colegiado ............................. orienta
-      tesis del propio tribunal (clave propia) ......... precedente_propio (228)
-
-    Se IGNORA a propósito `obligatoria` (= bool(vincula)): es el rótulo que
-    llama obligatoria a la jurisprudencia de otro colegiado. Ver las dudas
-    para David en el encabezado del módulo."""
-    t = tesis or {}
-    inst = _plano_mayus(t.get("instancia"))
-    tipo = _plano_mayus(t.get("tipo"))
-    clave = clave_de_tesis(t)
-    clave_m = _plano_mayus(clave).replace(" ", "")
-    es_j = ("JURISPRUDENCIA" in tipo or "/J." in clave_m or "J/" in clave_m)
-    es_prec = "PRECEDENTE" in tipo
-    propia = _plano_mayus(clave_propia).replace(" ", "")
-    if propia and clave_m.startswith(propia):
-        return {"fuerza": "precedente_propio",
-                "fuerza_texto": "precedente propio: este tribunal ya lo sostuvo; apartarse "
-                                "exige razón (art. 228)"}
-    if "PLENOS REGIONALES" in inst or "PLENO REGIONAL" in inst:
-        reg_t = region_de_clave(clave)
-        circ = str(circuito or os.getenv("DELIBERACION_CIRCUITO", "22")).strip()
-        reg_c = (region or _regiones().get(circ, "") or "").upper()
-        if not es_j:
-            return {"fuerza": "orienta", "fuerza_texto": "orienta (aislada de un Pleno Regional)"}
-        if reg_c and reg_t and reg_c == reg_t:
-            return {"fuerza": "obliga",
-                    "fuerza_texto": f"obliga (Pleno Regional de la región {reg_t}: art. 217, "
-                                    f"párr. segundo)"}
-        if reg_c and reg_t:
-            return {"fuerza": "orienta",
-                    "fuerza_texto": f"orienta (Pleno Regional de otra región, {reg_t}: obliga "
-                                    f"sólo en la suya)"}
-        return {"fuerza": "orienta", "por_confirmar": True,
-                "fuerza_texto": "orienta mientras no se confirme la región del circuito "
-                                "(Pleno Regional" + (f", región {reg_t}" if reg_t else "")
-                                + ": obliga sólo a los colegiados de su región)"}
-    if "PLENOS DE CIRCUITO" in inst or "PLENO DE CIRCUITO" in inst or "PLENO EN MATERIA" in inst:
-        return {"fuerza": "pleno_circuito",
-                "fuerza_texto": "Pleno de Circuito (órgano extinto; si obliga, está por "
-                                "confirmar)"}
-    if inst == "PLENO" or any(x in inst for x in _SCJN):
-        if es_j or es_prec:
-            return {"fuerza": "obliga",
-                    "fuerza_texto": "obliga (Suprema Corte: art. 217, párr. primero"
-                                    + (", y arts. 222 y 223" if es_prec else "") + ")"}
-        return {"fuerza": "orienta", "fuerza_texto": "orienta (aislada de la Suprema Corte)"}
-    if "COLEGIADO" in inst or inst == "TRIBUNALES":
-        if es_j:
-            return {"fuerza": "orienta",
-                    "fuerza_texto": "orienta (jurisprudencia de colegiado: no obliga a otro "
-                                    "colegiado, art. 217, párr. tercero)"}
-        return {"fuerza": "orienta", "fuerza_texto": "orienta (aislada de colegiado)"}
-    return {"fuerza": "orienta", "fuerza_texto": "orienta"}
-
-
-_FUERZA_TARJETA: list = []          # [función] o [None] tras el primer intento
-
-
-def _fuerza_de_la_tarjeta():
-    if not _FUERZA_TARJETA:
-        try:
-            import tarjeta_decision as _td             # la escribe la parte C1
-            f = getattr(_td, "fuerza_para_colegiado", None)
-            _FUERZA_TARJETA.append(f if callable(f) else None)
-        except Exception:
-            _FUERZA_TARJETA.append(None)
-    return _FUERZA_TARJETA[0]
-
-
-def _fuerza(tesis: dict, **kw) -> dict:
-    """La de la tarjeta si ya existe (una sola regla en todo el taller); si no,
-    la de aquí. Lo que devuelva se normaliza al contrato {fuerza, fuerza_texto}.
-    Con región o clave propia explícitas manda la de aquí, que las recibe."""
-    try:
-        f = None if (kw.get("region") or kw.get("clave_propia")) else _fuerza_de_la_tarjeta()
-        if callable(f):
-            r = f(tesis)
-            if isinstance(r, dict) and r.get("fuerza") in CODIGOS_FUERZA:
-                return {"fuerza": r["fuerza"], "fuerza_texto": str(r.get("fuerza_texto") or r["fuerza"]),
-                        **({"por_confirmar": True} if r.get("por_confirmar") else {})}
-            if isinstance(r, str) and r in CODIGOS_FUERZA:
-                return {"fuerza": r, "fuerza_texto": r}
-    except Exception:
-        pass
-    return fuerza_para_colegiado(tesis, **kw)
+def _fuerza(tesis: dict, *, tribunal: str = "", region: Optional[str] = None,
+            clave_propia: str = "") -> dict:
+    """La fuerza de la regla única, normalizada al contrato {fuerza,
+    fuerza_texto, por_confirmar?}. `tribunal` da el circuito, su región y la
+    designación del propio tribunal; `region` y `clave_propia` los fuerzan."""
+    r = fuerza_para_colegiado(tesis, tribunal, region=region, clave_propia=clave_propia)
+    return {"fuerza": r["fuerza"], "fuerza_texto": str(r.get("fuerza_texto") or r["fuerza"]),
+            **({"por_confirmar": True} if r.get("por_confirmar") else {})}
 
 
 # ═══ LA VIGENCIA ═════════════════════════════════════════════════════════════
@@ -459,7 +338,7 @@ def _pregunta(p) -> str:
 
 def construir_catalogo(candidatas: list, normas: list = None, filas_propias: list = None,
                        lecturas: dict = None, *, region: Optional[str] = None,
-                       clave_propia: str = "") -> tuple:
+                       clave_propia: str = "", tribunal: str = "") -> tuple:
     """(catálogo, avisos). Escalones con cupo propio; identificadores T (tesis),
     O (precedentes del propio tribunal) y N (normas). Las candidatas llegan en
     el orden de la búsqueda; `lecturas` = {registro: {"es", "a_favor"}} de la
@@ -488,7 +367,7 @@ def construir_catalogo(candidatas: list, normas: list = None, filas_propias: lis
         if pierde_vigencia(v):
             fuera_vig.append(f"{reg} ({_etiqueta_vigencia(v) or 'sin vigencia'})")
             continue
-        f = _fuerza(t, region=region, clave_propia=clave_propia)
+        f = _fuerza(t, tribunal=tribunal, region=region, clave_propia=clave_propia)
         filas.append((pos, t, v, f, lec))
     # EL ORDEN DENTRO DE CADA ESCALÓN: primero lo que la lectura dice que
     # RESUELVE el punto, después lo distinguible, después lo no leído; a
@@ -800,17 +679,12 @@ def verificar_hechos(hechos: Any, textos: _Textos, cat: dict, quitadas: list) ->
 
 # ═══ LA CONSECUENCIA DE CADA VÍA (F) — por código, nunca por el modelo ═══════
 
-def _rellenar(p: str, quejoso: str, responsable: str) -> str:
-    return (str(p).replace("{quejoso}", quejoso or "la parte quejosa")
-            .replace("{responsable_originaria}", responsable or "la autoridad responsable")
-            .replace("{expediente}", "de origen").replace("{HUECO}", "**********"))
-
-
 def consecuencia_de(sentido: str, tipo_asunto: str = "", resolvio_a_quo: str = "",
                     resolutivo_recurrida: str = "", quejoso: str = "", responsable: str = "",
-                    tenemos_conceptos: Optional[bool] = None) -> dict:
+                    tenemos_conceptos: Optional[bool] = None, *, quien_recurre: str = "",
+                    sobresee_ademas: bool = False) -> dict:
     """{"rama", "desenlace": [puntos], "desenlace_nota", "conceptos_omitidos"}
-    de una vía, calculados con `tipos_asunto` y la rama del amparo en revisión.
+    de una vía, calculados por código.
 
     AR 631/2025 (28-sep-2026): revocar una concesión NIEGA lo que ella concedió
     —`puntos_revoca_concesion`, el arreglo 577c700—, pero no de inmediato: si
@@ -818,45 +692,44 @@ def consecuencia_de(sentido: str, tipo_asunto: str = "", resolvio_a_quo: str = "
     el tribunal estudia los conceptos de violación que el juez no estudió (art.
     93, fr. VI, LA) y sólo si también caen se niega. «Revoca y niega» sin eso es
     prematuro, y la tarjeta tiene que decirlo antes de que el secretario elija
-    la vía."""
+    la vía.
+
+    UNA SOLA REGLA PARA LOS TRES (integración del 28-sep-2026): aquí había una
+    tercera versión de la consecuencia, que ponía «no ampara ni protege» en el
+    punto del amparo de una concesión revocada y decía «hacen falta los
+    conceptos» aunque recurriera la propia quejosa. Ahora los puntos y la nota
+    salen de `tarjeta_decision.desenlace_de` —los mismos puntos del documento:
+    `tipos_asunto.puntos_reasuncion`, con el verbo del amparo en hueco hasta
+    que se estudien los conceptos— y los conceptos omitidos de
+    `fase_rama.conceptos_omitidos`, la función de SPEC B. `quejoso` y
+    `responsable` sólo nombran a las partes fuera de un recurso: en la revisión
+    los nombra el resolutivo del juzgado (577c700)."""
     import tipos_asunto as _ta
+    import tarjeta_decision as _td
     t = _ta.normalizar(tipo_asunto) or "amparo_directo"
     s = str(sentido or "").strip().lower().replace(" ", "_")
     if not s:
         return {"rama": "", "desenlace": [], "desenlace_nota": None, "conceptos_omitidos": None}
     pros = _ta.prospera(s)
-    nota, omitidos = None, None
     if t == "amparo_revision":
         a = str(resolvio_a_quo or "").strip().lower()
         rama = _ta.rama_revision(a, s)
-        puntos = list((_ta.RAMAS_REVISION.get(rama) or {}).get("puntos") or [])
-        if rama == "confirma_concede":
-            puntos = _ta.puntos_confirma_concede(resolutivo_recurrida)
-        elif rama == "revoca_fondo_niega":
-            puntos = _ta.puntos_revoca_concesion(resolutivo_recurrida) or puntos
-            nota = ("Se revoca la concesión; antes de negar, el tribunal reasume jurisdicción y "
-                    "estudia los conceptos de violación que el juez no examinó (art. 93, fr. VI, "
-                    "Ley de Amparo). Sólo si también caen, se niega el amparo.")
-            omitidos = {"hacen_falta": True,
-                        "por_que": "art. 93, fr. VI, Ley de Amparo: si los agravios del tercero "
-                                   "interesado o de la autoridad son fundados, se examinan los "
-                                   "conceptos de violación no estudiados",
-                        "tenemos": tenemos_conceptos}
-        elif rama.startswith("revoca_sobreseimiento"):
-            puntos = puntos[:1] + ["SEGUNDO. ********** (lo decide el estudio de los conceptos "
-                                   "de violación, que el juzgado no examinó)."]
-            nota = ("Levantado el sobreseimiento, el tribunal asume jurisdicción y estudia los "
-                    "conceptos de violación (art. 93, fr. I, Ley de Amparo): el sentido del amparo "
-                    "depende de ellos.")
-            omitidos = {"hacen_falta": True,
-                        "por_que": "art. 93, fr. I, Ley de Amparo: levantado el sobreseimiento se "
-                                   "estudian los conceptos de violación",
-                        "tenemos": tenemos_conceptos}
+        puntos, nota = _td.desenlace_de(t, a, s, quien_recurre=quien_recurre,
+                                        sobresee_ademas=sobresee_ademas,
+                                        resolutivo_recurrida=resolutivo_recurrida)
+        import fase_rama as _fr
+        omitidos = _fr.conceptos_omitidos({"tipo_asunto": t, "que_hizo": a,
+                                          "quien_recurre": quien_recurre,
+                                          "sobresee_ademas": sobresee_ademas,
+                                          "conceptos_violacion": ""}, s, None)
+        if isinstance(omitidos, dict) and tenemos_conceptos is not None:
+            # La deliberación sólo sabe si el secretario los aportó; dónde
+            # buscarlos en el expediente lo hace la tarjeta con las fases.
+            omitidos = dict(omitidos, tenemos=bool(tenemos_conceptos),
+                            donde="secretario" if tenemos_conceptos else omitidos.get("donde", ""))
+        if rama.startswith("revoca_sobreseimiento"):
             rama = "revoca_sobreseimiento"
-        elif rama == "sin_determinar":
-            nota = str((_ta.RAMAS_REVISION.get(rama) or {}).get("aviso") or "") or None
-        puntos = [_rellenar(p, quejoso, responsable) for p in puntos]
-        return {"rama": rama, "desenlace": puntos, "desenlace_nota": nota,
+        return {"rama": rama, "desenlace": list(puntos), "desenlace_nota": nota,
                 "conceptos_omitidos": omitidos}
     c = _ta.cierre_de(t)
     frase = c["positivo"] if pros else c["negativo"]
@@ -1499,7 +1372,8 @@ def _tesis_de_resultado(x: Any) -> tuple:
 
 async def etapa_b(cliente, decisiva: dict, pral: dict, pi: int, material, *,
                   buscar=None, reforzar=None, internet=None, filas_propias=None,
-                  region=None, clave_propia: str = "", uso: _Uso, avisos: list) -> dict:
+                  region=None, clave_propia: str = "", tribunal: str = "",
+                  uso: _Uso, avisos: list) -> dict:
     """La escalera: lo que ya trae el material del principal + la búsqueda sobre
     la pregunta decisiva + el refuerzo por vía + la línea de internet que el
     acervo confirmó. Se suma; no sustituye (lector2_potencia §2)."""
@@ -1558,7 +1432,7 @@ async def etapa_b(cliente, decisiva: dict, pral: dict, pi: int, material, *,
                     "es": es if es in ("resuelve", "distinguible", "ajena") else None,
                     "a_favor": af if af in ("prospera", "no_prospera", "ninguna") else None}
     cat, av = construir_catalogo(candidatas, normas, filas_propias, lecturas,
-                                 region=region, clave_propia=clave_propia)
+                                 region=region, clave_propia=clave_propia, tribunal=tribunal)
     avisos.extend(av)
     return cat
 
@@ -1793,7 +1667,8 @@ async def deliberar(cliente, *, problemas: list, material=None,
                     reforzar: Optional[Callable[..., Awaitable[Any]]] = None,
                     internet: Optional[Callable[..., Awaitable[Any]]] = None,
                     filas_propias: Optional[list] = None, region: Optional[str] = None,
-                    clave_propia: str = "", tasa_base: str = "") -> dict:
+                    clave_propia: str = "", tasa_base: str = "", tribunal: str = "",
+                    quien_recurre: str = "", sobresee_ademas: bool = False) -> dict:
     """La deliberación del problema principal. Devuelve el documento que va a la
     marca «deliberacion» (JSON puro). Las búsquedas se inyectan:
       buscar(pregunta, figura)                     → tesis (lista, dict o Material)
@@ -1820,7 +1695,7 @@ async def deliberar(cliente, *, problemas: list, material=None,
     # B · la escalera
     cat = await etapa_b(cliente, decisiva, pral, pi, material, buscar=buscar, reforzar=reforzar,
                         internet=internet, filas_propias=filas_propias, region=region,
-                        clave_propia=clave_propia, uso=uso, avisos=avisos)
+                        clave_propia=clave_propia, tribunal=tribunal, uso=uso, avisos=avisos)
 
     # C · los dos abogados, en paralelo y sin verse
     import fase5_propuesta as _f5
@@ -1904,7 +1779,8 @@ async def deliberar(cliente, *, problemas: list, material=None,
     for k in ("A", "B"):
         v = vias[k]
         v.update(consecuencia_de(v["sentido"], tipo_asunto, resolvio_a_quo, resolutivo_recurrida,
-                                 quejoso, responsable, tenemos_conceptos))
+                                 quejoso, responsable, tenemos_conceptos,
+                                 quien_recurre=quien_recurre, sobresee_ademas=sobresee_ademas))
     lista = lista_de_comprobacion(probs, pi, vias["A"]["secundarios_escritos"],
                                   vias["B"]["secundarios_escritos"])
     secs, av_a, av_b = secundarios_por_arbol(probs, pi, vias["A"]["sentido"], vias["B"]["sentido"],
@@ -1935,6 +1811,10 @@ async def deliberar(cliente, *, problemas: list, material=None,
         # registro inventado no se guarda donde alguien pueda enseñarlo.
         "verificacion": {"referencias_quitadas": len(_q), "hechos_no_acreditados": _no_acr},
         "vias": vias, "secundarios": secs,
+        # LA LISTA QUE ESCRIBIERON LOS ABOGADOS, con los campos de la de la
+        # propuesta: la tarjeta la pasa al árbol en las dos vías (integración
+        # del 28-sep-2026), igual que aquí `secundarios_por_arbol`.
+        "checklist": lista,
         "juez": {"pasadas": [{c: p.get(c) for c in ("orden", "respondio", "recomendada", "escalon",
                                                     "estado")} for p in (p1, p2)],
                  "coinciden": bool(p1.get("recomendada") and p1.get("recomendada") == p2.get("recomendada")),
@@ -1946,68 +1826,14 @@ async def deliberar(cliente, *, problemas: list, material=None,
     return doc
 
 
-# ═══ LA PROYECCIÓN SOBRE LA TARJETA (contrato_tarjeta.md, formato 1) ════════
-
-def _via_contrato(v: dict) -> Optional[dict]:
-    if not v:
-        return None
-    cad = v.get("cadena") or {}
-    return {"sentido": v.get("sentido") or "", "prospera": bool(v.get("prospera")),
-            "razon": v.get("razon") or "", "efecto": v.get("efecto") or "",
-            "desenlace": list(v.get("desenlace") or []),
-            "desenlace_nota": v.get("desenlace_nota"),
-            "interpretacion": v.get("interpretacion"),
-            "cadena": {"regla": cad.get("regla") or "",
-                       "hechos": [{"afirma": h["afirma"], "cita": h.get("cita") or "",
-                                   "fuente": h.get("fuente"), "verificada": bool(h.get("verificada"))}
-                                  for h in cad.get("hechos") or []],
-                       "subsuncion": cad.get("subsuncion") or "",
-                       "conclusion": cad.get("conclusion") or ""},
-            "objecion": dict(v.get("objecion") or {}) or None,
-            "apoyos": list(v.get("apoyos") or []),
-            "via_protectora": None,
-            "autoridad_contraria": list(v.get("autoridad_contraria") or []),
-            "precedente_propio": list(v.get("precedente_propio") or []),
-            "origen": "deliberacion", "via": v.get("via")}
-
-
-def para_tarjeta(delib: dict, sentido_motor: str = "") -> dict:
-    """Lo que la tarjeta pone ENCIMA de lo que arma sin modelo cuando hay
-    deliberación: `vias.propuesta` es la recomendada por el juez (o, si es
-    reñido, aquella en que coincidieron las dos pasadas) y `vias.opuesta` la
-    otra, ambas con su cadena. Con estado «reñido» o «no_alcanza»,
-    `recomendada` es null y las dos columnas pesan igual («Vía A / Vía B»).
-    Si no hay ninguna inclinación, la columna de la izquierda es la vía que
-    coincide con la propuesta del motor —sólo para el ORDEN; el juez no la vio—."""
-    if not isinstance(delib, dict) or not delib.get("vias"):
-        return {}
-    vias = delib["vias"]
-    izq = delib.get("recomendada") or delib.get("inclinacion")
-    if not izq:
-        try:
-            import tipos_asunto as _ta
-            izq = "A" if (sentido_motor and _ta.prospera(sentido_motor)) else ("B" if sentido_motor else "A")
-        except Exception:
-            izq = "A"
-    der = "B" if izq == "A" else "A"
-    clave_izq, clave_der = f"en_{izq}", f"en_{der}"
-    pral = delib.get("principal") or {}
-    omitidos = (vias.get(izq) or {}).get("conceptos_omitidos") or (vias.get(der) or {}).get("conceptos_omitidos")
-    return {
-        "vias": {"propuesta": _via_contrato(vias.get(izq)), "opuesta": _via_contrato(vias.get(der))},
-        "recomendada": "propuesta" if (delib.get("estado") == "claro" and delib.get("recomendada")) else None,
-        "estado": delib.get("estado") or "reñido",
-        "estado_por_que": list(delib.get("estado_por_que") or []),
-        "que_la_cambiaria": {"crux": delib.get("crux")},
-        "secundarios": [{"numero": s["numero"], "pregunta": s["pregunta"], "clase": s.get("clase", ""),
-                         "relacion": s.get("relacion", ""), "en_propuesta": s.get(clave_izq),
-                         "en_opuesta": s.get(clave_der)} for s in delib.get("secundarios") or []],
-        "deliberacion": {"origen": "deliberacion",
-                         "pregunta_decisiva": pral.get("pregunta_decisiva") or "",
-                         "figura": pral.get("figura") or "",
-                         "proposicion_toral": {"dice": (pral.get("proposicion_toral") or {}).get("dice") or "",
-                                               "cita": (pral.get("proposicion_toral") or {}).get("cita") or ""},
-                         "vias_de": {"propuesta": izq, "opuesta": der}},
-        "conceptos_omitidos": omitidos,
-        "avisos": list(delib.get("avisos") or []),
-    }
+# ═══ LA PROYECCIÓN SOBRE LA TARJETA ══════════════════════════════════════════
+# Vive en UN solo sitio: `tarjeta_decision.armar(…, deliberacion=<marca>)`.
+# Hasta la integración (28-sep-2026) había aquí una segunda proyección,
+# `para_tarjeta`, que nadie llamaba desde el servidor y que no volvía a
+# verificar los apoyos, ni corría el árbol con la propuesta del motor, ni
+# aplicaba los frenos duros del estado (constancia indispensable, ningún apoyo
+# verificado). La tarjeta lee de este documento: `vias` (A prospera, B no), su
+# `cadena`, `objecion` y `apoyos`; `secundarios_escritos` de cada abogado;
+# `checklist`; `catalogo` (para no tirar como «fuera del acervo» lo que la
+# escalera trajo); `recomendada`, `inclinacion`, `estado`, `crux` y
+# `principal` con la pregunta decisiva.
