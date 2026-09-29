@@ -1303,6 +1303,39 @@ class Estructura:
     existencia: str = ""
     procedencia: str = ""
     avisos: list = field(default_factory=list)
+    # LOS AVISOS QUE PUSO LA ÚLTIMA COMPOSICIÓN (28-sep-2026). `componer` cuelga
+    # sus avisos de `avisos` para que viajen de vuelta, y la estructura se
+    # reutiliza del adelanto al proyecto: sin separarlos, los del adelanto
+    # —compuesto sin criterio, «rama confirma_sobresee: … el recurso resultó
+    # infundado»— salían en el proyecto junto a los de éste («rama
+    # revoca_fondo_niega»). AR 631/2025. Cada composición retira los de la
+    # anterior antes de poner los suyos.
+    avisos_de_composicion: list = field(default_factory=list)
+
+
+# LOS AVISOS DE LA RAMA DE LA REVISIÓN: dicen qué hizo el juzgado y qué punto se
+# escribió por eso. Si el proyecto los dice, los del adelanto sobran (ver
+# `redactor_adelanto._terminar`). Por su arranque, que es fijo.
+_AVISOS_DE_RAMA = (
+    "RESOLUTIVO DE REVISIÓN, rama",
+    "EL SENTIDO DE LA SENTENCIA RECURRIDA NO SE PUDO LEER DEL PDF",
+    "LO QUE HIZO EL JUZGADO SE TOMÓ DE SU PUNTO RESOLUTIVO",
+    "EL SEGUNDO RESOLUTIVO NIEGA LO QUE EL JUZGADO CONCEDIÓ",
+    "EL PRIMER RESOLUTIVO DICE «EN LA MATERIA DE LA REVISIÓN»",
+    "SE ASUME JURISDICCIÓN Y EL SEGUNDO RESOLUTIVO",
+    "SE REVOCA LA CONCESIÓN Y SE REASUME JURISDICCIÓN",
+    "SE REVOCA UNA CONCESIÓN Y LOS CONCEPTOS",
+    "NO CONSTA QUÉ RESOLVIÓ EL JUZGADO",
+    "LA SENTENCIA RECURRIDA ES MIXTA",
+    "LA SENTENCIA RECURRIDA TAMBIÉN SOBRESEYÓ",
+    "LOS CONCEPTOS DE VIOLACIÓN NO ESTUDIADOS",
+)
+
+
+def es_aviso_de_rama(aviso) -> bool:
+    """¿Este aviso habla de la rama de la revisión (qué hizo el juzgado y qué
+    resolutivo salió de ahí)?"""
+    return str(aviso or "").startswith(_AVISOS_DE_RAMA)
 
 
 _RX_JSON = re.compile(r"\{.*\}", re.S)
@@ -4055,6 +4088,15 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
     # ANTES del primero que los usa: la lista se llenaba en dos puntos y se
     # declaraba entre ellos, que en Python es un UnboundLocalError esperando.
     _avisos_bk: list = []
+    # LOS DE LA COMPOSICIÓN ANTERIOR SE RETIRAN (28-sep-2026, AR 631/2025): la
+    # estructura se reutiliza del adelanto y sus avisos de rama se quedaban.
+    try:
+        _previos = set(getattr(estructura, "avisos_de_composicion", None) or [])
+        if _previos:
+            estructura.avisos = [a for a in (estructura.avisos or []) if a not in _previos]
+        estructura.avisos_de_composicion = []
+    except Exception:
+        pass
 
     # ═══════════════════════════════════════════════════════════════════════
     # UN SOLO EMBUDO PARA TODO LO QUE ESCRIBIÓ EL MODELO
@@ -4472,9 +4514,20 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
     # está calculada tres líneas más arriba.
     # CON SU ARTÍCULO, porque la plantilla ya no lo pone: «por el Sala Regional»
     # no es español y la concordancia depende del órgano, no de la frase.
-    _datos_bk.setdefault("juez_distrito", _con_articulo(_resp) or HUECO)
-    _datos_bk.setdefault("juzgado", _con_articulo(_resp) or HUECO)
-    _datos_bk.setdefault("recurrente", str(datos.get("quejoso") or "").strip() or HUECO)
+    # EL JUEZ DE DISTRITO ES EL ÓRGANO RECURRIDO, no la responsable del acto
+    # (28-sep-2026, AR 631/2025: «dictada en un juicio de amparo indirecto …
+    # por la MAGISTRADA…»). Cuando se leyó quién dictó la sentencia recurrida,
+    # manda; si no, como antes.
+    _org_rec = str(datos.get("organo_recurrido") or "").strip()
+    _juez_dist = _org_rec if (_ta.normalizar(tipo_asunto) == "amparo_revision" and _org_rec) else _resp
+    _datos_bk.setdefault("juez_distrito", _con_articulo(_juez_dist) or HUECO)
+    _datos_bk.setdefault("juzgado", _con_articulo(_juez_dist) or HUECO)
+    # VACÍO = RECURRE LA QUEJOSA (convención del encargo). `setdefault` no
+    # llenaba la clave cuando venía vacía, y las fórmulas del banco que dicen
+    # «{recurrente}, interpuso recurso de revisión» salían sin sujeto
+    # (28-sep-2026).
+    if not str(_datos_bk.get("recurrente") or "").strip():
+        _datos_bk["recurrente"] = str(datos.get("quejoso") or "").strip() or HUECO
     _datos_bk.setdefault(
         "fraccion_acuerdo",
         str(datos.get("fraccion_acuerdo") or "").strip()
@@ -4520,7 +4573,19 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
     # tiene el compositor: no hay nada que preguntar.
     if _ta.normalizar(tipo_asunto) == "amparo_revision":
         _org_a_quo = _con_articulo(str(datos.get("responsable") or "")) or HUECO
-        _exp_a_quo = str(_datos_bk.get("expediente") or "") or HUECO
+        # EL NÚMERO DEL AMPARO, NO EL PRIMERO QUE APAREZCA (28-sep-2026): en el
+        # AR 631/2025 los resultandos nombran antes el toca de apelación que el
+        # amparo, y salió «los autos del juicio de amparo indirecto 2338/2024»
+        # (el toca); el amparo era el 950/2024.
+        try:
+            import fase_rama as _fr_ex
+            _num_amp = _fr_ex.numero_del_amparo(
+                " ".join([" ".join(str(r.get("texto") or "") for r in (estructura.resultandos or [])),
+                          str(datos.get("antecedentes") or "")]),
+                str(datos.get("numero") or ""))
+        except Exception:
+            _num_amp = ""
+        _exp_a_quo = _num_amp or str(_datos_bk.get("expediente") or "") or HUECO
         _exi = (f"La existencia del acto reclamado está acreditada con el "
                 f"informe justificado rendido por {_org_a_quo}, certeza que se "
                 f"corrobora con los autos del juicio de amparo indirecto "
@@ -4572,6 +4637,24 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
         str(datos.get("representante") or ""), HUECO,
         figura=str(datos.get("figura_representante") or ""),
         moral=datos.get("quejoso_moral"))
+    # QUIEN INTERPUSO LA REVISIÓN, CON SU CARÁCTER (28-sep-2026, AR 631/2025):
+    # si no es la quejosa, el párrafo es suyo —«interpuesto por» la tercera
+    # interesada o la autoridad— y su fundamento no es el 6o. (el de quien
+    # promueve el amparo).
+    _rec_leg = str(datos.get("recurrente") or "").strip()
+    _papel_leg = str(datos.get("papel_recurrente") or "").strip().lower()
+    if (_ta.normalizar(tipo_asunto) == "amparo_revision" and _rec_leg
+            and _papel_leg in ("tercero", "autoridad")):
+        try:
+            import promovente as _pv_l
+            _sep_l = _pv_l.separar(_rec_leg)
+        except Exception:
+            _sep_l = {"parte": _rec_leg, "representante": "", "figura": "", "moral": None}
+        _leg = _ta.legitimacion_de(
+            tipo_asunto, _sep_l.get("parte") or _rec_leg,
+            _sep_l.get("representante") or "", HUECO,
+            figura=_sep_l.get("figura") or "", moral=_sep_l.get("moral"),
+            papel=_papel_leg) or _leg
 
     def _legitimacion(p):
         if _leg:
@@ -5207,11 +5290,29 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
             # agravio sea fundado prueba que el juez no debió sobreseer, no que
             # el quejoso tenga razón en el fondo.
             _sent_amparo = _fr.sentido_en_plenitud(str(estudio or ""))
+            _txt_est = (" ".join(str(x) for x in estudio)
+                        if isinstance(estudio, (list, tuple)) else str(estudio or ""))
+            _solo_ef = _fr.solo_los_efectos(str(estudio or ""))
+            _vp_est = _fr.hay_violacion_procesal(str(estudio or ""))
+            # ¿SE REASUME JURISDICCIÓN AL REVOCAR UNA CONCESIÓN? (art. 93, fr.
+            # VI; AR 631/2025, 28-sep-2026). Lo que el redactor supo al
+            # resolver viaja en `reasuncion`: quién recurre, si los conceptos
+            # no estudiados constaron y si la recurrida también sobreseyó. Si
+            # no constaron, el estudio no pudo concluir y el punto del amparo
+            # NO se afirma: va con hueco, aunque la prosa diga algo.
+            _reas_d = datos.get("reasuncion") if isinstance(datos.get("reasuncion"), dict) else {}
+            _tipo_reas = _ta.reasuncion(
+                _que_hizo, "fundado" if concede else "infundado",
+                solo_efectos=_solo_ef, violacion_procesal=_vp_est,
+                quien_recurre=str(_reas_d.get("quien_recurre") or ""))
+            if _tipo_reas == "concesion" and _reas_d.get("hacen_falta") \
+                    and _reas_d.get("tenemos") is False:
+                _sent_amparo = ""
             _clave = _ta.rama_revision(
                 _que_hizo,
                 "fundado" if concede else "infundado",
-                solo_efectos=_fr.solo_los_efectos(str(estudio or "")),
-                violacion_procesal=_fr.hay_violacion_procesal(str(estudio or "")),
+                solo_efectos=_solo_ef,
+                violacion_procesal=_vp_est,
                 sentido_amparo=_sent_amparo)
             _rama = _ta.RAMAS_REVISION[_clave]
             # ═══════════════════════════════════════════════════════════════
@@ -5277,6 +5378,59 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
                         "REVISIÓN» porque el estudio afirma que algo de la "
                         "sentencia recurrida no fue combatido. Compruébalo: si "
                         "la recurrente sí lo impugnó todo, quita esa frase.")
+            elif _tipo_reas == "concesion" and _clave in ("revoca_fondo_niega",
+                                                          "revoca_fondo_concede"):
+                # REVOCAR NO ES NEGAR (art. 93, fr. VI; AR 631/2025): el punto
+                # del amparo sale del estudio de los conceptos no estudiados
+                # —niega, concede por razón distinta, o hueco si no concluye—;
+                # lo no impugnado queda firme y va PRIMERO, y la revocación se
+                # acota a la materia de la revisión. El sujeto y el acto, los
+                # del resolutivo del juzgado. Ver `tipos_asunto.puntos_reasuncion`.
+                _sobresee_ad = (_que_hizo == "sobresee_concede"
+                                or bool(_reas_d.get("sobresee_ademas")))
+                _firme = _fr.declara_firme_el_sobreseimiento(_txt_est)
+                _parcial = (_firme or _sobresee_ad
+                            or _fr.hay_aspectos_no_combatidos(_txt_est))
+                _puntos = _ta.puntos_reasuncion(
+                    _sent_amparo, str(datos.get("resolutivo_recurrida") or ""),
+                    firme=_firme, parcial=_parcial)
+                _fund_r = _ta.FUNDAMENTO_REASUNCION["concesion"]
+                if _sent_amparo in ("niega", "concede"):
+                    _avisos_bk.append(
+                        f"SE REVOCA LA CONCESIÓN Y SE REASUME JURISDICCIÓN ({_fund_r}): "
+                        f"el estudio de los conceptos de violación que el juzgado no "
+                        f"estudió concluye que procede "
+                        f"{'NEGAR' if _sent_amparo == 'niega' else 'CONCEDER por una razón distinta'} "
+                        f"el amparo, y el punto resolutivo lo dice. Compruébalo: "
+                        + ("la negativa descansa en ese estudio, no en la sola revocación."
+                           if _sent_amparo == "niega" else
+                           "los efectos de esta concesión son los que fija el proyecto."))
+                elif _reas_d.get("tenemos") is False:
+                    _avisos_bk.append(
+                        f"SE REVOCA UNA CONCESIÓN Y LOS CONCEPTOS DE VIOLACIÓN QUE EL "
+                        f"JUZGADO NO ESTUDIÓ NO CONSTAN: el tribunal tiene que estudiarlos "
+                        f"({_fund_r}) y de ese estudio sale si se concede o se niega. El "
+                        f"punto resolutivo del amparo va con HUECO: aporta los conceptos "
+                        f"(o la demanda de amparo) y vuelve a generar, o complétalo tú "
+                        f"después de estudiarlos. No firmes un «no ampara» sin ese estudio.")
+                else:
+                    _avisos_bk.append(
+                        f"SE REVOCA LA CONCESIÓN Y SE REASUME JURISDICCIÓN ({_fund_r}), pero "
+                        f"el estudio no dice si procede conceder o negar el amparo: el punto "
+                        f"resolutivo del amparo va con HUECO. Complétalo con la conclusión "
+                        f"del estudio de los conceptos no estudiados.")
+                if _reas_d.get("donde") in ("constancias", "recurrida"):
+                    _avisos_bk.append(
+                        "LOS CONCEPTOS DE VIOLACIÓN NO ESTUDIADOS "
+                        + _fr.DONDE_CONCEPTOS[_reas_d["donde"]].upper()
+                        + ": comprueba que estén completos antes de firmar.")
+                if _sobresee_ad and not _firme:
+                    _avisos_bk.append(
+                        "LA SENTENCIA RECURRIDA TAMBIÉN SOBRESEYÓ respecto de algún acto y el "
+                        "proyecto no dice que ese sobreseimiento quedó firme. Si nadie lo "
+                        "impugnó, dilo en el estudio y añade el punto «Queda firme el "
+                        "sobreseimiento…»; la revocación ya va acotada a la materia de la "
+                        "revisión.")
             elif _clave == "revoca_fondo_niega":
                 # REVOCAR UNA CONCESIÓN ES NEGAR LO QUE ELLA CONCEDIÓ, a quien
                 # se lo concedió y contra el acto por el que lo concedió (AR
@@ -5629,6 +5783,7 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
         for _a in list(avisos_doc) + list(_avisos_bk) + list(avisos_cotejo):
             if _a not in estructura.avisos:
                 estructura.avisos.append(_a)
+                estructura.avisos_de_composicion.append(_a)
     except Exception:
         pass
     return ruta_salida

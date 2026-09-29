@@ -34829,6 +34829,11 @@ def _taller_guardar_sesion(email: str, numero: str, r, tmp: str) -> None:
             # compone el .docx no es el que leyó el expediente.
             "inhabiles_responsable": getattr(e, "inhabiles_responsable", "") or "",
             "responsable": e.responsable, "es_recurso": e.es_recurso,
+            # QUIEN RECURRE, CUANDO NO ES LA QUEJOSA (28-sep-2026, AR 631/2025).
+            # `_taller_recuperar_sesion` ya lo leía y nadie lo escribía: el
+            # worker que resolvía recibía el recurrente vacío —«recurre la
+            # propia quejosa»— y los papeles se volvían a confundir.
+            "recurrente": getattr(e, "recurrente", "") or "",
             "plantilla": e.plantilla, "coleccion_estatal": e.coleccion_estatal,
             # LA MATERIA DECLARADA. Decide el silo del RAG y el filtro del
             # sondeo; sin ella en la sesión, el /taller/resolver que caiga en
@@ -36834,12 +36839,31 @@ async def taller_razonar(
 
 
 def _taller_recurrente(r) -> str:
-    """Quién recurrió, con la misma reconciliación de papeles que el documento."""
+    """Quién recurrió, con la misma reconciliación de papeles que el documento
+    —también el resolutivo del juzgado, que dice a quién amparó (AR 631/2025,
+    28-sep-2026: la tercera interesada guardada como «quejoso» dejaba esto
+    vacío y el diálogo sin dirección)—."""
     try:
-        from redactor_adelanto import _recurrente_de
-        return _recurrente_de(r.encargo, getattr(r, "partes", None)) if r.encargo else ""
+        from redactor_adelanto import _recurrente_de, _resolutivo_del_a_quo
+        return (_recurrente_de(r.encargo, getattr(r, "partes", None),
+                               _resolutivo_del_a_quo(getattr(r, "fases", None)))
+                if r.encargo else "")
     except Exception:
         return str(getattr(r.encargo, "recurrente", "") or "") if r.encargo else ""
+
+
+def _taller_papel_recurrente(r) -> str:
+    """«quejoso» | «tercero» | «autoridad» | «»: el carácter con que recurre
+    quien recurre (`redactor_adelanto.papel_del_recurrente`). La tercera
+    interesada particular combate contra quien reclama el derecho igual que
+    la autoridad (AR 631/2025, 28-sep-2026)."""
+    try:
+        from redactor_adelanto import papel_del_recurrente, _resolutivo_del_a_quo
+        return (papel_del_recurrente(r.encargo, getattr(r, "partes", None),
+                                     _resolutivo_del_a_quo(getattr(r, "fases", None)))
+                if r.encargo else "")
+    except Exception:
+        return ""
 
 
 def _taller_favorece(r, sentido: str):
@@ -36849,11 +36873,14 @@ def _taller_favorece(r, sentido: str):
     David, 711/2025: «se está dando la razón a la autoridad y se valida la
     restricción de un derecho… sólo operan ese tipo de interpretaciones en
     favor de la persona». Ver `dialogo_constitucional.favorece_a_la_persona`.
+    Con el carácter del recurrente (28-sep-2026): si recurre la tercera
+    interesada y prospera, pierde la quejosa.
     """
     import dialogo_constitucional as _dc_f
     return _dc_f.favorece_a_la_persona(
         sentido, getattr(r.encargo, "tipo_asunto", "") if r.encargo else "",
-        _taller_recurrente(r), bool(r.encargo and r.encargo.es_recurso))
+        _taller_recurrente(r), bool(r.encargo and r.encargo.es_recurso),
+        papel=_taller_papel_recurrente(r))
 
 
 def _taller_direccion_al_material(r, ses, crit, sentido_global: str = "") -> None:
@@ -37081,7 +37108,8 @@ async def _taller_proponer_nucleo(user_email: str, numero: str, ses: dict,
     import dialogo_constitucional as _dc_p
     _quien_p = _dc_p.quien_combate(
         getattr(r.encargo, "tipo_asunto", "") if r.encargo else "",
-        _taller_recurrente(r), bool(r.encargo and r.encargo.es_recurso))
+        _taller_recurrente(r), bool(r.encargo and r.encargo.es_recurso),
+        papel=_taller_papel_recurrente(r))
     propuestas, glob, avisos = await _f5.proponer(
         chat_client, problemas, ses["material"],
         "\n".join(r.fases.parrafos_acto() or []),
@@ -37224,36 +37252,49 @@ async def _taller_proponer_nucleo(user_email: str, numero: str, ses: dict,
     # generar: si se entera al final, ya pagó el estudio y el proyecto levanta
     # el sobreseimiento sin resolver nada.
     _necesita_conceptos = False
+    # Y LA REVOCACIÓN DE UNA CONCESIÓN (art. 93, fr. VI; AR 631/2025,
+    # 28-sep-2026): recurre la autoridad o la tercera interesada, el recurso
+    # prospera y el tribunal tiene que estudiar los conceptos que el juzgado no
+    # estudió antes de conceder o negar. Esto sólo se encendía si el juzgado
+    # había SOBRESEÍDO, y el 631 negó sin estudiarlos. Una sola función decide
+    # los dos supuestos —`fase_rama.conceptos_omitidos`—, con lo que hizo el
+    # juzgado según SU resolutivo (577c700) y después de buscar los conceptos
+    # en el material (la demanda entre las constancias, o la recurrida si los
+    # transcribe).
+    #
+    # `conceptos_omitidos` VA A LA PANTALLA CALCULADO PARA LA VÍA QUE PROSPERA:
+    # el secretario puede dictar lo contrario del motor (en el 631 el motor
+    # propuso «infundado» y David dictó «fundado»), y la pantalla tiene que
+    # poder pedir los conceptos cuando el sentido que elige prospera, no sólo
+    # cuando prosperaba la propuesta.
+    _conceptos_omitidos = None
     try:
-        import tipos_asunto as _ta_c, fase_rama as _fr_c
+        import tipos_asunto as _ta_c, fase_rama as _fr_c, redactor_adelanto as _ra_c
         if _ta_c.normalizar(getattr(r.encargo, "tipo_asunto", "")) == "amparo_revision":
-            _que_hizo_aq = _fr_c.resolvio_a_quo(
-                "", "\n".join(r.fases.antecedentes or []),
-                declarado=str((_glob_ctx := (getattr(glob, "contexto", None) or {})).get("resolvio", "")))
+            _info_c = _ra_c.info_de_rama(
+                r, declarado=str((getattr(glob, "contexto", None) or {}).get("resolvio", "")))
             # `startswith("fundad")` NO ES EL PREDICADO. Se quedó escrito
             # antes de que existieran «esencialmente fundado», «parcialmente
             # fundado» y «sustancialmente fundado»: con cualquiera de los
             # tres, esta comprobación decía que el recurso no prospera y el
-            # aviso de los conceptos de violación no salía. El secretario
-            # levantaba el sobreseimiento sin que nadie le dijera que faltaba
-            # lo único que quedaba por resolver.
-            #
-            # `prospera()` es el predicado único, y existe justo para que
-            # añadir una calificación no obligue a acordarse de catorce sitios.
-            _prospera_g = _ta_c.prospera(str(glob.sentido or ""))
-            if _que_hizo_aq == "sobresee" and _prospera_g:
-                _rama_c = _ta_c.rama_revision(_que_hizo_aq, "fundado")
+            # aviso de los conceptos de violación no salía. `conceptos_omitidos`
+            # pregunta con `prospera()`, el predicado único.
+            _co_motor = _fr_c.conceptos_omitidos(_info_c, str(glob.sentido or ""), r.fases)
+            _conceptos_omitidos = _fr_c.conceptos_omitidos(_info_c, "fundado", r.fases)
+            if _co_motor and not _co_motor.get("tenemos"):
+                _rama_c = _ta_c.rama_revision(_info_c.get("que_hizo", ""), "fundado")
                 _regla = next((x for x in _ta_c.tecnica_de("amparo_revision", _rama_c)
                                if x.get("necesita") == "conceptos_de_violacion"), None)
-                if _regla and not str(getattr(r.encargo, "conceptos_violacion", "")).strip():
-                    avisos.insert(0, _regla["aviso_si_falta"])
-                    # LA SEÑAL PARA LA PANTALLA. El aviso ya se daba, pero
-                    # decir «faltan los conceptos de violación» sin ofrecer
-                    # dónde pegarlos deja al secretario con el problema y sin
-                    # la herramienta. Con esto la pantalla abre el recuadro.
-                    _necesita_conceptos = True
+                avisos.insert(0, (_regla or {}).get("aviso_si_falta") or _co_motor["por_que"])
+                # LA SEÑAL PARA LA PANTALLA. El aviso ya se daba, pero
+                # decir «faltan los conceptos de violación» sin ofrecer
+                # dónde pegarlos deja al secretario con el problema y sin
+                # la herramienta. Con esto la pantalla abre el recuadro.
+                _necesita_conceptos = True
+            elif _co_motor and _co_motor.get("donde") in ("constancias", "recurrida"):
+                avisos.append(_co_motor["por_que"])
     except Exception as _e:
-        print(f"   ⚠️ TALLER: no se pudo comprobar la rama de sobreseimiento: "
+        print(f"   ⚠️ TALLER: no se pudo comprobar si hay conceptos por estudiar: "
               f"{type(_e).__name__}")
 
     ses["global"] = glob
@@ -37264,6 +37305,12 @@ async def _taller_proponer_nucleo(user_email: str, numero: str, ses: dict,
         "expediente": numero,
         "modelo": _f5.MODELO_PROPUESTA,
         "necesita_conceptos": _necesita_conceptos,
+        # SI EL RECURSO PROSPERA, ¿HAY CONCEPTOS QUE NADIE ESTUDIÓ? (art. 93,
+        # frs. I, V y VI; 28-sep-2026). None si no; si sí, {hacen_falta,
+        # tenemos, donde, por_que, fundamento, reasuncion}. La pantalla pide los
+        # conceptos cuando el sentido que dicta el secretario prospera y
+        # `tenemos` es falso (el mismo dato va en la tarjeta).
+        "conceptos_omitidos": _conceptos_omitidos,
         # El secretario decide sobre esto: se le da entero, no resumido.
         "propuestas": [
             {"problema": p.problema, "sentido": p.sentido, "razon": p.razon,

@@ -240,6 +240,79 @@ def _esta_en_el_papel(valor: str, plano_texto: str) -> bool:
     return bool(partes) and all(p in plano_texto for p in partes)
 
 
+# ═══ QUIEN RECURRE NO ES QUIEN PIDIÓ EL AMPARO (28-sep-2026) ════════════════
+# AR 631/2025: el auto admitía la revisión que interpuso la TERCERA INTERESADA
+# contra una sentencia que concedió, y la ficha la guardó como «quejoso» con el
+# «recurrente» vacío —que por convención significa «recurre la propia
+# quejosa»—. De ahí, en cadena: «QUEJOSA Y RECURRENTE: IMPULSORA…»,
+# legitimación por el artículo 6o., una síntesis donde «la parte quejosa
+# adquirió el inmueble» y el diálogo constitucional sin dirección. El modelo
+# tenía la regla escrita («en un recurso NO es quien recurre») y no bastó: se
+# comprueba contra el papel, sin modelo.
+#   (a) si la ficha pone el MISMO nombre como quejoso y como tercero
+#       interesado, ese nombre es el de quien recurre en su carácter de tercero;
+#   (b) si el auto dice que el nombre fichado como quejoso interpuso la
+#       revisión y, en la misma frase, lo llama tercero interesado o autoridad
+#       responsable, es el recurrente.
+# En los dos casos el quejoso se busca en el propio auto («amparo … promovido
+# por X»); si no está, se deja vacío y se dice: el resolutivo del juzgado lo
+# dirá al generar (`redactor_adelanto._quejoso_del_amparo`).
+_RX_CARACTER_TERCERO = re.compile(r"\btercer[oa]s?\s+interesad", re.I)
+_RX_CARACTER_AUTORIDAD = re.compile(r"\bautoridad(?:es)?\s+responsables?\b", re.I)
+_RX_INTERPONE = re.compile(r"\b(?:interpu|interpon|promovi[óo]|hizo\s+valer|hace\s+valer)", re.I)
+
+
+def reconciliar_papeles(ficha: dict, texto: str) -> list:
+    """Corrige en la ficha a la recurrente guardada como quejosa (sólo amparo en
+    revisión, sólo con lo que el auto dice). Devuelve los avisos."""
+    import promovente as _pv_a
+    if (ficha.get("tipo_asunto") or "") != "amparo_revision":
+        return []
+    q = (ficha.get("quejoso") or "").strip()
+    if not q or (ficha.get("recurrente") or "").strip():
+        return []
+    plano = " ".join((texto or "").split())
+    caracter = ""
+    if _pv_a.misma_parte(q, ficha.get("tercero_interesado") or ""):
+        caracter = "tercero interesado"
+    else:
+        # Por frases, sin partir «S.A. de C.V.»: se corta sólo ante mayúscula.
+        for frase in re.split(r"(?<=[.;])\s+(?=[A-ZÁÉÍÓÚÑ¿«])", plano):
+            if not (re.search(r"revisi[óo]n", frase, re.I) and _RX_INTERPONE.search(frase)):
+                continue
+            # EL CARÁCTER TIENE QUE IR PEGADO AL NOMBRE, no en cualquier parte de
+            # la frase: «X, tercera interesada, interpone revisión contra la
+            # sentencia del amparo promovido por Q» nombra a los dos, y Q es la
+            # quejosa aunque la frase diga «tercera interesada».
+            _pf, _pq = _plano(frase), _plano(q)
+            i = _pf.find(_pq)
+            if i < 0:
+                continue
+            if re.search(r"(?:promovid[oa]s?\s+por|quejos[oa]s?)\W*(?:\w+\W+){0,2}$", _pf[max(0, i - 40):i]):
+                continue
+            _cerca = _pf[max(0, i - 60):i + len(_pq) + 60]
+            if _RX_CARACTER_TERCERO.search(_cerca):
+                caracter = "tercero interesado"
+            elif _RX_CARACTER_AUTORIDAD.search(_cerca):
+                caracter = "autoridad responsable"
+            if caracter:
+                break
+    if not caracter:
+        return []
+    import fase_rama as _fr_a
+    _otro = _fr_a.quejoso_del_resolutivo(plano)
+    if _otro and (_pv_a.misma_parte(_otro, q) or not _esta_en_el_papel(_otro, _plano(texto))):
+        _otro = ""
+    ficha["recurrente"] = q
+    ficha["quejoso"] = _otro
+    return [f"«{q[:80]}» INTERPUSO LA REVISIÓN COMO {caracter.upper()}: se fichó como "
+            f"recurrente y no como quejosa (el amparo se concede o se niega a quien lo "
+            f"pidió). "
+            + (f"La parte quejosa, según el auto: «{_otro[:80]}»." if _otro else
+               "El auto no dice quién promovió el amparo: escríbelo tú, o se tomará del "
+               "resolutivo de la sentencia recurrida al generar.")]
+
+
 async def leer(cliente, texto: str, tipo: str = "") -> dict:
     """La ficha que se propone al secretario, con lo que no se pudo leer."""
     base = deterministas(texto)
@@ -295,6 +368,8 @@ async def leer(cliente, texto: str, tipo: str = "") -> dict:
                           f"{type(ex).__name__}. La ficha sale sólo con lo que "
                           f"se lee sin modelo; complétala a mano.")
     ficha.update({k: v for k, v in base.items() if v})
+    # LOS PAPELES DE LA REVISIÓN, COMPROBADOS CONTRA EL PAPEL (28-sep-2026).
+    avisos.extend(reconciliar_papeles(ficha, texto))
     # SI EL TIPO SIGUE VACÍO SE DICE. Sin él no se compone el encabezado ni se
     # proponen las reglas de notificación, así que la pantalla sale en blanco
     # y parece que el auto no se leyó. Un campo que falta y lo avisa es otra

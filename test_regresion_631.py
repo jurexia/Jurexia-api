@@ -434,9 +434,12 @@ try:
                  "resolvio_a_quo": "concede",
                  "resolutivo_recurrida": fr.resolutivo_recurrida(SENTENCIA)},
                 _est2, _c, f0.fecha_en_letra, _ruta2,
+                # Desde el 28-sep-2026 el segundo punto sale de lo que concluye
+                # el estudio (art. 93, fr. VI) y, si calla, va con hueco: para que
+                # el resolutivo NIEGUE, el estudio tiene que decirlo.
                 estudio=["Solución",
                          "Es fundado el agravio y la autoridad responsable deberá dejar insubsistente "
-                         "la resolución reclamada."],
+                         "la resolución reclamada; por tanto, procede negar el amparo."],
                 calificaciones=["fundado"], tipo_asunto="amparo_revision")
     ok(any("INCONGRUENCIA QUE INVALIDA" in a
            for a in ens.revisar_congruencia(_ruta2, ["fundado"], "amparo_revision")),
@@ -895,6 +898,160 @@ ok("UNIDADES QUE PROSPERAN" not in " ".join(_b9.split()) and "UNIDADES QUE PROSP
    "sin concesión, ni el bloque habla de las unidades de las que salen los efectos (con los espacios "
    "normalizados)")
 ok("manda la JERARQUÍA" in _g9, "el porqué del orden del planificador cede ante la jerarquía")
+
+# ═══════════════════════════════════════════════════════════════════════════
+# SPEC B (28-sep-2026). El fondo del 631 negó sin estudiar los conceptos que el
+# juzgado no estudió (art. 93, fr. VI), revocó «la sentencia recurrida» entera
+# (con el sobreseimiento del Juez Quinto, que nadie impugnó), avisó «se
+# concede» en un proyecto que niega, arrastró la rama del adelanto y cambió los
+# papeles (la recurrente como «quejosa y recurrente»).
+print("\n12 · SPEC B: REVOCAR LA CONCESIÓN REASUME JURISDICCIÓN; RAMA Y PAPELES DEL 631")
+import redactor_adelanto as ra
+import documento_generado as dg
+import ensamblar_adelanto as ens
+import fase0_oportunidad as f0
+from docx import Document
+
+RECURRIDA_B = (
+    "JUZGADO SÉPTIMO DE DISTRITO EN EL ESTADO DE EJEMPLO\nAMPARO INDIRECTO 950/2024\n"
+    "CONSIDERANDO SÉPTIMO. Es fundado el segundo concepto de violación; resulta innecesario el "
+    "estudio de los restantes conceptos de violación.\n"
+    "Por lo expuesto, se R E S U E L V E: PRIMERO. Se sobresee en el juicio respecto del acto del "
+    "Juzgado Quinto. SEGUNDO. " + RESOL + " Notifíquese.")
+DEMANDA_B = ("DEMANDA DE AMPARO INDIRECTO\nCONCEPTOS DE VIOLACIÓN\n"
+             "PRIMERO. La resolución reclamada altera la cosa juzgada. " + "Argumento. " * 70 + "\n"
+             "SEGUNDO. La interlocutoria no valoró las pruebas del incidente. " + "Argumento. " * 40
+             + "\nSUSPENSIÓN\nSe pide la suspensión.")
+RECURRENTE_B = "Inmobiliaria Ejemplo, S.A. de C.V."
+
+
+def fases_b(**kw):
+    f = fases(fuentes=[RECURRIDA_B, ESCRITO6], conteo=dict(CONTEO6))
+    f.resolutivo_recurrida = fr.resolutivo_recurrida("se R E S U E L V E: ÚNICO. " + RESOL + " Notifíquese.")
+    f.resolvio_a_quo = "niega"               # el recuento que guardó la sesión del 631
+    for k, v in kw.items():
+        setattr(f, k, v)
+    return f
+
+
+def encargo_b(**kw):
+    e = ra.Encargo(numero="631/2025", encabezado="AMPARO EN REVISIÓN 631/2025",
+                   quejoso=RECURRENTE_B,           # lo que guardó el formulario (desde la admisión)
+                   magistrado="M", secretario="S", notificacion=_dt.date(2025, 4, 25),
+                   presentacion=_dt.date(2025, 5, 15), tipo_asunto="amparo_revision",
+                   responsable="Magistrada de la Sala Civil Uno", tribunal="Tercer Tribunal Colegiado",
+                   ciudad="Querétaro")
+    e.es_recurso = True
+    for k, v in kw.items():
+        setattr(e, k, v)
+    return e
+
+
+def r_b(**kw):
+    return types.SimpleNamespace(encargo=encargo_b(), fases=fases_b(**kw), partes=None, avisos=[])
+
+
+# (a) EL FLUJO LOS PIDE: la misma función para la pantalla, la tarjeta y el estudio.
+_info_b = ra.info_de_rama(r_b())
+_co_b = fr.conceptos_omitidos(_info_b, "fundado", fases_b())
+ok(_info_b["que_hizo"] == "concede" and _info_b["quien_recurre"] == "tercero"
+   and _co_b and _co_b["hacen_falta"] and not _co_b["tenemos"],
+   "rama con conceptos omitidos → los pide (concedió según su resolutivo; recurre la tercera)")
+ok(fr.conceptos_omitidos(_info_b, "infundado", fases_b()) is None, "si el recurso no prospera, no")
+_mb = material()
+ra._formato_al_material(r_b(), _mb, None, crit())
+ok(isinstance(_mb.reasuncion, dict) and _mb.reasuncion.get("reasuncion") == "concesion"
+   and _mb.reasuncion.get("tenemos") is False and _mb.reasuncion.get("sobresee_ademas"),
+   "al resolver, el material sabe que se reasume jurisdicción, que faltan y que la recurrida sobreseyó")
+_pb = f6.prompt_estudio(ACTO, "c", crit(), _mb, es_recurso=True, rama="revoca_fondo_niega")
+ok("REVOCAR NO ES NEGAR" in _pb and "FALTAN ESOS CONCEPTOS" in _pb and "93, fracción VI" in _pb,
+   "el estudio recibe la técnica de la fracción VI y la orden de no concluir sin los conceptos")
+_mb2 = material()
+ra._formato_al_material(r_b(autos=DEMANDA_B), _mb2, None, crit())
+_pb2 = f6.prompt_estudio(ACTO, "c", crit(), _mb2, es_recurso=True, rama="revoca_fondo_niega")
+ok(_mb2.reasuncion["donde"] == "constancias" and "LOS CONCEPTOS DE VIOLACIÓN NO ESTUDIADOS, tal como constan" in _pb2
+   and "La interlocutoria no valoró las pruebas del incidente" in _pb2,
+   "si la demanda está entre las constancias, se toman de ahí antes de pedirlos")
+
+
+def componer_b(estudio, reasuncion, est=None, calif=("fundado",), partes=None):
+    _e = encargo_b()
+    datos = ra._datos_estructura(_e, "", acto=RECURRIDA_B, partes=partes, fases=fases_b())
+    datos.update({"resolvio_a_quo": "niega", "resolutivo_recurrida": fases_b().resolutivo_recurrida})
+    if reasuncion is not None:
+        datos["reasuncion"] = reasuncion
+    est = est or dg.Estructura(apertura="V.", visto="para resolver.",
+                               resultandos=[{"titulo": "Presentación de la demanda de amparo indirecto",
+                                             "texto": "Unión Ejemplo, A.C. reclamó la resolución del toca civil "
+                                                      "2338/2024. El Juzgado Séptimo de Distrito registró la "
+                                                      "demanda con el número 950/2024."}],
+                               competencia="", existencia="", procedencia="")
+    _c = f0.computar(_dt.date(2025, 4, 28), _dt.date(2025, 5, 15), plazo=10)
+    ruta = os.path.join(tempfile.mkdtemp(prefix="regresion631b_"), "ar.docx")
+    dg.componer(datos, est, _c, f0.fecha_en_letra, ruta, estudio=estudio,
+                calificaciones=list(calif), tipo_asunto="amparo_revision")
+    ps = [q.text for q in Document(ruta).paragraphs if q.text.strip()]
+    i = next(k for k, t in enumerate(ps) if "R E S U E L V E" in t or t.strip() in ("RESUELVE", "Resuelve"))
+    return ps, " ".join(ps[i:]), est
+
+
+# (b) SIN LOS CONCEPTOS, EL PROYECTO NO AFIRMA «NO AMPARA».
+_reas_sin = {"reasuncion": "concesion", "hacen_falta": True, "tenemos": False, "donde": "",
+             "quien_recurre": "tercero", "sobresee_ademas": True}
+_ps, _res, _est = componer_b(["Solución", "Es fundado el primer agravio: la interlocutoria sólo cambió quién "
+                              "ejecuta. Se revoca y el tribunal reasume jurisdicción; el estudio de los conceptos "
+                              "no estudiados queda pendiente."], _reas_sin)
+ok("no ampara ni protege" not in _res and "*********" in _res and "Unión Ejemplo, A.C." in _res,
+   f"sin los conceptos, el punto del amparo va con hueco, no «no ampara»: {_res[:260]}")
+ok(any(a.startswith("SE REVOCA UNA CONCESIÓN Y LOS CONCEPTOS") for a in _est.avisos),
+   "y el aviso dice que faltan y que no se firme un «no ampara» sin ese estudio")
+# (c) CON ELLOS Y TODOS DESESTIMADOS: «no ampara», en la materia de la revisión, sobreseimiento firme.
+_reas_con = dict(_reas_sin, tenemos=True, donde="constancias")
+_ps2, _res2, _est2 = componer_b(["Solución", "Es fundado el primer agravio. El sobreseimiento respecto del Juzgado "
+                                 "Quinto no fue impugnado y queda firme.", "Estudio de los conceptos de violación no "
+                                 "estudiados", "Los conceptos descansan en la tesis ya desestimada y son inoperantes; "
+                                 "por tanto, procede revocar la sentencia recurrida y negar el amparo."], _reas_con)
+ok("PRIMERO. Queda firme el sobreseimiento decretado en la sentencia recurrida." in _res2
+   and "SEGUNDO. En la materia de la revisión, se revoca la sentencia recurrida." in _res2
+   and "TERCERO. La Justicia de la Unión no ampara ni protege a Unión Ejemplo, A.C." in _res2,
+   f"con ellos y desestimados: firme, en la materia de la revisión, y no ampara a quien amparó el juzgado: {_res2[:420]}")
+ok(any(a.startswith("SE REVOCA LA CONCESIÓN Y SE REASUME JURISDICCIÓN") and "NEGAR" in a for a in _est2.avisos)
+   and any(a.startswith("LOS CONCEPTOS DE VIOLACIÓN NO ESTUDIADOS") for a in _est2.avisos),
+   "el aviso dice de dónde sale la negativa y de dónde salieron los conceptos")
+# (d) NINGÚN AVISO DE «SE CONCEDE» EN EL REVOCA-Y-NIEGA.
+_txt2 = " ".join(_ps2)
+_rev = f6.revisar(_txt2, crit(), material(), rama="revoca_fondo_niega")
+ok(not any(a.startswith("Se concede y los efectos") for a in _rev)
+   and f6._efectos_de_reposicion(_txt2, crit(), True, rama="revoca_fondo_niega") == ""
+   and ens.formula_resolutivo(["fundado", "innecesario"], rama="revoca_fondo_niega",
+                              sentido_amparo=fr.sentido_en_plenitud(_txt2))[1] == "",
+   "ni «Se concede y los efectos van en prosa», ni «EFECTOS INCOMPLETOS…», ni «El resolutivo concede…»")
+# (e) LOS PAPELES: carátula, competencia, existencia y legitimación.
+_cab = " ".join(_ps2[:8]).upper()
+ok("QUEJOSA: UNIÓN EJEMPLO, A.C." in _cab and "RECURRENTE: INMOBILIARIA EJEMPLO" in _cab
+   and "QUEJOSA Y RECURRENTE" not in _cab,
+   f"la carátula separa a la quejosa de la recurrente: {_cab[:200]}")
+_org = next((t for t in _ps2[:8] if t.upper().startswith("ÓRGANO RECURRIDO")), "").upper()
+ok("JUZGADO SÉPTIMO DE DISTRITO" in _org and "MAGISTRADA" not in _org,
+   f"el órgano recurrido es el juzgado, no la Magistrada: {_org}")
+_comp = next((t for t in _ps2 if "es competente" in t), "")
+ok("por el Juzgado Séptimo de Distrito" in _comp and "Magistrada" not in _comp,
+   f"competencia: dictada por el juzgado de distrito: {_comp[180:330]}")
+_exi = next((t for t in _ps2 if "existencia del acto reclamado" in t.lower()), "")
+ok(not _exi or ("950/2024" in _exi and "2338/2024" not in _exi),
+   f"existencia: el número del amparo, no el del toca: {_exi[:260]}")
+_legb = next((t for t in _ps2 if "legitimad" in t), "")
+ok("Inmobiliaria Ejemplo" in _legb and "5o., fracción III" in _legb and "6º" not in _legb,
+   f"legitimación: la de la tercera interesada, no la del quejoso: {_legb[:260]}")
+# (f) LA RAMA DEL ADELANTO NO SE QUEDA: la misma estructura, primero sin criterio y después con él.
+_, _, _est3 = componer_b(["Solución", "Texto del adelanto."], None, calif=())
+ok(any("RESOLUTIVO DE REVISIÓN, rama «confirma_concede»" in a for a in _est3.avisos),
+   "el adelanto (sin criterio) anota su rama provisional")
+_, _, _est3 = componer_b(["Solución", "Es fundado el primer agravio; procede revocar la sentencia "
+                          "recurrida y negar el amparo."], _reas_con, est=_est3)
+ok(not any("«confirma_concede»" in a for a in _est3.avisos)
+   and any("«revoca_fondo_niega»" in a for a in _est3.avisos),
+   "al componer el proyecto con la misma estructura, sólo queda la rama del proyecto")
 
 print()
 if FALLOS:
