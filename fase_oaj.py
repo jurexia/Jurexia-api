@@ -85,6 +85,29 @@ el corte de arriba, los posibles de ese planteamiento callan. Todos tendrían un
 coseno menor que el escondido, y el secretario vería como mejor candidato uno
 más débil sin saber que hay otro por encima.
 
+EL PRIMERO NO ES COMO LOS DEMÁS (29-sep-2026, David: «¿por qué queja se
+quedó en 0?»)
+=====================================================================
+Con la tabla del 28-sep la queja callaba en 13 de 13 planteamientos reales.
+Dos causas, medidas:
+
+ 1. El calibrador no fundía dos tramos contiguos con la MISMA probabilidad.
+    Los 18 pares de queja con coseno ≥ 0.82 fueron 18 aciertos de 18 y
+    quedaron como 18 tramos de un par; aquí se exigen tres por tramo y se
+    tiraron todos. Corregido en `calibracion/calibrar_rango.py`, que además
+    da la probabilidad del tramo como (aciertos + 1) / (pares + 2): 18 de 18
+    es 95%, no 100%, y 3 de 3 es 80%.
+ 2. La tabla juntaba el primer resultado con el quinto, el décimo y el
+    vigésimo. En un tipo formulario hay muchos vecinos de coseno alto que no
+    son el mismo problema, y el mismo coseno dice más en el primero que en el
+    décimo. Por eso el PRIMER resultado —la sentencia más cercana, ya sin el
+    propio asunto— se lee con su tabla (`planteamiento_r1`) y los demás con
+    `planteamiento`. Sin `planteamiento_r1` en el JSON, todo como antes.
+
+El propio asunto sale ANTES de contar (`expediente_propio`): si fuera el
+primero, la sentencia de verdad más cercana se leería con la tabla de los
+demás y perdería su nivel.
+
 LO QUE SIGUE SIN SER, Y POR LAS MISMAS RAZONES
 ==============================================
 Tampoco aquí se cuenta, se acusa ni se traduce el sentido a cubos. Las tres
@@ -100,10 +123,12 @@ razón, y compara el secretario.
 
 LA FORMA DEL JSON DE CALIBRACIÓN
 ================================
-La escribe `redactor-sentencias/oaj/calibracion/calibrar_openai.py`:
+La escribe `redactor-sentencias/oaj/calibracion/calibrar_rango.py` (antes
+`calibrar_openai.py`, sustituido):
 
     {
-      "planteamiento": {"Amparo Directo": [[cos_min, cos_max, prob, n], ...]},
+      "planteamiento":    {"Amparo Directo": [[cos_min, cos_max, prob, n], ...]},
+      "planteamiento_r1": {"Amparo Directo": [...]}   (el primer resultado; opcional)
       "asunto":        {"Revisión Fiscal": [[cos_min, cos_max, prob, n], ...]},
       "umbral_85":     {"planteamiento": {...},
                         "asunto": {"Revisión Fiscal": 0.7612,
@@ -126,11 +151,10 @@ escribir «aquí no», y la primera versión sólo la oía en el piso del tipo: 
 `null` en la raíz el nivel seguía hablando. Un valor que no es número, objeto
 ni `null` tampoco se adivina: calla ese nivel y lo dice el log.
 
-EL CALIBRADOR NO CONSERVA `umbral_50`. `calibrar_openai.py` reescribe el JSON
-entero y no lo escribe: al recalibrar se pierde cualquier `umbral_50` puesto a
-mano. Si se anota uno, hay que volver a ponerlo después de cada calibración.
-`organos` son los tribunales en que se midió; si falta, vale sólo el 3TCC, que
-es donde se midió la del 28-sep-2026.
+`calibrar_rango.py` parte del JSON que ya existe y reescribe sólo las tablas y
+su `umbral_85`: un `umbral_50` puesto a mano se conserva (el calibrador viejo
+lo perdía). `organos` son los tribunales en que se midió; si falta, vale sólo
+el 3TCC, que es donde se midieron las del 28 y 29-sep-2026.
 
 NO LO LLENA ESTE MÓDULO. La colección y la tabla las produce otro proceso; aquí
 sólo se leen. Mientras la tabla no exista, este módulo calla siempre y el
@@ -715,15 +739,25 @@ def _repartir(mejores, tabla, fuente: str, corte_mismo, corte_posible,
     """
     mismas, posibles = [], []
     escondidas = 0
+    # NINGUNA DICE MÁS QUE LA DE ARRIBA. Con dos tablas, el primero (94% en la
+    # queja del 29-sep) podía salir por debajo del segundo (96%), que tiene
+    # menor coseno: la lista, ordenada de más a menos cercana, decía lo
+    # contrario. Cada fila se topa en la probabilidad de las anteriores —las
+    # excluidas también cuentan, porque están más cerca— y la topada sale como
+    # cota («94% o más»): la tabla le daba más.
+    techo = None
     for pos, (sc, n, pl) in enumerate(mejores):
-        if n in excluir:
-            continue
         if pos == 0 and primero is not None and primero[0]:
             tabla_i, c_mismo, c_posible = primero
         else:
             tabla_i, c_mismo, c_posible = tabla, corte_mismo, corte_posible
         prob, exacta = lectura(tabla_i, sc)
         if prob is None:
+            continue
+        if techo is not None and prob > techo:
+            prob, exacta = techo, False
+        techo = prob
+        if n in excluir:
             continue
         if prob >= PROB_MINIMA:
             # Del 85% para arriba es «mismo problema» o nada. Si el JSON

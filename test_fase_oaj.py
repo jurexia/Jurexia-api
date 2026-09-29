@@ -391,7 +391,7 @@ ok(correr(fo.precedentes_oaj(q, embed, PROB, "amparo_directo", ORG3)) == []
    "AD con los tramos de asunto de la tabla real (y sin los de planteamiento) "
    "calla, y ni embebe ni consulta")
 
-print("\n4c · LA TABLA REAL, LA DEL DISCO: HOY EL 85% CALLA POR PLANTEAMIENTO Y EL 50% HABLA")
+print("\n4c · LA TABLA REAL, LA DEL DISCO: LA QUEJA HABLA Y LA REVISIÓN FISCAL SÓLO EN «POSIBLE»")
 # La de verdad, no una copia de sus tramos: es la que decide qué ve hoy el
 # secretario. Vive fuera del repo del API (la escribe el calibrador en
 # redactor-sentencias), así que se busca junto al módulo —si un día se
@@ -412,26 +412,71 @@ else:
     tipos_real = sorted((creal.get("planteamiento") or {}))
     ok(bool(tipos_real) and all(t in _DEL_TALLER for t in tipos_real),
        f"trae tablas de planteamiento de los tipos del taller ({tipos_real})")
-    c85, c50, cas = {}, {}, {}
+    c85, c50, cas, r85, r50 = {}, {}, {}, {}, {}
     for tipo in tipos_real:
         tp = fo.tabla_de(creal, "planteamiento", tipo)
         ok(tp is not None, f"{tipo}: la tabla de planteamiento se lee entera")
         c85[tipo] = fo._corte(creal, "planteamiento", tipo, tp)
         c50[tipo] = fo._corte_posible(creal, "planteamiento", tipo, tp)
         cas[tipo] = fo._corte(creal, "asunto", tipo, fo.tabla_de(creal, "asunto", tipo))
+        t1 = fo.tabla_de(creal, fo.CLASE_PRIMERO, tipo)
+        r85[tipo] = fo._corte(creal, fo.CLASE_PRIMERO, tipo, t1) if t1 else None
+        r50[tipo] = fo._corte_posible(creal, fo.CLASE_PRIMERO, tipo, t1) if t1 else None
+
+    def _todos_cortes(tipo):
+        return [c for c in (c85[tipo], c50[tipo], r85[tipo], r50[tipo]) if c is not None]
+
+    def con_primero(cands, tipo, piso):
+        """Antepone un señuelo como PRIMER resultado, para que las filas que
+        se prueban se lean con la tabla de los demás. El señuelo se escoge
+        donde la tabla del primero NO lo pone en 85% (así no esconde nada ni
+        apaga el respaldo por tema) y tampoco por debajo de `piso` (así no
+        topa a las de abajo: ninguna dice más que la de arriba). Si no hay tal
+        coseno, None y la comprobación se salta."""
+        t1 = fo.tabla_de(creal, fo.CLASE_PRIMERO, tipo)
+        c = max(s for s, _ in cands) + 0.0001
+        while c <= 1.0:
+            pr = fo.probabilidad(t1, c) if t1 else None
+            if pr is None or piso <= pr < fo.PROB_MINIMA:
+                return [(c, pl(879, tipo=tipo))] + cands
+            c += 0.0005
+        print(f"   ({tipo}: no hay coseno donde el primero quede entre {piso} y 0.85; "
+              f"esta comprobación se salta)")
+        return None
 
     # LO DE HOY. Se afirma sólo mientras la tabla sea la del 28-sep: al
     # recalibrar puede cambiar, y entonces lo que vale es lo de abajo, que no
     # supone ningún valor.
-    if "28-sep-2026" in str(creal.get("fuente") or ""):
-        ok(all(c85[t] is None for t in tipos_real),
-           "HOY el nivel «mismo problema» por planteamiento calla en los cuatro tipos")
-        ok(any(c50[t] is not None for t in tipos_real),
-           f"y el nivel «posible» puede hablar (corte del 50% en "
-           f"{[t for t in tipos_real if c50[t] is not None]})")
+    if "29-sep-2026" in str(creal.get("fuente") or ""):
+        ok(r85.get("Queja") is not None and c85.get("Queja") is not None,
+           f"HOY la queja habla al 85%: el primero desde {r85.get('Queja')} y los "
+           f"demás desde {c85.get('Queja')} (con la tabla del 28-sep callaba entera)")
+        ok(r85.get("Revisión Fiscal") is None and c85.get("Revisión Fiscal") is None
+           and (r50.get("Revisión Fiscal") is not None or c50.get("Revisión Fiscal") is not None),
+           "HOY la revisión fiscal no llega al 85% en ninguna tabla y habla sólo en «posible»")
+        ok(all(r85[t] is not None for t in ("Amparo Directo", "Amparo en revisión", "Queja")),
+           "y el primero llega al 85% en amparo directo, en revisión y en queja")
     else:
-        print(f"   (la tabla ya no es la del 28-sep —«{creal.get('fuente')}»—: "
+        print(f"   (la tabla ya no es la del 29-sep —«{creal.get('fuente')}»—: "
               f"lo de «hoy» no se afirma; lo de abajo sí)")
+
+    # EL PRIMERO, CON SU TABLA: un solo resultado, en el punto medio del tramo
+    # sostenido más alto de su franja «posible», sale con ese número exacto.
+    for tipo in tipos_real:
+        t1 = fo.tabla_de(creal, fo.CLASE_PRIMERO, tipo)
+        if not t1 or r50[tipo] is None:
+            continue
+        s1 = [x for x in t1 if x[3] is not None and x[3] >= fo.PARES_MINIMOS]
+        fr = [x for x in s1 if fo.PROB_POSIBLE <= x[2] < fo.PROB_MINIMA and x[0] >= r50[tipo]]
+        if not fr:
+            continue
+        a, b, p1, _n = fr[-1]
+        q = QdrantFalso([((a + b) / 2, pl(878, tipo=tipo))])
+        filas = correr(fo.precedentes_oaj(q, embed, PROB, _DEL_TALLER[tipo], ORG3))
+        ok([(f["neun"], f["nivel"], f["similitud"]) for f in filas]
+           == [(878, "posible", int(p1 * 100 + 1e-9))],
+           f"{tipo}: el primero a {(a + b) / 2:.4f} sale «{int(p1 * 100 + 1e-9)}% · posible» "
+           f"con la tabla del primero (salió {[(f['neun'], f['similitud']) for f in filas]})")
 
     # LO QUE VALE CON CUALQUIER TABLA: el número que sale es el de la tabla,
     # cada fila en el nivel que su probabilidad dice, y bajo el corte, nada.
@@ -439,7 +484,7 @@ else:
         clave_taller = _DEL_TALLER[tipo]
         tp = fo.tabla_de(creal, "planteamiento", tipo)
         sost = [x for x in tp if x[3] is not None and x[3] >= fo.PARES_MINIMOS]
-        if c85[tipo] is None and c50[tipo] is None and cas[tipo] is None:
+        if not _todos_cortes(tipo) and cas[tipo] is None:
             CONSULTAS.clear()
             q = QdrantFalso([(0.99, pl(880, tipo=tipo))])
             ok(correr(fo.precedentes_oaj(q, embed, PROB, clave_taller, ORG3)) == []
@@ -456,19 +501,21 @@ else:
             continue
         cmin, cmax, p, _n = franja[-1]
         medio = (cmin + cmax) / 2
-        q = QdrantFalso([(medio, pl(881, tipo=tipo)),
-                         (c50[tipo] - 0.001, pl(882, tipo=tipo))])
+        _c = con_primero([(medio, pl(881, tipo=tipo)),
+                          (c50[tipo] - 0.001, pl(882, tipo=tipo))], tipo, p)
+        if _c is None:
+            continue
+        q = QdrantFalso(_c)
         filas = correr(fo.precedentes_oaj(q, embed, PROB, clave_taller, ORG3))
-        pl_filas = [f for f in filas if f["fuente"] == "planteamiento"]
+        pl_filas = [f for f in filas if f["fuente"] == "planteamiento" and f["neun"] != 879]
         ok([(f["neun"], f["nivel"], f["similitud"], f["cota_inferior"])
             for f in pl_filas]
            == [(881, "posible", min(int(p * 100 + 1e-9), fo.TOPE_VISIBLE), False)],
            f"{tipo}: un coseno de {medio:.4f} sale «{int(p * 100 + 1e-9)}% · "
            f"posible», el número EXACTO del tramo; bajo el corte ({c50[tipo]}) "
            f"nada (salió {[(f['neun'], f['similitud']) for f in pl_filas]})")
-        ok(q.llamadas and q.llamadas[0]["umbral"] == min(
-               c for c in (c85[tipo], c50[tipo]) if c is not None),
-           f"{tipo}: una búsqueda de planteamiento, desde el corte más bajo")
+        ok(q.llamadas and q.llamadas[0]["umbral"] == min(_todos_cortes(tipo)),
+           f"{tipo}: una búsqueda de planteamiento, desde el corte más bajo de las dos tablas")
 
         # LAS COINCIDENCIAS MÁS ALTAS. Encima del último tramo sostenido, o en
         # el hueco entre dos, la tabla no midió ese coseno: sale el número del
@@ -483,9 +530,12 @@ else:
                 fuera_de_tramo.append(("en un hueco", (a[1] + b[0]) / 2, a[2]))
                 break
         for donde, cos_, p_ in fuera_de_tramo:
-            q = QdrantFalso([(cos_, pl(885, tipo=tipo))])
+            _c = con_primero([(cos_, pl(885, tipo=tipo))], tipo, p_)
+            if _c is None:
+                continue
+            q = QdrantFalso(_c)
             filas = correr(fo.precedentes_oaj(q, embed, PROB, clave_taller, ORG3))
-            pl_filas = [f for f in filas if f["fuente"] == "planteamiento"]
+            pl_filas = [f for f in filas if f["fuente"] == "planteamiento" and f["neun"] != 879]
             ok([(f["neun"], f["similitud"], f["cota_inferior"]) for f in pl_filas]
                == [(885, int(p_ * 100 + 1e-9), True)],
                f"{tipo}: {donde} ({cos_:.4f}) sale «{int(p_ * 100 + 1e-9)}% o más»: "
@@ -499,10 +549,13 @@ else:
             alto = [x for x in ta if x[3] is not None and x[3] >= fo.PARES_MINIMOS
                     and x[2] >= fo.PROB_MINIMA and x[0] >= cas[tipo]]
             am, aM, ap, _ = alto[0]
-            q = QdrantFalso([(medio, pl(883, tipo=tipo)),
-                             (medio, pl(884, tipo=tipo)),
-                             ((am + aM) / 2, pl(883, clase="asunto", tipo=tipo))])
+            _c = con_primero([(medio, pl(883, tipo=tipo)),
+                              (medio, pl(884, tipo=tipo))], tipo, p)
+            if _c is None:
+                continue
+            q = QdrantFalso(_c + [((am + aM) / 2, pl(883, clase="asunto", tipo=tipo))])
             filas = correr(fo.precedentes_oaj(q, embed, PROB, clave_taller, ORG3))
+            filas = [f for f in filas if f["neun"] != 879]
             ok([(f["neun"], f["nivel"], f["fuente"], f["similitud"]) for f in filas]
                == [(883, "mismo_problema", "tema", min(int(ap * 100 + 1e-9), 99)),
                    (884, "posible", "planteamiento", int(p * 100 + 1e-9))],
@@ -928,6 +981,18 @@ filas = correr(fo.precedentes_oaj(q, embed, PROB, "amparo_directo", ORG3))
 ok(niveles(filas) == ([], [810]) and filas[0]["similitud"] == 60,
    f"un primero en el tramo del 60% es «posible» con su número (salió "
    f"{[(f['neun'], f['nivel'], f['similitud']) for f in filas]})")
+
+# NINGUNA DICE MÁS QUE LA DE ARRIBA: el primero en 60% y el segundo, con la
+# tabla de los demás en 95%, no puede salir por encima; sale «60% o más».
+usar_calibracion({"planteamiento": {"Amparo Directo": [[0.0, 0.70, 0.10, 40], [0.70, 1.0, 0.95, 30]]},
+                  "planteamiento_r1": {"Amparo Directo": [[0.0, 0.78, 0.20, 30], [0.78, 1.0, 0.60, 10]]}})
+filas = correr(fo.precedentes_oaj(QdrantFalso([(0.80, pl(850)), (0.79, pl(851))]),
+                                  embed, PROB, "amparo_directo", ORG3))
+ok([(f["neun"], f["nivel"], f["similitud"], f["cota_inferior"]) for f in filas]
+   == [(850, "posible", 60, False), (851, "posible", 60, True)],
+   f"el segundo se topa en el 60% del primero y sale como cota (salió "
+   f"{[(f['neun'], f['similitud'], f['cota_inferior']) for f in filas]})")
+usar_calibracion(CAL_R1)
 
 # EL PROPIO ASUNTO FUERA ANTES DE CONTAR. Si el 900/2025 se está proyectando y
 # ya está publicado, el primero de verdad es el 901.
