@@ -335,6 +335,11 @@ class Material:
     # EL TRIBUNAL QUE RESUELVE (rediseño, punto 3, 29-sep-2026): la fuerza de
     # cada tesis se calcula respecto de él (`fuerza_juridica.anotar`).
     tribunal: str = ""
+    # ¿COMPLETA O PROVISIONAL? {"estado": "completa" | "provisional", "faltan":
+    # [...]} (rediseño, etapa 2). Provisional = venció la espera de la pregunta
+    # decisiva y falta la búsqueda de su figura: la propuesta SALE igual (el
+    # secretario siempre puede pedirla al motor), pero no como recomendación.
+    consulta_estado: dict = field(default_factory=dict)
     # LA FORMA DE LA SENTENCIA —«estandar» o «moderna»—, por la misma razón que
     # la materia: dos redactores arman el prompt y el material llega a los dos.
     # Ver `formato_sentencia.py`.

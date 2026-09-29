@@ -32931,6 +32931,22 @@ async def _taller_decisiva_esperar(tarea, email: str, numero: str, r, huella: st
         return None
 
 
+def _taller_estado_consulta(material, tarea, doc) -> None:
+    """Deja dicho en el material si la consulta quedó COMPLETA o PROVISIONAL
+    (rediseño, etapa 2, 29-sep-2026). Provisional = la pregunta decisiva no
+    llegó a tiempo y sigue corriendo: falta la figura que decide. Nada se
+    bloquea —la propuesta sale igual—, pero la tarjeta no la rotula como
+    recomendación hasta que llegue (ver `tarjeta_decision.armar`)."""
+    if material is None:
+        return
+    try:
+        pendiente = doc is None and tarea is not None and not tarea.done()
+        material.consulta_estado = ({"estado": "provisional", "faltan": ["decisiva"]} if pendiente
+                                    else {"estado": "completa", "faltan": []})
+    except Exception:
+        pass
+
+
 def _taller_marca_decisiva(doc, r):
     """La marca «decisiva» para escribirla con el material, o None."""
     try:
@@ -32963,6 +32979,8 @@ async def _taller_figura_al_material(r, material, doc) -> dict:
             hecho=" ".join(str(h) for h in (doc.get("hechos_que_deciden") or []) if h))
         res = _f6r.sumar_figura(material, tesis, _pd.numero(doc))
         material.decisiva = doc
+        # CON LA FIGURA, LA CONSULTA DEJA DE SER PROVISIONAL.
+        material.consulta_estado = {"estado": "completa", "faltan": []}
         res["segundos"] = round(time.perf_counter() - _t0, 1)
         return res
     except Exception as ex:
@@ -32998,6 +33016,7 @@ async def _taller_redecidir_si_corrigio(email: str, numero: str, ses: dict) -> N
         hu = _te.huella_contraste(r)
         tarea = asyncio.ensure_future(_taller_decisiva(email, numero, r, hu, guardar=False))
         doc = await _taller_decisiva_esperar(tarea, email, numero, r, hu)
+        _taller_estado_consulta(m, tarea, doc)
         if doc is not None:
             await _taller_figura_al_material(r, m, doc)
         _taller_guardar_material(email, numero, m, huella=hu,
@@ -33043,6 +33062,7 @@ async def _taller_preconsultar(email: str, numero: str, r) -> None:
         # (embeddings y Qdrant, sin modelo). Se imprime para verlo en Render.
         _t1 = time.perf_counter()
         _dec = await _taller_decisiva_esperar(_tarea_dec, email, numero, r, huella)
+        _taller_estado_consulta(material, _tarea_dec, _dec)
         _espera = time.perf_counter() - _t1
         if _dec is not None:
             _fig = await _taller_figura_al_material(r, material, _dec)
@@ -36794,6 +36814,7 @@ async def taller_consultar(
         # CON TOPE: la petición del secretario no espera a la decisiva sin
         # límite (revisión adversarial de la fase E).
         _dec_c = await _taller_decisiva_esperar(_tarea_dec_c, user_email, numero, r, _hu_c)
+        _taller_estado_consulta(material, _tarea_dec_c, _dec_c)
         await _taller_figura_al_material(r, material, _dec_c)
         # Y con la sesión, para el worker que atienda la siguiente petición.
         _taller_guardar_material(user_email, numero, material,
@@ -38033,6 +38054,20 @@ async def taller_proponer(
         await _taller_figura_al_material(ses["resultado"], ses["material"],
                                          _taller_decisiva_guardada(user_email, numero, ses["resultado"]))
     await _taller_redecidir_si_corrigio(user_email, numero, ses)
+    # LA CONSULTA PROVISIONAL SE COMPLETA AL PROPONER si la pregunta decisiva ya
+    # llegó (dejó su marca): se suma su figura antes de proponer. Si no ha
+    # llegado, se propone igual y la tarjeta lo dice (rediseño, etapa 2).
+    try:
+        _m_p = ses.get("material")
+        if _m_p is not None and (getattr(_m_p, "consulta_estado", None) or {}).get("estado") == "provisional":
+            _dg = _taller_decisiva_guardada(user_email, numero, ses["resultado"])
+            if _dg is not None:
+                await _taller_figura_al_material(ses["resultado"], _m_p, _dg)
+                _taller_guardar_material(user_email, numero, _m_p,
+                                         otras={"decisiva": _taller_marca_decisiva(_dg, ses["resultado"])})
+                print(f"   🎯 consulta de {numero} completada al proponer: llegó la figura decisiva")
+    except Exception as _ecp:
+        print(f"   ⚠️ no se pudo completar la consulta provisional de {numero}: {err(_ecp)}")
     _casa_p = _taller_es_casa(user_email)
     if _casa_p and (banderas or "").strip():
         try:

@@ -522,8 +522,10 @@ ok("pregunta_internet(" in _pn and _pn.index("pregunta_internet(") < _pn.index("
 _tc = ast.get_source_segment(_main, _fn["taller_consultar"])
 ok("_taller_decisiva(" in _tc and "_taller_figura_al_material(" in _tc,
    "el botón «consultar» con contexto también suma la figura")
-ok(_main.count("_taller_decisiva_guardada(user_email, numero,") == 4,
-   "los cuatro rescates de la consulta suman la figura de la marca")
+# Cinco desde el rediseño (29-sep-2026, etapa 2): la quinta completa al PROPONER
+# una consulta que quedó provisional porque la decisiva llegó tarde.
+ok(_main.count("_taller_decisiva_guardada(user_email, numero,") == 5,
+   "los cuatro rescates de la consulta y el de la consulta provisional suman la figura de la marca")
 _nu = ast.get_source_segment(_main, _fn["_taller_deliberar_nucleo"])
 ok("decisiva_previa=" in _nu, "la deliberación recibe la pregunta ya formulada")
 # LA ESPERA CON TOPE (revisión adversarial de la fase E): ni la consulta ni el

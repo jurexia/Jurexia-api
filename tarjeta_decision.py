@@ -1136,6 +1136,22 @@ def vacia(estado_calculo: str, huella: str = "") -> dict:
             "conceptos_omitidos": None, "ficha": None, "avisos": []}
 
 
+def _provisional(material, recomendada, estado, por_que) -> dict:
+    """LA CONSULTA PROVISIONAL NO RECOMIENDA (rediseño, etapa 2, 29-sep-2026).
+    Si venció la espera de la pregunta decisiva y falta la búsqueda de su
+    figura, la tarjeta enseña las dos vías igual —el secretario puede elegir
+    una o pedir al motor que redacte—, pero no rotula ninguna como
+    recomendada: la recomendación dependería de un análisis que no se hizo."""
+    ce = _get(material, "consulta_estado") or {}
+    if isinstance(ce, dict) and ce.get("estado") == "provisional":
+        falta = ", ".join(ce.get("faltan") or []) or "parte de la consulta"
+        return {"recomendada": None, "estado": "no_alcanza",
+                "estado_por_que": [f"Consulta PROVISIONAL: falta {falta} (la pregunta decisiva no "
+                                   f"llegó a tiempo). Se completa sola al volver a proponer."]
+                                  + list(por_que or [])}
+    return {"recomendada": recomendada, "estado": estado, "estado_por_que": por_que}
+
+
 def armar(propuesta_guardada, material, problemas_fase3, contraste=None, espejo=None,
           internet=None, rama_info=None, deliberacion=None, *, propuestas_motor=None,
           fases=None, decisiva=None) -> dict:
@@ -1431,7 +1447,7 @@ def armar(propuesta_guardada, material, problemas_fase3, contraste=None, espejo=
         "formato": FORMATO, "estado_calculo": "listo", "huella": huella,
         "principal": principal,
         "vias": {"propuesta": via_p, "opuesta": via_o},
-        "recomendada": recomendada, "estado": estado, "estado_por_que": por_que,
+        **_provisional(material, recomendada, estado, por_que),
         "secundarios": secundarios, "independientes": independientes,
         "que_la_cambiaria": que_cambiaria,
         "tu_tribunal": _tu_tribunal(
