@@ -32858,10 +32858,11 @@ def _taller_leer_marca(email: str, numero: str, clave: str):
 
 
 async def _taller_con_latido(email: str, numero: str, clave: str, huella: str,
-                             desde: float, coro):
+                             desde: float, coro, extra: dict | None = None):
     """Corre una tarea suelta y, mientras dura, rescribe su marca cada 45 s con
     `latido`. Quien espera sabe así si el worker sigue vivo (ver
-    `taller_estado.abandonada`)."""
+    `taller_estado.abandonada`). `extra`: claves que la marca en curso tiene
+    que conservar al latir (la ficha de quién la reclamó, etapa 3)."""
     tarea = asyncio.ensure_future(coro)
     while True:
         hechas, _ = await asyncio.wait({tarea}, timeout=45)
@@ -32869,7 +32870,7 @@ async def _taller_con_latido(email: str, numero: str, clave: str, huella: str,
             return tarea.result()
         _taller_guardar_marca(email, numero, clave, {
             "huella": huella, "estado": "en_curso", "desde": desde,
-            "latido": time.time()}, huella)
+            "latido": time.time(), **(extra or {})}, huella)
 
 
 # ═══ LA PREGUNTA DECISIVA, PARA TODOS (SPEC E3, 28-sep-2026) ═════════════════
@@ -33239,6 +33240,36 @@ def _taller_sesion_en_memoria(email: str, numero: str, huella: str, **campos) ->
     ses.update(campos)
 
 
+def _taller_propuesta_unica() -> bool:
+    """¿Rige «una sola propuesta viva por adelanto»? (bandera del rediseño)."""
+    try:
+        import contexto_taller as _ctx_u
+        return _ctx_u.rediseno("propuesta_unica")
+    except Exception:
+        return False
+
+
+def _taller_propuesta_reclamada(email: str, numero: str, huella: str) -> bool:
+    """¿El BOTÓN ya reclamó la propuesta de ESTE adelanto (calculándola, viva,
+    o ya lista)? La lista de otra corrida de fondo no cuenta: volver a subir
+    el mismo adelanto recalcula como siempre."""
+    m = _taller_leer_marca(email, numero, "propuesta")
+    if not isinstance(m, dict) or m.get("huella") != huella:
+        return False
+    if not str(m.get("origen") or "").startswith("boton"):
+        return False
+    if m.get("estado") == "listo":
+        return True
+    return m.get("estado") == "en_curso" and not _te.abandonada(m, time.time, _te.LATIDO_ABANDONADO_S)
+
+
+def _taller_marca_es_mia(email: str, numero: str, ficha: str) -> bool:
+    """¿La marca «propuesta» sigue siendo de quien tiene esta ficha? Si otro
+    la reclamó después, la suya manda y ésta no se guarda."""
+    m = _taller_leer_marca(email, numero, "propuesta")
+    return isinstance(m, dict) and m.get("ficha") == ficha
+
+
 async def _taller_preproponer(email: str, numero: str, r, material) -> None:
     """La propuesta de solución, sola, en cuanto la consulta automática deja
     el acervo. Es el mismo núcleo que corre el botón, sin contexto del
@@ -33256,20 +33287,37 @@ async def _taller_preproponer(email: str, numero: str, r, material) -> None:
         huella = _te.huella_contraste(r)
         if material is None:
             return
+        # UNA SOLA PROPUESTA VIVA POR ADELANTO (rediseño, etapa 3, paso 1;
+        # bandera «propuesta_unica»). Medido en el banco Kingston: el botón
+        # forzado (o con contexto) entraba ~2 s después de que arrancara ésta,
+        # y cada una dejaba su mitad del estado —la marca con la de fondo, la
+        # global y la columna `propuestas` con la del botón—, pagando dos
+        # veces. Con la bandera: si el botón ya la reclamó, ésta no arranca; y
+        # al terminar sólo escribe si la marca sigue siendo SUYA (su ficha).
+        _unica = _taller_propuesta_unica()
+        _ficha = f"fondo-{uuid.uuid4().hex[:12]}" if _unica else ""
+        if _unica and _taller_propuesta_reclamada(email, numero, huella):
+            print(f"   ⚖️ la propuesta de {numero} ya la está calculando el botón: la de fondo no arranca")
+            return
         _desde = time.time()
         if not _taller_guardar_marca(email, numero, "propuesta", {
-                "huella": huella, "estado": "en_curso", "desde": _desde}, huella):
+                "huella": huella, "estado": "en_curso", "desde": _desde,
+                **({"ficha": _ficha, "origen": "fondo"} if _unica else {})}, huella):
             return
         ses = {"resultado": r, "material": material, "consultado": True,
                "tmp": "", "ts": time.time()}
         _t0 = time.perf_counter()
         resp = await _taller_con_latido(email, numero, "propuesta", huella, _desde,
-            _taller_proponer_nucleo(email, numero, ses, ""))
+            _taller_proponer_nucleo(email, numero, ses, ""),
+            extra=({"ficha": _ficha, "origen": "fondo"} if _unica else None))
         resp = json.loads(json.dumps(resp, ensure_ascii=False, default=str))
         _seg = time.perf_counter() - _t0
+        if _unica and not _taller_marca_es_mia(email, numero, _ficha):
+            print(f"   ⚖️ la propuesta de fondo de {numero} quedó superada por la del botón: no se guarda")
+            return
         if _taller_guardar_marca(email, numero, "propuesta", {
                 "huella": huella, "estado": "listo", "segundos": round(_seg, 1),
-                "respuesta": resp}, huella):
+                "respuesta": resp, **({"ficha": _ficha, "origen": "fondo"} if _unica else {})}, huella):
             _taller_sesion_en_memoria(email, numero, huella, material=material,
                                       propuestas=ses.get("propuestas"),
                                       **({"global": ses["global"]} if ses.get("global") is not None else {}))
@@ -38382,7 +38430,36 @@ async def taller_proponer(
         print(f"   ⚖️ TALLER: propuesta {numero} servida de la calculada sola · "
               f"{len(_previa.get('propuestas') or [])} sentidos")
         return _taller_con_aplicado(_previa, user_email, recalculada=False)
-    _resp = await _taller_proponer_nucleo(user_email, numero, ses, contexto)
+    # EL BOTÓN RECLAMA LA MARCA (rediseño, etapa 3, paso 1; bandera
+    # «propuesta_unica»): la propuesta que calcula aquí —forzada o con
+    # contexto— es la última y la marca tiene que decirlo; la de fondo que
+    # siga corriendo ve que ya no es suya y no escribe encima.
+    _unica_b = _taller_propuesta_unica()
+    _hu_b = _te.huella_contraste(ses["resultado"]) if _unica_b else ""
+    _ficha_b = f"boton-{uuid.uuid4().hex[:12]}" if _unica_b else ""
+    _desde_b = time.time()
+    if _unica_b:
+        _taller_guardar_marca(user_email, numero, "propuesta", {
+            "huella": _hu_b, "estado": "en_curso", "desde": _desde_b,
+            "ficha": _ficha_b, "origen": "boton"}, _hu_b)
+        try:
+            _t0_b = time.perf_counter()
+            _resp = await _taller_con_latido(user_email, numero, "propuesta", _hu_b, _desde_b,
+                                             _taller_proponer_nucleo(user_email, numero, ses, contexto),
+                                             extra={"ficha": _ficha_b, "origen": "boton"})
+        except Exception:
+            if _taller_marca_es_mia(user_email, numero, _ficha_b):
+                _taller_guardar_marca(user_email, numero, "propuesta",
+                                      {"huella": _hu_b, "estado": "fallo", "ficha": _ficha_b}, _hu_b)
+            raise
+        if _taller_marca_es_mia(user_email, numero, _ficha_b):
+            _taller_guardar_marca(user_email, numero, "propuesta", {
+                "huella": _hu_b, "estado": "listo", "segundos": round(time.perf_counter() - _t0_b, 1),
+                "respuesta": json.loads(json.dumps(_resp, ensure_ascii=False, default=str)),
+                "ficha": _ficha_b, "origen": "boton" + ("_con_contexto" if (contexto or "").strip() else "")},
+                _hu_b)
+    else:
+        _resp = await _taller_proponer_nucleo(user_email, numero, ses, contexto)
     _taller_registrar_uso(user_email, numero, "propuesta")
     _taller_guardar_global(user_email, numero, ses["resultado"], _resp)
     # Una propuesta calculada aquí (con contexto del secretario, o sin la

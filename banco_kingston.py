@@ -71,7 +71,8 @@ ETAPAS_CON_ADELANTO = ("antes", "base")
 # no se pidan, apagadas.
 BANDERAS_BASE = {"fuerza_unificada": False, "fuente_tardia_aviso": False, "normas_al_documento": False,
                  "tesis_parte_al_consultar": False, "consulta_provisional": False,
-                 "analisis_neutral": False, "recuperacion_requisitos": False}
+                 "analisis_neutral": False, "recuperacion_requisitos": False,
+                 "propuesta_unica": False}
 AQUI.mkdir(parents=True, exist_ok=True)
 PDFS = AQUI / "pdf"; PDFS.mkdir(exist_ok=True)
 RESULTADOS = AQUI / "resultados.jsonl"

@@ -94,7 +94,7 @@ import taller_estado as te
 # «fallo» y la tarjeta esperaría para siempre.
 ok(m.count("await _taller_con_latido(email, numero, ") == 6,
    "consulta, refuerzo del acervo, contraste, propuesta, deliberación y análisis neutral corren con latido")
-ok('"latido": time.time()}, huella)' in m, "el latido rescribe la marca cada 45 s")
+ok('"latido": time.time(), **(extra or {})}, huella)' in m, "el latido rescribe la marca cada 45 s (conservando la ficha si la hay)")
 ok(te.abandonada({"estado": "en_curso", "desde": 1000.0, "latido": 1800.0}, ahora=lambda: 2000.0),
    "sin latido en 150 s, la tarea está muerta")
 ok(not te.abandonada({"estado": "en_curso", "desde": 1000.0, "latido": 1950.0}, ahora=lambda: 2000.0),

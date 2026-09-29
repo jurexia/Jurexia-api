@@ -294,6 +294,7 @@ BANDERAS_REDISENO = {
     "consulta_provisional": "CONSULTA_PROVISIONAL",  # la tarjeta no recomienda sin la figura
     "analisis_neutral": "ANALISIS_NEUTRAL",          # etapa 2: análisis de la litis antes de proponer
     "recuperacion_requisitos": "RECUPERACION_REQUISITOS",  # etapa 2: búsqueda por requisito
+    "propuesta_unica": "PROPUESTA_UNICA",            # etapa 3, paso 1: una sola propuesta viva por adelanto
 }
 
 
