@@ -1366,6 +1366,12 @@ def prompt_juez(orden: tuple, vias: dict, *, decisiva: dict, cat: dict,
     _json_fallas = (',\n  "fallas": {"1": {"falla": "<el eslabón>", "fatal": true, "eslabon": '
                     '"requisito|razon_autonoma|fuente|hecho|efecto"}, "2": {"falla": "<…>", "fatal": false, '
                     '"eslabon": "<…>"}}')
+    # SIN LA BANDERA, EL MISMO TEXTO QUE ANTES, byte a byte (revisión del
+    # envío, 29-sep): los bloques de la revisión van pegados a su vía y la falla
+    # decisiva delante de DEVUELVES, sin dejar renglones vacíos cuando no están.
+    _rv = {k: ("\n" + _bloque_revision_para_juez(f"VÍA {n}", (revisiones or {}).get(orden[n - 1]) or []))
+           if revisiones is not None else "" for n, k in ((1, "1"), (2, "2"))}
+    _fl = (_FALLA_JUEZ.rstrip("\n") + "\n") if revisiones is not None else ""
     return f"""TAREA: JUEZ DE LAS DOS VÍAS
 Eres el magistrado ponente de un Tribunal Colegiado. Tienes delante dos vías
 argumentadas por separado, rotuladas «Vía 1» y «Vía 2». No sabes quién
@@ -1405,13 +1411,11 @@ FUENTES (catálogo cerrado; la fuerza y la vigencia las calculó el taller):
 {bloque_catalogo(cat, TESIS_CARACTERES_JUEZ)}
 {suplencia}
 
-{_bloque_via_para_juez('VÍA 1', vias[orden[0]], cat)}
-{_bloque_revision_para_juez('VÍA 1', (revisiones or {}).get(orden[0]) or []) if revisiones is not None else ''}
+{_bloque_via_para_juez('VÍA 1', vias[orden[0]], cat)}{_rv["1"]}
 
-{_bloque_via_para_juez('VÍA 2', vias[orden[1]], cat)}
-{_bloque_revision_para_juez('VÍA 2', (revisiones or {}).get(orden[1]) or []) if revisiones is not None else ''}
-{_FALLA_JUEZ if revisiones is not None else ''}
-DEVUELVES:
+{_bloque_via_para_juez('VÍA 2', vias[orden[1]], cat)}{_rv["2"]}
+
+{_fl}DEVUELVES:
 - `recomendada`: "1", "2" o "ninguna" (ninguna sólo si ninguna de las dos se
   sostiene con lo que hay).
 - `escalon`: el número del escalón que decidió (1 a 5).

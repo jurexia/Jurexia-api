@@ -58,6 +58,14 @@ ok(any("SIN que conste que dependa" in a for a in av) and any("independiente del
    "y lo dice en los avisos")
 ok(all(str(x.get("sentido")).strip() for x in R.values()),
    "ningún problema se queda sin sentido (el criterio descarta los vacíos)")
+_rep_d, _av_d = md.repartir(P, md.GLOBAL, "fundado", PROPS, {}, global_dictado=True, temas_distintos=set(),
+                            tipo_asunto="amparo_directo", checklist=LISTA)
+_Rd = {x["problema"]: x for x in _rep_d}
+_d = _Rd["¿Un tema sin relación dicha, con propuesta?"]
+ok(_d["sentido"] == md.INNECESARIO and _d.get("justificacion_pendiente") is True
+   and _Rd["¿Un tema independiente?"]["sentido"] != md.INNECESARIO,
+   "con el global DICTADO, lo que el motor propuso no pasa por delante de su dictado: se sustrae como hoy, "
+   "marcado para justificar (el independiente se sigue estudiando)")
 ct.poner(False, {})
 
 print()

@@ -452,7 +452,11 @@ def repartir(problemas: list, modo: str, sentido_global: str = "",
             if _rel != "depende" and _sp_suerte != INNECESARIO:
                 _pr = props.get(x["problema"]) or {}
                 _sp = str(_pr.get("sentido") or "").strip().lower()
-                if _sp and _sp not in (INNECESARIO, "sin_materia"):
+                # SU BROCHA ES SU PALABRA: con el global DICTADO por el
+                # secretario, lo que el motor propuso por problema no pasa por
+                # delante de su dictado (revisión del envío, 29-sep). Se sustrae
+                # como hoy, marcado y avisado, y él decide.
+                if _sp and _sp not in (INNECESARIO, "sin_materia") and not global_dictado:
                     x["sentido"] = _sp
                     x["razonamiento"] = str(_pr.get("razon") or "")
                     avisos.append(
