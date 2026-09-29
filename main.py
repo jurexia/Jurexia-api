@@ -32768,6 +32768,73 @@ async def _taller_con_latido(email: str, numero: str, clave: str, huella: str,
             "latido": time.time()}, huella)
 
 
+# ═══ LA PREGUNTA DECISIVA, PARA TODOS (SPEC E3, 28-sep-2026) ═════════════════
+# AR 631/2025: el motor buscó y razonó con la pregunta tal como la planteó la
+# recurrida («¿la sustitución alteró la cosa juzgada?»); lo que decide es si el
+# tercero adquirente del inmueble objeto de un juicio sobre una acción personal
+# puede sustituirse válidamente en la ejecución. `pregunta_decisiva.py` formula
+# esa cuestión (la ETAPA A de la deliberación, siempre encendida y barata) y
+# sus consultas sobre la figura se SUMAN al material. Corre EN PARALELO con la
+# consulta del acervo: ver el porqué y la medida en la cabecera del módulo.
+# Bandera: PREGUNTA_DECISIVA_ACTIVA (encendida; «0» la apaga).
+
+async def _taller_decisiva(email: str, numero: str, r, huella: str):
+    """La pregunta decisiva de ESTE adelanto: la de la marca «decisiva» si ya
+    está (la formuló el otro worker o una consulta anterior), o una nueva, que
+    se deja en la marca con la huella (gunicorn -w 2). None si la bandera está
+    apagada o algo falla: se sigue como antes. Nunca lanza."""
+    try:
+        import pregunta_decisiva as _pd
+        if not _pd.activa():
+            return None
+        prev = _pd.doc_de_marca(_taller_leer_marca(email, numero, _pd.CLAVE_MARCA), huella)
+        if prev is not None:
+            return prev
+        doc = await _pd.formular(chat_client, **_pd.entradas_de(r))
+        if _pd.util(doc) and huella:
+            _taller_guardar_marca(email, numero, _pd.CLAVE_MARCA, _pd.marca(doc, huella), huella)
+        return doc
+    except Exception as ex:
+        print(f"   ⚠️ la pregunta decisiva de {numero} falló: {err(ex)}")
+        return None
+
+
+def _taller_decisiva_guardada(email: str, numero: str, r):
+    """Sólo la de la marca, sin formular: para los rescates que rehacen la
+    consulta porque el material no estaba en este worker."""
+    try:
+        import pregunta_decisiva as _pd
+        if not _pd.activa():
+            return None
+        return _pd.doc_de_marca(_taller_leer_marca(email, numero, _pd.CLAVE_MARCA),
+                                _te.huella_contraste(r))
+    except Exception:
+        return None
+
+
+async def _taller_figura_al_material(r, material, doc) -> dict:
+    """Suma al material las tesis de la figura (cupo propio, marcadas `para`
+    el principal) y le cuelga la pregunta decisiva, que así llega a la
+    propuesta, al estudio y a la tarjeta. Sólo si la pregunta es la del
+    principal de hoy. Nunca lanza; devuelve lo sumado y lo que tardó."""
+    try:
+        import pregunta_decisiva as _pd
+        import fase6_rag as _f6r
+        doc = _pd.vigente(doc, _te.problemas_de(r))
+        if material is None or doc is None:
+            return {}
+        _t0 = time.perf_counter()
+        tesis = await _f6r.tesis_de_la_figura(qdrant_client, _embedding_juris,
+                                              _pd.consultas_rag(doc))
+        res = _f6r.sumar_figura(material, tesis, _pd.numero(doc))
+        material.decisiva = doc
+        res["segundos"] = round(time.perf_counter() - _t0, 1)
+        return res
+    except Exception as ex:
+        print(f"   ⚠️ la búsqueda de la figura falló: {err(ex)}")
+        return {}
+
+
 async def _taller_preconsultar(email: str, numero: str, r) -> None:
     """La consulta del acervo, sola, en cuanto termina el adelanto.
 
@@ -32787,12 +32854,29 @@ async def _taller_preconsultar(email: str, numero: str, r) -> None:
                 "huella": huella, "estado": "en_curso", "desde": _desde}, huella):
             return
         _t0 = time.perf_counter()
+        # LA PREGUNTA DECISIVA, EN PARALELO CON LA CONSULTA (SPEC E3).
+        _tarea_dec = asyncio.ensure_future(_taller_decisiva(email, numero, r, huella))
         material = await _taller_con_latido(email, numero, "consulta", huella, _desde,
             _ra.consultar(
                 qdrant_client, _embedding_juris,
                 lambda t: get_dense_embedding(t, modelo=EMBEDDING_MODEL), r,
                 chat_client, ""))
         _seg = time.perf_counter() - _t0
+        # ── LA FIGURA, AL MATERIAL, ANTES DEL REFUERZO Y DE LA PROPUESTA ──
+        # LA MEDIDA DE LO QUE CUESTA ESPERARLA: la espera añadida es lo que la
+        # pregunta tarde MÁS que la consulta, más la búsqueda de la figura
+        # (embeddings y Qdrant, sin modelo). Se imprime para verlo en Render.
+        _t1 = time.perf_counter()
+        _dec = await _tarea_dec
+        _espera = time.perf_counter() - _t1
+        if _dec is not None:
+            _fig = await _taller_figura_al_material(r, material, _dec)
+            print(f"   🎯 PREGUNTA DECISIVA de {numero}: "
+                  f"{'formulada' if _dec.get('formulada') else 'no formulada'} en "
+                  f"{_dec.get('segundos', 0)} s (la consulta, {_seg:.0f} s) · espera "
+                  f"añadida {_espera:.1f} s + figura {_fig.get('segundos', 0)} s · "
+                  f"{_fig.get('nuevas', 0)} tesis nuevas, {_fig.get('marcadas', 0)} ya estaban · "
+                  f"{(_dec.get('uso') or {}).get('coste_usd', 0)} USD")
         # ── EL REFUERZO, ANTES DE GUARDAR ──
         # La consulta formula UNA vez por problema y a ciegas; medido contra el
         # banco de 404 tesis reales, así se queda fuera la mayoría de lo que el
@@ -33126,7 +33210,10 @@ async def _taller_deliberar_nucleo(r, ses: dict, resp: dict, contexto: str = "")
             r, declarado=str((glob.get("contexto") or {}).get("resolvio") or "")
             if isinstance(glob.get("contexto"), dict) else ""),
         region=(os.getenv("DELIBERACION_REGION", "") or None),
-        clave_propia=os.getenv("DELIBERACION_CLAVE_PROPIA", ""))
+        clave_propia=os.getenv("DELIBERACION_CLAVE_PROPIA", ""),
+        # LA PREGUNTA DECISIVA QUE YA SE FORMULÓ PARA TODOS (SPEC E3): se
+        # reutiliza si es la del principal; si no, la deliberación la formula.
+        decisiva_previa=getattr(material, "decisiva", None))
 
 
 async def _taller_predeliberar(email: str, numero: str, r, ses: dict, resp: dict,
@@ -34269,7 +34356,15 @@ async def _taller_plan_para(user_email: str, numero: str, r, ses, crit, *,
         # unidades de las que salen los efectos sólo si el asunto concede.
         plan = _pe.aplicar_razones(plan, _pe.leer_razones_segmento(razones_segmento))
         plan = _pe.resolver_por_dependencia(plan)
-        e.guion = _pe.vista(plan, getattr(e, "formato", "") or "", concede=_pe.concede_de(r, crit))
+        # Y LA CUESTIÓN DECISIVA (SPEC E3, AR 631/2025), si es la del
+        # principal de hoy: el guion la lleva como dato.
+        try:
+            import pregunta_decisiva as _pd_g
+            _dec_g = _pd_g.de_material(ses.get("material"), _te.problemas_de(r))
+        except Exception:
+            _dec_g = None
+        e.guion = _pe.vista(plan, getattr(e, "formato", "") or "", concede=_pe.concede_de(r, crit),
+                            decisiva=_dec_g)
         e.plan = {"estado": "usado", "clave": k, "avisos": avisos, "plan": plan}
         print(f"   🧭 PLAN de {numero} al estudio: clave {k[:8]} · "
               f"{time.time() - t0:.0f} s de espera · guion de {len(e.guion)} caracteres")
@@ -36468,10 +36563,15 @@ async def taller_consultar(
             print(f"   ⚠️ no se pudo recoger la consulta automática: {err(_exc_ea)}")
             material = None
     if material is None:
+        # LA PREGUNTA DECISIVA (SPEC E3): la de este adelanto si ya está; si
+        # no, se formula en paralelo con la consulta y no alarga la espera.
+        _tarea_dec_c = asyncio.ensure_future(
+            _taller_decisiva(user_email, numero, r, _te.huella_contraste(r)))
         material = await _ra.consultar(
             qdrant_client, _embedding_juris,
             lambda t: get_dense_embedding(t, modelo=EMBEDDING_MODEL), r,
             chat_client, _ctx)
+        await _taller_figura_al_material(r, material, await _tarea_dec_c)
         # Y con la sesión, para el worker que atienda la siguiente petición.
         _taller_guardar_material(user_email, numero, material,
                                  avisos=list(r.avisos or []))
@@ -37301,6 +37401,16 @@ async def _taller_proponer_nucleo(user_email: str, numero: str, ses: dict,
             _pral_txt = str(_pp0.get("pregunta") if isinstance(_pp0, dict) else _pp0)
         if not _pral_txt:
             _pral_txt = str(r.fases.problema_global or "")
+        # APUNTADA A LA CUESTIÓN DECISIVA (SPEC E3, AR 631/2025) y, si la
+        # trae, a la interpretación conforme del precepto: la línea que importa
+        # es la de la figura, no la del argumento de la recurrida. Sólo entra
+        # lo que el acervo confirma; las pistas siguen sin citarse.
+        try:
+            import pregunta_decisiva as _pd_w
+            _pral_txt = _pd_w.pregunta_internet(
+                _pd_w.de_material(ses["material"], problemas), _pral_txt)
+        except Exception:
+            pass
         if _pral_txt.strip():
             _hechos_txt = " ".join((r.fases.parrafos_acto() or [])[:3])[:1500]
             _web = await asyncio.wait_for(
@@ -37673,6 +37783,9 @@ async def taller_proponer(
             qdrant_client, _embedding_juris,
             lambda t: get_dense_embedding(t, modelo=EMBEDDING_MODEL),
             ses["resultado"], chat_client)
+        # Y LA FIGURA DE LA PREGUNTA DECISIVA, de la marca (SPEC E3).
+        await _taller_figura_al_material(ses["resultado"], ses["material"],
+                                         _taller_decisiva_guardada(user_email, numero, ses["resultado"]))
 
     # LA PROPUESTA YA CORRIÓ SOLA —`_taller_preproponer`, encadenada a la
     # consulta automática— y vale tal cual si el secretario no aporta
@@ -37980,6 +38093,9 @@ async def taller_recalificar(
                 qdrant_client, _embedding_juris,
                 lambda t: get_dense_embedding(t, modelo=EMBEDDING_MODEL),
                 r, chat_client)
+            # Y LA FIGURA DE LA PREGUNTA DECISIVA, de la marca (SPEC E3).
+            await _taller_figura_al_material(r, ses["material"],
+                                             _taller_decisiva_guardada(user_email, numero, r))
         except Exception as ex:
             print(f"   ⚠️ RECALIFICAR {numero}: sin el acervo ({err(ex)}); se recalifica sin él")
     import suplencia as _sp_rc
@@ -38124,6 +38240,9 @@ async def taller_resolver_stream(
             qdrant_client, _embedding_juris,
             lambda t: get_dense_embedding(t, modelo=EMBEDDING_MODEL),
             ses["resultado"], chat_client)
+        # Y LA FIGURA DE LA PREGUNTA DECISIVA, de la marca (SPEC E3).
+        await _taller_figura_al_material(ses["resultado"], ses["material"],
+                                         _taller_decisiva_guardada(user_email, numero, ses["resultado"]))
 
     import fase6_estudio as _f6
     import redactor_adelanto as _ra
@@ -38663,6 +38782,9 @@ async def taller_resolver(
             qdrant_client, _embedding_juris,
             lambda t: get_dense_embedding(t, modelo=EMBEDDING_MODEL),
             ses["resultado"], chat_client)
+        # Y LA FIGURA DE LA PREGUNTA DECISIVA, de la marca (SPEC E3).
+        await _taller_figura_al_material(ses["resultado"], ses["material"],
+                                         _taller_decisiva_guardada(user_email, numero, ses["resultado"]))
     import fase6_estudio as _f6
     import redactor_adelanto as _ra
 

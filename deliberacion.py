@@ -1013,6 +1013,17 @@ QUÉ DEVUELVES:
    palabra y la que no está se descarta.
 4. `hechos_que_deciden`: los hechos del expediente de los que depende la
    respuesta, como mucho cinco, uno por elemento, sin calificarlos.
+5. `busquedas`: de dos a cuatro consultas para buscar en el Semanario el
+   criterio que contesta la pregunta decisiva, escritas en el lenguaje de los
+   RUBROS: sintagmas nominales en versales, la figura primero y sus notas
+   después, sin verbos conjugados, sin hechos ni partes. Al menos una nombra
+   la figura con las notas del caso; otra, el GÉNERO al que pertenece, para
+   alcanzar por analogía si no hay criterio sobre el caso concreto.
+6. `interpretacion_conforme`: si la respuesta depende del alcance de un
+   precepto que admite más de una lectura y una de ellas es la conforme con la
+   Constitución o la más favorable a la persona, `precepto` (el artículo y su
+   ley, tal como constan arriba) y `por_que` (en un renglón, qué lecturas
+   admite y de qué depende elegir). Si no depende de eso, null.
 
 No cites tesis, registros ni preceptos que no estén arriba. No decidas.
 
@@ -1020,7 +1031,9 @@ Devuelve SÓLO un JSON, sin texto alrededor:
 {{"figura": "<la institución>",
   "pregunta_decisiva": "<la pregunta de derecho>",
   "proposicion_toral": {{"dice": "<una frase>", "cita": "<literal o vacía>"}},
-  "hechos_que_deciden": ["<un hecho>"]}}"""
+  "hechos_que_deciden": ["<un hecho>"],
+  "busquedas": ["<consulta en lenguaje de rubro>"],
+  "interpretacion_conforme": {{"precepto": "<artículo y ley>", "por_que": "<un renglón>"}} o null}}"""
 
 
 def prompt_lectura(decisiva: dict, candidatas: list) -> str:
@@ -1369,7 +1382,39 @@ async def etapa_a(cliente, pral: dict, contraste: Optional[dict], resumen_acto: 
                                   "cita": cita, "verificada": bool(cita)},
             "hechos_que_deciden": [" ".join(str(h).split()) for h in (d.get("hechos_que_deciden") or [])
                                    if str(h).strip()][:5],
+            # LA PREGUNTA TAL COMO LLEGÓ (SPEC E3, AR 631/2025): la recurrida
+            # la planteó como «¿alteró la cosa juzgada?» y lo que decide es la
+            # figura. Las dos viajan: la decisiva manda la búsqueda y el
+            # razonamiento; la recurrida es el marco en que se contesta.
+            "pregunta_recurrida": " ".join(_pregunta(pral).split()),
+            "busquedas": _busquedas_de(d.get("busquedas")),
+            "interpretacion_conforme": _interpretacion_de(d.get("interpretacion_conforme")),
             "formulada": bool(d.get("pregunta_decisiva"))}
+
+
+def _busquedas_de(x: Any) -> list:
+    """Las consultas en lenguaje de rubro, sin repetir y con tope: cada una es
+    un embedding y una consulta a Qdrant. Se quitan los signos de pregunta: con
+    prosa interrogativa el vector `rubro` es lo peor medido (fase6_rag)."""
+    out, vistos = [], set()
+    for q in x if isinstance(x, list) else []:
+        t = " ".join(str(q or "").replace("¿", " ").replace("?", " ").split())[:220]
+        k = t.lower()
+        if len(t) >= 8 and k not in vistos:
+            vistos.add(k)
+            out.append(t)
+    return out[:4]
+
+
+def _interpretacion_de(x: Any) -> Optional[dict]:
+    """{precepto, por_que} o None. Sin precepto no hay interpretación conforme
+    que buscar: un «por qué» suelto no dice qué norma leer."""
+    if not isinstance(x, dict):
+        return None
+    pre = " ".join(str(x.get("precepto") or "").split())[:200]
+    if not pre:
+        return None
+    return {"precepto": pre, "por_que": " ".join(str(x.get("por_que") or "").split())[:400]}
 
 
 def _tesis_de_resultado(x: Any) -> tuple:
@@ -1683,7 +1728,8 @@ async def deliberar(cliente, *, problemas: list, material=None,
                     filas_propias: Optional[list] = None, region: Optional[str] = None,
                     clave_propia: str = "", tasa_base: str = "", tribunal: str = "",
                     quien_recurre: str = "", sobresee_ademas: bool = False,
-                    ficha: str = "") -> dict:
+                    ficha: str = "",
+                    decisiva_previa: Optional[dict] = None) -> dict:
     """La deliberación del problema principal. Devuelve el documento que va a la
     marca «deliberacion» (JSON puro). Las búsquedas se inyectan:
       buscar(pregunta, figura)                     → tesis (lista, dict o Material)
@@ -1703,9 +1749,20 @@ async def deliberar(cliente, *, problemas: list, material=None,
     tx = _Textos(textos)
     c_pral = _contraste_de(contraste, pi + 1)
 
-    # A · la pregunta decisiva
-    decisiva = await etapa_a(cliente, pral, c_pral, resumen_acto, resumen_conceptos, tx,
-                             tipo_asunto, es_recurso, uso, avisos, ficha=ficha)
+    # A · la pregunta decisiva. SI YA SE FORMULÓ PARA TODOS (SPEC E3,
+    # `pregunta_decisiva.py`, marca «decisiva» del mismo adelanto) y es de este
+    # principal, se reutiliza: la misma llamada, ya pagada, y la búsqueda de la
+    # figura ya está en el material.
+    _prev = decisiva_previa if isinstance(decisiva_previa, dict) else {}
+    if (_prev.get("formulada") and _prev.get("pregunta_decisiva")
+            and " ".join(str(_prev.get("pregunta_recurrida") or "").split())
+            == " ".join(_pregunta(pral).split())):
+        decisiva = {k: _prev.get(k) for k in (
+            "pregunta_decisiva", "figura", "proposicion_toral", "hechos_que_deciden",
+            "pregunta_recurrida", "busquedas", "interpretacion_conforme", "formulada")}
+    else:
+        decisiva = await etapa_a(cliente, pral, c_pral, resumen_acto, resumen_conceptos, tx,
+                                 tipo_asunto, es_recurso, uso, avisos, ficha=ficha)
 
     # B · la escalera
     cat = await etapa_b(cliente, decisiva, pral, pi, material, buscar=buscar, reforzar=reforzar,
