@@ -108,6 +108,7 @@ def material_ligero(m) -> dict:
         "sede_del_acto": str(getattr(m, "sede_del_acto", "") or ""),
         "cuaderno": str(getattr(m, "cuaderno", "") or ""),
         "entidad": str(getattr(m, "entidad", "") or ""),
+        "tribunal": str(getattr(m, "tribunal", "") or ""),
         "preceptos_de_internet": _lista(getattr(m, "preceptos_de_internet", []), 24),
         "sondeo": sondeo_ligero(getattr(m, "sondeo", None)),
         # LA PREGUNTA DECISIVA VIAJA CON EL MATERIAL (SPEC E3, AR 631/2025):
@@ -138,6 +139,11 @@ def material_rehidratado(d: dict):
     m.preceptos_de_internet = list(d.get("preceptos_de_internet") or [])
     m.sondeo = sondeo_rehidratado(d.get("sondeo"))
     m.decisiva = d.get("decisiva") if isinstance(d.get("decisiva"), dict) else None
+    # El tribunal viaja con el material; la fuerza NO se recalcula aquí (el
+    # material vuelve tal cual se guardó): la recalculan quienes la leen
+    # —propuesta, estudio, documento— con `fuerza_juridica.anotar`, que
+    # corrige un material guardado antes del 29-sep (`obligatoria = vincula`).
+    m.tribunal = str(d.get("tribunal") or "")
     return m
 
 

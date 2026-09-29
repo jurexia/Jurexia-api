@@ -541,6 +541,14 @@ def _verbo_de_enlace(anuncio: str) -> str:
     return _POR_DEFECTO
 
 
+def _fuerza_vincula(t: dict) -> bool:
+    """¿La tesis vincula a ESTE tribunal? De `fuerza_juridica` (rediseño,
+    punto 3): la jurisprudencia de otro colegiado se anuncia «como criterio
+    orientador», no como la que obliga."""
+    import fuerza_juridica as _fj
+    return _fj.vincula(t) is True
+
+
 def anuncio_de(t: dict, anuncio_del_modelo: str = "") -> str:
     """«Sirve de apoyo la tesis aislada del Pleno…, de registro 191358».
 
@@ -579,7 +587,7 @@ def anuncio_de(t: dict, anuncio_del_modelo: str = "") -> str:
     # contrasentido. Lo que se distingue no orienta nada.
     if es_anuncio_que_contesta(verbo):
         frase = f"{verbo} {sustantivo}"
-    elif t.get("obligatoria"):
+    elif _fuerza_vincula(t):
         # Un verbo con inciso propio —«Es aplicable, además»— pide cerrar la
         # coma antes del sustantivo, o queda «además la jurisprudencia».
         frase = (f"{verbo}, {sustantivo}" if "," in verbo

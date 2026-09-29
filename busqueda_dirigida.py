@@ -220,7 +220,8 @@ async def _ejecutar(qdrant, embed_juris, nombre: str, args: dict,
             return json.dumps([
                 {"registro": t["registro"], "rubro": t["rubro"],
                  "instancia": t["instancia"],
-                 "obligatoria": t["obligatoria"]} for t in salida], ensure_ascii=False)
+                 "obligatoria": __import__("fuerza_juridica").vincula(t) is True} for t in salida],
+                               ensure_ascii=False)
 
         if nombre == "leer_articulo":
             ley = str(args.get("ley") or "").strip()

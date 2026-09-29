@@ -332,6 +332,9 @@ class Material:
     # porque el material ya llega a todos los prompts. Sale de la colección
     # estatal que eligió el secretario («leyes_queretaro» → «Querétaro»).
     entidad: str = ""
+    # EL TRIBUNAL QUE RESUELVE (rediseño, punto 3, 29-sep-2026): la fuerza de
+    # cada tesis se calcula respecto de él (`fuerza_juridica.anotar`).
+    tribunal: str = ""
     # LA FORMA DE LA SENTENCIA —«estandar» o «moderna»—, por la misma razón que
     # la materia: dos redactores arman el prompt y el material llega a los dos.
     # Ver `formato_sentencia.py`.
@@ -933,10 +936,16 @@ def _bloque_material(m: Material) -> str:
         + _fig + _tec
     normas = (m.normas or [])[:MAX_NORMAS_PROMPT]
     if tesis:
+        import fuerza_juridica as _fj
+        _fj.anotar(tesis, str(getattr(m, "tribunal", "") or ""))
         p.append("\nTESIS Y JURISPRUDENCIA (existen: salen del acervo, no de tu memoria).")
         p.append("  La OBLIGATORIA vincula a este Tribunal y se invoca como razón que")
         p.append("  decide; la ORIENTADORA sólo ilustra y se cita como apoyo. Tratarlas")
-        p.append("  igual es un error de fondo, no de estilo.")
+        p.append("  igual es un error de fondo, no de estilo. La fuerza viene calculada")
+        p.append("  para ESTE tribunal (art. 217 LA): la jurisprudencia de otro")
+        p.append("  colegiado le ORIENTA, no lo obliga. Y que un criterio obligue no")
+        p.append("  dice que su regla gobierne este caso: aplícalo sólo si los hechos")
+        p.append("  satisfacen sus condiciones; si no, distínguelo.")
         p.append("  PREFIERE LA SUPREMA CORTE. Entre dos criterios que sirven igual, se")
         p.append("  cita el del Pleno o de una Sala antes que el de un Tribunal")
         p.append("  Colegiado: pesa más y evita el reproche de haberse quedado corto.")
@@ -954,7 +963,7 @@ def _bloque_material(m: Material) -> str:
             # colegiado que obliga en su circuito. La etiqueta decía sólo lo
             # primero, así que el modelo no tenía cómo saber que estaba citando
             # una tesis aislada —y la llamó jurisprudencia—.
-            fuerza = "OBLIGATORIA" if t.get("obligatoria") else "orientadora"
+            fuerza = _fj.rotulo(t)
             tipo = str(t.get("tipo") or "").strip() or "tipo no declarado"
             # CUÁNTAS VECES LO CITA EL CIRCUITO PARA ESTA CUESTIÓN. Es un
             # dato que la búsqueda por parecido no puede dar: sale de contar

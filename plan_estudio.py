@@ -1216,7 +1216,9 @@ def indice_material(material, fases=None) -> dict:
     return {
         "tesis": [{"id": f"T{i}", "registro": str(t.get("registro") or "").strip(),
                    "rubro": _ws(t.get("rubro"))[:400],
-                   "obligatoria": bool(t.get("obligatoria")),
+                   # La fuerza para ESTE tribunal (fuerza_juridica, rediseño
+                   # punto 3), no `vincula` del Semanario.
+                   "obligatoria": __import__("fuerza_juridica").vincula(t) is True,
                    "texto": str(t.get("texto") or "")[:4000]}
                   for i, t in enumerate(tesis, 1)],
         "normas": [{"id": f"N{j}", "cuerpo_legal": _ws(n.get("cuerpo_legal"))[:200],

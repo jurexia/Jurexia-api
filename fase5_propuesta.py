@@ -342,6 +342,8 @@ def _tesis_del_material(material, limite: int = MAX_TESIS_PROPUESTA) -> list:
     tesis = [t for t in (getattr(material, "tesis", []) or []) if not t.get("metodo")]
     if not tesis:
         return []
+    import fuerza_juridica as _fj
+    _fj.anotar(tesis, str(getattr(material, "tribunal", "") or ""))
 
     grupos: dict = {}
     for t in tesis:
@@ -354,7 +356,7 @@ def _tesis_del_material(material, limite: int = MAX_TESIS_PROPUESTA) -> list:
     # de todo el material (`fase6_rag.sumar_figura`); ahora llegan al final y
     # aquí se les da su sitio sin pasar delante de una obligatoria.
     for g in grupos.values():
-        g.sort(key=lambda t: (not t.get("obligatoria"), not t.get("de_figura")))
+        g.sort(key=lambda t: (_fj.orden(t), not t.get("de_figura")))
 
     fuera, vistos = [], set()
     vuelta = 0
@@ -401,11 +403,12 @@ def _indice_por_problema(tesis: list, cuantos: int) -> str:
 
 
 def _bloque_tesis(tesis: list) -> str:
+    import fuerza_juridica as _fj
     fuera = []
     for t in tesis:
         fuera.append(
             f"[registro {t.get('registro','')}] "
-            f"{'OBLIGATORIA' if t.get('obligatoria') else 'orientadora'} · "
+            f"{_fj.rotulo(t)} · "
             f"{t.get('instancia','')}"
             # PARA QUÉ PROBLEMA SE BUSCÓ. Sin esto el modelo recibe un montón
             # indistinto y se queda con las dos primeras que le suenan.

@@ -850,6 +850,11 @@ async def consultar(qdrant, embed_juris, embed_leyes,
     # Y EL TIPO, para que la prosa del estudio nombre a las partes con las
     # figuras de ESTE recurso y no con las del amparo directo.
     material.tipo_asunto = r.encargo.tipo_asunto
+    # LA FUERZA RESPECTO DE ESTE TRIBUNAL (rediseño, punto 3): su circuito, su
+    # región y su designación deciden si una tesis lo vincula.
+    material.tribunal = str(getattr(r.encargo, "tribunal", "") or "")
+    import fuerza_juridica as _fj
+    _fj.anotar(material.tesis, material.tribunal)
     material.entidad = _entidad_de(coleccion)
     if sondeo is not None:
         for a in (sondeo.avisos or []):

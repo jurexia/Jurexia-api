@@ -407,7 +407,9 @@ def _indice(material, fases) -> dict:
         ind = _pe.indice_material(material, fases)
     except Exception:
         ind = {"tesis": [{"registro": str(t.get("registro") or ""), "rubro": _ws(t.get("rubro"))[:400],
-                          "obligatoria": bool(t.get("obligatoria")), "texto": str(t.get("texto") or "")}
+                          # La fuerza para ESTE tribunal (fuerza_juridica, punto 3).
+                          "obligatoria": __import__("fuerza_juridica").vincula(t) is True,
+                          "texto": str(t.get("texto") or "")}
                          for t in (getattr(material, "tesis", None) or [])[:10] if isinstance(t, dict)],
                "normas": [{"cuerpo_legal": _ws(n.get("cuerpo_legal"))[:200], "articulo": _ws(n.get("articulo")),
                            "texto": str(n.get("texto") or "")}

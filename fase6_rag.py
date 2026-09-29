@@ -303,7 +303,7 @@ def _es_scjn(t: dict) -> bool:
 
 
 def _tesis_de(p: dict) -> dict:
-    return {
+    d = {
         "registro": str(p.get("registro") or ""),
         "instancia": p.get("instancia") or "",
         "rubro": p.get("rubro") or "",
@@ -313,13 +313,20 @@ def _tesis_de(p: dict) -> dict:
         # aplicar su segunda regla —la del rubro que encabeza «SUSPENSIÓN.» a
         # secas—, que es la que distingue la del amparo de la del fuero común.
         "materia": p.get("materia") or "",
-        "obligatoria": bool(p.get("vincula")),
+        # `vincula` del Semanario dice «es jurisprudencia», no «obliga a este
+        # tribunal» (rediseño, punto 3): se guarda crudo y `obligatoria` la
+        # calcula `fuerza_juridica` abajo (sin tribunal, la regla general de un
+        # colegiado; con él, al anotar el material).
+        "vincula_origen": bool(p.get("vincula")),
         "localizacion": p.get("localizacion") or "",
         # EL SELLO DE VIGENCIA (25-sep-2026): None si no consta pérdida. Todas
         # las tesis del taller pasan por aquí —búsqueda, citadas por la parte,
         # diálogo constitucional, línea de internet—, así que lo heredan todas.
         "vigencia": _vig.de(p.get("registro")),
     }
+    import fuerza_juridica as _fj
+    _fj.anotar([d])
+    return d
 
 
 def _norma_de(p: dict) -> dict:
@@ -1474,7 +1481,7 @@ async def material_para(qdrant, embed_juris, embed_leyes,
     # bandera devuelve exactamente el comportamiento anterior más la prosa.
     tesis.sort(key=lambda t: (t.get("rerank", 10 ** 6),
                               _rango_instancia(t),
-                              not t["obligatoria"],
+                              not t.get("vincula_origen", t.get("obligatoria")),
                               -int(t.get("veces") or 0),
                               _de_otro_estado(t, coleccion_estatal)))
     vistos: set[str] = set()
@@ -1777,7 +1784,7 @@ async def material_del_caso(qdrant, embed_juris, embed_leyes,
     # jurisprudencia de colegiado. Es el mismo descuido de siempre —dos sitios,
     # arreglado uno—, y aquí duele más porque éste es el último.
     tesis.sort(key=lambda t: (_rango_instancia(t),
-                              not t["obligatoria"],
+                              not t.get("vincula_origen", t.get("obligatoria")),
                               -int(t.get("veces") or 0),
                               _de_otro_estado(t, coleccion_estatal)))
     # Y LOS PRINCIPIOS DE TODOS LOS PROBLEMAS, sin repetir: se perdían aquí.
