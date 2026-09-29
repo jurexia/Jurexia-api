@@ -65,6 +65,9 @@ import redactor_adelanto as ra
 src = inspect.getsource(ra)
 ok(src.count("avisos = await _fuentes_tardias(r, e, material, estudio, avisos, qdrant, _meta)") == 2,
    "resolver y resolver_en_vivo llaman a la MISMA función (el bloque copiado se juntó)")
+_cons = inspect.getsource(ra.consultar)
+ok("completar_tesis_citadas" in _cons and "citas_invocadas" in _cons,
+   "las tesis que invoca la parte se traen AL CONSULTAR (decisión 3): ya no llegan tarde")
 ok("relleno.normas = material.normas" in src,
    "los artículos recuperados en _terminar SÍ llegan al documento (antes se reasignaba otra lista)")
 

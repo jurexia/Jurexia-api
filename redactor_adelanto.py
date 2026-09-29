@@ -853,6 +853,25 @@ async def consultar(qdrant, embed_juris, embed_leyes,
     # LA FUERZA RESPECTO DE ESTE TRIBUNAL (rediseño, punto 3): su circuito, su
     # región y su designación deciden si una tesis lo vincula.
     material.tribunal = str(getattr(r.encargo, "tribunal", "") or "")
+    # LAS TESIS QUE INVOCA LA PARTE, ANTES DE PROPONER Y DE PLANEAR (rediseño,
+    # punto 7, decisión 3 de David del 29-sep-2026). Antes se traían DESPUÉS de
+    # redactar (`_fuentes_tardias`): el estudio contestaba el argumento sin el
+    # texto de la tesis que la parte invocó, y lo tardío sólo producía ficha.
+    # Traídas aquí son fuente de premisa: las ven la propuesta, el plan y el
+    # estudio. Sólo entra lo que EXISTE en el acervo, por registro o clave.
+    try:
+        import fases123_pipeline as _f123q
+        _esc_q = (list(getattr(r.fases, "fuentes", []) or []) + ["", ""])[1]
+        _citas_q = sorted(_f123q.citas_invocadas(_esc_q))
+        if _citas_q and qdrant is not None:
+            _nq = await f6rag.completar_tesis_citadas(
+                qdrant, material, _citas_q,
+                tipo_asunto=getattr(r.encargo, "tipo_asunto", "") or "")
+            if _nq:
+                print(f"   ⚖️ las {len(_nq)} tesis que invoca la parte, traídas ANTES de proponer: "
+                      f"{', '.join(_nq[:6])}")
+    except Exception as _eq:
+        print(f"   ⚠️ tesis de la parte sin traer antes de proponer: {type(_eq).__name__}")
     # EN UNA EVALUACIÓN, NADA PUBLICADO DESDE LA SENTENCIA QUE SE MIDE
     # (contexto_taller; `fecha_publicacion` la guarda _tesis_de desde el 29-sep).
     import contexto_taller as _ct
