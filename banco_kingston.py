@@ -325,12 +325,37 @@ async def correr(etapa: str, paralelo: int, solo: int | None, banderas: dict | N
     comparar()
 
 
+# EL ORO AUDITADO (29-sep-2026). La etiqueta de `comparar.sentido` sale del
+# texto del ESTUDIO, no de los resolutivos, y estaba mal en 8 de 24: cuatro
+# «concede» que niegan (103, 702, 590, 641 —éste tomado de una ejecutoria
+# anterior citada—), un «niega» que concede (625: el niega era del adhesivo) y
+# tres sin engrose verdadero (192 plantilla con el estudio de otro asunto, 463
+# con el engrose del 492, 810 borrador de máquina), que se EXCLUYEN. Dos
+# lectores independientes por asunto sobre los resolutivos y conciliación.
+ORO_AUDITADO = AQUI / "oro_auditado.json"
+
+
+def oro_auditado() -> dict:
+    try:
+        return {k: v["oro"] for k, v in json.loads(ORO_AUDITADO.read_text(encoding="utf-8"))["asuntos"].items()}
+    except Exception:
+        return {}
+
+
 def comparar(contra: str = "") -> None:
     filas = [json.loads(l) for l in RESULTADOS.read_text(encoding="utf-8").splitlines() if l.strip()]
     por = collections.defaultdict(dict)
+    _aud = oro_auditado()
+    if _aud:
+        print(f"   (oro AUDITADO: {sum(1 for v in _aud.values() if v != 'excluir')} asuntos; "
+              f"excluidos {sorted(k for k, v in _aud.items() if v == 'excluir')})")
     for f in filas:
         if "error" in f or not f.get("propuesto"):
             continue
+        if _aud.get(f.get("asunto")):
+            if _aud[f["asunto"]] == "excluir":
+                continue
+            f = dict(f, oro=_aud[f["asunto"]], acierta=(f["propuesto"] == _aud[f["asunto"]]))
         # LAS FILAS DE ANTES DEL ARREGLO (sin exclusión) no se comparan con las
         # nuevas: se midieron con fuga.
         if not f.get("exclusion"):
