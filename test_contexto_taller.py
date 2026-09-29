@@ -102,6 +102,19 @@ ok(set(_bk0.BANDERAS_BASE) == set(ct.BANDERAS_REDISENO) and not any(_bk0.BANDERA
    and set(_bd0.BANDERAS_OAJ) == set(ct.BANDERAS_REDISENO),
    "los bancos fijan TODAS las banderas del rediseño; la base, apagadas (= producción de fuera)")
 
+print("\n4c · LAS CUENTAS DE PRUEBA (David: «voy a probar en las cuentas de @iurexia.com»)")
+ct.poner(True, {}, pruebas=False)          # jdm.juridico: de casa, NO de pruebas
+ok(not any(ct.rediseno(k) for k in ct.BANDERAS_REDISENO),
+   "su cuenta personal queda como la de cualquier secretario: todas las banderas apagadas")
+ct.poner(True, {}, pruebas=True)           # una @iurexia.com
+ok(all(ct.rediseno(k) for k in ct.BANDERAS_REDISENO), "en las cuentas de prueba, encendidas")
+ct.poner(True, {"exclusion": {"neuns": [5]}}, pruebas=False)
+ok(ct.exclusion() is not None, "la evaluación sigue siendo cosa de casa (no depende de ser de pruebas)")
+src_m = open("main.py", encoding="utf-8").read()
+ok("def _taller_cuenta_de_pruebas" in src_m and "c.endswith(TALLER_DOMINIO_INTERNO)" in src_m
+   and src_m.count("pruebas=_taller_cuenta_de_pruebas(") == 3,
+   "main marca como de prueba sólo las @iurexia.com (y REDISENO_CUENTAS_PRUEBA), en las tres puertas del contexto")
+
 print("\n5 · LAS FUENTES LA RESPETAN")
 import fase_oaj as fo
 ct.poner(True, {"exclusion": {"neuns": [700], "fecha_corte": "2026-01-01"}})

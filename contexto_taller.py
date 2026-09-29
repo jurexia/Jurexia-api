@@ -160,7 +160,7 @@ class Exclusion:
 
 # ═══ EL CONTEXTO DE LA PETICIÓN ══════════════════════════════════════════════
 
-def poner(casa: bool = False, evaluacion: dict | None = None) -> None:
+def poner(casa: bool = False, evaluacion: dict | None = None, pruebas: bool | None = None) -> None:
     """Pone el contexto de ESTA petición (y de las tareas que lance después).
 
     `evaluacion` = {"exclusion": {...}, "banderas": {...}} guardado en la
@@ -179,7 +179,13 @@ def poner(casa: bool = False, evaluacion: dict | None = None) -> None:
             b = _booleano(v)
             if b is not None:
                 ban[str(k)] = b
-    _CTX.set({"casa": bool(casa), "exclusion": exc, "banderas": ban})
+    # LAS CUENTAS DE PRUEBA (David, 29-sep-2026: «en donde voy a probar el
+    # redactor es en las cuentas de @iurexia.com»). Las banderas «casa» se
+    # encienden para ellas; su cuenta personal (jdm.juridico, que es de casa
+    # por ADMIN_EMAILS) queda como la de cualquier secretario. Sin decirlo,
+    # prueba = casa.
+    _CTX.set({"casa": bool(casa), "pruebas": bool(casa if pruebas is None else pruebas),
+              "exclusion": exc, "banderas": ban})
 
 
 def _booleano(v):
@@ -242,7 +248,11 @@ def aplicado() -> dict:
 
 
 def actual() -> dict:
-    return _CTX.get() or {"casa": False, "exclusion": None, "banderas": {}}
+    return _CTX.get() or {"casa": False, "pruebas": False, "exclusion": None, "banderas": {}}
+
+
+def es_de_pruebas() -> bool:
+    return bool(actual().get("pruebas"))
 
 
 def exclusion() -> Exclusion | None:
@@ -267,7 +277,8 @@ def bandera(nombre: str, defecto_env: str = "", omision: str = "casa") -> bool:
     if modo in ("1", "true", "si", "sí", "todos"):
         return True
     if modo == "casa":
-        return es_casa()
+        # «casa» para las banderas = las cuentas DE PRUEBA (ver `poner`).
+        return es_de_pruebas()
     return False
 
 

@@ -25923,6 +25923,15 @@ def _taller_sin_tope(correo: str) -> bool:
 # (`_taller_sin_tope`: las de David y todo @iurexia.com, administracion@ y
 # soporte@ incluidas). A cualquier otra cuenta se le ignora el campo: un
 # secretario del piloto no elige el prompt con que se mide el producto.
+def _taller_cuenta_de_pruebas(correo: str) -> bool:
+    """Donde se prueban los cambios del rediseño antes de soltarlos (David,
+    29-sep-2026): las cuentas @iurexia.com, más las que diga
+    REDISENO_CUENTAS_PRUEBA (lista por comas). Su cuenta personal no."""
+    c = (correo or "").strip().lower()
+    extra = {e.strip().lower() for e in (os.getenv("REDISENO_CUENTAS_PRUEBA", "") or "").split(",") if e.strip()}
+    return bool(c) and (c.endswith(TALLER_DOMINIO_INTERNO) or c in extra)
+
+
 def _taller_es_casa(correo: str) -> bool:
     c = (correo or "").strip().lower()
     return bool(c) and (c in ADMIN_EMAILS or _taller_sin_tope(c))
@@ -32562,7 +32571,8 @@ async def taller_adelanto(
               f"{sorted((_ev_pedida.get('exclusion') or {}).keys())} · banderas {_ev_pedida.get('banderas') or {}}")
     try:
         import contexto_taller as _ctx_t
-        _ctx_t.poner(_taller_es_casa(user_email), getattr(r, "evaluacion", None))
+        _ctx_t.poner(_taller_es_casa(user_email), getattr(r, "evaluacion", None),
+                     pruebas=_taller_cuenta_de_pruebas(user_email))
     except Exception as _ecx:
         # El adelanto YA se generó: pase lo que pase aquí, se guarda.
         print(f"   ⚠️ contexto del taller sin poner: {type(_ecx).__name__}")
@@ -32972,7 +32982,7 @@ def _taller_con_aplicado(resp, email: str, recalculada=None):
     """A una cuenta de CASA se le devuelve lo que rigió en la petición
     (exclusión, banderas y si se recalculó): el banco comprueba con esto que el
     servidor aplicó lo pedido. A los demás, la respuesta de siempre."""
-    if not (isinstance(resp, dict) and _taller_es_casa(email)):
+    if not (isinstance(resp, dict) and _taller_es_casa(email) and _taller_cuenta_de_pruebas(email)):
         return resp
     try:
         import contexto_taller as _ctx_a
@@ -35494,7 +35504,7 @@ def _taller_recuperar_sesion(email: str, numero: str):
     ses = _taller_recuperar_sesion_crudo(email, numero)
     try:
         import contexto_taller as _ctx_t
-        _ctx_t.poner(_taller_es_casa(email),
+        _ctx_t.poner(_taller_es_casa(email), pruebas=_taller_cuenta_de_pruebas(email), evaluacion=
                      getattr((ses or {}).get("resultado"), "evaluacion", None))
     except Exception as _ec:
         print(f"   ⚠️ contexto del taller sin poner: {type(_ec).__name__}")
@@ -38115,7 +38125,7 @@ async def taller_proponer(
                 import contexto_taller as _ctx_t
                 _ev = dict(getattr(ses["resultado"], "evaluacion", None) or {})
                 _ev["banderas"] = {**(_ev.get("banderas") or {}), **_ban}
-                _ctx_t.poner(True, _ev)
+                _ctx_t.poner(True, _ev, pruebas=_taller_cuenta_de_pruebas(user_email))
                 print(f"   🧪 TALLER: {numero} propone con banderas {_ban}")
         except Exception as _eb:
             print(f"   ⚠️ banderas ilegibles, se ignoran: {type(_eb).__name__}")
