@@ -904,6 +904,74 @@ finally:
     else:
         os.environ["OAJ_POSIBLES"] = _antes
 
+print("\n8c · EL PRIMERO, CON SU TABLA (29-sep)")
+# La tabla de todos los rangos no llega al 50%; la del primero, sí. Es la forma
+# de la queja del 28-sep: el primer resultado con coseno alto acertaba, y los
+# vecinos del rango 5-20 con el mismo coseno arrastraban la tabla entera.
+CAL_R1 = {
+    "planteamiento": {"Amparo Directo": [[0.0, 0.70, 0.10, 40], [0.70, 1.0, 0.40, 30]]},
+    "planteamiento_r1": {"Amparo Directo": [[0.0, 0.78, 0.20, 30], [0.78, 0.82, 0.60, 10],
+                                            [0.82, 1.0, 0.95, 20]]},
+}
+usar_calibracion(CAL_R1)
+q = QdrantFalso([(0.85, pl(800)), (0.84, pl(801)), (0.80, pl(802))])
+filas = correr(fo.precedentes_oaj(q, embed, PROB, "amparo_directo", ORG3))
+ok(niveles(filas) == ([800], []) and filas[0]["similitud"] == 95,
+   f"el primero se lee con SU tabla (95%, mismo problema); el segundo, con coseno "
+   f"casi igual, con la de los demás (40%): calla (salió {niveles(filas)})")
+ok(q.llamadas and q.llamadas[0]["umbral"] == 0.78,
+   "a Qdrant se le pide desde el corte más bajo de las dos tablas (0.78, el "
+   "«posible» del primero)")
+
+q = QdrantFalso([(0.80, pl(810)), (0.79, pl(811))])
+filas = correr(fo.precedentes_oaj(q, embed, PROB, "amparo_directo", ORG3))
+ok(niveles(filas) == ([], [810]) and filas[0]["similitud"] == 60,
+   f"un primero en el tramo del 60% es «posible» con su número (salió "
+   f"{[(f['neun'], f['nivel'], f['similitud']) for f in filas]})")
+
+# EL PROPIO ASUNTO FUERA ANTES DE CONTAR. Si el 900/2025 se está proyectando y
+# ya está publicado, el primero de verdad es el 901.
+q = QdrantFalso([(0.99, pl(900)), (0.85, pl(901))])
+filas = correr(fo.precedentes_oaj(q, embed, PROB, "amparo_directo", ORG3,
+                                  "A.D. 900-2025"))
+ok(niveles(filas) == ([901], []),
+   f"sin el propio asunto, el 901 es el primero y se lee con la tabla del "
+   f"primero (salió {niveles(filas)})")
+filas = correr(fo.precedentes_oaj(QdrantFalso([(0.99, pl(900)), (0.85, pl(901))]),
+                                  embed, PROB, "amparo_directo", ORG3))
+ok(niveles(filas) == ([900], []),
+   f"sin decir cuál es el propio, el 900 es el primero y el 901 ya no alcanza "
+   f"(salió {niveles(filas)})")
+ok(fo.numero_expediente("3._ARA_17-2025") == (17, "2025")
+   and fo.numero_expediente("AR 17 / 2025") == (17, "2025")
+   and fo.numero_expediente("sin número") is None,
+   "el número del expediente se reconoce en sus grafías")
+
+# Sin tabla del primero, todo como antes: el primero con la de todos.
+usar_calibracion(CAL)
+filas = correr(fo.precedentes_oaj(QdrantFalso([(0.80, pl(820))]), embed, PROB,
+                                  "amparo_directo", ORG3))
+ok(niveles(filas) == ([820], []) and filas[0]["similitud"] == 95,
+   "sin `planteamiento_r1` en el JSON, el primero se lee con la tabla de siempre")
+
+# `umbral_85` del primero en null: ese nivel calla para el primero, y como la
+# tabla lo ponía en 95%, los posibles de ese planteamiento callan también.
+usar_calibracion(dict(CAL_R1, umbral_85={"planteamiento_r1": {"Amparo Directo": None}}))
+filas = correr(fo.precedentes_oaj(QdrantFalso([(0.85, pl(830)), (0.80, pl(831))]),
+                                  embed, PROB, "amparo_directo", ORG3))
+ok(filas == [], f"el `null` del primero se respeta (salió {niveles(filas)})")
+
+# OAJ_POSIBLES=0 calla también el «posible» del primero.
+usar_calibracion(CAL_R1)
+os.environ["OAJ_POSIBLES"] = "0"
+try:
+    filas = correr(fo.precedentes_oaj(QdrantFalso([(0.80, pl(840))]), embed, PROB,
+                                      "amparo_directo", ORG3))
+finally:
+    os.environ.pop("OAJ_POSIBLES", None)
+ok(filas == [], "con OAJ_POSIBLES=0 el primero en 60% tampoco sale")
+
+
 print("\n9 · LOS ERRORES NO TUMBAN NADA")
 usar_calibracion(CAL)
 ok(correr(fo.precedentes_oaj(QdrantFalso(PUNTOS, falla=True), embed, PROB,
@@ -1113,6 +1181,36 @@ for trib in ("Segundo Tribunal Colegiado en Materia Civil del Primer Circuito",
                                    consultas_como_produccion([P1])))
     ok(not q.oaj() and not any("similitud" in f for g in esp for f in g["filas"]),
        f"«{trib[:50]}…» → la OAJ ni se consulta")
+
+print("\n12c · EL PRINCIPAL SE QUEDA CON SUS PRECEDENTES")
+# La tarjeta del principal y la deliberación leen SÓLO el grupo del principal.
+# P1 (accesorio) va antes y recupera la misma sentencia: la tiene que ceder.
+PA = dict(PROB, jerarquia="accesorio")
+PP = dict(P2, jerarquia="principal")
+
+
+def dos_iguales(consulta):
+    if consulta.startswith(PA["pregunta"] + " ") or consulta.startswith(PP["pregunta"] + " "):
+        return [(0.80, pl(111)), (0.79, pl(112))]
+    return []
+
+
+usar_calibracion(CAL)
+_original = fe.espejo
+fe.espejo = espejo_viejo_espia
+try:
+    esp = correr(ra._espejo_propio(QdrantFalso(dos_iguales), embed,
+                                   resultado([PA, PP]),
+                                   consultas_como_produccion([PA, PP])))
+finally:
+    fe.espejo = _original
+_grupos = {g["problema"]: [f["neun"] for f in g["filas"]] for g in esp}
+ok(_grupos.get(PP["pregunta"]) == [111, 112] and PA["pregunta"] not in _grupos,
+   f"las dos sentencias quedan bajo el PRINCIPAL aunque el accesorio va antes "
+   f"(salió {_grupos})")
+ok([g["problema"] for g in esp] == [PA["pregunta"], PP["pregunta"]][1:],
+   "y el orden de los grupos sigue siendo el de los planteamientos")
+
 
 print("\n12b · POR consultar(), COMO EN PRODUCCIÓN")
 import fase6_estudio as f6

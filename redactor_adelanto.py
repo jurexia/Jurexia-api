@@ -1104,29 +1104,26 @@ async def _espejo_oaj(qdrant, embed, r: Resultado, circ: str,
     if not planteamientos:
         return []
     tipo = getattr(e, "tipo_asunto", "") or ""
+    # EL PROPIO ASUNTO NO ES SU PRECEDENTE (ver `fo.numero_expediente`). Se
+    # quita DENTRO de la búsqueda, antes de contar rangos —el primero se lee
+    # con su propia tabla— y otra vez aquí, por si una fila llegara por otro
+    # camino.
+    _numero = getattr(e, "numero", "") or ""
     try:
         tiros = await asyncio.gather(*[
-            fo.precedentes_oaj(qdrant, embed, p, tipo, organo)
+            fo.precedentes_oaj(qdrant, embed, p, tipo, organo, _numero)
             for p in planteamientos], return_exceptions=True)
     except Exception as exc:
         print(f"   ⚠️ precedentes OAJ omitidos: {exc}")
         return []
-    # EL PROPIO ASUNTO NO ES SU PRECEDENTE. Si el expediente que se proyecta ya
-    # está resuelto y publicado en la OAJ (un reproceso, un asunto de prueba),
-    # su propia sentencia sale arriba como «precedente» de sí misma. Medido el
-    # 28-sep en la prueba de humo: el AR 17/2025 y el AD 704/2022 se citaban a
-    # sí mismos. Se compara el número «N/AAAA», sea cual sea la grafía de la
-    # ficha («17-2025», «3._ARA_17-2025»).
-    def _num(x):
-        m = re.search(r"(\d{1,5})\s*[/\-]\s*(\d{4})", str(x or ""))
-        return (int(m.group(1)), m.group(2)) if m else None
-    _propio = _num(getattr(e, "numero", ""))
+    _propio = fo.numero_expediente(_numero)
     hablan = []
     for p, filas in zip(planteamientos, tiros):
         if isinstance(filas, BaseException) or not filas:
             continue
         if _propio:
-            filas = [f for f in filas if _num(f.get("expediente")) != _propio]
+            filas = [f for f in filas
+                     if fo.numero_expediente(f.get("expediente")) != _propio]
         if filas:
             hablan.append((p, filas))
     limpias_de = [[] for _ in hablan]
@@ -1137,8 +1134,18 @@ async def _espejo_oaj(qdrant, embed, r: Resultado, circ: str,
     # primer planteamiento y «mismo problema» para el tercero saldría abajo,
     # como posible, y arriba ya no: el orden de los planteamientos le habría
     # quitado el nivel que la tabla le da.
+    #
+    # Y EL PRINCIPAL PRIMERO en cada pasada. La tarjeta «El problema principal
+    # y su solución» (tarjeta_decision._tu_tribunal) y la deliberación leen
+    # SÓLO el grupo del principal: si un accesorio anterior se quedara con una
+    # sentencia que también es del principal, el principal la perdería justo
+    # donde decide. En la tarjeta vieja no cambia nada: la sentencia sale una
+    # vez, sólo que bajo el principal.
+    orden = sorted(range(len(hablan)), key=lambda i: str(
+        (hablan[i][0] or {}).get("jerarquia") or "").strip().lower() != "principal")
     for pasada_posibles in (False, True):
-        for i, (_p, filas) in enumerate(hablan):
+        for i in orden:
+            _p, filas = hablan[i]
             for f in filas:
                 # Una fila sin `nivel` es del nivel de arriba: así la
                 # escribía esta fuente antes de los dos niveles.

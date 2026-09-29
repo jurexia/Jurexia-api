@@ -183,6 +183,9 @@ MOSTRADAS = 6
 # Los posibles van DEBAJO y son menos: tres renglones que hay que revisar a
 # mano ya son trabajo; seis serían una lista que nadie termina.
 MOSTRADAS_POSIBLES = 3
+# La clase del JSON con la tabla del PRIMER resultado. Ver «El primero no es
+# como los demás».
+CLASE_PRIMERO = "planteamiento_r1"
 
 
 def posibles_activos() -> bool:
@@ -682,9 +685,16 @@ def _fila(sc: float, n: int, pl: dict, prob: float, fuente: str,
 
 
 def _repartir(mejores, tabla, fuente: str, corte_mismo, corte_posible,
-              excluir=frozenset()):
+              excluir=frozenset(), primero=None):
     """(mismo problema, posibles, escondidas): cada NEUN calibrado y puesto en
     su nivel.
+
+    `primero` es (tabla, corte_mismo, corte_posible) del PRIMER resultado —la
+    sentencia más cercana, ya sin el propio asunto— o None. Si viene, esa
+    sentencia se lee con su tabla y sus cortes y las demás con los de siempre
+    (ver «El primero no es como los demás»). El rango es la posición en
+    `mejores`, ANTES de `excluir`: si la primera ya salió por tema, la segunda
+    sigue siendo la segunda y se lee con la tabla de las demás.
 
     `corte_posible` None apaga el nivel de abajo (el respaldo por tema lo
     llama así: por tema sólo se enseña lo del 85%). `excluir` son NEUN que ya
@@ -705,10 +715,14 @@ def _repartir(mejores, tabla, fuente: str, corte_mismo, corte_posible,
     """
     mismas, posibles = [], []
     escondidas = 0
-    for sc, n, pl in mejores:
+    for pos, (sc, n, pl) in enumerate(mejores):
         if n in excluir:
             continue
-        prob, exacta = lectura(tabla, sc)
+        if pos == 0 and primero is not None and primero[0]:
+            tabla_i, c_mismo, c_posible = primero
+        else:
+            tabla_i, c_mismo, c_posible = tabla, corte_mismo, corte_posible
+        prob, exacta = lectura(tabla_i, sc)
         if prob is None:
             continue
         if prob >= PROB_MINIMA:
@@ -717,13 +731,13 @@ def _repartir(mejores, tabla, fuente: str, corte_mismo, corte_posible,
             # «posible»: su probabilidad no está entre 0.50 y 0.85, y
             # enseñarla ahí sería ponerle otro número. Y pasada la sexta, la
             # séptima tampoco baja: el nivel de abajo no es un cajón de sobras.
-            if corte_mismo is None or sc < corte_mismo:
+            if c_mismo is None or sc < c_mismo:
                 escondidas += 1
             elif len(mismas) < MOSTRADAS:
                 mismas.append(_fila(sc, n, pl, prob, fuente, NIVEL_MISMO,
                                     exacta))
         elif prob >= PROB_POSIBLE:
-            if (corte_posible is not None and sc >= corte_posible
+            if (c_posible is not None and sc >= c_posible
                     and len(posibles) < MOSTRADAS_POSIBLES):
                 posibles.append(_fila(sc, n, pl, prob, fuente, NIVEL_POSIBLE,
                                       exacta))
@@ -732,8 +746,32 @@ def _repartir(mejores, tabla, fuente: str, corte_mismo, corte_posible,
     return mismas, posibles, escondidas
 
 
+def numero_expediente(x):
+    """(número, año) de un expediente escrito como sea, o None.
+
+    «17/2025», «17-2025», «3._ARA_17-2025» y «AR 17 / 2025» dan (17, "2025").
+    Sirve para reconocer el PROPIO asunto entre sus precedentes: si ya está
+    resuelto y publicado en la OAJ (un reproceso, un asunto de prueba), su
+    sentencia sale arriba como precedente de sí misma. Medido el 28-sep en la
+    prueba de humo: el AR 17/2025 y el AD 704/2022 se citaban a sí mismos. El
+    tipo no se compara porque la búsqueda ya filtra por tipo.
+    """
+    m = re.search(r"(\d{1,5})\s*[/\-]\s*(\d{4})", str(x or ""))
+    return (int(m.group(1)), m.group(2)) if m else None
+
+
+def _sin_el_propio(mejores, expediente_propio) -> list:
+    """`mejores` sin las sentencias del propio asunto. ANTES de contar rangos:
+    si el propio asunto fuera el primero, el segundo se leería con la tabla de
+    las demás y perdería el nivel que la del primero le da."""
+    propio = numero_expediente(expediente_propio)
+    if not propio:
+        return list(mejores)
+    return [m for m in mejores if numero_expediente((m[2] or {}).get("alias")) != propio]
+
+
 async def precedentes_oaj(qdrant, embed, problema, tipo_taller: str,
-                          organo_oaj: str) -> list:
+                          organo_oaj: str, expediente_propio: str = "") -> list:
     """Los precedentes del propio tribunal para UN planteamiento.
 
     Hasta seis de nivel «mismo_problema» y, detrás, hasta tres «posible»; cada
@@ -745,7 +783,9 @@ async def precedentes_oaj(qdrant, embed, problema, tipo_taller: str,
     tabla sólo vale para la forma con que se midió (ver `texto_consulta`).
     `tipo_taller` es la clave del taller (amparo_directo, amparo_revision,
     queja, revision_fiscal) y `organo_oaj` el nombre exacto con el que la OAJ
-    indexa al tribunal (ver `organo_de`).
+    indexa al tribunal (ver `organo_de`). `expediente_propio` es el número del
+    asunto que se proyecta: su propia sentencia, si ya está publicada, no es
+    su precedente y no cuenta para el rango (ver `numero_expediente`).
 
     Lista vacía en cualquier duda: sin tabla, sin tipo, sin órgano, órgano no
     calibrado, sin nada que llegue al 50% (o al 85% por tema), o con cualquier
@@ -771,18 +811,24 @@ async def precedentes_oaj(qdrant, embed, problema, tipo_taller: str,
         t_as = tabla_de(cal, "asunto", tipo)
         corte_pl = _corte(cal, "planteamiento", tipo, t_pl)
         posible_pl = _corte_posible(cal, "planteamiento", tipo, t_pl)
-        if posible_pl is not None and not posibles_activos():
+        # EL PRIMERO, CON SU TABLA (ver «El primero no es como los demás»).
+        # Sin ella, el primero se lee con la de todos, como antes.
+        t_r1 = tabla_de(cal, CLASE_PRIMERO, tipo)
+        corte_r1 = _corte(cal, CLASE_PRIMERO, tipo, t_r1) if t_r1 else None
+        posible_r1 = _corte_posible(cal, CLASE_PRIMERO, tipo, t_r1) if t_r1 else None
+        if (posible_pl is not None or posible_r1 is not None) and not posibles_activos():
             # La reversa sin despliegue (ver «El orden de despliegue»). Se
             # apaga ANTES de decidir si se embebe: si sólo hablaba el nivel de
             # abajo, no se paga una llamada cuyo resultado no se enseña.
             _avisar_una_vez(("posibles_apagados",),
                             "OAJ_POSIBLES apagado: el nivel «posible» calla")
-            posible_pl = None
+            posible_pl = posible_r1 = None
         # Por tema sólo el nivel de arriba: no se calcula corte «posible».
         corte_as = _corte(cal, "asunto", tipo, t_as)
         # Sin ningún corte no se embebe siquiera: el porcentaje no se puede
         # decir y no se gasta la llamada.
-        if corte_pl is None and posible_pl is None and corte_as is None:
+        if (corte_pl is None and posible_pl is None and corte_r1 is None
+                and posible_r1 is None and corte_as is None):
             _avisar_una_vez(("sin_corte", id(cal), tipo),
                             f"sin corte fiable (ni al 85% ni al 50% por "
                             f"planteamiento, ni al 85% por tema) para {tipo}; "
@@ -796,16 +842,22 @@ async def precedentes_oaj(qdrant, embed, problema, tipo_taller: str,
             return []
 
         mejores_pl = []
-        cortes_pl = [c for c in (corte_pl, posible_pl) if c is not None]
+        primero = (t_r1, corte_r1, posible_r1) if t_r1 else None
+        cortes_pl = [c for c in (corte_pl, posible_pl, corte_r1, posible_r1)
+                     if c is not None]
         if cortes_pl:
-            # UNA SOLA BÚSQUEDA PARA LOS DOS NIVELES, desde el corte más bajo
-            # que aplique, y luego se reparte. Dos búsquedas devolverían las
-            # mismas sentencias arriba y abajo y habría que casarlas después.
+            # UNA SOLA BÚSQUEDA PARA LOS DOS NIVELES —y para el primero y los
+            # demás—, desde el corte más bajo que aplique, y luego se reparte.
+            # Dos búsquedas devolverían las mismas sentencias arriba y abajo y
+            # habría que casarlas después. Pedir desde el corte más bajo no
+            # cambia el orden: el primero sigue siendo el de mayor coseno.
             puntos = await _buscar(qdrant, vector, "planteamiento", tipo,
                                    organo, PEDIDOS_PLANTEAMIENTO, min(cortes_pl))
-            mejores_pl = _mejores(puntos, "planteamiento")
+            mejores_pl = _sin_el_propio(_mejores(puntos, "planteamiento"),
+                                        expediente_propio)
         mismas, posibles, escondidas = _repartir(
-            mejores_pl, t_pl, "planteamiento", corte_pl, posible_pl)
+            mejores_pl, t_pl, "planteamiento", corte_pl, posible_pl,
+            primero=primero)
         if escondidas:
             _avisar_una_vez(("escondidas", id(cal), tipo),
                             f"{tipo}: un planteamiento que la tabla pone en 85% "
@@ -829,8 +881,9 @@ async def precedentes_oaj(qdrant, embed, problema, tipo_taller: str,
             try:
                 puntos = await _buscar(qdrant, vector, "asunto", tipo,
                                        organo, PEDIDOS_ASUNTO, corte_as)
-                por_tema, _, _ = _repartir(_mejores(puntos, "tema"), t_as,
-                                           "tema", corte_as, None)
+                por_tema, _, _ = _repartir(
+                    _sin_el_propio(_mejores(puntos, "tema"), expediente_propio),
+                    t_as, "tema", corte_as, None)
             except Exception as e:
                 print(f"   ⚠️ precedentes OAJ: falló el respaldo por tema "
                       f"({e}); se enseña lo del planteamiento")
@@ -846,7 +899,8 @@ async def precedentes_oaj(qdrant, embed, problema, tipo_taller: str,
                 # a la vista.
                 _, posibles, _ = _repartir(mejores_pl, t_pl, "planteamiento",
                                            corte_pl, posible_pl,
-                                           excluir={f["neun"] for f in mismas})
+                                           excluir={f["neun"] for f in mismas},
+                                           primero=primero)
         return mismas + posibles
     except Exception as e:
         print(f"   ⚠️ precedentes OAJ: {e}")
