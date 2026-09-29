@@ -24,7 +24,9 @@ QUÉ COMPRUEBA
       -w 2: nada vive entre peticiones); la clave sólo cambia con ella;
   2 · el alias con planes viejos y con planes nuevos leídos sin la bandera;
   3 · el registro de cambios: el portador, la suficiencia, la lectura de la
-      razón escrita como calificación, la organización; idéntico tras tres
+      razón escrita como calificación, la organización; cada regla con su
+      entrada exacta (regla, campo, cuenta), también la que sólo alcanza
+      `resolver_por_dependencia` sola y el registro que ésta rehace; idéntico tras tres
       pasadas, tras tres `reparar` y tras pasar por la fila (jsonb); sin una
       sola decisión distinta de la que sale sin la bandera;
   4 · «sin_clasificar»: decide como «necesaria» y se ve en el aviso, en el
@@ -527,6 +529,53 @@ CASOS = {
     "rev.631_portador": (_PORTADOR_631, crit_631(), SEGS_631, fases_631(), material_631(), REV),
     "rev.plan6": (PLAN6, crit_631(), SEGS6, fases6(), material_631(), REV),        # grupos de la jerarquía
 }
+
+
+# UNA REGLA POR CASO, CON SU ENTRADA EXACTA EN LA §3 (revisión adversarial del
+# 29-sep-2026). Las comprobaciones de conjunto —«ningún sin_regla», «la
+# organización no cuenta»— no veían trece mutaciones del registro: una regla
+# sin anotar en un camino que ningún caso recorría, una con el nombre de otra,
+# la lectura que se ponía a contar, el orden de las unidades que nunca se
+# registraba. Cada caso de aquí recorre UNA regla y la §3 exige su entrada
+# (regla, campo, cuenta); como van en CASOS, pasan también por la paridad, la
+# idempotencia y «sólo registra».
+def _p3_dependiente(d):
+    """P3 depende de P1, la toral: lo que cae por derivar de P3 cae con P1."""
+    d["proposiciones"].append(
+        {"id": "P3", "dice": "La confesión basta para tener por identificado el inmueble",
+         "caracter": "accesoria", "relacion": "dependiente_de:P1", "fuente": "reclamada", "cita": "",
+         "vinculada_por_ejecutoria": False})
+
+
+_SUPLIDO = {"id": "S1.a", "problema_id": 1, "vicio": "fondo", "ataca": "P1", "reitera": None, "dato": None,
+            "etiqueta": "infundado", "razon": "fondo_desestimado", "trat": "desarrolla", "diferencia": "hecho",
+            "pendiente": None}
+CASOS.update({
+    # fundado dentro de un problema infundado → fundado pero insuficiente
+    "ad.fundado_en_infundado": (mutar(lambda d: seg(d, "C1.b").update(etiqueta="fundado", razon="fundado")),
+                                crit(), SEGS_N, fases(), material(), AD),
+    # el problema 2 sin sentido fijado → etiqueta vacía, pendiente del secretario
+    "ad.sin_sentido": (PLAN_BUENO, crit(s2=""), SEGS_N, fases(), material(), AD),
+    # el planificador lo puso en un problema que no cubre su concepto
+    "ad.otro_problema": (mutar(lambda d: seg(d, "C1.b").update(problema_id=2)),
+                         crit(), SEGS_N, fases(), material(), AD),
+    # un suplido que no prospera → no se expresa (art. 79, penúltimo párrafo)
+    "ad.suplido": (mutar(lambda d: (d["segmentos"].append(dict(_SUPLIDO)),
+                                    d["unidades"].append({"id": "U3", "problemas": [1], "segmentos": ["S1.a"],
+                                                          "premisa": None, "objecion": None}))),
+                   crit(), SEGS_N, fases(), material(), AD),
+    # su criterio dice que no se estudia y el planificador lo contestaba en su unidad
+    "ad.criterio_no_estudia": (mutar(lambda d: seg(d, "C2.a").update(etiqueta="innecesario",
+                                                                     razon="cae_con_principal")),
+                               _cp3, SEGS_N, fases(), material(), AD),
+    # el accesorio antes que su principal, con orden de prelación → el código reordena
+    "ad.orden": (mutar(lambda d: (d["unidades"].reverse(), d["orden"].update(criterio="prelacion"))),
+                 crit(), SEGS_N, fases(), material(), AD),
+    # el inoperante que el planificador declaró derivado de P3 cae con P1, su raíz
+    "ad.deriva": (mutar(lambda d: (_p3_dependiente(d), seg(d, "C3.b").update(
+        etiqueta="inoperante", razon="deriva_de_desestimado(P3)", ataca="P3", trat="aplica"))),
+        crit(), SEGS_N, fases(), material(), AD),
+})
 _NUEVO, _VIEJO = "sin_materia_por_principal", "cae_con_principal"
 
 
@@ -772,6 +821,74 @@ ok(_entrada(B, "ad.segmento_inventado", "segmento", "C9.z", "presente")
    == {"segmento": "C9.z", "campo": "presente", "antes": True, "despues": False, "regla": "fuera_del_inventario",
        "cuenta": False},
    "el segmento que el planificador inventó y el código quitó, también")
+
+# CADA REGLA, SU ENTRADA EXACTA (revisión adversarial del 29-sep-2026): el
+# nombre de la regla es lo que el secretario lee para saber POR QUÉ cambió, y
+# `cuenta` es lo que deja el proyecto «justificación pendiente». Una regla con el
+# nombre de otra, o que cuenta sin deber, pasaba las comprobaciones de conjunto.
+_EXACTAS = [
+    ("ad.fundado_en_infundado", "segmento", "C1.b", "etiqueta", "fundado", "fundado_insuficiente",
+     "fundado_a_insuficiente", True,
+     "FUNDADO DENTRO DE UN PROBLEMA QUE NO PROSPERA: el código lo baja a «fundado pero insuficiente», una "
+     "calificación que el planificador no dio; se registra con SU regla (no «etiqueta_del_problema») y cuenta"),
+    ("ad.sin_sentido", "segmento", "C2.a", "etiqueta", "inoperante", "", "sin_sentido_fijado", False,
+     "SIN SENTIDO FIJADO: la etiqueta queda vacía, pendiente del secretario; nada se decidió y no cuenta (si "
+     "contara, un criterio a medias dejaría pendiente el proyecto por lo que nadie decidió)"),
+    ("ad.otro_problema", "segmento", "C1.b", "problema_id", 2, 1, "problema_del_inventario", False,
+     "EL PROBLEMA LO FIJA EL INVENTARIO: el planificador lo puso en uno que no cubre su concepto; se registra "
+     "y no cuenta (es organización)"),
+    ("ad.suplido", "segmento", "S1.a", "trat", "desarrolla", "no_se_expresa_art79", "suplido_sin_beneficio", False,
+     "EL SUPLIDO SIN BENEFICIO no se expresa (art. 79, penúltimo párrafo): se registra con su regla y el "
+     "tratamiento no cuenta"),
+    ("ad.criterio_no_estudia", "segmento", "C2.a", "trat", "aplica", "no_se_estudia", "criterio_no_se_estudia",
+     False,
+     "LO QUE EL CRITERIO NO MANDA ESTUDIAR sale de su unidad: se registra con su regla y no cuenta"),
+    ("ad.orden", "plan", "orden", "unidades", ["U2", "U1"], ["U1", "U2"], "orden_de_la_ley", False,
+     "EL ORDEN DE LA LEY: el accesorio iba antes que su principal y el código reordenó las unidades; el "
+     "cambio de orden se registra (no sólo la unidad que se añade) con su regla, y no cuenta"),
+    ("ad.deriva", "segmento", "C3.b", "razon_p", "P3", "P1", "deriva", True,
+     "CAE POR DERIVAR: la jerarquía le cambia la proposición de su razón (P3 → P1, la raíz toral); es la "
+     "regla «deriva», no la suficiencia, y CUENTA: cambia la base de lo que se le contesta"),
+    ("ad.deriva", "segmento", "C3.b", "trat", "aplica", "residual", "deriva", False,
+     "y su tratamiento pasa a residual con la misma regla, sin contar"),
+]
+for _k, _obj, _id, _campo, _a, _d, _regla, _cuenta, _por_que in _EXACTAS:
+    _x = _entrada(B, _k, _obj, _id, _campo)
+    _debe = {_obj: _id, "campo": _campo, "antes": _a, "despues": _d, "regla": _regla, "cuenta": _cuenta}
+    ok(_x == _debe, f"{_k}: {_por_que}" + ("" if _x == _debe else f" (sale {_x})"))
+_solos = [k for k in ("ad.sin_sentido", "ad.otro_problema", "ad.suplido", "ad.orden") if len(_cambios(B, k)) != 1]
+ok(not _solos, "y en los casos de una sola corrección, ésa es la única entrada: nada se registra dos veces "
+               "ni se cuela lo que no cambió" + (f"; más de una en {_solos}" if _solos else ""))
+
+# LO QUE LA JERARQUÍA DEVUELVE AL ESTUDIO («autonomo_al_estudio»). Dentro de
+# `reparar` no se llega: (b) ya devuelve al estudio lo que la suficiencia no
+# cubre antes de la jerarquía. Se llega cuando `resolver_por_dependencia` corre
+# sola sobre un plan con su original —main la corre sobre el guardado en cada
+# GET y al armar el guion—: aquí, el plan del planificador con los problemas
+# del criterio y el adhesivo «innecesario» dentro de un problema fundado (el
+# adhesivo nunca depende del principal: `_nunca_depende`).
+encender()
+_p6 = copy.deepcopy(PLAN6)
+seg(_p6, "AD1.a").update(etiqueta="innecesario", razon="cae_con_principal", trat="no_se_estudia")
+_n6 = _crudo(_p6, REV)
+_n6["problemas"] = copy.deepcopy(B["rev.plan6"]["reparado"]["problemas"])
+_j6 = pe.resolver_por_dependencia(_n6)
+_x6 = {x["campo"]: x for x in _j6.get("cambios_sin_justificar") or [] if x.get("segmento") == "AD1.a"}
+ok(_x6.get("etiqueta") == {"segmento": "AD1.a", "campo": "etiqueta", "antes": "innecesario", "despues": "fundado",
+                           "regla": "autonomo_al_estudio", "cuenta": True}
+   and _x6.get("trat") == {"segmento": "AD1.a", "campo": "trat", "antes": "no_se_estudia", "despues": "desarrolla",
+                           "regla": "autonomo_al_estudio", "cuenta": False},
+   "LA JERARQUÍA DEVUELVE AL ESTUDIO lo que la suficiencia no cubre (el adhesivo): resolver_por_dependencia, "
+   "sola, lo registra con su regla; la calificación cuenta, el tratamiento no"
+   + ("" if "etiqueta" in _x6 else f" (sale {sorted(_x6)} de {len(_j6.get('cambios_sin_justificar') or [])})"))
+# Y REHACE EL REGISTRO, NO LO COPIA: un plan guardado cuyo registro quedó viejo
+# (otra pasada, otra versión del código) sale del camino de main con el de
+# verdad, calculado contra el original.
+_rv = copy.deepcopy(B["ad.fundado"]["reparado"])
+_rv["cambios_sin_justificar"] = []
+ok(_al_estudio(_rv).get("cambios_sin_justificar") == _cambios(B, "ad.fundado") != [],
+   "resolver_por_dependencia REHACE el registro contra el original: un plan guardado con uno vacío o viejo "
+   "sale con el que corresponde (si lo copiara, main serviría el de otra pasada)")
 _reglas = {x["regla"] for k in CASOS for x in _cambios(B, k)}
 ok("sin_regla" not in _reglas and _reglas <= set(pe.REGLAS_CAMBIO),
    f"cada cambio lleva una regla con nombre del catálogo (ningún «sin_regla»: no hay camino sin anotar): "
