@@ -295,6 +295,9 @@ BANDERAS_REDISENO = {
     "analisis_neutral": "ANALISIS_NEUTRAL",          # etapa 2: análisis de la litis antes de proponer
     "recuperacion_requisitos": "RECUPERACION_REQUISITOS",  # etapa 2: búsqueda por requisito
     "propuesta_unica": "PROPUESTA_UNICA",            # etapa 3, paso 1: una sola propuesta viva por adelanto
+    "plan_con_analisis": "PLAN_CON_ANALISIS",        # etapa 4: alias, cambios sin justificar, sin_clasificar, P del análisis
+    "exclusiones_con_prueba": "EXCLUSIONES_CON_PRUEBA",  # etapa 4: registro común de exclusión con su prueba
+    "estados_sesion": "ESTADOS_SESION",              # etapa 4: manifiesto «consume» y estado de la sesión
 }
 
 
