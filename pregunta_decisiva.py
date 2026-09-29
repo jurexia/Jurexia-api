@@ -105,15 +105,28 @@ def entradas_de(r) -> dict:
     f = getattr(r, "fases", None)
     e = getattr(r, "encargo", None)
     fuentes = list(getattr(f, "fuentes", None) or []) + [""]
+    # LA FICHA PROCESAL (SPEC E2) VA CON LA PREGUNTA (integración E, AR
+    # 631/2025): sin ella la cuestión decisiva se formulaba sin saber que
+    # recurría la tercera interesada contra una concesión, y podía nombrar a
+    # «la quejosa» como quien pretende sustituirse. Es la MISMA ficha que ven
+    # la propuesta, la deliberación y el estudio (pura, por código), así que
+    # la pregunta y la ficha no pueden decir cosas distintas de quién es quién.
+    ficha = ""
+    try:
+        import ficha_procesal as _fp
+        ficha = _fp.bloque(_fp.de_resultado(r)) if e is not None else ""
+    except Exception:
+        ficha = ""
     return {"problemas": problemas, "resumen_acto": acto, "resumen_conceptos": conceptos,
             "texto_acto": str(fuentes[0] or ""), "es_recurso": bool(es_recurso),
-            "tipo_asunto": str(getattr(e, "tipo_asunto", "") or "") if e is not None else ""}
+            "tipo_asunto": str(getattr(e, "tipo_asunto", "") or "") if e is not None else "",
+            "ficha": ficha}
 
 
 async def formular(cliente, *, problemas: list, resumen_acto: str = "",
                    resumen_conceptos: str = "", texto_acto: str = "",
                    tipo_asunto: str = "", es_recurso: bool = False,
-                   contraste: Optional[dict] = None) -> dict:
+                   contraste: Optional[dict] = None, ficha: str = "") -> dict:
     """La pregunta decisiva del principal, como documento de la marca. Nunca
     lanza por el modelo: si la llamada falla, `formulada` es False y nadie la
     usa (se sigue con la pregunta de la fase 3, como antes)."""
@@ -128,7 +141,7 @@ async def formular(cliente, *, problemas: list, resumen_acto: str = "",
     pi = _dl.indice_principal(probs)
     tx = _dl._Textos({"acto": texto_acto})
     d = await _dl.etapa_a(cliente, probs[pi], contraste, resumen_acto, resumen_conceptos, tx,
-                          tipo_asunto, es_recurso, uso, avisos)
+                          tipo_asunto, es_recurso, uso, avisos, ficha=ficha)
     doc = dict(base, numero=pi + 1, tipo_asunto=tipo_asunto, es_recurso=bool(es_recurso), **d)
     doc.update(avisos=avisos, uso=uso.doc(), segundos=round(time.perf_counter() - t0, 1))
     return doc

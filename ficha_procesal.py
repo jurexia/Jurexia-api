@@ -91,14 +91,68 @@ _RX_CARGO = re.compile(r"^(?:(?:el|la|los|las)\s+)?(?:c\.\s+)?(?:magistrad[oa]s?
                        r"unitari[oa]|numerari[oa]))?\s+(?:de\s+)?(?:(?:el|la|los|las)\s+)?", re.I)
 
 
+# LA TITULAR CON SU NOMBRE (integración E, 28-sep-2026). El formulario del AR
+# 631/2025 real trae «MAGISTRADA LAURA …, INTEGRANTE DE LA PRIMERA SALA CIVIL
+# DEL TRIBUNAL SUPERIOR DE JUSTICIA DEL ESTADO DE QUERÉTARO» y el resolutivo del
+# juzgado, «la Primera Sala Civil del Tribunal Superior de Justicia EN EL Estado
+# de Querétaro»: la ficha salía con DOS autoridades responsables (y la tarjeta
+# también) donde hay una. Se quita todo hasta «integrante de», «titular de» o
+# «adscrita a», y «en el Estado» se lee como «del Estado».
+_RX_ADSCRIPCION = re.compile(r"^.*?\b(?:integrantes?|titular|adscrit[oa]s?)\s+(?:de|del|a|al|en)\s+"
+                             r"(?:(?:el|la|los|las)\s+)?", re.I)
+_RX_EN_EL_ESTADO = re.compile(r"\ben\s+el\s+(estado|municipio)\b", re.I)
+
+
+def _organo_de(x: str) -> str:
+    """El órgano sin su titular ni su cargo, para comparar."""
+    t = _txt(x)
+    if _RX_ADSCRIPCION.search(t):
+        t = _RX_ADSCRIPCION.sub("", t, count=1)
+    t = _RX_CARGO.sub("", t)
+    return _RX_EN_EL_ESTADO.sub(r"del \1", t)
+
+
 def _misma_autoridad(a: str, b: str) -> bool:
     """¿Dos maneras de nombrar a la misma autoridad? Igualdad, una dentro de
-    otra, o lo mismo quitado el cargo de su titular."""
+    otra, o lo mismo quitados el cargo y el nombre de su titular."""
     import redactor_adelanto as _ra
     if _ra._mismo_nombre(a, b):
         return True
     a2, b2 = _RX_CARGO.sub("", _txt(a)), _RX_CARGO.sub("", _txt(b))
-    return len(a2.split()) >= 2 and len(b2.split()) >= 2 and _ra._mismo_nombre(a2, b2)
+    if len(a2.split()) >= 2 and len(b2.split()) >= 2 and _ra._mismo_nombre(a2, b2):
+        return True
+    a3, b3 = _organo_de(a), _organo_de(b)
+    return len(a3.split()) >= 2 and len(b3.split()) >= 2 and _ra._mismo_nombre(a3, b3)
+
+
+# EL SOBRESEIMIENTO QUE SÓLO ESTÁ EN LOS CONSIDERANDOS (integración E). En el
+# AR 631/2025 real el juzgado sobreseyó respecto de la interlocutoria del
+# Juzgado Quinto en su considerando y su único punto resolutivo es la
+# concesión: la ficha decía «Lo que resolvió: ÚNICO: concesión» y, dos renglones
+# abajo, «firme: sobreseimiento respecto de otro acto», sin decir de cuál. Se
+# busca en la recurrida (y en su resumen) sobre qué acto recae, y si no se
+# encuentra se dice que no consta.
+_RX_SOBRESEIDO = re.compile(
+    r"sobrese(?:e|er|y[óo]|ído|ido)\w*\s+(?:en\s+el\s+juicio\s+)?respecto\s+(?:de(?:l)?\s+)"
+    r"(?:(?:los?\s+)?actos?\s+y\s+(?:la\s+)?autoridad(?:es)?\s+responsables?\s+consistentes?\s+en\s+)?"
+    r"(?P<o>(?:la|el|los|las)\s+(?:resoluci[óo]n|acto|auto|sentencia|acuerdo|proveído|orden)[^,;]{3,140})"
+    r"(?:,\s*(?:dictad[oa]s?|emitid[oa]s?|atribuid[oa]s?)\s+(?:por|a(?:l)?)\s+(?:el\s+|la\s+)?"
+    r"(?P<a>[^,;.]{5,140}))?", re.I)
+
+
+def _sobreseido(*textos) -> tuple:
+    """(acto, autoridad) del sobreseimiento que dicen los considerandos, o («», «»)."""
+    for t in textos:
+        m = _RX_SOBRESEIDO.search(_txt(t))
+        if m:
+            return (_txt(m.group("o")).rstrip(" .,;"), _txt(m.group("a") or "").rstrip(" .,;"))
+    return "", ""
+
+
+def sobreseido_en_considerandos(*textos) -> str:
+    """«la resolución … (Juzgado …)» del acto sobreseído, o «»."""
+    o, a = _sobreseido(*textos)
+    return (o + (f" ({a})" if a else "")) if o else ""
 
 
 def _normalizar_tipo(tipo: str) -> str:
@@ -302,6 +356,14 @@ def armar(encargo, fases=None, partes=None, *, acto: str = "", declarado: str = 
             puntos = puntos_resolutivos(res)
         resolvio = {"que": que or "", "fuente": f_que, "sobresee_ademas": sob_ad,
                     "puntos": [{k: p[k] for k in ("ordinal", "que", "objeto")} for p in puntos]}
+        # Sobreseyó, pero ningún punto resolutivo lo dice: lo dicen sus
+        # considerandos (el 631 real). Se deja dicho y, si se encuentra, de qué acto.
+        _sob_objeto, _sob_acto, _sob_aut = "", "", ""
+        if sob_ad and not any(p["que"] == "sobresee" for p in puntos):
+            _sob_acto, _sob_aut = _sobreseido(
+                acto, getattr(fases, "resumen_acto", "") if fases is not None else "")
+            _sob_objeto = (_sob_acto + (f" ({_sob_aut})" if _sob_aut else "")) if _sob_acto else ""
+            resolvio["sobresee_en_considerandos"] = _sob_objeto or "otro acto (no consta cuál)"
         if not que:
             avisos.append("No consta qué resolvió el juzgado: ni su resolutivo ni la lectura "
                           "del PDF lo dicen.")
@@ -322,6 +384,11 @@ def armar(encargo, fases=None, partes=None, *, acto: str = "", declarado: str = 
                 materia.append(et)
             elif dano is False:
                 firme.append(et)
+        # La autoridad del acto sobreseído en los considerandos también fue
+        # responsable (en el 631 real, el Juzgado Quinto de Primera Instancia).
+        if _sob_aut and not any(_misma_autoridad(_sob_aut, r["autoridad"]) for r in responsables):
+            responsables.append({"autoridad": _sob_aut, "acto": _sob_acto, "resolvio": "sobresee",
+                                 "fuente": "considerandos del juzgado"})
         if not puntos and que:
             # Sin puntos legibles, lo que hizo el juzgado en bloque.
             for q in (que.split("_") if "_" in que else [que]):
@@ -336,7 +403,8 @@ def armar(encargo, fases=None, partes=None, *, acto: str = "", declarado: str = 
             firme = []
         if sob_ad and papel in ("tercero", "autoridad") and not any(
                 x.startswith("sobreseimiento") for x in firme):
-            firme.append("sobreseimiento respecto de otro acto")
+            firme.append(f"sobreseimiento (en sus considerandos): {_sob_objeto}" if _sob_objeto
+                         else "sobreseimiento respecto de otro acto")
     # La autoridad del formulario, si los puntos no la nombran (en la revisión
     # es la del acto reclamado, nunca el juzgado).
     _resp_f = _txt(getattr(e, "responsable", "")) or _txt(getattr(partes, "autoridad_responsable", ""))
@@ -445,8 +513,12 @@ def bloque(ficha: dict) -> str:
             + _ETIQUETA_QUE.get(p.get("que"), p.get("que", ""))
             + (f" — {p['objeto']}" if p.get("objeto") else "")
             for p in rv.get("puntos") or [])
+        if pts and rv.get("sobresee_en_considerandos"):
+            pts += ("; además, en sus considerandos (no en sus puntos resolutivos): "
+                    f"sobreseimiento — {rv['sobresee_en_considerandos']}")
         L.append(_renglon("Lo que resolvió el juzgado", pts or rv.get("que") or "no consta",
-                          rv.get("fuente") if not pts else "sus puntos resolutivos"))
+                          rv.get("fuente") if not pts else "sus puntos resolutivos"
+                          + (" y sus considerandos" if rv.get("sobresee_en_considerandos") else "")))
     rc = f.get("recurrente") or {}
     if f.get("es_recurso"):
         L.append(_renglon("Recurrente", (rc.get("nombre") or "no consta")
@@ -502,6 +574,8 @@ def para_tarjeta(ficha: dict):
                  for p in rv.get("puntos") or []]
         if not resol and rv.get("que"):
             resol = [{"acto": "", "sentido": q} for q in str(rv["que"]).split("_")]
+        elif rv.get("sobresee_en_considerandos"):
+            resol.append({"acto": rv["sobresee_en_considerandos"], "sentido": "sobresee"})
         recurrida = {"organo": o, "resolvio": resol} if (o or resol) else None
     rc = f.get("recurrente") or {}
     recurrente = ({"quien": rc.get("nombre") or "",
@@ -538,7 +612,9 @@ def linea(ficha: dict) -> str:
         o = (f.get("organo_recurrido") or {}).get("nombre")
         rv = f.get("resolvio") or {}
         _que = " y ".join(dict.fromkeys(
-            _ETIQUETA_QUE.get(p.get("que"), p.get("que")) for p in rv.get("puntos") or [])) \
+            [_ETIQUETA_QUE.get(p.get("que"), p.get("que")) for p in rv.get("puntos") or []]
+            + (["sobreseimiento"] if rv.get("sobresee_en_considerandos") and rv.get("puntos")
+               else []))) \
             or _ETIQUETA_QUE.get(rv.get("que"), rv.get("que") or "")
         if o or _que:
             partes.append("recurrida: " + (o or "órgano no consta") + (f" ({_que})" if _que else ""))
