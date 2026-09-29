@@ -992,10 +992,18 @@ def _bloque_material(m: Material) -> str:
             # CITAN 9 SENTENCIAS» empujaba a fundar en una tesis sin vigencia.
             _v = t.get("vigencia")
             if _v:
-                if not _v.get("parcial"):
+                # LA MISMA DEFINICIÓN QUE LA TARJETA Y LA DELIBERACIÓN
+                # (fuerza_juridica, rediseño punto 3): «aclarada» o de «texto
+                # sustituido» no pierden vigencia; se dice qué cambió.
+                if _fj.sello_perdio_vigencia(_v):
                     fuerza = "SIN VIGENCIA"
-                _linea += (f" — ⚠️ {_vig.etiqueta(_v)}: no la invoques como vigente"
-                           + (f"; funda en la {_v['por_clave']}" if _v.get("por_clave") else ""))
+                    _linea += (f" — ⚠️ {_vig.etiqueta(_v)}: no la invoques como vigente"
+                               + (f"; funda en la {_v['por_clave']}" if _v.get("por_clave") else ""))
+                else:
+                    _linea += (f" — ⚠️ {_vig.etiqueta(_v)}"
+                               + ("" if not _v.get("parcial") else
+                                  ": perdió vigencia sólo EN PARTE; invócala sólo en lo que sigue vigente")
+                               + (f"; ver la {_v['por_clave']}" if _v.get("por_clave") else ""))
             p.append(f"\n  · [{fuerza}] [{tipo}] Registro "
                      f"{t.get('registro','')} — {t.get('instancia','')}{_uso}{_linea}")
             p.append(f"    {t.get('rubro','')}")

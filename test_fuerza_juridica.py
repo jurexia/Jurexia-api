@@ -79,6 +79,23 @@ src = inspect.getsource(r)
 ok(src.count('not t.get("vincula_origen", t.get("obligatoria"))') == 2,
    "el ORDEN de la búsqueda no cambia: sigue priorizando la jurisprudencia (vincula_origen)")
 
+print("\n5b · LA CLAVE Y LA VIGENCIA")
+d2 = r._tesis_de({"registro": "2030001", "instancia": "Tribunales Colegiados de Circuito", "tipo": "Jurisprudencia",
+                  "vincula": True, "clave_tesis": "XXII.3o.A.C. J/5 K (11a.)", "epoca": "Undécima Época",
+                  "fecha_publicacion": "2024-05-10"})
+ok(d2["clave"] == "XXII.3o.A.C. J/5 K (11a.)" and d2["epoca"] and d2["fecha_publicacion"],
+   "_tesis_de ya no tira la clave, la época ni la fecha")
+fj.anotar([d2], TER)
+ok(d2["vincula_al_tribunal"] is True and "228" in d2["fuerza_texto"],
+   "con la clave guardada, la jurisprudencia PROPIA se reconoce (art. 228)")
+ok(not fj.sello_perdio_vigencia({"estado": "aclarada"}) and not fj.sello_perdio_vigencia({"estado": "texto_sustituido"})
+   and fj.sello_perdio_vigencia({"estado": "abandonada"})
+   and not fj.sello_perdio_vigencia({"estado": "abandonada", "parcial": True}),
+   "una sola definición de vigencia: aclarada y texto sustituido NO la pierden; la parcial tampoco entera")
+import deliberacion as de
+ok(de.pierde_vigencia({"estado": "aclarada"}) is False and td.perdio_vigencia({"vigencia": {"estado": "modificada"}}) is True,
+   "la deliberación y la tarjeta leen la misma")
+
 print("\n6 · LAS SENTENCIAS PROPIAS")
 s = fj.de_sentencia_propia({"nivel": "posible", "similitud": 66, "cota_inferior": True})
 ok(s["vincula"] is False and s["aplicabilidad"]["estado"] == "posible"

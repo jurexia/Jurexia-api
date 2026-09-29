@@ -292,9 +292,12 @@ def pierde_vigencia(v: Optional[dict]) -> bool:
     """¿Perdió vigencia ENTERA? La aclaración y la republicación corregida no
     cambian el criterio (se citan corregidas); la pérdida parcial se enseña con
     su sello pero no se tira: la parte vigente sigue siéndolo."""
-    if not isinstance(v, dict) or not v:
-        return False
-    return str(v.get("estado") or "") not in _CORRECCION and not v.get("parcial")
+    # UNA SOLA DEFINICIÓN (rediseño, punto 3): la de fuerza_juridica, que es
+    # la de la tarjeta y la del estudio. Medido el 29-sep sobre el índice (561
+    # sellos): sus estados son los seis de pérdida más las dos correcciones,
+    # así que el resultado no cambia; lo que cambia es que ya no hay tres.
+    import fuerza_juridica as _fj
+    return _fj.sello_perdio_vigencia(v)
 
 
 def _etiqueta_vigencia(v: Optional[dict]) -> Optional[str]:

@@ -188,8 +188,8 @@ def _etiqueta_vigencia(v) -> str | None:
 
 
 def perdio_vigencia(t: dict) -> bool:
-    v = _vigencia(t)
-    return bool(v and str(v.get("estado") or "") in _PERDIO_VIGENCIA and not v.get("parcial"))
+    import fuerza_juridica as _fj
+    return _fj.sello_perdio_vigencia(_vigencia(t))
 
 
 def catalogo_de(material) -> dict:

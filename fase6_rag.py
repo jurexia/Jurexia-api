@@ -319,6 +319,13 @@ def _tesis_de(p: dict) -> dict:
         # colegiado; con él, al anotar el material).
         "vincula_origen": bool(p.get("vincula")),
         "localizacion": p.get("localizacion") or "",
+        # LO QUE SE TIRABA (rediseño, punto 3): la CLAVE da el órgano concreto,
+        # el circuito, la región de un Pleno Regional y la designación propia
+        # —sin ella la jurisprudencia propia (art. 228) salía como la de
+        # cualquier colegiado—; la ÉPOCA y la FECHA son el régimen temporal.
+        "clave": p.get("clave_tesis") or "",
+        "epoca": p.get("epoca") or "",
+        "fecha_publicacion": p.get("fecha_publicacion") or "",
         # EL SELLO DE VIGENCIA (25-sep-2026): None si no consta pérdida. Todas
         # las tesis del taller pasan por aquí —búsqueda, citadas por la parte,
         # diálogo constitucional, línea de internet—, así que lo heredan todas.

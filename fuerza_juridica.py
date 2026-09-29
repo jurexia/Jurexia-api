@@ -507,3 +507,19 @@ def de_sentencia_propia(fila: dict) -> dict:
              if nivel in ("mismo_problema", "posible") else {"estado": "no_evaluada"})
     return {"fuerza": "precedente_propio", "fuerza_texto": FUERZA_SENTENCIA_PROPIA,
             "vincula": False, "aplicabilidad": aplic}
+
+
+# ═══ LA VIGENCIA, UNA SOLA DEFINICIÓN (rediseño, punto 3) ═══════════════════
+# Había tres: la tarjeta (esta lista), la deliberación y el estudio, que
+# rotulaba «SIN VIGENCIA, no la invoques» cualquier sello no parcial —también
+# las 8 tesis del índice sólo «aclaradas» o de «texto sustituido», que no
+# cambian el criterio sino el texto que se cita—. Pierde vigencia lo de esta
+# lista, entero; lo demás se enseña con su etiqueta.
+PERDIO_VIGENCIA = frozenset(("abandonada", "interrumpida", "sustituida",
+                             "superada", "sin_efectos", "modificada"))
+
+
+def sello_perdio_vigencia(v) -> bool:
+    """¿Este sello de vigencia quita la vigencia del criterio entero?"""
+    return bool(isinstance(v, dict) and str(v.get("estado") or "") in PERDIO_VIGENCIA
+                and not v.get("parcial"))
