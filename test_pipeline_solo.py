@@ -92,8 +92,8 @@ import taller_estado as te
 # LA DELIBERACIÓN (28-sep-2026, detrás de su bandera) es la quinta tarea suelta
 # y late igual: sin latido, un despliegue la mataría sin que nadie escriba
 # «fallo» y la tarjeta esperaría para siempre.
-ok(m.count("await _taller_con_latido(email, numero, ") == 5,
-   "consulta, refuerzo del acervo, contraste, propuesta y deliberación corren con latido")
+ok(m.count("await _taller_con_latido(email, numero, ") == 6,
+   "consulta, refuerzo del acervo, contraste, propuesta, deliberación y análisis neutral corren con latido")
 ok('"latido": time.time()}, huella)' in m, "el latido rescribe la marca cada 45 s")
 ok(te.abandonada({"estado": "en_curso", "desde": 1000.0, "latido": 1800.0}, ahora=lambda: 2000.0),
    "sin latido en 150 s, la tarea está muerta")

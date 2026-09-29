@@ -110,6 +110,30 @@ import contexto_taller as ct
 ct.poner(False, {})
 ok(not ct.rediseno("analisis_neutral"), "para los de fuera, apagado")
 
+print("\n6 · LA CITA CON ERRORES DE LECTURA (103/2025: el acto escaneado)")
+import plan_estudio as _pe
+_src = ("de los preceptos legales citados, aplicables al caso que se analiza, se derivan lidselementos constitutivos "
+        "desus pretensiones consistentes erario 1) que en autos se acredite. Sacramento Olvera Corral le habia "
+        "informad quezla senora pilar felipaz huefta venancio era su dependiente economica (respuestaja la pregunta "
+        "dos). El tribunal considera que la testimonial es eficaz para acreditar el concubinato")
+_T = _pe.Texto(_src)
+ok(al.casi_literal("De los preceptos legales citados, aplicables al caso que se analiza, se derivan los elementos "
+                   "constitutivos de sus pretensiones consistentes en", _T)
+   and al.casi_literal("Sacramento Olvera Corral le había informado que la señora Pilar Felipa Huerta Venancio era su "
+                       "dependiente económica", _T),
+   "la cita limpia de un texto escaneado se da por verificada")
+ok(not al.casi_literal("El tribunal considera que la testimonial no es eficaz para acreditar el concubinato", _T)
+   and not al.casi_literal("El tribunal considera que la testimonial es ineficaz para acreditar el concubinato", _T)
+   and not al.casi_literal("los preceptos legales citados no son aplicables al caso y no se derivan los elementos "
+                           "constitutivos de la pretensión", _T),
+   "la que añade una negación, un prefijo o palabras enteras, no")
+_v = al.verificar({"razones": [{"id": "R1", "afirma": "x", "relacion": "autonoma",
+                                "cita": "Sacramento Olvera Corral le había informado que la señora Pilar Felipa "
+                                        "Huerta Venancio era su dependiente económica"}]}, _src, "", "", [])
+ok(_v["razones"][0]["verificada"] and _v["razones"][0].get("lectura") == "ocr"
+   and "errores de lectura" in al.bloque_propuesta(_v),
+   "y queda rotulada: la propuesta sabe que se cotejó con un escaneo")
+
 print()
 if FALLOS:
     print("FALLAS:\n  " + "\n  ".join(FALLOS))

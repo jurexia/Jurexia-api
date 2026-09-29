@@ -142,6 +142,39 @@ async def demostracion(cliente, principal: dict, analisis=None, decisiva=None, f
 
 # ═══ LA RECUPERACIÓN, REQUISITO POR REQUISITO ═══════════════════════════════
 
+# Los códigos que, nombrados sin entidad, son del estado: el federal lleva
+# «Federal» en el nombre (Código Civil Federal, Código Penal Federal, Código
+# Federal de Procedimientos Civiles). «Ley Agraria» o «Ley de Amparo» no
+# dicen fuero y son federales: no entran aquí.
+_LOCALES_SIN_ENTIDAD = ("codigo civil", "codigo de procedimientos civiles", "codigo penal",
+                        "codigo de procedimientos penales", "codigo familiar",
+                        "codigo de procedimientos familiares", "codigo urbano")
+
+
+def rige_ley_local(dem: dict | None) -> bool:
+    """¿Nombra la demostración alguna ley LOCAL? Por el fuero que dice su
+    nombre, o por ser uno de los códigos que sin entidad son del estado."""
+    import fase6_rag as _f6r
+    for q in (dem or {}).get("requisitos") or []:
+        for p in q.get("preceptos") or []:
+            ley = str((p or {}).get("ley") or "")
+            f = _f6r.fuero_de(ley)
+            if f == "estatal" or (not f and _plano(ley).startswith(_LOCALES_SIN_ENTIDAD)):
+                return True
+    return False
+
+
+def _por_leyes_nombradas(normas: list, q: dict) -> list:
+    """Primero las normas de las leyes que el requisito nombra; después el
+    resto, en el orden de la búsqueda."""
+    import fase6_rag as _f6r
+    leyes = [str(p.get("ley") or "") for p in q.get("preceptos") or [] if isinstance(p, dict)]
+    def _nombrada(n):
+        return any(_f6r.misma_ley(l, n.get("cuerpo_legal") or "") for l in leyes if l)
+    normas = [n for n in normas if isinstance(n, dict)]
+    return [n for n in normas if _nombrada(n)] + [n for n in normas if not _nombrada(n)]
+
+
 async def recuperar(qdrant, embed_juris, embed_leyes, material, dem: dict, *,
                     coleccion_estatal: str = "", materia: str = "", tipo_asunto: str = "",
                     cliente=None, sede_acto: str = "", cuaderno: str = "") -> dict:
@@ -166,6 +199,16 @@ async def recuperar(qdrant, embed_juris, embed_leyes, material, dem: dict, *,
             return None
 
     reqs = dem.get("requisitos") or []
+    # LA LEY DEL ESTADO SÓLO SI RIGE. `material_para` abre la «cesta del acto»
+    # con la colección de la entidad y la pone PRIMERO; medido en el 103/2025
+    # (sucesión agraria, ley federal): los tres cupos de cada requisito se los
+    # llevaron la Ley de Catastro, la de Adolescentes y el procesal civil de
+    # Querétaro. La demostración ya nombró las leyes en que descansa cada
+    # requisito: si ninguna es local, la cesta no se abre.
+    col_estatal = (coleccion_estatal or "") if rige_ley_local(dem) else ""
+    if coleccion_estatal and not col_estatal:
+        print("   🧩 REQUISITOS: la demostración no nombra ley local; se busca sin la del estado")
+    coleccion_estatal = col_estatal
     mats = await asyncio.gather(*[_uno(q) for q in reqs])
     nuevas_t, nuevas_n = [], []
     for q, m in zip(reqs, mats):
@@ -177,7 +220,7 @@ async def recuperar(qdrant, embed_juris, embed_leyes, material, dem: dict, *,
                 if reg and reg not in tengo_t:
                     tengo_t.add(reg)
                     nuevas_t.append(dict(t, para_requisito=q["id"], origen="requisito", cupo_figura=True))
-            for n in list(m.normas or [])[:CUPO_NORMAS]:
+            for n in _por_leyes_nombradas(list(m.normas or []), q)[:CUPO_NORMAS]:
                 k = (_plano(n.get("cuerpo_legal")), str(n.get("articulo")))
                 q["normas"].append(f"art. {n.get('articulo')} — {n.get('cuerpo_legal')}")
                 if k not in tengo_n:
@@ -192,18 +235,37 @@ async def recuperar(qdrant, embed_juris, embed_leyes, material, dem: dict, *,
                                            materia=materia, tipo_asunto=tipo_asunto)
         except Exception as ex:
             print(f"   🧩 REQUISITOS: preceptos nombrados sin traer ({type(ex).__name__})")
-    for n in (material.normas or [])[antes_n:]:
-        n.setdefault("origen", "requisito")
+    nombradas = []
+    for i, n in enumerate(material.normas or []):
+        if not isinstance(n, dict):
+            continue
+        if i >= antes_n:
+            n.setdefault("origen", "requisito")
         for q in reqs:
             if any(str(p["articulo"]) == str(n.get("articulo")) and _f6r.misma_ley(p["ley"], n.get("cuerpo_legal") or "")
                    for p in q.get("preceptos") or []):
-                n.setdefault("para_requisito", q["id"])
-                q["normas"].append(f"art. {n.get('articulo')} — {n.get('cuerpo_legal')}")
+                # El precepto NOMBRADO que ya estaba en el material (de la
+                # consulta) también sostiene el requisito: se rotula, y va
+                # delante de lo hallado por parecido.
+                if i >= antes_n:
+                    n.setdefault("para_requisito", q["id"])
+                et = f"art. {n.get('articulo')} — {n.get('cuerpo_legal')}"
+                if et not in q["normas"]:
+                    q["normas"].insert(sum(1 for x in q["normas"] if x in q.get("_nombradas", [])), et)
+                    q.setdefault("_nombradas", []).append(et)
+                nombradas.append((n, q["id"]))
+    for q in reqs:
+        q.pop("_nombradas", None)
     material.tesis = list(material.tesis or []) + nuevas_t
     material.normas = list(material.normas or []) + nuevas_n
     dem["huecos"] = [q["id"] for q in reqs if not (q.get("tesis") or q.get("normas"))]
-    dem["fichas"] = [ficha_de_regla(n, dem) for n in (material.normas or [])
-                     if isinstance(n, dict) and n.get("para_requisito")][:12]
+    vistas, fichas = set(), []
+    for n, qid in nombradas + [(n, n.get("para_requisito")) for n in nuevas_n]:
+        k = (_plano(n.get("cuerpo_legal")), str(n.get("articulo")))
+        if k not in vistas:
+            vistas.add(k)
+            fichas.append(ficha_de_regla(dict(n, para_requisito=qid), dem))
+    dem["fichas"] = fichas[:12]
     print(f"   🧩 REQUISITOS: {len(reqs)} requisito(s) · {len(nuevas_t)} tesis y "
           f"{len(material.normas) - antes_n} normas sumadas · {len(dem['huecos'])} hueco(s)")
     return dem

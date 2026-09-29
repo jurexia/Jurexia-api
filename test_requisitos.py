@@ -74,6 +74,53 @@ ok(any(n.get("articulo") == "2029" and n.get("para_requisito") == "Q1" for n in 
 ok(d["huecos"] == ["Q2"], "el requisito sin ninguna fuente es un HUECO DECLARADO")
 ok(d["fichas"] and d["fichas"][0]["requisito"] == "Q1" and "version" in d["fichas"][0], "y cada norma lleva su ficha")
 
+
+print("\n2b · LA LEY DEL ESTADO SÓLO SI RIGE (103/2025: catastro y adolescentes en una sucesión agraria)")
+_d = lambda *leyes: {"requisitos": [{"preceptos": [{"ley": l, "articulo": "1"} for l in leyes]}]}
+ok(not rq.rige_ley_local(_d("Constitución Política de los Estados Unidos Mexicanos", "Ley Agraria"))
+   and not rq.rige_ley_local(_d("Ley de Amparo")) and not rq.rige_ley_local(_d("Código Civil Federal"))
+   and not rq.rige_ley_local(_d("Código Nacional de Procedimientos Penales")) and not rq.rige_ley_local({}),
+   "leyes federales (aunque su nombre no diga fuero): la cesta del estado no se abre")
+ok(rq.rige_ley_local(_d("Código de Procedimientos Civiles del Estado de Querétaro"))
+   and rq.rige_ley_local(_d("Código Civil")),
+   "ley del estado, o código que sin entidad es local: se abre")
+_ns = [{"cuerpo_legal": "Ley de Catastro para el Estado de Querétaro", "articulo": "72"},
+       {"cuerpo_legal": "Ley Agraria", "articulo": "17"}]
+ok([n["articulo"] for n in rq._por_leyes_nombradas(_ns, {"preceptos": [{"ley": "Ley Agraria", "articulo": "189"}]})] == ["17", "72"],
+   "las normas de la ley que el requisito nombra van primero en su cupo")
+
+
+async def _prueba_cesta():
+    import fase6_rag as f6r
+    orig_mp, orig_cp = f6r.material_para, f6r.completar_preceptos
+    vistas = []
+
+    async def falso_mp(q, ej, el, problema, col, materia="", cliente=None, hecho="", sede_acto="", cuaderno=""):
+        vistas.append(col)
+        return types.SimpleNamespace(tesis=[], normas=[])
+
+    async def falso_cp(q, material, pares, col=None, materia="", tipo_asunto=""):
+        vistas.append(("cp", col))
+        return []
+    f6r.material_para, f6r.completar_preceptos = falso_mp, falso_cp
+    try:
+        m = Mat()
+        m.normas.append({"cuerpo_legal": "Ley Agraria", "articulo": "189", "texto": "ya estaba"})
+        d = rq._normalizar({"requisitos": [
+            {"id": "Q1", "enunciado": "valorar pruebas", "consulta_rubro": "PRUEBAS AGRARIAS",
+             "preceptos": [{"ley": "Ley Agraria", "articulo": "189"}]}]})
+        d = await rq.recuperar(object(), None, None, m, d, coleccion_estatal="leyes_queretaro")
+        return vistas, d
+    finally:
+        f6r.material_para, f6r.completar_preceptos = orig_mp, orig_cp
+
+_v, _dd = asyncio.run(_prueba_cesta())
+ok(_v and all((x is None) or (isinstance(x, tuple) and x[1] is None) for x in _v),
+   "sin ley local nombrada, ni la búsqueda ni los preceptos abren leyes_queretaro")
+ok(_dd["requisitos"][0]["normas"][:1] == ["art. 189 — Ley Agraria"] and _dd["huecos"] == []
+   and _dd["fichas"] and _dd["fichas"][0]["norma"] == "art. 189 — Ley Agraria",
+   "el precepto nombrado que YA estaba en el material sostiene el requisito y tiene ficha")
+
 print("\n3 · LA FICHA Y LA VERSIÓN")
 import json as _j
 _una = _j.load(open("scripts/leyes_federales_catalogo.json", encoding="utf-8"))[0]["ley"]

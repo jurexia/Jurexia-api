@@ -172,6 +172,113 @@ Responde SÓLO con el JSON."""
 
 # ═══ LA VERIFICACIÓN, SIN MODELO ═════════════════════════════════════════════
 
+# ═══ LA CITA CON ERRORES DE LECTURA ══════════════════════════════════════════
+#
+# Medido en el 103/2025: de 8 citas «sin verificar», las que se revisaron a
+# mano estaban en el acto, pero el acto viene de un escaneo con errores de
+# lectura («se derivan lidselementos constitutivos desus pretensiones»,
+# «la senora pilar felipaz huefta») y el modelo citó el texto limpio. Con la
+# comprobación literal, ese hecho bajaba a «sin_verificar» aunque el expediente
+# lo dijera. La tolerancia es de CARACTERES, no de ideas: la cita tiene que
+# caer, en orden y en un solo tramo del texto, con al menos el 85% de sus
+# letras. Una paráfrasis no llega; una frase con dos palabras mal leídas, sí.
+UMBRAL_OCR = 0.85
+MIN_PALABRAS_OCR = 8
+
+
+def casi_literal(cita: str, texto, umbral: float = UMBRAL_OCR) -> bool:
+    """¿Está la cita en `texto` (un `plan_estudio.Texto`) salvo errores de
+    lectura? Anclas de tres palabras votan el arranque del tramo; en el tramo
+    se mide qué parte de la cita aparece en orden."""
+    import difflib
+    import plan_estudio as _pe
+    qw = _pe._palabras(cita)
+    if len(qw) < MIN_PALABRAS_OCR or not texto:
+        return False
+    q = " ".join(qw)
+    for plano in texto.planos:
+        tw = plano.split()
+        idx = getattr(texto, "_tejas", {}).get(id(plano))
+        if idx is None:
+            idx = {}
+            for i in range(len(tw) - 2):
+                idx.setdefault((tw[i], tw[i + 1], tw[i + 2]), []).append(i)
+            if not hasattr(texto, "_tejas"):
+                texto._tejas = {}
+            texto._tejas[id(plano)] = idx
+        votos = {}
+        for j in range(len(qw) - 2):
+            for p in idx.get((qw[j], qw[j + 1], qw[j + 2]), [])[:50]:
+                s = (p - j) // 3
+                votos[s] = votos.get(s, 0) + 1
+        for s, v in sorted(votos.items(), key=lambda kv: -kv[1])[:3]:
+            if v < 2:
+                break
+            a = max(0, s * 3 - 6)
+            w = " ".join(tw[a:a + len(qw) + 12])
+            sm = difflib.SequenceMatcher(None, q, w, autojunk=False)
+            if sum(b.size for b in sm.get_matching_blocks()) < umbral * len(q):
+                continue
+            casadas = [False] * len(q)
+            for b in sm.get_matching_blocks():
+                casadas[b.a:b.a + b.size] = [True] * b.size
+            if _palabras_explicadas(qw, tw[a:a + len(qw) + 12], casadas):
+                return True
+    return False
+
+
+# Las palabras que invierten una frase: si la cita las trae, el tramo también.
+_NEGACIONES = ("no", "ni", "sin", "nunca", "jamas", "tampoco", "nadie", "ninguno", "ninguna", "nada")
+
+
+def _palabras_explicadas(qw: list, ventana: list, casadas: list | None = None) -> bool:
+    """LO QUE LA CITA AÑADE. El escaneo estropea letras y pega o parte
+    palabras; no inventa palabras enteras ni les pone prefijos. Cada palabra
+    de la cita tiene que estar en el tramo, o parecerse a una de su mismo
+    largo (±1 letra), o ser la mitad de dos palabras pegadas («desus» por
+    «de sus»). Si trae una negación, el tramo la trae tantas veces o más."""
+    import difflib
+    ws = set(ventana)
+
+    def _parecida(x: str) -> bool:
+        if x in ws:
+            return True
+        if len(x) <= 3:
+            return False
+        return any(abs(len(x) - len(y)) <= 1 and difflib.SequenceMatcher(None, x, y).ratio() >= 0.75
+                   for y in ws)
+
+    for neg in _NEGACIONES:
+        if qw.count(neg) > ventana.count(neg):
+            return False
+    # Y EN SU SITIO: un «no» del tramo que está tres palabras más allá no
+    # respalda el «no» que la cita puso aquí. Cada negación de la cita tiene
+    # que caer, letra por letra, dentro de lo que la alineación casó.
+    # Lo mismo, más flojo, para toda palabra: una palabra que está en el tramo
+    # pero en OTRO sitio («improcedente» traída de dos renglones abajo) no
+    # casa en la alineación. Al menos el 60% de sus letras, en su lugar.
+    if casadas is not None:
+        pos = 0
+        for x in qw:
+            tramo = casadas[pos:pos + len(x)]
+            if x in _NEGACIONES and not all(tramo):
+                return False
+            if len(x) >= 3 and sum(tramo) < 0.6 * len(x):
+                return False
+            pos += len(x) + 1
+    for k, x in enumerate(qw):
+        if _parecida(x):
+            continue
+        if k + 1 < len(qw) and _parecida(x + qw[k + 1]):
+            continue
+        if k > 0 and _parecida(qw[k - 1] + x):
+            continue
+        if any(x[:i] in ws and x[i:] in ws for i in range(1, len(x))):
+            continue
+        return False
+    return True
+
+
 def verificar(crudo: dict, acto: str, escrito: str, autos: str, segmentos: list) -> dict:
     """El análisis limpio: citas comprobadas, referencias válidas, condiciones
     del catálogo y las razones autónomas sin combatir calculadas por código."""
@@ -179,6 +286,8 @@ def verificar(crudo: dict, acto: str, escrito: str, autos: str, segmentos: list)
     T = {"acto": _pe.Texto(acto or ""), "escrito": _pe.Texto(escrito or ""),
          "constancias": _pe.Texto(autos or "")}
     d = crudo if isinstance(crudo, dict) else {}
+
+    ocr = set()
 
     def _cita(c: str, fuente: str) -> tuple:
         c = _txt(c, 600)
@@ -188,7 +297,12 @@ def verificar(crudo: dict, acto: str, escrito: str, autos: str, segmentos: list)
         if t.contiene(c):
             return c, True
         rec, _ = _pe._recorte_literal(c, [t])
-        return (rec, True) if rec else (c, False)
+        if rec:
+            return rec, True
+        if casi_literal(c, t):
+            ocr.add(c)
+            return c, True
+        return c, False
 
     razones, ids_r = [], set()
     for i, x in enumerate(d.get("razones") or [], 1):
@@ -206,7 +320,7 @@ def verificar(crudo: dict, acto: str, escrito: str, autos: str, segmentos: list)
                         "con": [_txt(c) for c in (x.get("con") or []) if _txt(c)],
                         "problemas": [int(p) for p in (x.get("problemas") or [])
                                       if str(p).strip().isdigit()],
-                        "cita": cita, "verificada": ok})
+                        "cita": cita, "verificada": ok, **({"lectura": "ocr"} if cita in ocr else {})})
     for r_ in razones:
         r_["con"] = [c for c in r_["con"] if c in ids_r and c != r_["id"]]
 
@@ -242,7 +356,8 @@ def verificar(crudo: dict, acto: str, escrito: str, autos: str, segmentos: list)
             cond = "sin_verificar"
         hechos.append({"id": _txt(x.get("id")) or f"H{i}", "que": _txt(x.get("que"), 600),
                        "afirma": _txt(x.get("afirma"), 60), "fuente": fuente,
-                       "cita": cita, "verificada": ok, "condicion": cond})
+                       "cita": cita, "verificada": ok, "condicion": cond,
+                       **({"lectura": "ocr"} if cita and cita in ocr else {})})
 
     faltantes = [{"que": _txt(x.get("que"), 300), "por_que_importa": _txt(x.get("por_que_importa"), 400)}
                  for x in (d.get("faltantes") or []) if isinstance(x, dict) and _txt(x.get("que"))]
@@ -319,7 +434,9 @@ def bloque_propuesta(doc: dict | None) -> str:
             rel = {"autonoma": "AUTÓNOMA (basta sola)", "conjunta": "CONJUNTA", "dependiente": "DEPENDIENTE"}[r_["relacion"]]
             con = f" con {', '.join(r_['con'])}" if r_.get("con") else ""
             L.append(f"   {r_['id']} [{rel}{con}] {r_['afirma']} → {r_['conclusion']}"
-                     + (f"\n       cita{'' if r_['verificada'] else ' NO verificada'}: «{r_['cita']}»" if r_.get("cita") else ""))
+                     + (f"\n       cita{'' if r_['verificada'] else ' NO verificada'}"
+                        f"{' (cotejada con el expediente escaneado, que tiene errores de lectura)' if r_.get('lectura') == 'ocr' else ''}"
+                        f": «{r_['cita']}»" if r_.get("cita") else ""))
     comb = {}
     for a in doc.get("argumentos") or []:
         for c in a["combate"]:
