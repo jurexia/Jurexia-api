@@ -947,6 +947,42 @@ def declara_firme_el_sobreseimiento(estudio: str) -> bool:
     return bool(_RX_SOBRESEIMIENTO_FIRME.search(" ".join((estudio or "").split())))
 
 
+# ── ¿La recurrida dejó conceptos sin estudiar? (revisión del 28-sep-2026) ───
+# La fracción VI manda analizar los conceptos de violación «no estudiados». Si
+# el juzgado los examinó todos —concedió con uno y desestimó los demás con
+# estudio— y la quejosa no combatió lo desestimado (revisión adhesiva, art.
+# 82), no hay nada que reasumir. El flujo pedía la demanda, bloqueaba Generar y
+# dejaba el amparo en hueco siempre que se revocaba una concesión. Aquí se lee
+# de la recurrida la fórmula con que un juzgado deja conceptos sin estudiar
+# —«resulta innecesario el estudio de los restantes», «sin que sea necesario
+# analizar los demás»— o la omisión (`_RX_SIN_ESTUDIAR`).
+_RX_RESTANTES_SIN_ESTUDIO = re.compile(
+    r"\b(?:innecesari[oa]s?|ocios[oa]s?|in[úu]til)\b\s+(?:\w+\s+){0,6}?"
+    r"(?:estudi|anali[zc]|an[áa]lisis|examin|examen|pronunci|ocup)\w*\s+(?:\w+\s+){0,5}?"
+    r"(?:restantes|dem[áa]s|otros|resto)\b"
+    r"|\b(?:restantes|dem[áa]s|otros)\s+conceptos\s+de\s+violaci[óo]n\b[^.]{0,120}?"
+    r"\b(?:innecesari|ocios)"
+    r"|\bsin\s+que\s+(?:sea|resulte)\s+(?:necesari[oa]|menester)\s+(?:\w+\s+){0,4}?"
+    r"(?:estudi|anali[zc]|an[áa]lisis|examin|examen|ocup)\w*\s+(?:\w+\s+){0,5}?"
+    r"(?:restantes|dem[áa]s|otros|resto)\b"
+    r"|\bse\s+omite\s+(?:el\s+)?(?:estudio|an[áa]lisis|examen)\s+de\s+(?:los\s+)?"
+    r"(?:restantes|dem[áa]s|otros)\b"
+    r"|\bconceptos\s+de\s+violaci[óo]n\.?\s+cuando\s+su\s+estudio\s+es\s+innecesario", re.I)
+# Menos que esto no es la sentencia recurrida: es su resolutivo o un resumen, y
+# de su silencio no se puede concluir nada.
+MIN_RECURRIDA_LEGIBLE = 1500
+
+
+def dejo_conceptos_sin_estudiar(recurrida: str):
+    """True: la recurrida dice que dejó conceptos sin estudiar. False: la
+    recurrida es legible y no lo dice. None: no hay recurrida que leer."""
+    t = " ".join(str(recurrida or "").split())
+    if len(t) < MIN_RECURRIDA_LEGIBLE:
+        return True if (t and (_RX_RESTANTES_SIN_ESTUDIO.search(t)
+                                or _RX_SIN_ESTUDIAR.search(t))) else None
+    return bool(_RX_RESTANTES_SIN_ESTUDIO.search(t) or _RX_SIN_ESTUDIAR.search(t))
+
+
 # ── Para la tarjeta de decisión (contrato formato 1, `conceptos_omitidos`) ──
 def _info(rama_info) -> dict:
     if isinstance(rama_info, str):
@@ -955,7 +991,14 @@ def _info(rama_info) -> dict:
         return dict(rama_info)
     return {k: getattr(rama_info, k) for k in (
         "tipo_asunto", "que_hizo", "resolvio_a_quo", "quien_recurre", "solo_efectos",
-        "violacion_procesal", "conceptos_violacion", "sobresee_ademas") if hasattr(rama_info, k)}
+        "violacion_procesal", "conceptos_violacion", "sobresee_ademas", "procedencia",
+        "clase_principal") if hasattr(rama_info, k)}
+
+
+def _procedencia_de(info: dict) -> bool:
+    """¿Lo que prospera es un agravio de procedencia? (art. 93, fr. II)."""
+    return (bool(info.get("procedencia"))
+            or str(info.get("clase_principal") or "").strip().lower() == "procedencia")
 
 
 def conceptos_omitidos(rama_info, sentido_global: str, material=None) -> dict | None:
@@ -971,14 +1014,20 @@ def conceptos_omitidos(rama_info, sentido_global: str, material=None) -> dict | 
       · solo_efectos, violacion_procesal: bool (reponer o modificar efectos no
         reasume nada);
       · conceptos_violacion: los que aportó el secretario, si los hay;
-      · sobresee_ademas: la recurrida también sobreseyó (se dice en `por_que`).
+      · sobresee_ademas: la recurrida también sobreseyó (se dice en `por_que`);
+      · procedencia | clase_principal: lo que prospera es un agravio de
+        procedencia (fr. II): se sobresee y no hay conceptos que reasumir.
     `sentido_global`: el sentido del recurso (la vía que se enseña).
     `material`: donde buscar los conceptos antes de pedirlos —las fases del
     adelanto (fuentes y autos), un dict {acto, autos, conceptos_violacion} o
     un str—. Sin textos, `tenemos` sale de lo que aportó el secretario.
 
-    Devuelve {"hacen_falta": True, "tenemos": bool, "donde": …, "por_que": …,
-    "fundamento": …, "reasuncion": «concesion» | «sobreseimiento»}."""
+    Devuelve {"hacen_falta": True | "por_confirmar", "tenemos": bool,
+    "donde": …, "por_que": …, "fundamento": …, "reasuncion": «concesion» |
+    «sobreseimiento»}. «por_confirmar» (revisión del 28-sep-2026): se revoca
+    una concesión, la recurrida es legible y NO dice que el juzgado dejara
+    conceptos sin estudiar; puede no haber nada que reasumir. No bloquea la
+    pantalla ni deja el amparo en hueco: se avisa."""
     import tipos_asunto as _ta_c
     info = _info(rama_info)
     tipo = _ta_c.normalizar(str(info.get("tipo_asunto") or "amparo_revision"))
@@ -988,11 +1037,13 @@ def conceptos_omitidos(rama_info, sentido_global: str, material=None) -> dict | 
     tipo_r = _ta_c.reasuncion(que, sentido_global,
                               solo_efectos=bool(info.get("solo_efectos")),
                               violacion_procesal=bool(info.get("violacion_procesal")),
-                              quien_recurre=str(info.get("quien_recurre") or ""))
+                              quien_recurre=str(info.get("quien_recurre") or ""),
+                              procedencia=_procedencia_de(info))
     if not tipo_r:
         return None
     _txt, donde = conceptos_disponibles(str(info.get("conceptos_violacion") or ""), material)
     fund = _ta_c.FUNDAMENTO_REASUNCION[tipo_r]
+    hacen_falta = True
     if tipo_r == "concesion":
         por_que = (f"Si el recurso prospera se revoca una concesión, y revocar no es negar: el "
                    f"tribunal reasume jurisdicción y estudia los conceptos de violación que el "
@@ -1001,12 +1052,20 @@ def conceptos_omitidos(rama_info, sentido_global: str, material=None) -> dict | 
         if info.get("sobresee_ademas"):
             por_que += (" La sentencia recurrida también sobreseyó respecto de un acto: si "
                         "nadie lo impugnó, ese sobreseimiento queda firme.")
+        # LO QUE NO SE ESTUDIÓ, LEÍDO DE LA RECURRIDA (revisión del 28-sep-2026).
+        if dejo_conceptos_sin_estudiar(_textos_de(material).get("recurrida") or "") is False \
+                and donde != "secretario":
+            hacen_falta = "por_confirmar"
+            por_que += (" La sentencia recurrida no dice que el juzgado dejara conceptos sin "
+                        "estudiar: si los examinó todos y la quejosa no combatió los que desestimó "
+                        "(revisión adhesiva, art. 82), no hay nada que reasumir. Compruébalo en la "
+                        "recurrida antes de pedir la demanda.")
     else:
         por_que = (f"Si el recurso prospera se levanta el sobreseimiento y el tribunal estudia "
                    f"por primera vez los conceptos de violación ({fund}).")
     if donde and donde != "secretario":
         por_que += f" Los conceptos {DONDE_CONCEPTOS[donde]}: comprueba que estén completos."
-    return {"hacen_falta": True, "tenemos": bool(donde), "donde": donde,
+    return {"hacen_falta": hacen_falta, "tenemos": bool(donde), "donde": donde,
             "por_que": por_que, "fundamento": fund, "reasuncion": tipo_r}
 
 

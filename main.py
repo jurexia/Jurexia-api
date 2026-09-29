@@ -37490,8 +37490,15 @@ async def _taller_proponer_nucleo(user_email: str, numero: str, ses: dict,
             # pregunta con `prospera()`, el predicado único.
             _co_motor = _fr_c.conceptos_omitidos(_info_c, str(glob.sentido or ""), r.fases)
             _conceptos_omitidos = _fr_c.conceptos_omitidos(_info_c, "fundado", r.fases)
-            if _co_motor and not _co_motor.get("tenemos"):
-                _rama_c = _ta_c.rama_revision(_info_c.get("que_hizo", ""), "fundado")
+            # SÓLO SI HACEN FALTA DE VERDAD (revisión del 28-sep-2026, AR
+            # 631/2025): si la recurrida no dice que el juzgado dejara conceptos
+            # sin estudiar —«por_confirmar»—, no se bloquea Generar pidiendo la
+            # demanda: se avisa.
+            if _co_motor and _co_motor.get("hacen_falta") is True and not _co_motor.get("tenemos"):
+                _rama_c = _ta_c.rama_revision(
+                    _info_c.get("que_hizo", ""), "fundado",
+                    quien_recurre=str(_info_c.get("quien_recurre") or ""),
+                    procedencia=str(_info_c.get("clase_principal") or "") == "procedencia")
                 _regla = next((x for x in _ta_c.tecnica_de("amparo_revision", _rama_c)
                                if x.get("necesita") == "conceptos_de_violacion"), None)
                 avisos.insert(0, (_regla or {}).get("aviso_si_falta") or _co_motor["por_que"])
@@ -37500,7 +37507,8 @@ async def _taller_proponer_nucleo(user_email: str, numero: str, ses: dict,
                 # dónde pegarlos deja al secretario con el problema y sin
                 # la herramienta. Con esto la pantalla abre el recuadro.
                 _necesita_conceptos = True
-            elif _co_motor and _co_motor.get("donde") in ("constancias", "recurrida"):
+            elif _co_motor and (_co_motor.get("donde") in ("constancias", "recurrida")
+                                or _co_motor.get("hacen_falta") == "por_confirmar"):
                 avisos.append(_co_motor["por_que"])
     except Exception as _e:
         print(f"   ⚠️ TALLER: no se pudo comprobar si hay conceptos por estudiar: "
@@ -37518,7 +37526,10 @@ async def _taller_proponer_nucleo(user_email: str, numero: str, ses: dict,
         # frs. I, V y VI; 28-sep-2026). None si no; si sí, {hacen_falta,
         # tenemos, donde, por_que, fundamento, reasuncion}. La pantalla pide los
         # conceptos cuando el sentido que dicta el secretario prospera y
-        # `tenemos` es falso (el mismo dato va en la tarjeta).
+        # `tenemos` es falso (el mismo dato va en la tarjeta). `hacen_falta`
+        # puede ser «por_confirmar» (revisión del 28-sep-2026): la recurrida no
+        # dice que quedaran conceptos sin estudiar; la pantalla lo lee como
+        # falso (`=== true`) y no bloquea, y el porqué va en los avisos.
         "conceptos_omitidos": _conceptos_omitidos,
         # El secretario decide sobre esto: se le da entero, no resumido.
         "propuestas": [
@@ -37676,7 +37687,8 @@ async def taller_proponer(
 # criterio». La arma `tarjeta_decision` con lo ya calculado —propuesta formato
 # 2, acervo, contraste, espejo, internet y rama—, SIN MODELO. Contrato:
 # contrato_tarjeta.md (formato 1).
-_TARJETA_MARCAS = ("propuesta", "global_propuesta", "contraste", "deliberacion", "tarjeta")
+# Sin «tarjeta»: ya no se guarda (revisión del 28-sep-2026, ver `taller_tarjeta`).
+_TARJETA_MARCAS = ("propuesta", "global_propuesta", "contraste", "deliberacion")
 
 
 def _taller_leer_marcas(email: str, numero: str, claves: tuple) -> dict:
@@ -37704,10 +37716,18 @@ async def taller_tarjeta(numero: str, user_email: str):
     Corte y un estado «claro | reñido | no_alcanza» sin porcentajes.
 
     NO LLAMA A NINGÚN MODELO y no sube el formato de la propuesta (lo haría
-    recalcular todas las guardadas). Se guarda como marca «tarjeta» con la
-    huella del adelanto —gunicorn -w 2: nada en memoria— y sólo se reescribe
-    si cambió. Si la propuesta aún corre, `estado_calculo: "calculando"`; si
-    no hay, `"sin_propuesta"`.
+    recalcular todas las guardadas). Si la propuesta aún corre,
+    `estado_calculo: "calculando"`; si no hay, `"sin_propuesta"`.
+
+    YA NO SE GUARDA COMO MARCA (revisión del 28-sep-2026, AR 631/2025). Se
+    guardaba en `estado` con `_taller_guardar_marca`, que lee el `estado`
+    entero, pone su clave y lo reescribe sin control de versión, y la pantalla
+    pide la tarjeta cada vez que llega una propuesta o cambia la deliberación:
+    una marca que otra tarea escribiera entre esa lectura y esa escritura —la
+    deliberación «listo», el proyecto de /taller/resolver— se perdía, y la
+    deliberación podía acabar «abandonada» y relanzarse con coste. Nadie leía la
+    marca «tarjeta» salvo este mismo GET para decidir si reescribirla, y la
+    tarjeta se recalcula sin modelo en cada petición.
     """
     _taller_puerta(user_email)
     ses = _taller_recuperar_sesion(user_email, numero)
@@ -37752,14 +37772,9 @@ async def taller_tarjeta(numero: str, user_email: str):
     tarjeta = _td.armar(resp, ses.get("material"), _te.problemas_de(r), sel["contraste"], None,
                         resp.get("internet") or ses.get("internet"), rama_info,
                         sel["deliberacion"], propuestas_motor=_pm or None, fases=r.fases)
-    clave = _td.clave_de(tarjeta)
-    prev = fila.get("tarjeta") if isinstance(fila.get("tarjeta"), dict) else {}
-    if not (prev.get("huella") == hu and prev.get("clave") == clave):
-        _taller_guardar_marca(user_email, numero, "tarjeta",
-                              {"huella": hu, "clave": clave, "desde": time.time(),
-                               "tarjeta": tarjeta}, hu)
     print(f"   🃏 TARJETA {numero}: principal {((tarjeta.get('principal') or {}).get('numero'))} · "
-          f"{tarjeta.get('estado')} · {len(tarjeta.get('secundarios') or [])} secundario(s)")
+          f"{tarjeta.get('estado')} · {len(tarjeta.get('secundarios') or [])} secundario(s) · "
+          f"clave {_td.clave_de(tarjeta)}")
     return tarjeta
 
 

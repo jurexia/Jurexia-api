@@ -5438,11 +5438,28 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
             # no constaron, el estudio no pudo concluir y el punto del amparo
             # NO se afirma: va con hueco, aunque la prosa diga algo.
             _reas_d = datos.get("reasuncion") if isinstance(datos.get("reasuncion"), dict) else {}
+            # QUIÉN RECURRE Y SI PROSPERA LA PROCEDENCIA (revisión del 28-sep-2026,
+            # AR 631/2025): la quejosa que gana su recurso contra una concesión
+            # no pierde el amparo (fr. V) y la improcedencia que prospera
+            # sobresee sin reasumir (fr. II). Mismos datos que la rama del
+            # estudio (`redactor_adelanto._rama_de`).
+            _quien_d = str(_reas_d.get("quien_recurre") or datos.get("papel_recurrente") or "")
+            _proc_d = bool(_reas_d.get("procedencia"))
+            # SIN PRUEBA DE QUIÉN RECURRE, SE DICE (revisión del 28-sep-2026):
+            # `papel_del_recurrente` ya no contesta «quejoso» a ciegas.
+            if "quien_recurre" in _reas_d and not _quien_d.strip():
+                _avisos_bk.append(
+                    "NO CONSTA QUIÉN RECURRE —la quejosa, la tercera interesada o la "
+                    "autoridad—: el resolutivo se calculó como si no fuera la quejosa. "
+                    "Escribe quién recurre en el encargo y vuelve a generar.")
             _tipo_reas = _ta.reasuncion(
                 _que_hizo, "fundado" if concede else "infundado",
                 solo_efectos=_solo_ef, violacion_procesal=_vp_est,
-                quien_recurre=str(_reas_d.get("quien_recurre") or ""))
-            if _tipo_reas == "concesion" and _reas_d.get("hacen_falta") \
+                quien_recurre=_quien_d, procedencia=_proc_d)
+            # SÓLO SI HACEN FALTA DE VERDAD: «por_confirmar» (la recurrida no dice
+            # que quedaran conceptos sin estudiar) no deja el amparo en hueco;
+            # manda lo que concluya el estudio.
+            if _tipo_reas == "concesion" and _reas_d.get("hacen_falta") is True \
                     and _reas_d.get("tenemos") is False:
                 _sent_amparo = ""
             _clave = _ta.rama_revision(
@@ -5450,7 +5467,8 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
                 "fundado" if concede else "infundado",
                 solo_efectos=_solo_ef,
                 violacion_procesal=_vp_est,
-                sentido_amparo=_sent_amparo)
+                sentido_amparo=_sent_amparo,
+                quien_recurre=_quien_d, procedencia=_proc_d)
             _rama = _ta.RAMAS_REVISION[_clave]
             # ═══════════════════════════════════════════════════════════════
             # EL RESPALDO AMPARABA CONTRA EL ÓRGANO RECURRIDO
@@ -5542,6 +5560,14 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
                         + ("la negativa descansa en ese estudio, no en la sola revocación."
                            if _sent_amparo == "niega" else
                            "los efectos de esta concesión son los que fija el proyecto."))
+                elif _reas_d.get("hacen_falta") == "por_confirmar" and not _reas_d.get("tenemos"):
+                    _avisos_bk.append(
+                        f"SE REVOCA UNA CONCESIÓN ({_fund_r}) Y LA SENTENCIA RECURRIDA NO DICE "
+                        f"QUE EL JUZGADO DEJARA CONCEPTOS DE VIOLACIÓN SIN ESTUDIAR: si los "
+                        f"examinó todos y la quejosa no combatió los desestimados, no hay nada "
+                        f"que reasumir; si quedaron sin estudiar, hay que estudiarlos. El estudio "
+                        f"no concluye si se concede o se niega y el punto resolutivo del amparo "
+                        f"va con HUECO: compruébalo en la recurrida y complétalo.")
                 elif _reas_d.get("tenemos") is False:
                     _avisos_bk.append(
                         f"SE REVOCA UNA CONCESIÓN Y LOS CONCEPTOS DE VIOLACIÓN QUE EL "
@@ -5568,6 +5594,36 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
                         "impugnó, dilo en el estudio y añade el punto «Queda firme el "
                         "sobreseimiento…»; la revocación ya va acotada a la materia de la "
                         "revisión.")
+            elif (_clave == "revoca_fondo_concede" and _que_hizo == "concede"
+                  and _quien_d.strip().lower() == "quejoso"):
+                # LA QUEJOSA RECURRE SU CONCESIÓN Y GANA (revisión del 28-sep-2026,
+                # AR 631/2025): la sentencia que corresponde la ampara (art. 93,
+                # fr. V), con el sujeto y el acto del resolutivo del juzgado y
+                # los efectos de esta ejecutoria. Revocar o sólo modificar lo
+                # dice el estudio; si no lo dice, se revoca y se avisa.
+                _modifica = bool(re.search(r"\bprocede\s+modificar\b|\bse\s+modifica\s+la\s+sentencia\b",
+                                           _txt_est, re.I))
+                _puntos = _ta.puntos_quejosa_mejora(
+                    str(datos.get("resolutivo_recurrida") or ""),
+                    "modifica" if _modifica else "revoca")
+                _avisos_bk.append(
+                    "RECURRE LA QUEJOSA CONTRA UNA CONCESIÓN Y SU AGRAVIO PROSPERA: el "
+                    "resolutivo la ampara —su recurso no puede empeorarle la situación (art. "
+                    "93, fr. V)— y "
+                    + ("MODIFICA la sentencia recurrida, como dice el estudio."
+                       if _modifica else
+                       "REVOCA la sentencia recurrida. Si el vicio deja en pie el resto de "
+                       "la concesión, lo que procede es MODIFICARLA: compruébalo.")
+                    + " Los efectos son los que fija el proyecto.")
+            elif _clave.startswith("revoca_sobreseimiento") and _que_hizo == "sobresee_concede":
+                # LA QUEJOSA RECURRE UNA SENTENCIA MIXTA (revisión del 28-sep-2026):
+                # combate el sobreseimiento; la concesión por los demás actos es
+                # suya y nadie la recurrió. La revocación se acota.
+                _puntos = [_ta.REVOCA_PARCIAL] + list(_puntos[1:])
+                _avisos_bk.append(
+                    "LA QUEJOSA RECURRE UNA SENTENCIA QUE SOBRESEYÓ UN ACTO Y LA AMPARÓ POR LOS "
+                    "DEMÁS: se levanta el sobreseimiento y la revocación se acota a la materia de "
+                    "la revisión; la concesión queda firme. Comprueba que el proyecto lo diga.")
             elif _clave == "revoca_fondo_niega":
                 # REVOCAR UNA CONCESIÓN ES NEGAR LO QUE ELLA CONCEDIÓ, a quien
                 # se lo concedió y contra el acto por el que lo concedió (AR

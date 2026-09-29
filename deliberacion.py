@@ -120,8 +120,9 @@ DUDAS PARA DAVID (escritas aquí para que no se decidan en silencio):
      la Corte orienta. Si hubiera precedentes obligatorios publicados como
      aislados, habría que marcarlos a mano.
   4. La tesis emitida por el propio tribunal (clave propia, p. ej.
-     «XXII.3o.A.C.») se trata como precedente propio (art. 228), no como
-     jurisprudencia que obligue. Se reconoce por la clave: la misma falta que
+     «XXII.3o.A.C.») se trata como precedente propio, no como jurisprudencia
+     que obligue; sólo su JURISPRUDENCIA lleva el art. 228 (la vincula y
+     apartarse exige argumentos), la aislada y la sentencia del espejo no. Se reconoce por la clave: la misma falta que
      en el punto 2. La designación del tribunal se lee de su nombre
      (`tarjeta_decision.designacion_de`) o de `DELIBERACION_CLAVE_PROPIA`.
   5. Nada de esto cambia todavía el rótulo del ESTUDIO (fase6_estudio): es
@@ -258,7 +259,7 @@ def _plano_mayus(x: Any) -> str:
 # variable de entorno: la tarjeta la MIDIÓ en el volcado del Semanario (el
 # Vigésimo Segundo, 17 de 17 tesis, Centro-Norte) y la variable la corrige.
 from tarjeta_decision import (clave_de_tesis, fuerza_para_colegiado,  # noqa: E402
-                              region_de_clave, region_del_circuito)
+                              region_de_clave, region_del_circuito, FUERZA_SENTENCIA_PROPIA)
 
 
 def _fuerza(tesis: dict, *, tribunal: str = "", region: Optional[str] = None,
@@ -407,7 +408,10 @@ def construir_catalogo(candidatas: list, normas: list = None, filas_propias: lis
         k = f"O{j}"
         cat[k] = {"id": k, "clase": "propio", "escalon": 3,
                   "fuerza": "precedente_propio",
-                  "fuerza_texto": "precedente propio: apartarse exige razón (art. 228); no es voto",
+                  # UNA SENTENCIA NO ES JURISPRUDENCIA (revisión del 28-sep-2026): el
+                  # art. 228 habla de las propias jurisprudencias; la fila del
+                  # espejo se rotula sin él.
+                  "fuerza_texto": FUERZA_SENTENCIA_PROPIA,
                   **{c: fila.get(c) for c in ("expediente", "fecha", "sentido", "tipo_asunto",
                                               "tema", "calificacion", "razon", "similitud",
                                               "nivel", "neun", "pdf_url")
@@ -682,7 +686,7 @@ def verificar_hechos(hechos: Any, textos: _Textos, cat: dict, quitadas: list) ->
 def consecuencia_de(sentido: str, tipo_asunto: str = "", resolvio_a_quo: str = "",
                     resolutivo_recurrida: str = "", quejoso: str = "", responsable: str = "",
                     tenemos_conceptos: Optional[bool] = None, *, quien_recurre: str = "",
-                    sobresee_ademas: bool = False) -> dict:
+                    sobresee_ademas: bool = False, procedencia: bool = False) -> dict:
     """{"rama", "desenlace": [puntos], "desenlace_nota", "conceptos_omitidos"}
     de una vía, calculados por código.
 
@@ -703,7 +707,12 @@ def consecuencia_de(sentido: str, tipo_asunto: str = "", resolvio_a_quo: str = "
     que se estudien los conceptos— y los conceptos omitidos de
     `fase_rama.conceptos_omitidos`, la función de SPEC B. `quejoso` y
     `responsable` sólo nombran a las partes fuera de un recurso: en la revisión
-    los nombra el resolutivo del juzgado (577c700)."""
+    los nombra el resolutivo del juzgado (577c700).
+
+    `quien_recurre` y `procedencia` (el principal es de clase «procedencia»)
+    llegan también a la RAMA (revisión del 28-sep-2026): la quejosa que gana su
+    recurso contra una concesión no pierde el amparo (fr. V), y la improcedencia
+    que prospera sobresee sin reasumir (fr. II)."""
     import tipos_asunto as _ta
     import tarjeta_decision as _td
     t = _ta.normalizar(tipo_asunto) or "amparo_directo"
@@ -713,14 +722,16 @@ def consecuencia_de(sentido: str, tipo_asunto: str = "", resolvio_a_quo: str = "
     pros = _ta.prospera(s)
     if t == "amparo_revision":
         a = str(resolvio_a_quo or "").strip().lower()
-        rama = _ta.rama_revision(a, s)
+        rama = _ta.rama_revision(a, s, quien_recurre=quien_recurre, procedencia=procedencia)
         puntos, nota = _td.desenlace_de(t, a, s, quien_recurre=quien_recurre,
                                         sobresee_ademas=sobresee_ademas,
-                                        resolutivo_recurrida=resolutivo_recurrida)
+                                        resolutivo_recurrida=resolutivo_recurrida,
+                                        procedencia=procedencia)
         import fase_rama as _fr
         omitidos = _fr.conceptos_omitidos({"tipo_asunto": t, "que_hizo": a,
                                           "quien_recurre": quien_recurre,
                                           "sobresee_ademas": sobresee_ademas,
+                                          "procedencia": procedencia,
                                           "conceptos_violacion": ""}, s, None)
         if isinstance(omitidos, dict) and tenemos_conceptos is not None:
             # La deliberación sólo sabe si el secretario los aportó; dónde
@@ -1715,9 +1726,15 @@ async def deliberar(cliente, *, problemas: list, material=None,
         s_rep = _VIA_SENTIDOS[via][0]
         metodo = ""
         if _dc is not None and material is not None:
+            # CON EL CARÁCTER DE QUIEN RECURRE (revisión del 28-sep-2026, AR
+            # 631/2025), como `_taller_favorece` en main.py: sin `papel`, la
+            # tercera interesada particular se leía por el nombre —«no es
+            # autoridad»— y la vía en que prospera su recurso (pierde la
+            # quejosa) recibía la lectura protectora, y la otra el «no se
+            # invocan»: pro persona contra quien reclama el derecho.
             try:
                 metodo = _dc.bloque_metodo(material, "razon", _dc.favorece_a_la_persona(
-                    s_rep, tipo_asunto, recurrente, es_recurso))
+                    s_rep, tipo_asunto, recurrente, es_recurso, papel=quien_recurre))
             except Exception:
                 metodo = ""
         return prompt_abogado(
@@ -1780,7 +1797,9 @@ async def deliberar(cliente, *, problemas: list, material=None,
         v = vias[k]
         v.update(consecuencia_de(v["sentido"], tipo_asunto, resolvio_a_quo, resolutivo_recurrida,
                                  quejoso, responsable, tenemos_conceptos,
-                                 quien_recurre=quien_recurre, sobresee_ademas=sobresee_ademas))
+                                 quien_recurre=quien_recurre, sobresee_ademas=sobresee_ademas,
+                                 procedencia=str(pral.get("clase") or "").strip().lower()
+                                 == "procedencia"))
     lista = lista_de_comprobacion(probs, pi, vias["A"]["secundarios_escritos"],
                                   vias["B"]["secundarios_escritos"])
     secs, av_a, av_b = secundarios_por_arbol(probs, pi, vias["A"]["sentido"], vias["B"]["sentido"],

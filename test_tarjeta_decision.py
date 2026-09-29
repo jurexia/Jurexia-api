@@ -210,6 +210,23 @@ ok(F(_tesis("1", "r", "Tribunales Colegiados de Circuito", "JURISPRUDENCIA",
 ok(F(_tesis("1", "r", "Tribunales Colegiados de Circuito", "TESIS AISLADA",
             clave="XXII.3o.A.C.12 C (11a.)"), TRIBUNAL)["fuerza"] == "precedente_propio",
    "aislada del propio tribunal: precedente propio")
+# EL ART. 228 ES DE LAS PROPIAS JURISPRUDENCIAS (revisión del 28-sep-2026): la
+# jurisprudencia del propio tribunal leída de la localización no se reconocía
+# («orienta») y la aislada propia llevaba el 228.
+_jp = F({"instancia": "Tribunales Colegiados de Circuito", "tipo": "",
+         "localizacion": "[J]; 11a. Época; T.C.C.; Gaceta S.J.F.; Tesis: XXII.3o.A.C. J/2 K (11a.); Pág. 5"},
+        TRIBUNAL)
+ok(_jp["fuerza"] == "precedente_propio" and "228" in _jp["fuerza_texto"]
+   and "vincula" in _jp["fuerza_texto"],
+   f"jurisprudencia propia leída de la localización: vincula (art. 228): {_jp['fuerza_texto']}")
+_ap_p = F({"instancia": "Tribunales Colegiados de Circuito", "tipo": "TESIS AISLADA",
+           "localizacion": "[TA]; 11a. Época; T.C.C.; Tesis: XXII.3o.A.C.5 K (11a.)"}, TRIBUNAL)
+ok(_ap_p["fuerza"] == "precedente_propio" and "228" not in _ap_p["fuerza_texto"],
+   f"la aislada propia es precedente propio sin el art. 228: {_ap_p['fuerza_texto']}")
+ok("228" not in td._apoyo_precedente_propio("AR 100/2024")["fuerza_texto"],
+   "la sentencia del espejo tampoco lleva el art. 228")
+ok(td.clave_de_tesis({"localizacion": "Tesis: I.4o.A. J/12 A (10a.)"}) == "I.4o.A. J/12 A (10a.)",
+   "la clave de jurisprudencia de un colegiado se lee de la localización")
 ok(F(_tesis("1", "r", "Tribunales Colegiados de Circuito", "TESIS AISLADA",
             clave="XXII.3o.A.C.P.12 C"), TRIBUNAL)["fuerza"] == "orienta",
    "otra designación que empieza igual no es la del tribunal")
@@ -258,8 +275,38 @@ ok(_r[0] == "PRIMERO. Se revoca la sentencia recurrida." and td.HUECO in _r[1]
 ok(_nr and "93, fr. VI" in _nr and "reasume jurisdicción" in _nr and "sólo si caen" in _nr,
    "…porque antes se estudian los conceptos que el juez no estudió (art. 93, fr. VI)")
 _rq, _nrq = D("amparo_revision", "concede", "fundado", quien_recurre="quejoso")
-ok("no ampara" in _rq[1] and not (_nrq and "fr. VI" in _nrq),
-   "si recurre la propia quejosa no se reasume (rige la fr. V): se revoca y se niega")
+# REVISIÓN DEL 28-sep-2026: esto afirmaba «se revoca y se niega» como correcto.
+# La quejosa que recurre su concesión pide más —otros efectos, otro alcance—;
+# si gana, la sentencia que corresponde la ampara (fr. V), no la deja sin nada.
+ok(td.HUECO in _rq[0] and "ampara y protege" in _rq[1] and "no ampara" not in _rq[1]
+   and not (_nrq and "fr. VI" in _nrq) and "fr. V," in (_nrq or ""),
+   "si recurre la propia quejosa y gana: no se le niega el amparo (fr. V); revocar o "
+   "modificar queda en hueco hasta el estudio")
+_RES_Q = ("La Justicia de la Unión ampara y protege a María López Ruiz, contra el acto que reclamó "
+          "al Director de Catastro, para los efectos precisados en el considerando quinto.")
+_rq2, _ = D("amparo_revision", "concede", "fundado", quien_recurre="quejoso",
+            resolutivo_recurrida=_RES_Q)
+ok("ampara y protege a María López Ruiz" in _rq2[1] and "no ampara" not in " ".join(_rq2)
+   and "efectos precisados en el último considerando de esta ejecutoria" in _rq2[1],
+   "…con el sujeto y el acto del resolutivo del juzgado y los efectos de esta ejecutoria")
+_rqm, _nqm = D("amparo_revision", "sobresee_concede", "fundado", quien_recurre="quejoso")
+ok(_rqm[0].startswith("PRIMERO. En la materia de la revisión, se revoca") and td.HUECO in _rqm[1]
+   and "primera vez" in (_nqm or "") and "fracciones I y V" in (_nqm or "")
+   and "fr. VI" not in (_nqm or ""),
+   "la quejosa que recurre una sentencia mixta combate el sobreseimiento: se levanta (frs. I y V)")
+_rp, _np = D("amparo_revision", "concede", "fundado", quien_recurre="autoridad", procedencia=True)
+ok(_rp[0] == "PRIMERO. Se revoca la sentencia recurrida." and "Se sobresee en el juicio" in _rp[1]
+   and td.HUECO not in " ".join(_rp) and "fr. VI" not in (_np or "") and "fracciones II" in (_np or ""),
+   "prospera la improcedencia que alegó la autoridad: se revoca y se sobresee, sin reasumir (fr. II)")
+_rc, _nc = D("amparo_revision", "sobresee_concede", "infundado", quien_recurre="tercero",
+             resolutivo_recurrida=_RES_Q)
+ok(_rc[0] == "PRIMERO. En la materia de la revisión, se confirma la sentencia recurrida."
+   and "María López Ruiz" in _rc[1] and not any("Se sobresee" in x for x in _rc)
+   and "queda firme" in (_nc or ""),
+   "la vía que confirma una sentencia mixta tampoco redecreta el sobreseimiento que nadie impugnó")
+_rcq, _ = D("amparo_revision", "sobresee_concede", "infundado", quien_recurre="quejoso")
+ok(len(_rcq) == 3 and "Se sobresee" in _rcq[1],
+   "si la recurrente es la quejosa y pierde, se confirma la mixta entera, como antes")
 _rs, _ = D("amparo_revision", "sobresee_concede", "fundado", sobresee_ademas=True)
 ok(_rs[0] == "PRIMERO. En la materia de la revisión, se revoca la sentencia recurrida.",
    "si la recurrida también sobreseyó, la revocación se acota a la materia de la revisión")
@@ -374,6 +421,30 @@ r_n = copy.deepcopy(RESP)
 r_n["global"]["apoyos"] = ["art. 49 CPC"]
 r_n["global"]["alternativa"]["apoyos"] = ["7777777"]
 ok(armar(r_n)["estado"] == "no_alcanza", "ninguna vía con un criterio verificado: no alcanza")
+# LA LEY ES EL PRIMER FUNDAMENTO (revisión del 28-sep-2026): una vía fundada
+# sólo en preceptos del material ya no se tiene por «no alcanza».
+_m_n = copy.deepcopy(MATERIAL)
+_m_n["normas"] = [{"cuerpo_legal": "Código Procesal Civil para el Estado de Querétaro",
+                   "articulo": "49", "texto": "…"},
+                  {"cuerpo_legal": "Código Civil del Estado de Querétaro", "articulo": "2294",
+                   "texto": "…"}]
+r_nn = copy.deepcopy(r_n)
+r_nn["global"]["apoyos"] = ["art. 49 CPC Qro"]
+r_nn["global"]["alternativa"]["apoyos"] = ["artículo 2294 del Código Civil local"]
+t_nn = armar(r_nn, material=_m_n)
+ok(t_nn["estado"] != "no_alcanza"
+   and all(a["en_acervo"] is True for v in t_nn["vias"].values() for a in v["apoyos"]),
+   f"dos vías fundadas en preceptos del material: alcanza ({t_nn['estado']})")
+ok(td.norma_en_material("art. 49 CPC Qro", _m_n["normas"])
+   and not td.norma_en_material("art. 49 del Código Civil", _m_n["normas"])
+   and not td.norma_en_material("art. 49 de la Ley de Amparo", _m_n["normas"])
+   and not td.norma_en_material("art. 50 CPC", _m_n["normas"]),
+   "la norma casa por artículo y ley; la procesal no se confunde con la sustantiva")
+_ap_d, _ = td.hidratar_apoyos([{"norma": "artículo 2294 del Código Civil del Estado de Querétaro",
+                                "id": "N1", "en_acervo": True}], {}, TRIBUNAL)
+ok(_ap_d[0]["en_acervo"] is True, "la norma del catálogo de la deliberación ya viene verificada")
+ok(any("precepto verificado" in x for x in armar(r_n)["estado_por_que"]),
+   "y la razón del «no alcanza» habla también de los preceptos")
 
 print("\n6 · SIN PROPUESTA GLOBAL, SIN VÍA CONTRARIA REAL")
 r_ng = copy.deepcopy(RESP)
@@ -565,18 +636,80 @@ _src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "main.py"),
 ok('@app.get("/taller/tarjeta")\nasync def taller_tarjeta(numero: str, user_email: str):' in _src,
    "GET /taller/tarjeta colgado de taller_tarjeta")
 _cuerpo = _src.split("async def taller_tarjeta", 1)[1].split("\n@app.", 1)[0]
-ok("_taller_puerta(user_email)" in _cuerpo and '"tarjeta"' in _cuerpo and "_td.armar(" in _cuerpo,
-   "con la puerta de /taller/proponer, arma con el módulo y guarda la marca «tarjeta»")
+# REVISIÓN DEL 28-sep-2026: la marca «tarjeta» reescribía el `estado` entero sin
+# control de versión en cada GET y podía pisar la de la deliberación.
+ok("_taller_puerta(user_email)" in _cuerpo and "_td.armar(" in _cuerpo
+   and "_taller_guardar_marca(" not in _cuerpo,
+   "con la puerta de /taller/proponer, arma con el módulo y NO reescribe el estado")
 ok("chat_client" not in _cuerpo and "_f5." not in _cuerpo and "proponer(" not in _cuerpo,
    "sin ningún cliente de modelo")
 ok('"internet": (ses.get("internet")' in _src, "la propuesta guarda la línea de internet (pistas)")
 ok('p["jerarquia_por_secretario"] = True' in _src, "/taller/problema marca quién fijó la jerarquía")
+
+print("\n13 bis · LA REVISIÓN ADVERSARIAL DEL 28-sep-2026")
+# (a) Ningún porcentaje junto al principal: la jurimetría no va en la tarjeta.
+r_pr = copy.deepcopy(RESP)
+r_pr["propuestas"][0]["prediccion"] = {"frase": "Infundado (75% de 12 sentencias del acervo)", "n": 12}
+t_pr = armar(r_pr)
+ok(t_pr["principal"]["prediccion"] is None and "%" not in json.dumps(t_pr, ensure_ascii=False),
+   "la frase de la jurimetría con su porcentaje no se proyecta en la tarjeta")
+# (b) La vía protectora sólo a favor de la persona: si recurre la tercera, el
+#     «fundado» le quita el amparo a la quejosa (la 462).
+t_vp = armar(rama=dict(RAMA, quien_recurre="tercero"))
+ok(t_vp["vias"]["opuesta"]["via_protectora"] is None
+   and any("lectura protectora" in a and "no favorece" in a for a in t_vp["avisos"]),
+   "recurre la tercera: la lectura protectora no se cuelga de la vía que perjudica a la quejosa")
+ok(armar(rama=dict(RAMA, quien_recurre="quejoso"))["vias"]["opuesta"]["via_protectora"] is not None,
+   "recurre la quejosa: el «fundado» la favorece y la lectura protectora sí va")
+# (c) El efecto del motor que es un reenvío choca con la reasunción (fr. VI).
+r_ef = copy.deepcopy(RESP)
+r_ef["global"]["alternativa"]["efecto"] = ("La revocación exigiría una nueva decisión sobre la "
+                                           "legitimación del adquirente.")
+t_ef = armar(r_ef)
+ok(t_ef["vias"]["opuesta"]["efecto"] == "" and "nueva decisión" in t_ef["vias"]["opuesta"]["efecto_motor"]
+   and any("sin reenvío" in a for a in t_ef["avisos"]),
+   "el efecto de reenvío no se enseña junto a la nota de la reasunción: se guarda y se avisa")
+ok(armar()["vias"]["opuesta"]["efecto"] == GLOBAL["alternativa"]["efecto"],
+   "el efecto que no choca se enseña como siempre")
+# (d) Con «reñido», las razones hablan de la vía A y la vía B, como la pantalla,
+#     y no dicen «la contraria no» cuando las dos comparten un criterio.
+_rz = armar()["estado_por_que"]
+ok(not any("la propuesta" in x.lower() or "la contraria no" in x.lower() for x in _rz)
+   and any("vía A" in x for x in _rz) and any("comparten 2026918" in x for x in _rz),
+   f"reñido: vía A / vía B y lo que comparten: {_rz}")
+ok(any("la propuesta" in x.lower() for x in armar(r_cl)["estado_por_que"]),
+   "con «claro» sí se llama la propuesta, como en pantalla")
+# (e) No consta quién recurre: se dice.
+ok(any("No consta quién recurre" in a for a in armar(rama=dict(RAMA, quien_recurre=""))["avisos"])
+   and not any("No consta quién recurre" in a for a in armar()["avisos"]),
+   "si `info_de_rama` no sabe quién recurre, la tarjeta lo dice")
+# (f) Conceptos «por confirmar»: la recurrida es legible y no dice que quedaran
+#     conceptos sin estudiar.
+_REC_TODO = ("SENTENCIA. CONSIDERANDO SEXTO. Es fundado el segundo concepto de violación. "
+             + "Estudio del concepto. " * 60 + " Son infundados el primero y el tercero. "
+             + "Estudio de los otros dos. " * 30)
+_om_pc = armar(fases=_types.SimpleNamespace(fuentes=[_REC_TODO, ""], autos=""))
+ok(_om_pc["conceptos_omitidos"]["hacen_falta"] == "por_confirmar"
+   and any("no dice que el juzgado dejara conceptos sin estudiar" in a for a in _om_pc["avisos"]),
+   "el juzgado estudió todos los conceptos: «por confirmar», sin bloquear, y se avisa")
+_REC_INN = _REC_TODO + " Por tanto, resulta innecesario el estudio de los restantes conceptos."
+ok(armar(fases=_types.SimpleNamespace(fuentes=[_REC_INN, ""], autos=""))
+   ["conceptos_omitidos"]["hacen_falta"] is True,
+   "si la recurrida declaró innecesario el estudio de los restantes, hacen falta")
+# (g) Si el principal es de procedencia, la vía que lo hace prosperar sobresee.
+_pp_pro = copy.deepcopy(PROBLEMAS)
+_pp_pro[0]["clase"] = "procedencia"
+t_pro = armar(problemas=_pp_pro, rama=dict(RAMA, quien_recurre="tercero"))
+ok(any("Se sobresee" in x for x in t_pro["vias"]["opuesta"]["desenlace"])
+   and t_pro["conceptos_omitidos"] is None,
+   "principal de procedencia: la vía que prospera revoca y sobresee, y no pide conceptos")
 
 # ═══ LA FILA 462 REAL, SI SE PASA (sólo lectura, fuera del repositorio) ══════
 _ruta = os.environ.get("TARJETA_FILA_462", "")
 if _ruta and os.path.exists(_ruta):
     print("\n14 · LA FILA 462 VOLCADA (AR 631/2025)")
     import types as _types
+    import fase_rama as _fr          # faltaba: la sección opcional caía en NameError
     d = json.load(open(_ruta, encoding="utf8"))
     fila = {"propuesta": d["propuesta"], "global_propuesta": d["global_propuesta"],
             "contraste": d["contraste"]}

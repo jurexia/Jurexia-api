@@ -1053,6 +1053,38 @@ ok(not any("«confirma_concede»" in a for a in _est3.avisos)
    and any("«revoca_fondo_niega»" in a for a in _est3.avisos),
    "al componer el proyecto con la misma estructura, sólo queda la rama del proyecto")
 
+# ═══════════════════════════════════════════════════════════════════════════
+# REVISIÓN ADVERSARIAL (28-sep-2026): el documento con la quejosa recurrente y
+# con los conceptos «por confirmar».
+print("\n13 · REVISIÓN DEL 28-sep: LA QUEJOSA QUE GANA Y LOS CONCEPTOS POR CONFIRMAR")
+# (g) RECURRE LA QUEJOSA CONTRA SU CONCESIÓN Y GANA: no se le niega el amparo.
+_reas_q = {"reasuncion": "", "quien_recurre": "quejoso"}
+_, _res_q, _est_q = componer_b(["Solución", "Es fundado el agravio de la quejosa: los efectos de la "
+                                "concesión no restituyen el derecho violado. Procede revocar la sentencia "
+                                "recurrida y conceder el amparo para los efectos que se precisan."], _reas_q)
+ok("no ampara" not in _res_q and "La Justicia de la Unión ampara y protege a Unión Ejemplo, A.C." in _res_q
+   and "PRIMERO. Se revoca la sentencia recurrida." in _res_q,
+   f"la quejosa que gana su recurso sigue amparada (art. 93, fr. V): {_res_q[:320]}")
+ok(any(a.startswith("RECURRE LA QUEJOSA CONTRA UNA CONCESIÓN") for a in _est_q.avisos)
+   and any("«revoca_fondo_concede»" in a for a in _est_q.avisos),
+   "y el aviso dice por qué y que compruebe revocar o modificar")
+_, _res_qm, _ = componer_b(["Solución", "Es fundado el agravio; procede modificar la sentencia recurrida "
+                            "para ampliar el alcance de la concesión."], _reas_q)
+ok("PRIMERO. Se modifica la sentencia recurrida." in _res_qm and "no ampara" not in _res_qm,
+   "si el estudio dice modificar, se modifica")
+# (h) «POR CONFIRMAR»: la recurrida no dice que quedaran conceptos sin estudiar;
+#     si el estudio concluye, el punto sale de ahí y no con hueco.
+_reas_pc = dict(_reas_sin, hacen_falta="por_confirmar")
+_, _res_pc, _ = componer_b(["Solución", "Es fundado el primer agravio. El juzgado examinó y desestimó los "
+                            "demás conceptos y la quejosa no los combatió: no hay nada que reasumir; por "
+                            "tanto, procede revocar la sentencia recurrida y negar el amparo."], _reas_pc)
+ok("no ampara ni protege a Unión Ejemplo, A.C." in _res_pc and "*********" not in _res_pc,
+   f"por confirmar y el estudio concluye: el punto sale del estudio, sin hueco: {_res_pc[:300]}")
+_, _res_pc2, _est_pc2 = componer_b(["Solución", "Es fundado el primer agravio. Se revoca y el tribunal "
+                                    "reasume jurisdicción."], _reas_pc)
+ok("*********" in _res_pc2 and any("NO DICE QUE EL JUZGADO DEJARA CONCEPTOS" in a for a in _est_pc2.avisos),
+   "por confirmar y el estudio no concluye: hueco, con el aviso que dice qué comprobar")
+
 print()
 if FALLOS:
     print(f"FALLAN {len(FALLOS)}: " + " · ".join(FALLOS))

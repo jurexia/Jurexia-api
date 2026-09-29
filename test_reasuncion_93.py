@@ -357,6 +357,121 @@ _gsrc = ast.get_source_segment(_src_ra, _gen)
 ok("_quejoso_del_amparo(e, partes, _res_ad)" in _gsrc and "e.recurrente = _q_tecleado" in _gsrc,
    "en la raíz (el adelanto): si el resolutivo del juzgado dice que la quejosa es otra, lo tecleado es la recurrente")
 
+# ═══════════════════════════════════════════════════════════════════════════
+print("\n10 · LA REVISIÓN ADVERSARIAL DEL 28-sep-2026")
+# (a) LA QUEJOSA QUE GANA SU RECURSO CONTRA UNA CONCESIÓN NO PIERDE EL AMPARO.
+ok(ta.rama_revision("concede", "fundado", quien_recurre="quejoso") == "revoca_fondo_concede"
+   and ta.rama_revision("concede", "fundado", quien_recurre="quejoso", solo_efectos=True) == "modifica_efectos"
+   and ta.rama_revision("concede", "fundado") == "revoca_fondo_niega"
+   and ta.rama_revision("concede", "fundado", quien_recurre="tercero") == "revoca_fondo_niega",
+   "recurre la quejosa y gana: se concede (fr. V); si no consta o recurre otra parte, como antes")
+ok(ta.rama_revision("sobresee_concede", "fundado", quien_recurre="quejoso") == "revoca_sobreseimiento_concede"
+   and ta.reasuncion("sobresee_concede", "fundado", quien_recurre="quejoso") == "sobreseimiento"
+   and ta.reasuncion("sobresee_concede", "fundado", quien_recurre="tercero") == "concesion",
+   "la quejosa que recurre una mixta combate el sobreseimiento (frs. I y V)")
+_pq = ta.puntos_quejosa_mejora(RESOL)
+ok(_pq[0] == "PRIMERO. Se {HUECO} la sentencia recurrida." and "ampara y protege a Unión Ejemplo, A.C." in _pq[1]
+   and "no ampara" not in _pq[1]
+   and ta.puntos_quejosa_mejora("", "modifica")[0] == "PRIMERO. Se modifica la sentencia recurrida.",
+   "los puntos: revocar o modificar en hueco hasta el estudio, y la ampara con el acto del juzgado")
+# (b) LA IMPROCEDENCIA QUE PROSPERA SOBRESEE, SIN REASUMIR (fr. II).
+_tec_rs = ta.tecnica_de("amparo_revision", "revoca_sobresee")
+ok(ta.rama_revision("concede", "fundado", quien_recurre="autoridad", procedencia=True) == "revoca_sobresee"
+   and ta.reasuncion("concede", "fundado", quien_recurre="autoridad", procedencia=True) == ""
+   and ta.ejecutoria_concede("revoca_sobresee") is False
+   and ta.TECNICA_RESOLUCION["revision_sobresee_por_improcedencia"] in _tec_rs
+   and ta.TECNICA_RESOLUCION["revision_reasume_concesion"] not in _tec_rs,
+   "prospera la improcedencia de la autoridad: revoca y sobresee, con su técnica y sin la fr. VI")
+_f_pro = fases(problemas=[{"pregunta": "¿Se actualiza la falta de interés jurídico?", "cubre": [1],
+                           "clase": "procedencia", "jerarquia": "principal"}])
+_i_pro = ra.info_de_rama(resultado(f=_f_pro))
+ok(_i_pro["clase_principal"] == "procedencia" and fr.conceptos_omitidos(_i_pro, "fundado") is None
+   and ra._rama_de(resultado(f=_f_pro), CRIT_F) == "revoca_sobresee"
+   and ra._rama_de(resultado(f=_f_pro), CRIT_I) == "confirma_concede",
+   "la clase del principal viaja en la rama: no se piden conceptos y la rama del estudio sobresee")
+ok(ra._reasuncion_del_asunto(resultado(f=_f_pro), CRIT_F)["reasuncion"] == ""
+   and ra._reasuncion_del_asunto(resultado(f=_f_pro), CRIT_F)["procedencia"] is True,
+   "el material del estudio sabe que no se reasume y por qué")
+# (c) LOS PAPELES SIN PRUEBA: «» y no «quejoso»; la grafía no convierte a la quejosa en tercera.
+QUEJOSA_N = "María de la Luz Hernández Ruiz"
+RES_N = ("La Justicia de la Unión no ampara ni protege a Ma. de la Luz Hernández Ruiz, contra el acto que "
+         "reclamó al Director de Catastro, por los motivos expuestos en el considerando cuarto.")
+_eq = encargo(quejoso=QUEJOSA_N)
+ok(ra._quejoso_del_amparo(_eq, None, RES_N) == QUEJOSA_N and ra._recurrente_de(_eq, None, RES_N) == ""
+   and ra.papel_del_recurrente(_eq, None, RES_N) == "quejoso",
+   "la quejosa recurrente con su nombre abreviado en el resolutivo sigue siendo la quejosa")
+ok(ra.papel_del_recurrente(encargo(quejoso="Juan Gómez Pérez"), None,
+                           "La Justicia de la Unión ampara y protege a Juan Gomes Pérez, contra el acto "
+                           "que reclamó al Director de Catastro.") == "quejoso",
+   "una errata tampoco la convierte en tercera interesada")
+ok(ra._parte_parecida(QUEJOSA_N, "Ma. de la Luz Hernández Ruiz")
+   and not ra._parte_parecida("María Hernández Ruiz", "Inmobiliaria Hernández Ruiz, S.A. de C.V.")
+   and not ra._parte_parecida(QUEJOSA, RECURRENTE),
+   "la comparación tolera abreviaturas y erratas, no apellidos compartidos entre partes distintas")
+RES_REM = ("La Justicia de la Unión ampara y protege a la parte quejosa precisada en el resultando primero, "
+           "contra el acto que reclamó a la Sala, por los motivos expuestos en el considerando séptimo.")
+_sin = types.SimpleNamespace(quejoso="", tercero_interesado="", autoridad_responsable="")
+ok(ra.papel_del_recurrente(encargo(), _sin, RES_REM) == "",
+   "sin prueba de quién recurre (resolutivo que remite, ficha vacía): «», no «quejoso»")
+_f_rem = fases()
+_f_rem.resolutivo_recurrida = RES_REM
+_i_rem = ra.info_de_rama(resultado(f=_f_rem))
+ok(_i_rem["quien_recurre"] == "" and fr.conceptos_omitidos(_i_rem, "fundado")["reasuncion"] == "concesion",
+   "…y con «» la fracción VI se aplica: se piden los conceptos (el fallo del 631 no vuelve)")
+ok(ra.papel_del_recurrente(encargo(quejoso=QUEJOSA), None,
+                           "La Justicia de la Unión no ampara ni protege a la parte quejosa precisada en el "
+                           "resultando primero, contra el acto que reclamó a la Sala.") == "quejoso",
+   "si el juzgado negó, sólo la quejosa resiente el fallo: recurre ella")
+# (d) CONCEPTOS «POR CONFIRMAR»: la recurrida es legible y no dice que dejara ninguno sin estudiar.
+_REC_TODOS = ("JUZGADO SÉPTIMO DE DISTRITO\nCONSIDERANDO SÉPTIMO. Es fundado el segundo concepto de "
+              "violación. " + "Estudio del concepto. " * 80 + "Son infundados el primero y el tercero. "
+              + "Estudio de los otros. " * 40 + "Por lo expuesto, se R E S U E L V E: SEGUNDO. " + RESOL)
+_co_pc = fr.conceptos_omitidos({"tipo_asunto": "amparo_revision", "que_hizo": "concede",
+                                "quien_recurre": "tercero"}, "fundado", fases(fuentes=[_REC_TODOS, ""]))
+ok(_co_pc["hacen_falta"] == "por_confirmar" and "revisión adhesiva" in _co_pc["por_que"],
+   "el juzgado estudió todos: «por confirmar», no se bloquea")
+ok(fr.dejo_conceptos_sin_estudiar(RECURRIDA) is True and fr.dejo_conceptos_sin_estudiar("") is None
+   and fr.dejo_conceptos_sin_estudiar(_REC_TODOS) is False
+   and fr.dejo_conceptos_sin_estudiar("Texto. " * 300 + "sin que sea necesario analizar los demás conceptos "
+                                      "de violación") is True,
+   "la lectura de la recurrida: innecesario el estudio de los restantes, sin que sea necesario…")
+_bpc = f6._bloque_conceptos("revoca_fondo_niega", "", reasuncion={"reasuncion": "concesion",
+                                                                   "hacen_falta": "por_confirmar",
+                                                                   "tenemos": False})
+ok("NO DICE QUE EL JUZGADO DEJARA CONCEPTOS SIN ESTUDIAR" in _bpc and "«" not in _bpc
+   and "FALTAN ESOS CONCEPTOS" not in _bpc,
+   "el estudio sabe que puede no haber nada que reasumir, sin frases para copiar")
+# (e) LA TÉCNICA DE LA fr. VI SIN LOS CONCEPTOS NO MANDA CALIFICARLOS (v3, sin guion).
+_TEC4 = [{"registro": x, "rubro": f"RUBRO {x}.", "instancia": "Segunda Sala", "tipo": "JURISPRUDENCIA",
+          "texto": "texto"} for x in ("171925", "178784", "182039", "174177")]
+_m_sin = f6.Material(tipo_asunto="amparo_revision", tesis=[dict(t) for t in _TEC4])
+_m_sin.reasuncion = {"reasuncion": "concesion", "hacen_falta": True, "tenemos": False, "conceptos": ""}
+_bt_sin = f6._bloque_tecnica("amparo_revision", "revoca_fondo_niega", False, _m_sin)
+ok("178784" not in _bt_sin and "182039" not in _bt_sin and "171925" in _bt_sin and "174177" in _bt_sin
+   and "UN CONSIDERANDO PROPIO" not in _bt_sin and "SIN LOS CONCEPTOS NO SE CALIFICAN" in _bt_sin,
+   "sin conceptos: ni el renglón del considerando que los califica ni sus dos apoyos")
+_m_con = f6.Material(tipo_asunto="amparo_revision", tesis=[dict(t) for t in _TEC4])
+_m_con.reasuncion = dict(_m_sin.reasuncion, tenemos=True, conceptos="PRIMERO. Concepto.")
+_bt_con = f6._bloque_tecnica("amparo_revision", "revoca_fondo_niega", False, _m_con)
+ok("178784" in _bt_con and "UN CONSIDERANDO PROPIO" in _bt_con
+   and "178784" in f6._bloque_tecnica("amparo_revision", "revoca_fondo_niega", False,
+                                      f6.Material(tipo_asunto="amparo_revision",
+                                                  tesis=[dict(t) for t in _TEC4])),
+   "con los conceptos, o sin la reasunción calculada, como antes")
+# (f) LA TESIS QUE INVOCÓ OTRA PARTE NO ES APOYO DE LA VÍA.
+_RA = ("La quejosa había alegado que una tercera persona no podía colocarse en el lugar de la actora. "
+       "Para apoyar su planteamiento, había citado la tesis II.2o.C.296 C, con registro digital 188480, "
+       "de rubro “SUSTITUCIÓN PROCESAL. NO AFECTA A LA RELACIÓN SUSTANCIAL PACTADA”.")
+ok(f6.registros_de_otros(_RA, True) == {"188480"} and f6.registros_de_otros(_RA, False) == set()
+   and "188480" in f6.registros_de_la_parte("", None, _RA)[0],
+   "en la revisión, lo que relata la recurrida también es de otro (1-duodecies lo ve)")
+_bg = f6._bloque_global({"sentido": "infundado", "razon": "La razón del motor.",
+                         "alternativa": {"sentido": "fundado", "razon": "La vía que se tomó.",
+                                         "apoyos": ["170378", "188480"]}}, CRIT_F, {"188480"})
+ok("Apoyos del acervo para esta vía: 170378 (" in _bg and "tiene que contestar" in _bg
+   and _bg.count("188480") == 1,
+   "en la vía que se tomó, la tesis de la quejosa va aparte, para contestarla, no como apoyo")
+
 print()
 if FALLOS:
     print(f"FALLAN {len(FALLOS)}: " + " · ".join(FALLOS))

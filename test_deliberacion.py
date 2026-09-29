@@ -332,9 +332,17 @@ ok(va["conceptos_omitidos"]["hacen_falta"] and va["conceptos_omitidos"]["reasunc
    and "93" in va["desenlace_nota"] and "VI" in va["desenlace_nota"],
    "F · vía A anuncia el estudio de los conceptos omitidos (art. 93, fr. VI), con la función de SPEC B")
 _cq = dl.consecuencia_de("fundado", "amparo_revision", "concede", RESOLUTIVO, quien_recurre="quejoso")
-ok(_cq["conceptos_omitidos"] is None and any("no ampara ni protege a María López Ruiz" in x
-                                             for x in _cq["desenlace"]),
-   "F · si recurre la propia quejosa no se reasume: revocar niega lo que se concedió")
+# REVISIÓN DEL 28-sep-2026: esto afirmaba «revocar niega lo que se concedió»
+# como correcto. La quejosa que gana su recurso no pierde el amparo (fr. V).
+ok(_cq["conceptos_omitidos"] is None and _cq["rama"] == "revoca_fondo_concede"
+   and any("ampara y protege a María López Ruiz" in x for x in _cq["desenlace"])
+   and not any("no ampara" in x for x in _cq["desenlace"]),
+   "F · si recurre la propia quejosa y gana, no se reasume ni se le niega: la ampara (fr. V)")
+_cp = dl.consecuencia_de("fundado", "amparo_revision", "concede", RESOLUTIVO, quien_recurre="tercero",
+                         procedencia=True)
+ok(_cp["rama"] == "revoca_sobresee" and _cp["conceptos_omitidos"] is None
+   and any("Se sobresee" in x for x in _cp["desenlace"]),
+   "F · si lo que prospera es la improcedencia que alegó la tercera: se revoca y se sobresee")
 ok(vb["rama"] == "confirma_concede" and any("ampara y protege a María López Ruiz" in x for x in vb["desenlace"]),
    "F · vía B: se confirma la concesión con el resolutivo del juzgado")
 s2 = d["secundarios"][0]
@@ -486,6 +494,40 @@ _pj = dl.prompt_juez(("A", "B"), {"A": d["vias"]["A"], "B": d["vias"]["B"]},
 ok("motor" not in _pj.lower() and "propuesta" not in _pj.lower(), "el prompt del juez no habla del motor ni de su propuesta")
 ok(_pj.index("1. LO QUE OBLIGA MANDA") < _pj.index("2. EL HECHO ACREDITADO") < _pj.index("3. PRESUNCIÓN")
    < _pj.index("4. EL PRECEDENTE PROPIO") < _pj.index("5. LA TASA BASE"), "el orden fijo de los cinco escalones")
+
+# ═══ 7 bis · EL PRO PERSONA, CON EL CARÁCTER DE QUIEN RECURRE ════════════════
+# Revisión del 28-sep-2026 (AR 631/2025): `_pa` no pasaba `papel`, y la tercera
+# interesada particular («Inmobiliaria del Centro») se leía por el nombre como
+# quien reclama el derecho: la vía A —prospera su recurso y pierde la quejosa—
+# recibía la lectura protectora y la B el «no se invocan». Al revés.
+print("\n7 bis · la dirección del pro persona con la tercera interesada como recurrente")
+
+
+def _material_con_metodo():
+    m = material()
+    m.tesis = list(m.tesis) + [{"registro": "2006224", "rubro": "PRINCIPIO PRO PERSONA. RUBRO.",
+                                "instancia": "Pleno", "tipo": "JURISPRUDENCIA", "texto": "…",
+                                "metodo": True, "tecnica": True, "metodo_para": "interpretar"}]
+    return m
+
+
+def _abogados(cli):
+    return (cli.de("ABOGADO DE LA VÍA EN QUE EL PLANTEAMIENTO PRINCIPAL PROSPERA")[0][1],
+            cli.de("ABOGADO DE LA VÍA EN QUE EL PLANTEAMIENTO PRINCIPAL NO PROSPERA")[0][1])
+
+
+_NO_ENTRA = "SIN PRO PERSONA NI INTERPRETACIÓN CONFORME"
+_SI_ENTRA = "ESTA CALIFICACIÓN FAVORECE A QUIEN RECLAMA EL DERECHO"
+cli7t = Falso(respuestas())
+correr(cli7t, material=_material_con_metodo(), quien_recurre="tercero")
+_pa_t, _pb_t = _abogados(cli7t)
+ok(_NO_ENTRA in _pa_t and _SI_ENTRA not in _pa_t and _SI_ENTRA in _pb_t and _NO_ENTRA not in _pb_t,
+   "recurre la tercera: la vía A (pierde la quejosa) sin pro persona; la B, desde la lectura protectora")
+cli7q = Falso(respuestas())
+correr(cli7q, material=_material_con_metodo(), quien_recurre="quejoso")
+_pa_q, _pb_q = _abogados(cli7q)
+ok(_SI_ENTRA in _pa_q and _NO_ENTRA in _pb_q,
+   "recurre la quejosa: al revés, la vía A la favorece")
 
 # ═══ 8 · LA FUERZA PARA UN COLEGIADO ════════════════════════════════════════
 print("\n8 · fuerza_para_colegiado")

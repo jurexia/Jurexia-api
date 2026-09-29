@@ -1429,6 +1429,21 @@ RAMAS_REVISION = {
             "ejecutoria."],
         "plenitud": True,
     },
+    # ── RAMA 2 D: prospera la IMPROCEDENCIA que alegó quien recurre ────────
+    # (revisión del 28-sep-2026, AR 631/2025). La fracción VI del artículo 93
+    # es para los agravios DE FONDO; si lo que prospera es el agravio de la
+    # autoridad o de la tercera interesada contra la omisión o la negativa a
+    # sobreseer (fr. II), se revoca y se sobresee: no hay conceptos de
+    # violación que reasumir, y negar supondría haber estudiado el fondo.
+    "revoca_sobresee": {
+        "fundamento": "artículos 93, fracciones II y III, y 63, fracción V, de la Ley de Amparo",
+        "puntos": [
+            "PRIMERO. Se revoca la sentencia recurrida.",
+            "SEGUNDO. Se sobresee en el juicio de amparo promovido por {quejoso}, "
+            "respecto del acto reclamado a {responsable_originaria}, por los "
+            "motivos y fundamentos expuestos en el último considerando de esta "
+            "ejecutoria."],
+    },
     # ── RAMA 2 C: sólo los efectos. ÚNICO, y es el matiz que lo distingue:
     # el amparo estuvo BIEN concedido; lo que falla es la restitución.
     "modifica_efectos": {
@@ -2009,6 +2024,35 @@ TECNICA_RESOLUCION["recurso_revoca_o_modifica"] = {
 }
 
 
+# PROSPERA LA IMPROCEDENCIA QUE ALEGÓ QUIEN RECURRE (revisión del 28-sep-2026,
+# AR 631/2025). Toda concesión revocada se trataba como reasunción de la
+# fracción VI, también cuando lo que prosperaba era un agravio de procedencia:
+# la pantalla pedía la demanda, el prompt ordenaba no concluir y el resolutivo
+# dejaba el amparo en hueco, cuando lo que correspondía era revocar y sobreseer.
+TECNICA_RESOLUCION["revision_sobresee_por_improcedencia"] = {
+    "cuando": ("Recurre la autoridad responsable o la parte tercera interesada y "
+               "prospera su agravio contra la omisión o la negativa del juzgado a "
+               "sobreseer."),
+    "fuente": ("artículos 93, fracciones II y III, y 63, fracción V, de la Ley "
+               "de Amparo"),
+    "tecnica": [
+        "LA PROCEDENCIA VA PRIMERO Y AQUÍ DECIDE. Si se actualiza la causa de "
+        "improcedencia que el juzgado desestimó o no examinó, el juicio no debió "
+        "llegar al fondo: se revoca la sentencia recurrida y se sobresee en el "
+        "juicio.",
+        "NO HAY REASUNCIÓN DE JURISDICCIÓN. La fracción VI del artículo 93 rige "
+        "para los agravios de fondo: con el juicio improcedente no se estudian "
+        "los conceptos de violación, ni los que el juzgado examinó ni los que "
+        "declaró innecesarios.",
+        "EL PUNTO RESOLUTIVO SOBRESEE, NO NIEGA: negar el amparo supone haber "
+        "estudiado el fondo.",
+    ],
+    "apoyos": [],
+    "necesita": "",
+    "aviso_si_falta": "",
+}
+
+
 TECNICA_RESOLUCION["revision_fiscal_reenvio"] = {
     "cuando": ("La REVISIÓN FISCAL es fundada y se revoca la sentencia de la "
                "Sala, quedando conceptos de anulación sin estudiar."),
@@ -2073,6 +2117,9 @@ def tecnica_de(tipo: str, rama: str = "", con_violacion_procesal: bool = False) 
         # cambia la técnica que había que darle (AR 631/2025, 28-sep-2026).
         if rama == "revoca_fondo_niega":
             fuera.append(TECNICA_RESOLUCION["revision_reasume_concesion"])
+        # PROSPERA LA IMPROCEDENCIA (fr. II): se sobresee, no se reasume nada.
+        if rama == "revoca_sobresee":
+            fuera.append(TECNICA_RESOLUCION["revision_sobresee_por_improcedencia"])
     # La queja tiene el mismo problema y con mas frecuencia: 434 de 2,955.
     # LA REVISIÓN FISCAL, SIEMPRE: el deslinde con el amparo en revisión hay
     # que tenerlo delante tanto para reenviar como para no hacerlo.
@@ -2092,7 +2139,9 @@ def tecnica_de(tipo: str, rama: str = "", con_violacion_procesal: bool = False) 
 def rama_revision(resolvio_a_quo: str, sentido: str,
                   solo_efectos: bool = False,
                   violacion_procesal: bool = False,
-                  sentido_amparo: str = "") -> str:
+                  sentido_amparo: str = "",
+                  quien_recurre: str = "",
+                  procedencia: bool = False) -> str:
     """La clave de RAMAS_REVISION que corresponde.
 
     `resolvio_a_quo` es lo que hizo el Juzgado de Distrito —«sobresee»,
@@ -2107,9 +2156,26 @@ def rama_revision(resolvio_a_quo: str, sentido: str,
     `fase_rama.sentido_en_plenitud` del texto del estudio. Sin él,
     `revoca_sobreseimiento_niega` era inalcanzable: estaba declarada y ninguna
     combinación de argumentos la devolvía nunca.
+
+    `quien_recurre` —«quejoso» | «tercero» | «autoridad» | «»— y `procedencia`
+    (el agravio que prospera es de procedencia: improcedencia o
+    sobreseimiento) cambian la rama cuando el juzgado CONCEDIÓ (revisión del
+    28-sep-2026, AR 631/2025):
+      · si recurre la propia quejosa y su recurso prospera, no se le niega el
+        amparo que ya tenía: «dictará la que corresponda» (fr. V) y la
+        concede con el alcance o los efectos que resulten del estudio
+        («revoca_fondo_concede»; «modifica_efectos» si sólo son los efectos);
+        si la sentencia era mixta, lo que ella combate es el sobreseimiento
+        (frs. I y V: «revoca_sobreseimiento_*»);
+      · si recurre la autoridad o la tercera y lo que prospera es su agravio
+        de procedencia, se revoca y se sobresee (fr. II: «revoca_sobresee»),
+        sin reasumir nada.
+    Vacío = no consta quién recurre, y se sigue como si recurriera la
+    autoridad o la tercera (la fr. VI se aplica: `reasuncion`).
     """
     a = (resolvio_a_quo or "").strip().lower()
     s = (sentido or "").strip().lower()
+    q = (quien_recurre or "").strip().lower()
     _prospera = prospera(s)
 
     # LAS DOS RAMAS DE RESOLUTIVO ÚNICO SE MIRAN DESPUÉS, Y CON CONDICIONES.
@@ -2141,7 +2207,10 @@ def rama_revision(resolvio_a_quo: str, sentido: str,
     if a in ("sobresee_niega", "sobresee_concede"):
         if not _prospera:
             return "confirma_" + a
-        a = a.split("_", 1)[1]
+        # LA QUEJOSA NO COMBATE LA CONCESIÓN QUE GANÓ: si recurre una sentencia
+        # que sobreseyó un acto y la amparó por los demás, lo que ataca es el
+        # sobreseimiento, y al prosperar se levanta (frs. I y V).
+        a = "sobresee" if (a == "sobresee_concede" and q == "quejoso") else a.split("_", 1)[1]
     if a not in ("sobresee", "niega", "concede"):
         return "sin_determinar"
     # LA LISTA A MANO SE VA. Enumeraba tres calificaciones y dejaba fuera
@@ -2166,6 +2235,16 @@ def rama_revision(resolvio_a_quo: str, sentido: str,
                 if str(sentido_amparo or "").strip().lower() == "niega"
                 else "revoca_sobreseimiento_concede")
     if a == "concede":
+        # RECURRE LA QUEJOSA Y GANA (revisión del 28-sep-2026): pedía más —otros
+        # efectos, otro alcance— y la rama la dejaba sin amparo («revoca y
+        # niega»). Sola recurrente, su recurso no puede empeorarle la situación:
+        # la sentencia que corresponde la ampara (fr. V).
+        if q == "quejoso":
+            return "revoca_fondo_concede"
+        # PROSPERA LA IMPROCEDENCIA QUE ALEGÓ LA AUTORIDAD O LA TERCERA (fr. II):
+        # se revoca y se sobresee; la fr. VI es para los agravios de fondo.
+        if procedencia:
+            return "revoca_sobresee"
         # REVOCAR LA CONCESIÓN ES REASUMIR JURISDICCIÓN (art. 93, fr. VI; AR
         # 631/2025, 28-sep-2026). El segundo punto lo dice el estudio de los
         # conceptos que el juzgado no estudió: si uno prospera, se concede por
@@ -2199,7 +2278,8 @@ FUNDAMENTO_REASUNCION = {
 
 
 def reasuncion(resolvio_a_quo: str, sentido: str, solo_efectos: bool = False,
-               violacion_procesal: bool = False, quien_recurre: str = "") -> str:
+               violacion_procesal: bool = False, quien_recurre: str = "",
+               procedencia: bool = False) -> str:
     """«sobreseimiento» | «concesion» | «» — si, con lo que hizo el juzgado y
     el sentido del recurso, el tribunal tiene que estudiar conceptos de
     violación por primera vez.
@@ -2208,14 +2288,26 @@ def reasuncion(resolvio_a_quo: str, sentido: str, solo_efectos: bool = False,
     fracción VI cuando recurre la propia quejosa (ahí rige la V); vacío = no
     consta y se aplica, que es lo que dice la Segunda Sala: «sin importar quién
     interponga el recurso» (2a./J. 113/2007, registro 171925). Reponer el
-    procedimiento o modificar sólo los efectos no reasumen nada."""
+    procedimiento o modificar sólo los efectos no reasumen nada.
+
+    Revisión del 28-sep-2026 (AR 631/2025), las dos puertas que faltaban:
+      · la quejosa que recurre una sentencia MIXTA (sobreseyó un acto y la
+        amparó por los demás) combate el sobreseimiento; si prospera, se
+        levanta y se estudian los conceptos de ese acto (frs. I y V):
+        «sobreseimiento»;
+      · `procedencia`: lo que prospera es un agravio de procedencia de la
+        autoridad o la tercera (fr. II): se sobresee y no hay conceptos que
+        reasumir. La fr. VI habla de los agravios DE FONDO."""
     a = (resolvio_a_quo or "").strip().lower()
+    q = (quien_recurre or "").strip().lower()
     if not prospera(sentido) or violacion_procesal or solo_efectos:
         return ""
     if a == "sobresee":
         return "sobreseimiento"
+    if a == "sobresee_concede" and q == "quejoso":
+        return "sobreseimiento"
     if a in ("concede", "sobresee_concede"):
-        if (quien_recurre or "").strip().lower() == "quejoso":
+        if q == "quejoso" or procedencia:
             return ""
         return "concesion"
     return ""
@@ -2962,7 +3054,12 @@ _RX_COLA_DEL_JUZGADO = re.compile(
     r"|para\s+(?:los|el)\s+efectos?\b|en\s+t[ée]rminos\s+del?\b).*$", re.I)
 
 
-def _cuerpo_con_verbo(resolutivo_reproducido: str, verbo: str) -> str:
+_COLA_ESTA_EJECUTORIA = ("por los motivos y fundamentos expuestos en el último "
+                         "considerando de esta ejecutoria.")
+
+
+def _cuerpo_con_verbo(resolutivo_reproducido: str, verbo: str,
+                      cola: str = _COLA_ESTA_EJECUTORIA) -> str:
     """El punto del juzgado —su sujeto y su acto— con otro verbo y la cola hacia
     esta ejecutoria; «» si no es un «ampara y protege» limpio."""
     t = " ".join((resolutivo_reproducido or "").split())
@@ -2973,8 +3070,7 @@ def _cuerpo_con_verbo(resolutivo_reproducido: str, verbo: str) -> str:
     cuerpo = _RX_AMPARA_PROTEGE.sub(verbo, cuerpo, count=1)
     if len(cuerpo.split()) < 8:
         return ""
-    return (f"{cuerpo}, por los motivos y fundamentos expuestos en el último "
-            f"considerando de esta ejecutoria.")
+    return f"{cuerpo}, {cola}"
 
 
 def puntos_revoca_concesion(resolutivo_reproducido: str = "") -> list:
@@ -2985,6 +3081,37 @@ def puntos_revoca_concesion(resolutivo_reproducido: str = "") -> list:
     if not cuerpo:
         return []
     return [RAMAS_REVISION["revoca_fondo_niega"]["puntos"][0], f"SEGUNDO. {cuerpo}"]
+
+
+# ═══ LA QUEJOSA RECURRE SU CONCESIÓN Y GANA (revisión del 28-sep-2026) ═══════
+# AR 631/2025, revisión adversarial: con la quejosa como recurrente —pedía otros
+# efectos, otro alcance— y el recurso fundado, la rama era «revoca y niega» y la
+# tarjeta, la deliberación y el documento la dejaban SIN el amparo que ya tenía.
+# Sola recurrente, su recurso no puede empeorarle la situación: se revoca o se
+# modifica —según el alcance del vicio, `recurso_revoca_o_modifica`— y la
+# sentencia que corresponde (art. 93, fr. V) la ampara con el alcance o los
+# efectos que resulten del estudio. Antes de escribir no se sabe si se revoca o
+# se modifica: ese verbo va en {HUECO}.
+_COLA_EFECTOS_EJECUTORIA = ("en los términos y para los efectos precisados en el "
+                            "último considerando de esta ejecutoria.")
+
+
+def puntos_quejosa_mejora(resolutivo_reproducido: str = "", verbo_sentencia: str = "") -> list:
+    """Los dos puntos cuando la quejosa recurre una concesión y su recurso
+    prospera. `verbo_sentencia` —«revoca» | «modifica» | «»— decide el PRIMERO;
+    vacío lo deja en {HUECO}. El SEGUNDO la ampara: con el sujeto y el acto del
+    resolutivo del juzgado si es un «ampara y protege» limpio; si no, con la
+    fórmula genérica. Con {quejoso}, {responsable_originaria} y {HUECO} para que
+    el compositor los llene."""
+    v = (verbo_sentencia or "").strip().lower()
+    primero = {"revoca": "PRIMERO. Se revoca la sentencia recurrida.",
+               "modifica": "PRIMERO. Se modifica la sentencia recurrida."}.get(
+        v, "PRIMERO. Se {HUECO} la sentencia recurrida.")
+    cuerpo = (_cuerpo_con_verbo(resolutivo_reproducido, "ampara y protege",
+                                _COLA_EFECTOS_EJECUTORIA)
+              or ("La Justicia de la Unión ampara y protege a {quejoso}, contra el acto "
+                  "reclamado a {responsable_originaria}, " + _COLA_EFECTOS_EJECUTORIA))
+    return [primero, f"SEGUNDO. {cuerpo}"]
 
 
 # ═══ REVOCAR UNA CONCESIÓN Y REASUMIR JURISDICCIÓN (art. 93, fr. VI) ════════

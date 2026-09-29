@@ -3375,10 +3375,19 @@ def concede_de(r, crit) -> bool | None:
         if tipo in ("", "amparo_directo"):
             return prospera
         if tipo == "amparo_revision":
-            import fase_rama as _fr
-            que = _fr.que_hizo_el_juzgado(getattr(r, "fases", None),
-                                          str(getattr(e, "resolvio_declarado", "") or ""))
-            rama = _ta.rama_revision(que, "fundado" if prospera else "infundado")
+            # LA MISMA RAMA QUE EL ESTUDIO (revisión del 28-sep-2026): con quién
+            # recurre y si prospera la procedencia —la quejosa que gana su
+            # recurso contra una concesión sí tiene efectos que fijar—.
+            try:
+                import redactor_adelanto as _ra
+                rama = _ra._rama_de(r, crit)
+            except Exception:
+                rama = ""
+            if not rama:
+                import fase_rama as _fr
+                que = _fr.que_hizo_el_juzgado(getattr(r, "fases", None),
+                                              str(getattr(e, "resolvio_declarado", "") or ""))
+                rama = _ta.rama_revision(que, "fundado" if prospera else "infundado")
             # UN SOLO PREDICADO (28-sep-2026): `tipos_asunto.ejecutoria_concede`,
             # el mismo que ahora leen los avisos de efectos. Antes de escribir,
             # revocar una concesión no concede: si el estudio de los conceptos no

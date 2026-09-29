@@ -53,6 +53,57 @@ def _misma_parte(a: str, b: str) -> bool:
     """La misma parte escrita de dos maneras (AR 631/2025, 28-sep-2026): ver
     `promovente.misma_parte`; y, como antes, igualdad o una dentro de otra."""
     return _mismo_nombre(a, b) or _pv.misma_parte(a, b)
+
+
+def _una_edicion(x: str, y: str) -> bool:
+    """¿A lo sumo una letra cambiada, puesta o quitada? («gomes»/«gomez»)."""
+    if abs(len(x) - len(y)) > 1:
+        return False
+    if len(x) == len(y):
+        return sum(1 for p, q in zip(x, y) if p != q) <= 1
+    corta, larga = (x, y) if len(x) < len(y) else (y, x)
+    for i in range(len(larga)):
+        if larga[:i] + larga[i + 1:] == corta:
+            return True
+    return False
+
+
+def _palabra_casa(p: str, w: str) -> bool:
+    """«ma» y «maria» (abreviatura: las letras de la corta, en orden, al
+    principio de la larga), «gomes» y «gomez» (una edición en palabras de
+    cuatro letras o más), o iguales."""
+    if p == w:
+        return True
+    corta, larga = (p, w) if len(p) <= len(w) else (w, p)
+    if len(corta) <= 3 and len(larga) > len(corta) and larga[0] == corta[0]:
+        it = iter(larga)
+        return all(ch in it for ch in corta)
+    return len(corta) >= 4 and _una_edicion(p, w)
+
+
+def _parte_parecida(a: str, b: str) -> bool:
+    """La misma parte escrita con una abreviatura o una errata (revisión del
+    28-sep-2026, regresión de SPEC B): «María de la Luz Hernández Ruiz» y «Ma.
+    de la Luz Hernández Ruiz», «Gómez» y «Gomes». `_misma_parte` exige las
+    palabras idénticas y, cuando la quejosa recurrente tecleaba su nombre con
+    otra grafía que el resolutivo, se la tomaba por OTRA parte —«tercero»— y se
+    invertían la legitimación, el pro persona y la fracción del 93. Aquí cada
+    palabra que nombra en el nombre más corto tiene que casar con una del otro
+    (`_palabra_casa`), con dos como mínimo: «Inmobiliaria Hernández Ruiz» no
+    es «María Hernández Ruiz»."""
+    if _misma_parte(a, b):
+        return True
+    pa, pb = _pv.palabras_que_nombran(a), _pv.palabras_que_nombran(b)
+    if len(pa) < 2 or len(pb) < 2:
+        return False
+    corta, larga = (pa, pb) if len(pa) <= len(pb) else (pb, pa)
+    libres = list(larga)
+    for p in corta:
+        j = next((k for k, w in enumerate(libres) if _palabra_casa(p, w)), None)
+        if j is None:
+            return False
+        libres.pop(j)
+    return True
 import fase6_estudio as f6
 import fase6_rag as f6rag
 import marco_juridico as mjur
@@ -530,6 +581,20 @@ async def generar(cliente, e: Encargo, texto_acto: str, texto_conceptos: str,
                 f"(leído de la sentencia recurrida) y quien recurre es {_caracter} "
                 f"«{_q_tecleado[:90]}». El amparo se concede o se niega a la primera; "
                 f"el recurso se califica a la segunda. Compruébalo en la carátula.")
+        # EL MISMO NOMBRE CON OTRA GRAFÍA NO SEPARA LOS PAPELES (revisión del
+        # 28-sep-2026): se toma como la quejosa que recurre, y se dice.
+        try:
+            import fase_rama as _fr_g
+            _q_res = _fr_g.quejoso_del_resolutivo(_res_ad) if _res_ad else ""
+        except Exception:
+            _q_res = ""
+        if (_q_res and _q_tecleado and not _misma_parte(_q_res, _q_tecleado)
+                and _parte_parecida(_q_res, _q_tecleado)):
+            avisos.insert(0,
+                f"EL NOMBRE TECLEADO «{_q_tecleado[:90]}» Y EL DEL RESOLUTIVO DEL JUZGADO "
+                f"«{_q_res[:90]}» SE ESCRIBEN DISTINTO, pero se tomaron como la misma "
+                f"parte: recurre la quejosa. Si quien recurre es otra parte, escríbela "
+                f"como recurrente en el encargo.")
     if not str(getattr(e, "quejoso", "") or "").strip():
         _leido = str(getattr(partes, "quejoso", "") or "").strip()
         if _leido:
@@ -1061,19 +1126,23 @@ def _reasuncion_del_asunto(r, criterios) -> dict | None:
         e = getattr(r, "encargo", None)
         if e is None or _ta_a.normalizar(getattr(e, "tipo_asunto", "")) != "amparo_revision":
             return {"reasuncion": ""}
-        info = info_de_rama(r)
+        # LA PROCEDENCIA, DE LO QUE PROSPERA DE VERDAD (revisión del 28-sep-2026):
+        # que el principal sea de procedencia no basta; tiene que prosperar.
+        _proc = _procedencia_prospera(r, criterios)
+        info = dict(info_de_rama(r), clase_principal="", procedencia=_proc)
         _sent = "fundado" if any(_ta_a.prospera(str(getattr(c, "sentido", "")))
                                  for c in (criterios or [])) else "infundado"
         co = _fr_a.conceptos_omitidos(info, _sent, getattr(r, "fases", None))
         if not co:
-            return {"reasuncion": "", "quien_recurre": info.get("quien_recurre", "")}
+            return {"reasuncion": "", "quien_recurre": info.get("quien_recurre", ""),
+                    "procedencia": _proc}
         _txt, _donde = _fr_a.conceptos_disponibles(info.get("conceptos_violacion", ""),
                                                    getattr(r, "fases", None))
         print(f"   ⚖️ REASUNCIÓN ({co['reasuncion']}, {co['fundamento']}): conceptos "
               + (f"de {_donde} ({len(_txt)} caracteres)" if _donde else "NO CONSTAN")
               + (" · la recurrida también sobreseyó" if info.get("sobresee_ademas") else ""))
         return {**co, "conceptos": _txt, "quien_recurre": info.get("quien_recurre", ""),
-                "sobresee_ademas": bool(info.get("sobresee_ademas"))}
+                "sobresee_ademas": bool(info.get("sobresee_ademas")), "procedencia": _proc}
     except Exception as _er:
         print(f"   ⚠️ REASUNCIÓN: no se pudo calcular: {type(_er).__name__}")
         return None
@@ -1271,9 +1340,16 @@ def _rama_de(r, criterios, estudio: str = "") -> str:
         _que = _fr_r.que_hizo_el_juzgado(r.fases, getattr(e, "resolvio_declarado", "") or "")
         _sent = "fundado" if any(_ta_r.prospera(str(getattr(c, "sentido", "")))
                                  for c in (criterios or [])) else "infundado"
+        # QUIÉN RECURRE Y SI LO QUE PROSPERA ES LA PROCEDENCIA (revisión del
+        # 28-sep-2026): la quejosa que gana su recurso contra una concesión no
+        # pierde el amparo (fr. V); la improcedencia que prospera sobresee (fr.
+        # II). La misma lectura que la tarjeta y la pantalla.
+        _quien = papel_del_recurrente(e, getattr(r, "partes", None),
+                                      _resolutivo_del_a_quo(getattr(r, "fases", None)))
         return _ta_r.rama_revision(
             _que, _sent,
-            sentido_amparo=_fr_r.sentido_en_plenitud(str(estudio or "")) if estudio else "")
+            sentido_amparo=_fr_r.sentido_en_plenitud(str(estudio or "")) if estudio else "",
+            quien_recurre=_quien, procedencia=_procedencia_prospera(r, criterios))
     except Exception as _e:
         print(f"   ⚠️ TALLER: no se pudo fijar la rama: {type(_e).__name__}")
         return ""
@@ -2640,10 +2716,14 @@ def _quejoso_del_amparo(e: Encargo, partes=None, resolutivo: str = "") -> str:
         _del_res = _fr_q.quejoso_del_resolutivo(resolutivo) if resolutivo else ""
     except Exception:
         _del_res = ""
-    if _del_res and not _misma_parte(_del_res, _tecleado):
+    # SÓLO SI ES OTRA PARTE DE VERDAD (revisión del 28-sep-2026): el nombre
+    # tecleado de la quejosa recurrente escrito con otra grafía que el
+    # resolutivo («Ma.» por «María», una errata) no la convierte en otra parte
+    # (`_parte_parecida`). Si se parece, sigue siendo ella y quien recurre.
+    if _del_res and not _parte_parecida(_del_res, _tecleado):
         return _del_res
     _tercero = str(getattr(partes, "tercero_interesado", "") or "").strip()
-    if (_leido and _tecleado and not _misma_parte(_leido, _tecleado)
+    if (_leido and _tecleado and not _parte_parecida(_leido, _tecleado)
             and (_parece_autoridad(_tecleado) or _misma_parte(_tecleado, _tercero))):
         return _leido
     return _tecleado
@@ -2690,13 +2770,45 @@ def _recurrente_de(e: Encargo, partes=None, resolutivo: str = "") -> str:
     return ""
 
 
+def _consta_que_recurre_la_quejosa(e: Encargo, partes=None, resolutivo: str = "") -> bool:
+    """¿Hay PRUEBA de que quien recurre es la propia quejosa? (revisión del
+    28-sep-2026, AR 631/2025). Lo tecleado es quien promueve el recurso; es la
+    quejosa si el resolutivo del juzgado la nombra —ampara, no ampara o
+    sobresee en el juicio que ella promovió— o si la ficha de partes la da como
+    quejosa (con la tolerancia de `_parte_parecida`). Y también si el juzgado
+    no concedió nada —negó o sobreseyó—: sólo la quejosa resiente ese fallo."""
+    _tecleado = str(getattr(e, "quejoso", "") or "").strip()
+    if not _tecleado:
+        return False
+    try:
+        import fase_rama as _fr_p
+        _del_res = _fr_p.quejoso_del_resolutivo(resolutivo) if resolutivo else ""
+        _que = _fr_p.que_dice_el_resolutivo(resolutivo) if resolutivo else ""
+    except Exception:
+        _del_res, _que = "", ""
+    if _del_res and _parte_parecida(_del_res, _tecleado):
+        return True
+    _leido = str(getattr(partes, "quejoso", "") or "").strip()
+    if _leido and _parte_parecida(_leido, _tecleado):
+        return True
+    return _que in ("niega", "sobresee", "sobresee_niega")
+
+
 def papel_del_recurrente(e: Encargo, partes=None, resolutivo: str = "") -> str:
     """«quejoso» | «autoridad» | «tercero» | «» — en qué carácter recurre quien
     recurre (28-sep-2026). Vacío fuera de los recursos. Un recurrente que no es
     la quejosa ni una autoridad es la parte tercera interesada: en el 631 lo
     era la adquirente del inmueble, y con eso cambia la legitimación (art. 5o.,
     fr. III, no el 6o.), la dirección del diálogo (si prospera, pierde la
-    quejosa) y la fracción del 93 que rige (la VI)."""
+    quejosa) y la fracción del 93 que rige (la VI).
+
+    «» TAMBIÉN CUANDO NO CONSTA (revisión del 28-sep-2026): sin recurrente
+    propio ni otra parte identificada, esto contestaba «quejoso» y apagaba la
+    fracción VI sin avisar —el fallo del 631 otra vez, con la tercera guardada
+    como «quejoso» y un resolutivo que remite a «la parte quejosa precisada en
+    el resultando primero»—. «quejoso» sólo con prueba positiva
+    (`_consta_que_recurre_la_quejosa`); si no, «», que para
+    `tipos_asunto.reasuncion` es «no consta y se aplica»."""
     if not getattr(e, "es_recurso", False):
         return ""
     import tipos_asunto as _ta_p
@@ -2704,6 +2816,11 @@ def papel_del_recurrente(e: Encargo, partes=None, resolutivo: str = "") -> str:
         return "autoridad"
     _rec = _recurrente_de(e, partes, resolutivo)
     if not _rec:
+        return "quejoso" if _consta_que_recurre_la_quejosa(e, partes, resolutivo) else ""
+    # EL RECURRENTE PROPIO QUE ES LA QUEJOSA (el formulario lo trae escrito):
+    # no es otra parte.
+    if str(getattr(e, "recurrente", "") or "").strip() and _parte_parecida(
+            _rec, _quejoso_del_amparo(e, partes, resolutivo)):
         return "quejoso"
     return "autoridad" if _parece_autoridad(_rec) else "tercero"
 
@@ -2723,7 +2840,40 @@ def info_de_rama(r, declarado: str = "") -> dict:
             "que_hizo": _fr_i.que_hizo_el_juzgado(f, _decl),
             "quien_recurre": papel_del_recurrente(e, getattr(r, "partes", None), _res) if e else "",
             "conceptos_violacion": str(getattr(e, "conceptos_violacion", "") or ""),
-            "sobresee_ademas": _fr_i.sobreseyo_ademas(f, _decl)}
+            "sobresee_ademas": _fr_i.sobreseyo_ademas(f, _decl),
+            # LA CLASE DEL PRINCIPAL (revisión del 28-sep-2026): si es de
+            # procedencia y prospera, se revoca y se sobresee (art. 93, fr. II),
+            # sin reasumir ni pedir los conceptos.
+            "clase_principal": clase_del_principal(getattr(f, "problemas", None))}
+
+
+def clase_del_principal(problemas) -> str:
+    """«fondo» | «procesal» | «procedencia» | «» del problema principal de la
+    fase 3 (el que marca `jerarquia`; si ninguno, el primero, como el árbol)."""
+    ps = [p for p in (problemas or []) if isinstance(p, dict)]
+    if not ps:
+        return ""
+    pral = next((p for p in ps if str(p.get("jerarquia") or "").strip().lower() == "principal"),
+                ps[0])
+    return str(pral.get("clase") or "").strip().lower()
+
+
+def _procedencia_prospera(r, criterios) -> bool:
+    """¿El agravio que prospera es el principal y es de procedencia? Sólo
+    entonces la revocación sobresee (art. 93, fr. II): si el principal de
+    procedencia cae y prospera otro de fondo, rige lo de siempre."""
+    try:
+        import tipos_asunto as _ta_pp
+        if clase_del_principal(getattr(getattr(r, "fases", None), "problemas", None)) \
+                != "procedencia":
+            return False
+        crit = list(criterios or [])
+        pral = next((c for c in crit
+                     if str(getattr(c, "jerarquia", "") or "").strip().lower() == "principal"),
+                    crit[0] if crit else None)
+        return bool(pral is not None and _ta_pp.prospera(str(getattr(pral, "sentido", "") or "")))
+    except Exception:
+        return False
 
 
 def _datos_estructura(e: Encargo, antecedentes: str = "", acto: str = "",

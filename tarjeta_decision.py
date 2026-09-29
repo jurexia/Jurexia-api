@@ -42,8 +42,10 @@ LO QUE NO HACE, Y POR QUÉ.
   · NO VOTA. El espejo del propio tribunal y la jurimetría se enseñan como
     precedentes, no se cuentan (fase_espejo.py, «lo que esto no es»).
   · NO IMPORTA main NI TOCA LA BASE. El endpoint (`GET /taller/tarjeta`) pone
-    las lecturas y la marca «tarjeta» alrededor; aquí todo es puro y se prueba
-    sin el arranque de la app (el arranque borra las cachés de Gemini).
+    las lecturas alrededor; aquí todo es puro y se prueba sin el arranque de la
+    app (el arranque borra las cachés de Gemini). Desde la revisión del
+    28-sep-2026 la tarjeta NO se guarda como marca: se reescribía el `estado`
+    entero sin control de versión y podía pisar otras marcas.
 
 LA DELIBERACIÓN (SPEC C2, detrás de bandera). Si la marca «deliberacion»
 existe, sus dos vías se proyectan sobre `vias.propuesta` (la que recomienda el
@@ -247,9 +249,13 @@ _RX_CLAVE_EN_TEXTO = re.compile(r"\[TESIS:\s*([^\]]+)\]")
 # Semanario a veces la escribe en la localización («…; Tesis: PR.A.C.CN. J/7 K
 # (12a.)»). Tres formas: la del Pleno Regional, la de un colegiado con su
 # circuito en romanos y la de la Corte («1a./J. 5/2020»).
+# LA JURISPRUDENCIA DE UN COLEGIADO («XXII.3o.A.C. J/2 K (11a.)») lleva la «J/»
+# DESPUÉS de la designación y separada por un espacio; el patrón sólo admitía
+# la aislada («XXII.3o.A.C.5 K»), así que la jurisprudencia del propio tribunal
+# no se reconocía y salía «orienta» (revisión del 28-sep-2026, AR 631/2025).
 _RX_CLAVE_EN_LOCALIZACION = re.compile(
     r"(PR\.(?:[A-Z]{1,3}\.)+\s*J/\S+(?:\s+[A-Z]{1,2})?\s*\(\d{1,2}a\.\)"
-    r"|\b(?:[IVXL]+|\([IVX]+\s+Regi[oó]n\))\.\S+\s+[A-Z]{1,2}\s*\(\d{1,2}a\.\)"
+    r"|\b(?:[IVXL]+|\([IVX]+\s+Regi[oó]n\))\.\S+(?:\s+J/\S+)?\s+[A-Z]{1,2}\s*\(\d{1,2}a\.\)"
     r"|\b\d?[a-zA-Z]{0,2}\./J\.\s*\d+/\d{2,4}(?:\s*\(\d{1,2}a\.\))?)")
 
 
@@ -354,6 +360,18 @@ def region_del_circuito(circuito: int) -> str:
     return _regiones_configuradas().get(circuito) or REGION_DEL_CIRCUITO.get(circuito, "")
 
 
+# LOS RÓTULOS DEL PROPIO TRIBUNAL (revisión del 28-sep-2026, AR 631/2025). El
+# artículo 228 de la Ley de Amparo habla de las propias JURISPRUDENCIAS: el
+# tribunal queda vinculado y, para apartarse, tiene que dar argumentos
+# suficientes. Estaba al revés: la jurisprudencia propia no se reconocía (salía
+# «orienta») y la aislada propia y las sentencias del espejo llevaban el 228.
+FUERZA_JURISPRUDENCIA_PROPIA = ("jurisprudencia propia: vincula a este tribunal; apartarse "
+                                "exige argumentos suficientes (art. 228)")
+FUERZA_AISLADA_PROPIA = "precedente propio (tesis aislada): no es jurisprudencia; apartarse pide razón"
+FUERZA_SENTENCIA_PROPIA = ("precedente propio (sentencia de este tribunal): no es jurisprudencia "
+                           "ni voto; apartarse pide razón")
+
+
 def fuerza_para_colegiado(tesis: dict, tribunal: str = "", circuito: int = 0, *,
                           region: str | None = None, clave_propia: str = "") -> dict:
     """La fuerza de un criterio ANTE UN TRIBUNAL COLEGIADO, calculada por
@@ -382,7 +400,10 @@ def fuerza_para_colegiado(tesis: dict, tribunal: str = "", circuito: int = 0, *,
         afirmar si obliga.
       · Jurisprudencia de colegiado → «orienta (art. 217, párr. tercero)».
       · Aislada → «orienta».
-      · Tesis del propio tribunal → «precedente propio (art. 228)».
+      · Tesis del propio tribunal → «precedente_propio». El artículo 228 sólo
+        se rotula en su JURISPRUDENCIA: la vincula y apartarse exige
+        argumentos suficientes. La aislada propia no es jurisprudencia y no se
+        le pone ese artículo (revisión del 28-sep-2026, AR 631/2025).
 
     DUDAS PARA DAVID (se dejan escritas porque cambian el rótulo, no el orden):
       1. PLENOS DE CIRCUITO. Se extinguieron con la reforma de 2021; si su
@@ -421,8 +442,9 @@ def fuerza_para_colegiado(tesis: dict, tribunal: str = "", circuito: int = 0, *,
         # número, la «J/» o el fin.
         resto = clave[len(desig):]
         if not resto or not resto[0].isalpha() or resto.startswith("J/"):
-            return {"fuerza": "precedente_propio",
-                    "fuerza_texto": "precedente propio (art. 228)"}
+            if tipo == "jurisprudencia":
+                return {"fuerza": "precedente_propio", "fuerza_texto": FUERZA_JURISPRUDENCIA_PROPIA}
+            return {"fuerza": "precedente_propio", "fuerza_texto": FUERZA_AISLADA_PROPIA}
     if organo == "scjn":
         if obligatorio:
             return {"fuerza": "obliga",
@@ -508,10 +530,73 @@ def apoyo_de_tesis(t: dict, tribunal: str = "", circuito: int = 0) -> dict:
             "de_internet": bool(t.get("de_internet")), "en_acervo": True, "norma": None}
 
 
-def _apoyo_norma(texto: str) -> dict:
+def _apoyo_norma(texto: str, en_acervo: bool | None = None) -> dict:
     return {"registro": None, "rubro": None, "instancia": None, "tipo": None,
             "fuerza": None, "fuerza_texto": None, "vigencia": None,
-            "de_internet": False, "en_acervo": None, "norma": texto}
+            "de_internet": False, "en_acervo": en_acervo, "norma": texto}
+
+
+# ═══ LA NORMA, VERIFICADA CONTRA LOS PRECEPTOS DEL MATERIAL ═════════════════
+# Revisión del 28-sep-2026 (AR 631/2025): una vía fundada sólo en la ley salía
+# «no alcanza» («ninguna de las dos vías se apoya en un criterio del acervo
+# verificado»), porque toda norma llegaba con `en_acervo: None`, también la del
+# catálogo de la deliberación, que su código ya había verificado. Y ese freno
+# es «duro»: anulaba al juez. La ley es el primer fundamento. Una norma cuenta
+# como verificada si vino del catálogo de la deliberación o si su artículo y su
+# ley casan con un precepto del material; si no, sigue sin contar.
+_LEY_ABREVIADA = {
+    "CPC": "PROCESAL CIVIL", "CPCF": "FEDERAL PROCEDIMIENTOS CIVILES",
+    "CFPC": "FEDERAL PROCEDIMIENTOS CIVILES", "CC": "CIVIL", "CCF": "CIVIL FEDERAL",
+    "CPEUM": "CONSTITUCION", "CFF": "FISCAL FEDERACION",
+    "CNPP": "NACIONAL PROCEDIMIENTOS PENALES",
+    "CNPCF": "NACIONAL PROCEDIMIENTOS CIVILES FAMILIARES"}
+_LEY_SIN_SEÑA = {"CODIGO", "ESTADO", "ESTADOS", "LIBRE", "SOBERANO", "PARA", "LOCAL",
+                 "UNIDOS", "MEXICANOS", "POLITICA", "ARTICULO", "ARTICULOS", "FRACCION",
+                 "PARRAFO", "DICHO", "MISMO", "VIGENTE"}
+_LEY_PROCESAL = {"PROCESAL", "PROCEDIMIENTO"}
+
+
+def _raiz_ley(w: str) -> str:
+    if len(w) > 5 and w.endswith("ES"):
+        return w[:-2]
+    if len(w) > 5 and w.endswith("S"):
+        return w[:-1]
+    return w
+
+
+def _palabras_de_ley(texto: str) -> set:
+    out = set()
+    for w in re.findall(r"[A-ZÑ]+", _plano(texto)):
+        if w in _LEY_ABREVIADA:
+            out |= set(_LEY_ABREVIADA[w].split())
+        elif len(w) >= 4 and w not in _LEY_SIN_SEÑA:
+            out.add(_raiz_ley(w))
+    return out
+
+
+def norma_en_material(texto: str, normas) -> bool:
+    """¿«art. 49 CPC Qro», «artículo 2294 del Código Civil local»… es un
+    precepto del material (`material.normas`: cuerpo_legal, articulo)? Casa
+    el número del artículo y al menos una palabra de la ley, y la ley procesal
+    no se confunde con la sustantiva («Código Civil» ≠ «Código Procesal
+    Civil»). Sin ley escrita no se verifica: se prefiere quedarse corto."""
+    t = str(texto or "")
+    i = re.search(r"\bart", t, re.I)
+    if not i:
+        return False
+    nums = set(re.findall(r"\b(\d{1,4})\b", t[i.start():]))
+    palabras_t = _palabras_de_ley(re.sub(r"\d+", " ", t))
+    if not nums or not palabras_t:
+        return False
+    for n in (normas or []):
+        if not isinstance(n, dict) or _txt(n.get("articulo")) not in nums:
+            continue
+        palabras_n = _palabras_de_ley(_txt(n.get("cuerpo_legal") or n.get("ley")))
+        if bool(palabras_n & _LEY_PROCESAL) != bool(palabras_t & _LEY_PROCESAL):
+            continue
+        if (palabras_n & palabras_t) - _LEY_PROCESAL:
+            return True
+    return False
 
 
 def _apoyo_precedente_propio(texto: str, fuerza_texto: str = "") -> dict:
@@ -521,26 +606,30 @@ def _apoyo_precedente_propio(texto: str, fuerza_texto: str = "") -> dict:
     fuerza, y nunca como voto (fase_espejo.py, «lo que esto no es»)."""
     return {"registro": None, "rubro": None, "instancia": None, "tipo": None,
             "fuerza": "precedente_propio",
-            "fuerza_texto": fuerza_texto or "precedente propio (art. 228)",
+            "fuerza_texto": fuerza_texto or FUERZA_SENTENCIA_PROPIA,
             "vigencia": None, "de_internet": False, "en_acervo": None,
             "norma": f"{texto} de este tribunal (precedente propio)",
             "precedente_propio": texto}
 
 
 def hidratar_apoyos(apoyos, catalogo: dict, tribunal: str = "", circuito: int = 0,
-                    via: str = "") -> tuple:
+                    via: str = "", normas=None) -> tuple:
     """(apoyos del contrato, avisos). Cada apoyo del motor —«2026918», «el
     registro 170378», «art. 49 CPC Qro», o {"registro": …} de la
     deliberación— se verifica contra el catálogo del asunto:
       · con registro y en el acervo → la tesis, con rubro literal, fuerza y
         vigencia; si perdió la vigencia por completo, NO entra (va al aviso);
       · con registro que no está en el acervo → NO se pinta (va al aviso);
-      · sin registro → una norma.
+      · sin registro → una norma: `en_acervo` True si vino del catálogo de la
+        deliberación (su código ya la verificó) o si casa con un precepto de
+        `normas` (el material); si no, None (`norma_en_material`).
     """
     fuera, avisos, vistos = [], [], set()
     _de = f" de {via}" if via else ""
     for a in (apoyos or []):
+        norma_verificada = False
         if isinstance(a, dict):
+            norma_verificada = a.get("en_acervo") is True and not _txt(a.get("registro"))
             reg = _txt(a.get("registro"))
             m = _RX_REGISTRO.search(reg)
             reg = m.group(1) if m else ""
@@ -588,7 +677,8 @@ def hidratar_apoyos(apoyos, catalogo: dict, tribunal: str = "", circuito: int = 
             if k in vistos:
                 continue
             vistos.add(k)
-            fuera.append(_apoyo_norma(txt))
+            fuera.append(_apoyo_norma(
+                txt, True if (norma_verificada or norma_en_material(txt, normas)) else None))
     return fuera, avisos
 
 
@@ -624,7 +714,7 @@ def _rellenar(p: str) -> str:
 
 def desenlace_de(tipo_asunto: str, resolvio_a_quo: str, sentido: str, *,
                  quien_recurre: str = "", sobresee_ademas: bool = False,
-                 resolutivo_recurrida: str = "") -> tuple:
+                 resolutivo_recurrida: str = "", procedencia: bool = False) -> tuple:
     """(puntos resolutivos previstos, nota | None) de un sentido, por código.
 
     AMPARO EN REVISIÓN QUE REVOCA UNA CONCESIÓN (el 631, vía contraria): se
@@ -642,6 +732,18 @@ def desenlace_de(tipo_asunto: str, resolvio_a_quo: str, sentido: str, *,
     el resolutivo del juzgado (`resolutivo_recurrida`, la fuente de verdad de
     577c700) los puntos nombran a quien él amparó; sin él, «la parte quejosa».
     La deliberación usa esta misma función (`deliberacion.consecuencia_de`).
+
+    REVISIÓN DEL 28-sep-2026 (AR 631/2025), tres desenlaces que salían mal:
+      · RECURRE LA QUEJOSA Y GANA contra una concesión: salía «no ampara ni
+        protege» a quien pedía más. Ahora la sentencia que corresponde la ampara
+        (fr. V) y el verbo sobre la recurrida —revocar o modificar— va en hueco
+        hasta que el estudio diga el alcance del vicio;
+      · PROSPERA LA IMPROCEDENCIA (`procedencia`, el principal es de clase
+        «procedencia»): se revoca y se sobresee, sin reasumir (fr. II);
+      · LA VÍA QUE CONFIRMA UNA SENTENCIA MIXTA, con la autoridad o la tercera
+        recurriendo: el sobreseimiento que nadie impugnó no es materia de la
+        revisión —no se vuelve a decretar—, y la confirmación se acota a ella,
+        como la revocación en la otra vía, con los nombres del resolutivo.
     """
     try:
         import tipos_asunto as _ta
@@ -654,14 +756,39 @@ def desenlace_de(tipo_asunto: str, resolvio_a_quo: str, sentido: str, *,
     pros = _ta.prospera(s)
     if tipo == "amparo_revision":
         a = _txt(resolvio_a_quo).lower()
-        rama = _ta.rama_revision(a, s)
+        q = _txt(quien_recurre).lower()
+        rama = _ta.rama_revision(a, s, quien_recurre=q, procedencia=bool(procedencia))
         info = _ta.RAMAS_REVISION.get(rama) or {}
         puntos = [_rellenar(p) for p in (info.get("puntos") or [])]
         nota = info.get("aviso") or None
         res = _txt(resolutivo_recurrida)
-        reas = _ta.reasuncion(a, s, quien_recurre=_txt(quien_recurre))
-        if rama == "confirma_concede" and res:
-            puntos = [_rellenar(p) for p in _ta.puntos_confirma_concede(res)]
+        reas = _ta.reasuncion(a, s, quien_recurre=q, procedencia=bool(procedencia))
+        # ¿LA SENTENCIA ERA MIXTA Y LA RECURRE QUIEN NO PIDIÓ EL AMPARO? Entonces
+        # el sobreseimiento no es materia de la revisión, en las dos vías.
+        mixta_ajena = (bool(sobresee_ademas) or a == "sobresee_concede") and q != "quejoso"
+        confirma = ((rama == "confirma_concede" and (res or mixta_ajena))
+                    or (rama == "confirma_sobresee_concede" and mixta_ajena))
+        if confirma:
+            puntos = [_rellenar(p) for p in _ta.puntos_confirma_concede(res, parcial=mixta_ajena)]
+            if mixta_ajena:
+                nota = ("La sentencia recurrida también sobreseyó respecto de algún acto: si nadie "
+                        "lo impugnó, ese sobreseimiento queda firme y no es materia de la revisión; "
+                        "la confirmación se acota a ella.")
+        elif rama == "revoca_fondo_concede" and q == "quejoso" and a in ("concede",):
+            # LA QUEJOSA RECURRE SU CONCESIÓN Y GANA: no se le niega lo que ya
+            # tenía (fr. V). Ver `tipos_asunto.puntos_quejosa_mejora`.
+            puntos = [_rellenar(p) for p in _ta.puntos_quejosa_mejora(res)]
+            nota = ("Recurre la propia quejosa contra una concesión: si su agravio prospera, no se "
+                    "le niega en el fondo el amparo que ya tenía —su recurso no puede empeorarle "
+                    "la situación—; se revoca o se modifica la sentencia, según el alcance del "
+                    "vicio, y la que corresponde la ampara con el alcance o los efectos que "
+                    "resulten del estudio (art. 93, fr. V, de la Ley de Amparo). Una causa de "
+                    "improcedencia, que se examina de oficio, es lo único que llevaría a sobreseer.")
+        elif rama == "revoca_sobresee":
+            nota = ("Prospera la improcedencia que alegó quien recurre: se revoca y se sobresee "
+                    f"({info.get('fundamento', '')}). No se reasume jurisdicción ni se estudian "
+                    "conceptos de violación: la fracción VI del artículo 93 es para los agravios "
+                    "de fondo.")
         elif rama == "revoca_fondo_niega" and reas == "concesion":
             puntos = [_rellenar(p) for p in _ta.puntos_reasuncion(
                 "", res, parcial=bool(sobresee_ademas))]
@@ -673,18 +800,28 @@ def desenlace_de(tipo_asunto: str, resolvio_a_quo: str, sentido: str, *,
                 nota += (" La sentencia recurrida también sobreseyó: si nadie lo impugnó, ese "
                          "sobreseimiento queda firme.")
         elif rama == "revoca_fondo_niega" and res:
-            # SIN REASUNCIÓN (recurre la quejosa): revocar la concesión niega
-            # lo que ella concedió, con las palabras del juzgado (577c700).
+            # SIN REASUNCIÓN: revocar la concesión niega lo que ella concedió,
+            # con las palabras del juzgado (577c700). Desde la revisión del
+            # 28-sep-2026 la quejosa recurrente ya no llega aquí (su recurso
+            # fundado la ampara, arriba); queda como respaldo.
             puntos = [_rellenar(p) for p in (_ta.puntos_revoca_concesion(res) or info.get("puntos") or [])]
         elif rama.startswith("revoca_sobreseimiento"):
             # El sentido del AMPARO sale del estudio de los conceptos, que el
             # tribunal hace por primera vez: no se supone ninguno.
-            puntos = [puntos[0], f"SEGUNDO. La Justicia de la Unión {HUECO} a la parte quejosa, "
-                                 f"según resulte del estudio de los conceptos de violación."] \
-                if puntos else []
+            mixta_propia = a == "sobresee_concede" and q == "quejoso"
+            primero = _ta.REVOCA_PARCIAL if mixta_propia else (puntos[0] if puntos else "")
+            puntos = [primero, f"SEGUNDO. La Justicia de la Unión {HUECO} a la parte quejosa, "
+                               f"según resulte del estudio de los conceptos de violación."] \
+                if primero else []
             nota = ("Levantado el sobreseimiento, el tribunal asume jurisdicción y estudia los "
                     f"conceptos de violación por primera vez ({info.get('fundamento', '')}); el "
                     "sentido del amparo sale de ese estudio.")
+            if mixta_propia:
+                # LA QUEJOSA RECURRE UNA SENTENCIA MIXTA: combate el
+                # sobreseimiento; la concesión por los demás actos es suya y
+                # nadie la recurrió.
+                nota += (" La concesión por los demás actos no es materia de su recurso y queda "
+                         "firme: la revocación se acota a la materia de la revisión.")
         return puntos, nota
     if tipo == "queja":
         if s == "sin_materia":
@@ -937,6 +1074,15 @@ def _catalogo_de_la_deliberacion(delib: dict) -> dict:
     return out
 
 
+def _normas_de_la_deliberacion(delib: dict) -> list:
+    """Los preceptos del catálogo cerrado de la deliberación, con la forma de
+    `material.normas` (cuerpo_legal, articulo), para verificar las normas que
+    nombran las vías (revisión del 28-sep-2026)."""
+    return [{"cuerpo_legal": _txt(e.get("ley")), "articulo": _txt(e.get("articulo"))}
+            for e in ((delib or {}).get("catalogo") or {}).values()
+            if isinstance(e, dict) and e.get("clase") == "norma" and _txt(e.get("articulo"))]
+
+
 # ═══ LOS CONCEPTOS QUE EL JUEZ NO ESTUDIÓ (SPEC B) ════════════════════════════
 #
 # La función de SPEC B —`fase_rama.conceptos_omitidos`, pura, sin modelo— dice
@@ -964,13 +1110,31 @@ def _vigentes_que_obligan(apoyos: list) -> set:
             if a.get("registro") and a.get("fuerza") == "obliga"}
 
 
+# CÓMO SE LLAMAN LAS DOS COLUMNAS EN PANTALLA (revisión del 28-sep-2026, AR
+# 631/2025). Con «claro» son la propuesta y la contraria; con «reñido» o «no
+# alcanza» la pantalla las rotula «Vía A» y «Vía B» y promete que ninguna se
+# recomienda: las razones del estado no pueden hablar entonces de «la
+# propuesta», que en pantalla no existe.
+NOMBRES_CLARO = ("la propuesta", "la vía contraria")
+NOMBRES_NEUTROS = ("la vía A", "la vía B")
+
+
+def _may(t: str) -> str:
+    return t[:1].upper() + t[1:]
+
+
 def _estado(prop: dict | None, opu: dict | None, contraste: dict | None,
-            discrepa: dict | None, indispensables: list, hay_global: bool) -> tuple:
-    """(estado, razones) SIN deliberación. Nunca un porcentaje.
+            discrepa: dict | None, indispensables: list, hay_global: bool,
+            nombres: tuple = NOMBRES_CLARO) -> tuple:
+    """(estado, razones) SIN deliberación. Nunca un porcentaje. `nombres`:
+    cómo se llaman en pantalla la columna de la izquierda y la de la derecha
+    (`NOMBRES_CLARO` | `NOMBRES_NEUTROS`); `armar` vuelve a pedir las razones
+    con los neutros cuando el estado final no es «claro».
 
     «no_alcanza»: no hay sentido para el asunto, falta una constancia que el
-      motor declaró indispensable, o ninguna vía tiene un criterio del acervo
-      verificado y vigente.
+      motor declaró indispensable, o ninguna vía se apoya en un criterio del
+      acervo verificado y vigente ni en un precepto verificado (la ley es el
+      primer fundamento: `hidratar_apoyos`).
     «claro»: DOS señales independientes coinciden y ninguna la contradice:
       (1) el contraste CIERRA el punto en la dirección de la propuesta —el
           agravio no combate la razón toral, o el fallo sobrevive por otra
@@ -989,6 +1153,7 @@ def _estado(prop: dict | None, opu: dict | None, contraste: dict | None,
     170353…) y la figura que decidía era otra (causahabiencia procesal).
     """
     razones = []
+    P, O = nombres
     if not hay_global:
         return "no_alcanza", ["El motor no propuso un sentido para todo el asunto: "
                               "la propuesta que se ve es la del problema principal."]
@@ -999,7 +1164,7 @@ def _estado(prop: dict | None, opu: dict | None, contraste: dict | None,
                  if a.get("en_acervo")]
     if not en_acervo:
         razones.append("Ninguna de las dos vías se apoya en un criterio del acervo verificado "
-                       "y vigente.")
+                       "y vigente ni en un precepto verificado del material.")
     if razones:
         return "no_alcanza", razones
 
@@ -1007,6 +1172,8 @@ def _estado(prop: dict | None, opu: dict | None, contraste: dict | None,
     ob_p = _vigentes_que_obligan((prop or {}).get("apoyos"))
     ob_o = _vigentes_que_obligan((opu or {}).get("apoyos"))
     solo_p, solo_o = ob_p - ob_o, ob_o - ob_p
+    comunes = sorted(ob_p & ob_o)
+    _comparten = (f"; las dos comparten {', '.join(comunes[:3])}" if comunes else "")
 
     cierra = None                  # True: a favor de la propuesta; False: en contra
     if contraste:
@@ -1015,34 +1182,40 @@ def _estado(prop: dict | None, opu: dict | None, contraste: dict | None,
             cierra = not pros
             if v == "inoperante":
                 razones.append("El contraste dice que el planteamiento no combate la razón toral "
-                               "del fallo" + ("; la propuesta lo desestima." if not pros else
-                                               ", y la propuesta lo hace prosperar."))
+                               "del fallo" + (f"; {P} lo desestima." if not pros else
+                                               f", y {P} lo hace prosperar."))
             else:
                 razones.append("El contraste dice que el fallo se sostiene por otra "
-                               "consideración" + ("; la propuesta lo desestima." if not pros else
-                                                   ", y la propuesta lo hace prosperar."))
+                               "consideración" + (f"; {P} lo desestima." if not pros else
+                                                   f", y {P} lo hace prosperar."))
         else:
             razones.append("El contraste no cierra el punto: el planteamiento combate la razón "
                            "toral y hay que decidir si tiene razón.")
     else:
         razones.append("No hay contraste del principal.")
 
+    # QUÉ INVOCA CADA UNA, SIN «LA OTRA NO» (revisión del 28-sep-2026): contar
+    # como diferencia lo que la otra vía no repite, cuando la otra también
+    # invoca un criterio que obliga, empujaba hacia una columna.
     if solo_p and not solo_o:
-        razones.append("La propuesta invoca criterios que obligan a este tribunal y la contraria "
-                       "no: " + ", ".join(sorted(solo_p)[:4]) + ".")
+        razones.append(f"{_may(P)} invoca además criterios que obligan a este tribunal: "
+                       + ", ".join(sorted(solo_p)[:4]) + _comparten + ".")
     elif solo_o and not solo_p:
-        razones.append("La vía contraria invoca criterios que obligan a este tribunal y la "
-                       "propuesta no: " + ", ".join(sorted(solo_o)[:4]) + ".")
-    elif ob_p or ob_o:
-        razones.append("Las dos vías invocan criterios que obligan a este tribunal"
-                       + (f" ({', '.join(sorted(ob_p & ob_o)[:3])} en las dos)"
-                          if ob_p & ob_o else "") + ": ese escalón no las separa.")
+        razones.append(f"{_may(O)} invoca además criterios que obligan a este tribunal: "
+                       + ", ".join(sorted(solo_o)[:4]) + _comparten + ".")
+    elif solo_p and solo_o:
+        razones.append(f"Cada vía invoca criterios que obligan a este tribunal ({P}: "
+                       + ", ".join(sorted(solo_p)[:3]) + f"; {O}: " + ", ".join(sorted(solo_o)[:3])
+                       + _comparten + "): ese escalón no las separa.")
+    elif comunes:
+        razones.append("Las dos vías invocan los mismos criterios que obligan a este tribunal ("
+                       + ", ".join(comunes[:3]) + "): ese escalón no las separa.")
     else:
         razones.append("Ninguna vía invoca un criterio que obligue a este tribunal.")
     if discrepa:
         razones.append("El motor tomó como problema que decide otro distinto del principal.")
     if opu is None:
-        razones.append("El motor no encontró cómo sostener la vía contraria con el acervo.")
+        razones.append(f"El motor no encontró cómo sostener {O} con el acervo.")
 
     claro = (cierra is True and bool(solo_p) and not solo_o and not discrepa)
     if cierra is False or not claro:
@@ -1052,38 +1225,108 @@ def _estado(prop: dict | None, opu: dict | None, contraste: dict | None,
 
 # ═══ LAS VÍAS ════════════════════════════════════════════════════════════════
 
+def _procedencia(rama_info: dict) -> bool:
+    """¿El principal —el agravio que prospera en la vía que lo hace
+    prosperar— es de procedencia (improcedencia o sobreseimiento)?"""
+    return (bool(rama_info.get("procedencia"))
+            or _txt(rama_info.get("clase_principal")).lower() == "procedencia")
+
+
+def _favorece(sentido: str, rama_info: dict):
+    """¿Esta vía le da la razón a quien reclama el derecho? True | False | None
+    (no consta), con el CARÁCTER de quien recurre (`dialogo_constitucional`,
+    SPEC B): si recurre la tercera interesada y prospera, pierde la quejosa."""
+    try:
+        import dialogo_constitucional as _dc
+        import tipos_asunto as _ta
+        tipo = _ta.normalizar(rama_info.get("tipo_asunto", "") or "")
+        return _dc.favorece_a_la_persona(
+            sentido, tipo, _txt(rama_info.get("recurrente")),
+            tipo in ("amparo_revision", "queja", "revision_fiscal"),
+            papel=_txt(rama_info.get("quien_recurre")))
+    except Exception:                                   # pragma: no cover
+        return None
+
+
+# El efecto que escribió el motor y que es un REENVÍO: choca con el art. 93, fr.
+# VI (el tribunal reasume jurisdicción, no devuelve el asunto).
+_RX_EFECTO_REENVIO = re.compile(
+    r"\bnuev[oa]\s+(?:decisi[óo]n|resoluci[óo]n|sentencia|pronunciamiento)|\breenv[íi]|"
+    r"\bdevolver\b|\bdevuelv|\bdicte\s+otra\b|\bemita\s+otra\b|\breponer\b|\breposici[óo]n\b|"
+    r"\bpara\s+que\s+(?:el\s+)?(?:juzgado|juez|a\s+quo)\b", re.I)
+
+
 def _via(sentido: str, razon: str, efecto: str, apoyos_crudos, catalogo: dict,
          rama_info: dict, protectora: dict | None, avisos: list, etiqueta: str,
-         interpretacion=None, cadena=None, objecion=None) -> dict:
+         interpretacion=None, cadena=None, objecion=None, normas=None) -> dict:
     tribunal = _txt(rama_info.get("tribunal"))
     circuito = int(rama_info.get("circuito") or 0) or circuito_de(tribunal)
-    apoyos, av = hidratar_apoyos(apoyos_crudos, catalogo, tribunal, circuito, etiqueta)
+    apoyos, av = hidratar_apoyos(apoyos_crudos, catalogo, tribunal, circuito, etiqueta, normas)
     avisos.extend(av)
     sueltos = registros_sueltos(razon, catalogo)
     if sueltos:
         avisos.append(f"La razón de {etiqueta} nombra registros que no están en el acervo del "
                       f"asunto ({', '.join(sueltos[:4])}): no se tienen por citados.")
-    puntos, nota = desenlace_de(rama_info.get("tipo_asunto", ""),
-                                rama_info.get("resolvio_a_quo") or rama_info.get("que_hizo") or "",
+    a_quo = rama_info.get("resolvio_a_quo") or rama_info.get("que_hizo") or ""
+    puntos, nota = desenlace_de(rama_info.get("tipo_asunto", ""), a_quo,
                                 sentido, quien_recurre=_txt(rama_info.get("quien_recurre")),
                                 sobresee_ademas=bool(rama_info.get("sobresee_ademas")),
-                                resolutivo_recurrida=_txt(rama_info.get("resolutivo_recurrida")))
+                                resolutivo_recurrida=_txt(rama_info.get("resolutivo_recurrida")),
+                                procedencia=_procedencia(rama_info))
+    # EL EFECTO DEL MOTOR QUE CONTRADICE EL DESENLACE (revisión del 28-sep-2026,
+    # AR 631/2025: en la 462 la nota decía «reasume jurisdicción» y la línea de
+    # debajo, «exigiría una nueva decisión», un reenvío). Si esta vía revoca una
+    # concesión, la consecuencia es la calculada por código; el efecto que
+    # habla de devolver o de una nueva decisión no se enseña como consecuencia:
+    # se guarda como lo que escribió el motor y se avisa.
+    efecto_motor = _txt(efecto)
+    try:
+        import tipos_asunto as _ta
+        reas = (_ta.reasuncion(_txt(a_quo).lower(), _txt(sentido).lower().replace(" ", "_"),
+                               quien_recurre=_txt(rama_info.get("quien_recurre")),
+                               procedencia=_procedencia(rama_info))
+                if _ta.normalizar(rama_info.get("tipo_asunto", "") or "") == "amparo_revision"
+                else "")
+    except Exception:                                   # pragma: no cover
+        reas = ""
+    efecto_visible = efecto_motor
+    if reas == "concesion" and efecto_motor and _RX_EFECTO_REENVIO.search(efecto_motor):
+        efecto_visible = ""
+        avisos.append(f"El efecto que escribió el motor para {etiqueta} habla de devolver el "
+                      f"asunto o de una nueva decisión, y eso choca con el artículo 93, fracción "
+                      f"VI, de la Ley de Amparo: al revocar una concesión el tribunal reasume "
+                      f"jurisdicción, sin reenvío. No se enseña como consecuencia de esa vía; la "
+                      f"consecuencia es el desenlace calculado.")
     vp = None
     if isinstance(protectora, dict) and _txt(protectora.get("sentido")) \
             and _prospera(protectora["sentido"]) == _prospera(sentido):
-        vp = _limpio(protectora)
-        # LOS APOYOS DE LA VÍA PROTECTORA NO LOS VERIFICABA NADIE (`revisar`
-        # sólo mira la global y la alternativa). En el 631 traía dos registros
-        # que no están en el acervo del asunto. Se quedan los comprobados, con
-        # la misma forma de hoy —registros en texto— para la pantalla que ya
-        # la pinta, y el detalle aparte.
-        ap_vp, av_vp = hidratar_apoyos(protectora.get("apoyos"), catalogo, tribunal, circuito,
-                                       "la vía protectora")
-        avisos.extend(av_vp)
-        vp["apoyos"] = [a["registro"] or a["norma"] for a in ap_vp]
-        vp["apoyos_detalle"] = ap_vp
+        # SÓLO A FAVOR DE LA PERSONA (revisión del 28-sep-2026; SPEC B §4): una
+        # propuesta guardada antes del arreglo del papel del recurrente podía
+        # colgar la lectura protectora de la vía que, recurriendo la tercera
+        # interesada, le quita el amparo a la quejosa (tarjeta real de la 462).
+        # Se cuelga si la vía favorece a quien reclama el derecho o no consta;
+        # si consta que no, va al aviso.
+        if _favorece(sentido, rama_info) is False:
+            avisos.append(f"La propuesta guardada ofrecía una lectura protectora (pro persona o "
+                          f"interpretación conforme) en {etiqueta}, que no favorece a quien reclama "
+                          f"el derecho: no se enseña. Esas lecturas operan sólo a favor de la "
+                          f"persona.")
+        else:
+            vp = _limpio(protectora)
+            # LOS APOYOS DE LA VÍA PROTECTORA NO LOS VERIFICABA NADIE (`revisar`
+            # sólo mira la global y la alternativa). En el 631 traía dos
+            # registros que no están en el acervo del asunto. Se quedan los
+            # comprobados, con la misma forma de hoy —registros en texto— para
+            # la pantalla que ya la pinta, y el detalle aparte.
+            ap_vp, av_vp = hidratar_apoyos(protectora.get("apoyos"), catalogo, tribunal,
+                                           circuito, "la vía protectora", normas)
+            avisos.extend(av_vp)
+            vp["apoyos"] = [a["registro"] or a["norma"] for a in ap_vp]
+            vp["apoyos_detalle"] = ap_vp
     return {"sentido": _txt(sentido), "prospera": _prospera(sentido), "razon": _txt(razon),
-            "efecto": _txt(efecto), "desenlace": puntos, "desenlace_nota": nota,
+            "efecto": efecto_visible,
+            **({"efecto_motor": efecto_motor} if efecto_visible != efecto_motor else {}),
+            "desenlace": puntos, "desenlace_nota": nota,
             "interpretacion": _txt(interpretacion) or None,
             "cadena": _limpio(cadena) if isinstance(cadena, dict) else None,
             "objecion": objecion if (isinstance(objecion, dict)
@@ -1093,7 +1336,7 @@ def _via(sentido: str, razon: str, efecto: str, apoyos_crudos, catalogo: dict,
 
 
 def _via_de_deliberacion(v: dict, glob: dict, catalogo: dict, rama_info: dict,
-                         avisos: list, etiqueta: str) -> dict:
+                         avisos: list, etiqueta: str, normas=None) -> dict:
     """Una vía del abogado de la deliberación, verificada aquí otra vez: los
     apoyos salen del catálogo del asunto (el modelo sólo nombra ids), la fuerza
     y la vigencia por código y el desenlace por `tipos_asunto`."""
@@ -1113,7 +1356,7 @@ def _via_de_deliberacion(v: dict, glob: dict, catalogo: dict, rama_info: dict,
     return _via(sentido, razon, efecto, v.get("propongo_aplicar") or v.get("apoyos") or [],
                 catalogo, rama_info, glob.get("via_protectora"), avisos, etiqueta,
                 interpretacion=v.get("interpretacion") or (cadena or {}).get("regla"),
-                cadena=cadena, objecion=obj)
+                cadena=cadena, objecion=obj, normas=normas)
 
 
 # ═══ EL PROPIO TRIBUNAL Y LA LÍNEA DE LA CORTE ═══════════════════════════════
@@ -1235,6 +1478,7 @@ def armar(propuesta_guardada, material, problemas_fase3, contraste=None, espejo=
     circuito = int(rama_info.get("circuito") or 0) or circuito_de(tribunal)
     tipo_asunto = _txt(rama_info.get("tipo_asunto"))
     catalogo = catalogo_de(material)
+    normas = _lista(material, "normas")
     avisos: list = []
 
     # ── EL PRINCIPAL ──
@@ -1242,6 +1486,11 @@ def armar(propuesta_guardada, material, problemas_fase3, contraste=None, espejo=
     p_num = p_idx + 1
     pral = problemas[p_idx]
     p_preg = _preg(pral)
+    # LA CLASE DEL PRINCIPAL DECIDE SI, AL PROSPERAR, SE SOBRESEE (revisión del
+    # 28-sep-2026): un agravio de procedencia de la autoridad o de la tercera
+    # no reasume nada (art. 93, fr. II). Manda el principal de esta tarjeta.
+    if _txt(pral.get("clase")):
+        rama_info["clase_principal"] = _txt(pral.get("clase")).lower()
     pm_pral = _propuesta_de(props, p_preg, p_idx)
     ctx = glob.get("contexto") if isinstance(glob.get("contexto"), dict) else {}
     n_mot = _numero_motor(glob, problemas) if glob else 0
@@ -1253,14 +1502,20 @@ def armar(propuesta_guardada, material, problemas_fase3, contraste=None, espejo=
                              f"{'marcaste tú' if jer_de == 'secretario' else 'marcó la fase 3'} "
                              f"como principal. La tarjeta sigue la jerarquía; el porqué del "
                              f"principal que escribió el motor puede hablar del otro.")}
-    pred = pm_pral.get("prediccion") if isinstance(pm_pral.get("prediccion"), dict) else {}
+    # LA JURIMETRÍA NO VA EN LA TARJETA (revisión del 28-sep-2026, AR 631/2025).
+    # `prediccion.frase` es «Infundado (75% de 12 sentencias del acervo)» y la
+    # pantalla la pintaba encima de las dos columnas «del mismo peso»: un
+    # porcentaje que inclina hacia una vía, con un motor que acierta 50% contra
+    # el 54% de «siempre niega» (sesgo de automatización medido). La tarjeta no
+    # enseña porcentajes. Si el dato vuelve —sin cifra relativa, rotulado como
+    # dato que no decide o plegado tras un clic— lo decide David (SPEC C
+    # mencionaba la predicción). Sigue en la propuesta, donde estaba.
     principal = {"numero": p_num, "pregunta": p_preg, "clase": _txt(pral.get("clase")) or None,
                  "jerarquia_de": jer_de,
                  "por_que_principal": _txt(ctx.get("tema_principal")) or None,
                  "discrepa_motor": discrepa,
                  "contraste": _contraste_de(contraste, p_num),
-                 "prediccion": ({"frase": _txt(pred.get("frase")), "n": pred.get("n")}
-                                if _txt(pred.get("frase")) else None)}
+                 "prediccion": None}
 
     # ── LAS VÍAS ──
     hay_global = bool(glob and glob.get("alcanza", True) is not False and _txt(glob.get("sentido")))
@@ -1269,6 +1524,7 @@ def armar(propuesta_guardada, material, problemas_fase3, contraste=None, espejo=
     if delib:
         for reg, t in _catalogo_de_la_deliberacion(delib).items():
             catalogo.setdefault(reg, t)
+        normas = list(normas) + _normas_de_la_deliberacion(delib)
     alt = glob.get("alternativa") if isinstance(glob.get("alternativa"), dict) else {}
     recomendada = None
     estado_juez = ""
@@ -1293,9 +1549,9 @@ def armar(propuesta_guardada, material, problemas_fase3, contraste=None, espejo=
         otra = next((k for k in vias_d if k != rec), "")
         if rec:
             via_p = _via_de_deliberacion(vias_d[rec], glob, catalogo, rama_info, avisos,
-                                         "la vía propuesta")
+                                         "la vía propuesta", normas)
             via_o = (_via_de_deliberacion(vias_d[otra], glob, catalogo, rama_info, avisos,
-                                          "la vía contraria") if otra else None)
+                                          "la vía contraria", normas) if otra else None)
             suertes_delib["propuesta"] = _suertes_delib(vias_d[rec])
             if otra:
                 suertes_delib["opuesta"] = _suertes_delib(vias_d[otra])
@@ -1317,12 +1573,13 @@ def armar(propuesta_guardada, material, problemas_fase3, contraste=None, espejo=
         if hay_global:
             via_p = _via(sentido_motor, _txt(glob.get("razon")), _txt(glob.get("efecto")),
                          glob.get("apoyos"), catalogo, rama_info, glob.get("via_protectora"),
-                         avisos, "la vía propuesta", interpretacion=glob.get("interpretacion"))
+                         avisos, "la vía propuesta", interpretacion=glob.get("interpretacion"),
+                         normas=normas)
             if _txt(alt.get("sentido")) and _prospera(alt["sentido"]) != _prospera(sentido_motor):
                 via_o = _via(_txt(alt.get("sentido")), _txt(alt.get("razon")),
                              _txt(alt.get("efecto")), alt.get("apoyos"), catalogo, rama_info,
                              glob.get("via_protectora"), avisos, "la vía contraria",
-                             interpretacion=alt.get("interpretacion"))
+                             interpretacion=alt.get("interpretacion"), normas=normas)
                 if not via_o["razon"]:
                     avisos.append("La vía contraria llegó sin razón: «Redactar el criterio de "
                                   "esta vía» la pide al motor sólo con tu clic.")
@@ -1336,7 +1593,7 @@ def armar(propuesta_guardada, material, problemas_fase3, contraste=None, espejo=
             # sin columna contraria; la ventana manual se abre sola.
             via_p = _via(_txt(pm_pral.get("sentido")), _txt(pm_pral.get("razon")), "",
                          pm_pral.get("apoyos"), catalogo, rama_info, None, avisos,
-                         "la propuesta del principal")
+                         "la propuesta del principal", normas=normas)
             via_o = None
             if via_p["sentido"]:
                 avisos.append("Sin sentido para todo el asunto: el desenlace previsto sale sólo "
@@ -1377,7 +1634,7 @@ def armar(propuesta_guardada, material, problemas_fase3, contraste=None, espejo=
                                                        for x in vias_corridas):
             pr_i = _propuesta_de(props, preg, i)
             ap, av = hidratar_apoyos(pr_i.get("apoyos"), catalogo, tribunal, circuito,
-                                     f"el problema {i + 1}")
+                                     f"el problema {i + 1}", normas)
             avisos.extend(av)
             independientes.append({"numero": i + 1, "pregunta": preg,
                                    "propuesta": {"sentido": _txt(pr_i.get("sentido")),
@@ -1403,15 +1660,21 @@ def armar(propuesta_guardada, material, problemas_fase3, contraste=None, espejo=
                      "limite_protector": _txt(vp.get("limite")) or None}
 
     # ── EL ESTADO ──
-    estado, por_que = _estado(via_p, via_o, principal["contraste"], discrepa, indispensables,
-                              hay_global or bool(delib))
+    _args_estado = (via_p, via_o, principal["contraste"], discrepa, indispensables,
+                    hay_global or bool(delib))
+    estado, por_que = _estado(*_args_estado)
     if delib and estado_juez:
         # EL JUEZ MANDA, con dos frenos que no se discuten: sin constancia
         # indispensable o sin un solo apoyo verificado, no alcanza aunque el
         # juez diga otra cosa (la verificación E es de código).
         duros = estado == "no_alcanza"
-        por_que = ([f"Deliberación: el juez la marcó «{estado_juez}»."] + por_que)
         estado = "no_alcanza" if duros else estado_juez
+    if estado != "claro":
+        # CON LOS NOMBRES DE LA PANTALLA: sin «claro» las columnas son la vía A
+        # y la vía B y ninguna se rotula propuesta (revisión del 28-sep-2026).
+        por_que = _estado(*_args_estado, nombres=NOMBRES_NEUTROS)[1]
+    if delib and estado_juez:
+        por_que = [f"Deliberación: el juez la marcó «{estado_juez}»."] + por_que
     recomendada = "propuesta" if estado == "claro" else None
 
     # ── LOS CONCEPTOS QUE EL JUEZ NO ESTUDIÓ (SPEC B) ──
@@ -1427,6 +1690,20 @@ def armar(propuesta_guardada, material, problemas_fase3, contraste=None, espejo=
         if not isinstance(_ri.get("conceptos_violacion"), str):
             _ri["conceptos_violacion"] = ""
         omitidos = _conceptos_omitidos(_ri, via_rev["sentido"], fases)
+        # «POR CONFIRMAR» (revisión del 28-sep-2026): la recurrida no dice que
+        # quedaran conceptos sin estudiar. La pantalla no bloquea (lee
+        # `hacen_falta === true`), pero el secretario tiene que saberlo.
+        if isinstance(omitidos, dict) and omitidos.get("hacen_falta") == "por_confirmar":
+            avisos.append(_txt(omitidos.get("por_que")))
+    # NO CONSTA QUIÉN RECURRE (revisión del 28-sep-2026, AR 631/2025): sin prueba
+    # de que recurra la quejosa, `papel_del_recurrente` ya no contesta
+    # «quejoso»; la fr. VI se aplica y el diálogo no toma dirección. Se dice.
+    if (_txt(tipo_asunto).lower() == "amparo_revision" and "quien_recurre" in rama_info
+            and not _txt(rama_info.get("quien_recurre"))):
+        avisos.append("No consta quién recurre —la quejosa, la tercera interesada o la "
+                      "autoridad—: el desenlace se calcula como si no fuera la quejosa (se "
+                      "reasume jurisdicción si se revoca una concesión) y la vía que favorece a "
+                      "la persona no se da por sabida. Escribe quién recurre en el encargo.")
 
     tarjeta = {
         "formato": FORMATO, "estado_calculo": "listo", "huella": huella,
@@ -1448,7 +1725,8 @@ def armar(propuesta_guardada, material, problemas_fase3, contraste=None, espejo=
 
 
 def clave_de(tarjeta: dict) -> str:
-    """Identifica una tarjeta armada: si no cambió, la marca no se reescribe."""
+    """Identifica una tarjeta armada (para el registro del servidor y las
+    pruebas: la misma entrada da la misma tarjeta)."""
     base = json.dumps(tarjeta, ensure_ascii=False, sort_keys=True, default=str)
     return hashlib.sha1(base.encode("utf-8")).hexdigest()[:20]
 

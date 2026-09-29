@@ -1666,6 +1666,24 @@ def _bloque_reasuncion(conceptos: str, reas: dict) -> str:
              "\n- Si la sentencia recurrida resolvió algo que ningún agravio combate —un "
              "sobreseimiento respecto de otra autoridad, por ejemplo—, dilo y declara que "
              "queda firme; la revocación se acota entonces a la materia de la revisión.")
+    if not (conceptos or "").strip() and reas.get("hacen_falta") == "por_confirmar":
+        # LA RECURRIDA NO DICE QUE QUEDARAN CONCEPTOS SIN ESTUDIAR (revisión
+        # del 28-sep-2026): la fr. VI manda estudiar los «no estudiados»; si el
+        # juzgado los examinó todos, no hay nada que reasumir. Descripción de lo
+        # que hay que hacer, sin frases para copiar.
+        return ("\n\nREVOCAR NO ES NEGAR (artículo 93, fracción VI, de la Ley de Amparo). "
+                "El Juzgado de Distrito concedió y el recurso lo interpone quien no pidió el "
+                "amparo: si los agravios prosperan, el tribunal reasume jurisdicción sobre los "
+                "conceptos de violación que el juzgado no estudió." + firme + "\n"
+                "LA SENTENCIA RECURRIDA NO DICE QUE EL JUZGADO DEJARA CONCEPTOS SIN ESTUDIAR, y "
+                "los conceptos no están en el expediente del recurso. Compruébalo en la "
+                "recurrida que tienes: si los examinó todos y la quejosa no combatió los que "
+                "desestimó (revisión adhesiva, artículo 82), no queda nada que reasumir; dilo, "
+                "con la parte de la recurrida que lo muestra, y concluye si se concede o se "
+                "niega. Si alguno quedó sin estudiar, NO LO INVENTES ni lo deduzcas de los "
+                "agravios: di que el tribunal reasume jurisdicción, NO concluyas si se concede "
+                "o se niega y añade en ADVERTENCIAS que el estudio de esos conceptos queda "
+                "pendiente porque no obran en el expediente del recurso.\n")
     if not (conceptos or "").strip():
         return ("\n\nREVOCAR NO ES NEGAR (artículo 93, fracción VI, de la Ley de Amparo). "
                 "El Juzgado de Distrito concedió y el recurso lo interpone quien no pidió el "
@@ -1716,6 +1734,17 @@ LOS CONCEPTOS DE VIOLACIÓN NO ESTUDIADOS, {origen}:
 """
 
 
+# Los apoyos de la fr. VI que tratan de CALIFICAR los conceptos no estudiados
+# (178784: inoperantes los que descansan en lo ya desestimado; 182039: lo mismo
+# de los agravios). Sin los conceptos no hay qué calificar.
+_APOYOS_VI_DE_LOS_CONCEPTOS = frozenset(("178784", "182039"))
+_TECNICA_VI_SIN_CONCEPTOS = (
+    "SIN LOS CONCEPTOS NO SE CALIFICAN. Los conceptos de violación que el juzgado "
+    "no estudió no obran en el expediente del recurso: si quedaron conceptos sin "
+    "estudiar, el estudio dice que el suyo queda pendiente por esa razón, y ninguno "
+    "se declara fundado, infundado ni inoperante.")
+
+
 def _bloque_tecnica(tipo_asunto: str, rama: str = "",
                     violacion_procesal: bool = False, material=None) -> str:
     """Cómo se resuelve ESTE escenario, según la Ley de Amparo.
@@ -1733,10 +1762,27 @@ def _bloque_tecnica(tipo_asunto: str, rama: str = "",
     reglas = _ta_t.tecnica_de(tipo_asunto, rama, violacion_procesal)
     if not reglas:
         return ""
+    # SIN LOS CONCEPTOS NO HAY CONSIDERANDO QUE CALIFICARLOS (revisión del
+    # 28-sep-2026, AR 631/2025). La técnica de la fr. VI manda un considerando
+    # propio con la dependencia —los conceptos que descansan en lo desestimado
+    # caen o son inoperantes— y anuncia como apoyos 178784 y 182039, que tratan
+    # justamente de eso; el bloque de los conceptos, en cambio, dice que faltan y
+    # que no se concluya. Con el plan agotado o fallido la v4 cae a la v3, y ahí
+    # el estudio recibía las dos órdenes. Se resuelve en la fuente: sin
+    # conceptos, ese renglón dice que el estudio queda pendiente y esos dos
+    # apoyos no se anuncian. Con conceptos, nada cambia.
+    _reas = getattr(material, "reasuncion", None) if material is not None else None
+    _sin_conceptos = bool(isinstance(_reas, dict) and _reas.get("reasuncion") == "concesion"
+                          and not _reas.get("tenemos")
+                          and not str(_reas.get("conceptos") or "").strip())
+    _regla_vi = _ta_t.TECNICA_RESOLUCION.get("revision_reasume_concesion")
     partes = ["\n\nTÉCNICA DE RESOLUCIÓN DE ESTE ASUNTO — no es método, es la ley"]
     for r in reglas:
         partes.append(f"\n· {r['cuando']}\n  Fundamento: {r['fuente']}")
+        _es_vi_sin = _sin_conceptos and r is _regla_vi
         for t in r["tecnica"]:
+            if _es_vi_sin and t.startswith("UN CONSIDERANDO PROPIO"):
+                t = _TECNICA_VI_SIN_CONCEPTOS
             partes.append(f"    – {t}")
         # DECIRLE QUE LOS APOYOS ESTÁN AHÍ. Se traen al acervo por su registro
         # —y llegan: «tesis de la técnica añadidas: 193181, 2000895, 196875,
@@ -1756,6 +1802,8 @@ def _bloque_tecnica(tipo_asunto: str, rama: str = "",
         if r.get("solo_si_estan"):
             _hay = {str(t.get("registro") or "") for t in (getattr(material, "tesis", None) or [])}
             _apoyos = [x for x in _apoyos if str(x) in _hay]
+        if _es_vi_sin:
+            _apoyos = [x for x in _apoyos if str(x) not in _APOYOS_VI_DE_LOS_CONCEPTOS]
         if _apoyos:
             partes.append(
                 "    – APOYOS PARA ESTA TÉCNICA: entre las tesis del acervo que "
@@ -1767,7 +1815,7 @@ def _bloque_tecnica(tipo_asunto: str, rama: str = "",
     return "\n".join(partes) + "\n"
 
 
-def _bloque_global(g, criterios: list = None) -> str:
+def _bloque_global(g, criterios: list = None, de_otros=None) -> str:
     """LO QUE YA SE DECIDIÓ ANTES DE ESCRIBIR, y que el estudio no veía.
 
     Al preparar la propuesta, el motor calcula tres cosas que el secretario lee
@@ -1825,11 +1873,22 @@ def _bloque_global(g, criterios: list = None) -> str:
         # razón toral, sus apoyos y lo que les pasa a los accesorios EN ESTA
         # vía. Es material de trabajo, no mandato; la calificación ya está
         # fijada arriba.
-        _ap = ", ".join(str(a) for a in (_alt.get("apoyos") or [])[:6])
+        # LOS QUE INVOCÓ OTRO NO SON APOYO DE ESTA VÍA (revisión del 28-sep-2026,
+        # AR 631/2025): en la revisión, la tesis que citó la quejosa en su
+        # demanda —o el juzgado en la recurrida— se contesta, no se recicla. En
+        # el 631 el 188480 de la quejosa salía aquí como apoyo de la vía que le
+        # quitaba el amparo. Se nombran aparte, para contestarlos.
+        _otros = {str(x) for x in (de_otros or ())}
+        _todos = [str(a) for a in (_alt.get("apoyos") or [])[:6]]
+        _ajenos = [a for a in _todos
+                   if any(x in _otros for x in _RX_REGISTRO.findall(a))]
+        _ap = ", ".join(a for a in _todos if a not in _ajenos)
         partes.append(
             f"CÓMO SE SOSTIENE LA VÍA QUE SE TOMÓ (material del motor):\n"
             f"{_alt['razon']}"
             + (f"\nApoyos del acervo para esta vía: {_ap} (cítalos desde su texto, abajo)." if _ap else "")
+            + (f"\nCriterios que invocó otra parte o el órgano recurrido, y que esta vía "
+               f"tiene que contestar —no son apoyo suyo—: {', '.join(_ajenos)}." if _ajenos else "")
             + (f"\nEn esta vía, los accesorios: {_alt['efecto']}" if str(_alt.get("efecto") or "").strip() else ""))
     if g.get("en_contra") and not _al_reves:
         partes.append(
@@ -2648,7 +2707,7 @@ FUNDAMENTO — hay que fundar, y hay que fundar bien:
 {_bloque_conceptos(rama, conceptos_violacion, reasuncion=getattr(material, "reasuncion", None))}
 {_bloque_criterio(criterios, materia or getattr(material, "materia", ""), _texto_de(material), getattr(material, "tipo_asunto", ""), _formato, getattr(material, "problemas", None) or [])}{_bloque_sin_calificar(criterios)}
 {_bloque_suplencia(material)}
-{_bloque_global(propuesta_global, criterios)}
+{_bloque_global(propuesta_global, criterios, registros_de_otros(resumen_acto, str(getattr(material, 'tipo_asunto', '') or '').strip().lower() == 'amparo_revision'))}
 {_bloque_precedente(material, criterios)}
 {_bloque_material(_mat_vista)}
 
@@ -3466,7 +3525,7 @@ FUNDAMENTO — hay que fundar, y hay que fundar bien:
 {_bloque_conceptos(rama, conceptos_violacion, "v2", reasuncion=getattr(material, "reasuncion", None))}
 {_bloque_criterio(criterios, _materia_v, _texto_de(material), getattr(material, "tipo_asunto", ""), _formato, getattr(material, "problemas", None) or [], variante="v2")}{_bloque_sin_calificar(criterios)}
 {_bloque_suplencia(material)}
-{_bloque_global(propuesta_global, criterios)}
+{_bloque_global(propuesta_global, criterios, registros_de_otros(resumen_acto, str(getattr(material, 'tipo_asunto', '') or '').strip().lower() == 'amparo_revision'))}
 {_bloque_precedente(material, criterios)}
 {_bloque_material(_mat_vista)}
 
@@ -4921,11 +4980,34 @@ def tesis_que_no_hablan(estudio: str, tesis=None, de_la_parte=None,
     return fuera
 
 
-def registros_de_la_parte(resumen_conceptos: str = "", inventario=None) -> tuple:
+def _texto_plano(x) -> str:
+    """Un resumen puede llegar como texto o como lista de párrafos."""
+    if isinstance(x, (list, tuple)):
+        return "\n".join(str(p) for p in x)
+    return str(x or "")
+
+
+def registros_de_otros(resumen_acto, es_revision: bool) -> set:
+    """Los registros que, en una revisión, relata la sentencia recurrida: los
+    citó la quejosa en su demanda o los invocó el juzgado. En el estudio son
+    criterios que invocó otro (revisión del 28-sep-2026, AR 631/2025)."""
+    if not es_revision:
+        return set()
+    return set(registros_de_la_parte("", None, _texto_plano(resumen_acto))[0])
+
+
+def registros_de_la_parte(resumen_conceptos: str = "", inventario=None,
+                          de_otros: str = "") -> tuple:
     """(registros, rubros) que invocó la parte, leídos del resumen de sus
     conceptos o agravios y del inventario. Sin ellos, el control no puede
-    decir que un criterio es de la parte y no lo dice."""
-    textos = [resumen_conceptos or ""]
+    decir que un criterio es de la parte y no lo dice.
+
+    `de_otros` (revisión del 28-sep-2026, AR 631/2025): en la revisión, lo que
+    relata la sentencia recurrida —las tesis que citó la quejosa en su demanda y
+    las que invocó el propio juzgado—. También son criterios que invocó otro: en
+    el 631, el 188480 lo había citado la quejosa y el prompt lo ofrecía como
+    apoyo de la vía que le quitaba el amparo, sin que 1-duodecies lo viera."""
+    textos = [resumen_conceptos or "", de_otros or ""]
     for s in (inventario or []):
         if isinstance(s, dict):
             textos += [str(s.get("texto") or ""), str(s.get("cita") or ""),
@@ -5192,8 +5274,12 @@ def revisar(estudio: str, criterios: list[Criterio], material: Material,
     #    contradictoria y la tesis de la parte como apoyo—; la cita suelta que
     #    no habla sólo se registra, en sombra (`DEFECTOS_AL_SECRETARIO`).
     try:
+        # EN LA REVISIÓN, TAMBIÉN LO QUE RELATA LA RECURRIDA (revisión del
+        # 28-sep-2026): las tesis de la quejosa y del juzgado son de otro.
+        _de_otros = (_texto_plano(resumen_acto) if str(getattr(material, "tipo_asunto", "") or "")
+                     .strip().lower() == "amparo_revision" else "")
         _regs_p, _rubs_p = registros_de_la_parte(
-            resumen_conceptos, getattr(material, "inventario", None) or [])
+            resumen_conceptos, getattr(material, "inventario", None) or [], _de_otros)
         _sin_hablar = tesis_sin_hablar(estudio, material.tesis, _regs_p, _rubs_p)
     except Exception as _e_th:
         _sin_hablar = []
