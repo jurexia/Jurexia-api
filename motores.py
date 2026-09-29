@@ -70,10 +70,16 @@ CATALOGO: list[Motor] = [
              "~190,000 tokens de prefill que aquí sólo estorban.",
     ),
     Motor(
-        clave="sentencia", boton="Revisión de sentencia", marcador=None,
-        proveedor="openai", modelo="gpt-5.2", razona=True, esfuerzo=None,
+        clave="sentencia", boton="Revisión de sentencia (auditor)",
+        marcador="[AUDITAR_SENTENCIA]; [ENFOQUE_PRECEDENTES:FAVORABLES] opcional",
+        proveedor="openai", modelo="gpt-5.6-terra", razona=True, esfuerzo="low",
         max_tokens=32_000, planes="platinum",
-        nota="El modelo más potente del catálogo.",
+        nota="Desde el 29-sep-2026 gpt-5.6-terra con razonamiento `low`, a pedido de "
+             "David, y con los precedentes del PROPIO tribunal (auditor_precedentes: "
+             "el lector gpt-5.6-luna lee el proyecto y clasifica cada precedente). "
+             "Medido en la queja 176/2019: 57 s de nota, ~0.12 USD. AUDITOR_MODELO y "
+             "AUDITOR_ESFUERZO lo cambian sin desplegar; AUDITOR_PRECEDENTES=0 vuelve "
+             "al auditor anterior (gpt-5.2 sin precedentes del tribunal).",
     ),
     Motor(
         clave="redaccion_platinum", boton="Esfuerzo › Platinum",

@@ -17461,6 +17461,46 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                     except Exception as _prec_err:
                         print(f"   ⚠️ Precedentes error: {_prec_err} — continuando sin ellos")
 
+                # ── EL AUDITOR CON LOS PRECEDENTES DEL PROPIO TRIBUNAL (29-sep-2026) ──
+                # David: «que un magistrado, un juez, suba una sentencia para que
+                # la revise conforme a los precedentes de su tribunal. Y le dé una
+                # nota tan elaborada como esta». Ver `auditor_precedentes`: lee el
+                # proyecto, fija su tribunal y trae, punto por punto, lo que ese
+                # tribunal ya resolvió, clasificado frente al proyecto. Corre ANTES
+                # de armar el prompt y latiendo, porque tarda (20-40 s medidos).
+                # Nunca bloquea: si falla o tarda, se audita sin el catálogo y la
+                # nota lo dice. `AUDITOR_PRECEDENTES=0` vuelve al auditor anterior.
+                _auditor = None
+                if is_sentencia:
+                    try:
+                        import auditor_precedentes as _ap
+                        if _ap.activo():
+                            _pasos_aud: list = []
+                            _tarea_aud = asyncio.ensure_future(_ap.preparar_con_tope(
+                                chat_client, qdrant_client,
+                                lambda _t: get_dense_embedding(_t, modelo=EMBEDDING_MODEL),
+                                last_user_message, paso=_pasos_aud.append))
+                            _t_lat_aud = time.perf_counter()
+                            _vistos_aud = 0
+                            while not _tarea_aud.done():
+                                try:
+                                    await asyncio.wait_for(asyncio.shield(_tarea_aud), timeout=0.4)
+                                except asyncio.TimeoutError:
+                                    pass
+                                while _vistos_aud < len(_pasos_aud):
+                                    yield f"<!--PASO:{_pasos_aud[_vistos_aud]}-->"
+                                    _vistos_aud += 1
+                                if time.perf_counter() - _t_lat_aud > 4.5:
+                                    yield "<!--PING-->"
+                                    _t_lat_aud = time.perf_counter()
+                            while _vistos_aud < len(_pasos_aud):
+                                yield f"<!--PASO:{_pasos_aud[_vistos_aud]}-->"
+                                _vistos_aud += 1
+                            _auditor = _tarea_aud.result()
+                    except Exception as _e_aud:
+                        print(f"   ⚖️ AUDITOR: no corrió ({type(_e_aud).__name__}); se audita sin precedentes del tribunal")
+                        _auditor = None
+
                 # ── Recoger la búsqueda web y anexarla al contexto ──────────────
                 # Se anexa DESPUÉS del contexto documental y con su propio aviso
                 # de jerarquía dentro del bloque: el modelo tiene que leer la ley
@@ -17718,8 +17758,14 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                     system_prompt = get_drafting_prompt(draft_tipo, draft_subtipo or "")
                     print(f"   Usando prompt de redacción para: {draft_tipo}")
                 elif is_sentencia:
-                    system_prompt = SYSTEM_PROMPT_SENTENCIA_ANALYSIS
-                    print("   ⚖️ Usando prompt MAGISTRADO para análisis de sentencia")
+                    if _auditor is not None:
+                        import auditor_precedentes as _ap_sp
+                        system_prompt = _ap_sp.SYSTEM_PROMPT_AUDITOR
+                        print(f"   ⚖️ Usando prompt del AUDITOR con precedentes del tribunal "
+                              f"({_auditor.get('cobertura')}, enfoque {_auditor.get('enfoque')})")
+                    else:
+                        system_prompt = SYSTEM_PROMPT_SENTENCIA_ANALYSIS
+                        print("   ⚖️ Usando prompt MAGISTRADO para análisis de sentencia")
                 elif has_document:
                     system_prompt = SYSTEM_PROMPT_DOCUMENT_ANALYSIS
                 elif (not is_drafting and not has_document
@@ -18112,6 +18158,10 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                         dynamic_injections.append(_materia_prompt)
                         print(f"   📋 MATERIA ESTRICTA inyectada: {_materia_sel.upper()}")
 
+                # El catálogo de precedentes del propio tribunal (auditor), delante
+                # del contexto jurídico: es lo primero que la nota tiene que leer.
+                if _auditor and _auditor.get("bloque"):
+                    dynamic_injections.append(_auditor["bloque"])
                 if context_xml:
                     dynamic_injections.append(f"CONTEXTO JURÍDICO RECUPERADO:\n{context_xml}")
 
@@ -18286,7 +18336,16 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                     # Revisión de Sentencia: Requiere la IA más potente disponible (OpenAI GPT-5.2)
                     # GPT-5.2 ofrece el máximo nivel de inteligencia y análisis de Iurexia
                     use_gemini = False
-                    active_model = "gpt-5.2"  # Modelo flagship de OpenAI
+                    if _auditor is not None:
+                        # David, 29-sep-2026: «el de Terra en su versión Low». Ver
+                        # `auditor_precedentes.modelo/esfuerzo` (AUDITOR_MODELO,
+                        # AUDITOR_ESFUERZO). El esfuerzo viaja por la misma vía que
+                        # el de Redacción Pro/Platinum.
+                        import auditor_precedentes as _ap_m
+                        active_model = _ap_m.modelo()
+                        _esfuerzo_redaccion = _ap_m.esfuerzo()
+                    else:
+                        active_model = "gpt-5.2"  # Modelo flagship de OpenAI
                     active_client = chat_client
                     # gpt-5.2 usa max_tokens convencionalmente
                     max_tokens = 32000
