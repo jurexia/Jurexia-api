@@ -64,6 +64,11 @@ LAS PIEZAS (firmas del contrato; lo que se añade va sólo como keyword):
   fila_*()    el estado en `taller_sesiones.plan`, en funciones puras, para
               el compare-and-set de main.py (gunicorn -w 2: nada de esto vive
               en memoria).
+  Con la bandera `plan_con_analisis` (etapa 4, sólo cuentas de prueba): la
+  razón `cae_con_principal` se emite como `sin_materia_por_principal` (se
+  leen las dos), lo que el código le cambia al planificador queda en
+  `cambios_sin_justificar` y la relación que no se entiende, «sin_clasificar».
+  Sin ella, todo byte a byte como antes (test_paridad_plan.py).
 
 LECCIÓN QUE NO SE NEGOCIA: en un prompt van DESCRIPCIONES y DATOS, nunca
 frases modelo (un ejemplo escrito en el prompt se firma literal; medido tres
@@ -216,6 +221,67 @@ _SENTIDOS_SUFICIENCIA = ("fundado", "esencialmente_fundado")
 # son calificaciones de un argumento que se contesta con el principal).
 _ETIQUETAS_DE_GRUPO = ("fundado", "esencialmente_fundado")
 
+
+# ═══ LA BANDERA DE LA ETAPA 4 (plan_con_analisis, 29-sep-2026) ══════════════
+# Rige sólo en las cuentas de prueba (@iurexia.com) hasta medirla con el banco;
+# para los demás el plan sale byte a byte como antes (test_paridad_plan.py). Se
+# lee al llamar, nunca al importar: es de la PETICIÓN (contextvars), y con
+# gunicorn -w 2 nada de esto puede quedarse en memoria del proceso.
+def _con_analisis() -> bool:
+    try:
+        import contexto_taller as _ct
+        return bool(_ct.rediseno("plan_con_analisis"))
+    except Exception:                                   # pragma: no cover
+        return False
+
+
+# EL RENOMBRE DE `cae_con_principal` (etapa 4, pieza 2). En el plan esa razón es
+# una SUSTRACCIÓN —«queda sin materia» porque su problema entero depende de un
+# principal que ya decide—, pero en el árbol `CAE_CON_PRINCIPAL`
+# (arbol_decision.py:179) es la CAÍDA por premisa desestimada y califica
+# «inoperante». El mismo nombre para dos exclusiones distintas es lo que la
+# etapa 4 no puede tener: el registro de exclusión las separa por tipo. Con la
+# bandera se EMITE `sin_materia_por_principal`; al LEER valen los dos nombres,
+# con y sin ella. La clave vieja NO sale de RAZONES: los planes plan-6
+# guardados la traen y `RAZONES[rz]` (V0, `_falla_razon`) lanzaría KeyError; y
+# la nueva no entra, porque el catálogo es el mismo para los de fuera (20
+# claves, test_plan_estudio §1, y la instantánea de paridad). Por eso toda
+# consulta al catálogo pasa por `_clave_razon`.
+_RAZON_VIEJA, _RAZON_NUEVA = "cae_con_principal", "sin_materia_por_principal"
+# Lo que la bandera añade al plan, en su clave (`clave`): sube cuando cambie lo
+# que el plan hecho con ella trae, para que no se reutilice uno anterior.
+_CON_ANALISIS = "etapa4-1"
+
+
+def _clave_razon(rz):
+    """La clave de RAZONES de una razón escrita con cualquiera de sus nombres."""
+    return _RAZON_VIEJA if rz == _RAZON_NUEVA else rz
+
+
+def _es_razon(rz) -> bool:
+    return _clave_razon(rz) in RAZONES
+
+
+def _info_razon(rz) -> dict:
+    """`RAZONES[rz]` con el alias; una razón desconocida lanza KeyError, como antes."""
+    return RAZONES[_clave_razon(rz)]
+
+
+def _nombre_razon(rz):
+    """Cómo se ESCRIBE una razón en lo que sale del plan (el plan, el prompt, el
+    guion, la ficha): el nombre nuevo sólo con la bandera. Sin ella, el de
+    siempre, también para un plan hecho con la bandera y leído sin ella."""
+    if rz in (_RAZON_VIEJA, _RAZON_NUEVA):
+        return _RAZON_NUEVA if _con_analisis() else _RAZON_VIEJA
+    return rz
+
+
+def _con_nombres(texto: str) -> str:
+    """Un texto del catálogo que nombra la razón renombrada, con el nombre que
+    rige en esta petición."""
+    return texto.replace(_RAZON_VIEJA, _RAZON_NUEVA) if _con_analisis() else texto
+
+
 # Qué dice cada razón, para el prompt del planificador (descripciones, no
 # frases: lección del ejemplo que se firma literal).
 _DESCRIBE_RAZON = {
@@ -286,11 +352,16 @@ def norm_sentido(s) -> str:
     devuelve el modelo, que es lo que permite la IGUALDAD de V0 (b)."""
     t = _sin_acentos(str(s or "")).strip().lower()
     t = re.sub(r"[\s\-]+", "_", t)
+    # El nombre nuevo de la razón renombrada (etapa 4) se lee como el sentido
+    # de siempre: `cae_con_principal` es el que conocen `_SENTIDOS_NO_SE_ESTUDIA`,
+    # congruencia.py y fase5_propuesta.py, y el plan nunca lo emite como
+    # etiqueta con el nombre nuevo.
     alias = {"fundado_pero_insuficiente": "fundado_insuficiente",
              "fundados_pero_insuficientes": "fundado_insuficiente",
              "innecesarios": "innecesario", "sin_materia_": "sin_materia",
              "infundados": "infundado", "fundados": "fundado",
-             "inoperantes": "inoperante", "ineficaces": "ineficaz"}
+             "inoperantes": "inoperante", "ineficaces": "ineficaz",
+             _RAZON_NUEVA: _RAZON_VIEJA}
     return alias.get(t, t)
 
 
@@ -524,6 +595,8 @@ def _quien_decide(suyos: list, props: dict, prospera: bool, orden: dict, tipo: s
         pk = s.get("ataca")
         p = props.get(pk) or {}
         es_raiz = raiz_toral(props, pk) == pk
+        # Sólo «suficiente» adelanta; «sin_clasificar» (etapa 4: la relación que
+        # el planificador no dijo) pesa como «necesaria», sin suponerla nada.
         por_p = (0 if es_raiz and p.get("relacion") == "suficiente" else 1 if es_raiz
                  else 2 if raiz_toral(props, pk) else 3)
         por_v = 0 if s.get("vicio") == "fondo" else 1
@@ -613,6 +686,10 @@ def _resolver_en_sitio(plan: dict, orden: dict = None, completar_razones: bool =
         orden = {s["id"]: i for i, s in enumerate(segs)}
     guardada = {j.get("problema"): j for j in plan.get("jerarquia") or [] if isinstance(j, dict)}
     jer, avisos = [], []
+    # QUÉ REGLA CAMBIÓ CADA SEGMENTO (etapa 4, `cambios_sin_justificar`): el
+    # grupo en que lo deja la jerarquía. Sólo se usa si el plan lleva su
+    # original (con la bandera); sin él, nada de esto sale del plan.
+    _f_dep, _regla_s = _foto_si(plan), {}
     for p in plan.get("problemas") or []:
         pid, fijado = p.get("id"), norm_sentido(p.get("sentido"))
         cf = clase_sentido(fijado)
@@ -661,6 +738,7 @@ def _resolver_en_sitio(plan: dict, orden: dict = None, completar_razones: bool =
                 tema |= {x for x, k in _tu.items() if k == _tu.get(pk)}
         u_dec = _unidad_de(plan, decide["id"])
         grupos = {"con_el_principal": [], "innecesario": [], "deriva": [], "autonomo": []}
+        _regla_s[decide["id"]] = "razon_del_que_decide"
         decide["pendiente"] = None if decide.get("pendiente") == "razon" else decide.get("pendiente")
         decide["dependencia"] = "decide"
         for k in ("con", "depende_de"):
@@ -749,6 +827,9 @@ def _resolver_en_sitio(plan: dict, orden: dict = None, completar_razones: bool =
                 elif et == "infundado" and fondo_con_fondo and s.get("razon") != "omision_inexistente":
                     grupo = "con_el_principal"
             s["dependencia"] = grupo
+            if grupo != "autonomo":
+                _regla_s[s["id"]] = {"con_el_principal": "grupo_con_principal", "innecesario": "suficiencia",
+                                     "deriva": "deriva"}[grupo]
             if grupo == "autonomo":
                 for k in ("con", "depende_de"):
                     s.pop(k, None)
@@ -796,7 +877,9 @@ def _resolver_en_sitio(plan: dict, orden: dict = None, completar_razones: bool =
                     s["etiqueta"] = et_grupo
                     s["razon"], s["razon_p"] = rz_grupo, None
                     _al_estudio(plan, s)
+                    _regla_s[s["id"]] = "autonomo_al_estudio"
                 if era_pendiente:
+                    _regla_s.setdefault(s["id"], "pendiente_legacy")
                     # AUTÓNOMO que la Decisión 6 dejaba pendiente: se desarrolla
                     # con su diferencia y el material, como hoy, sin pedir nada.
                     if s.get("trat") in ("aplica", "remite", "residual", ""):
@@ -837,6 +920,7 @@ def _resolver_en_sitio(plan: dict, orden: dict = None, completar_razones: bool =
     # estudia con su problema, como hoy).
     for s in segs:
         if s.get("pendiente") == "razon":
+            _regla_s.setdefault(s["id"], "pendiente_legacy")
             s["pendiente"] = None
             if clase_sentido(s.get("etiqueta")) == NO_SE_ESTUDIA:
                 s["trat"] = "no_se_estudia"
@@ -858,6 +942,8 @@ def _resolver_en_sitio(plan: dict, orden: dict = None, completar_razones: bool =
         av.append(a)
     donde = len(av) if donde is None else donde
     plan["avisos_al_secretario"] = av[:donde] + [a[:1].upper() + a[1:] for a in avisos] + av[donde:]
+    _anotar_fase(plan, _f_dep, lambda obj, id_, campo: _regla_s.get(id_, "sin_regla")
+                 if obj == "segmento" else "unidad_por_dependencia")
 
 
 def resolver_por_dependencia(plan: dict, *, orden: list = None) -> dict:
@@ -870,11 +956,18 @@ def resolver_por_dependencia(plan: dict, *, orden: list = None) -> dict:
     (su raíz toral), y ningún pendiente de razón. La usan `reparar` (en lugar
     de la Decisión 6) y main.py al leer un plan guardado (GET /taller/plan) y
     al armar el guion, para que un plan-4 o plan-5 con pendientes deje de
-    enseñar la caja y de escribir PENDIENTE DE RAZÓN."""
+    enseñar la caja y de escribir PENDIENTE DE RAZÓN.
+
+    Con la bandera `plan_con_analisis` y un plan que trae su original (etapa
+    4), rehace `cambios_sin_justificar` contra él: main la corre sobre el plan
+    guardado en cada GET y al armar el guion, y lo que ésta cambie también es
+    del código. Un plan sin original (un plan-6 de antes) no lo lleva."""
     plan = copy.deepcopy(plan if isinstance(plan, dict) else {})
     if not plan.get("segmentos"):
         return plan
     _resolver_en_sitio(plan, {sid: i for i, sid in enumerate(orden or [])} or None)
+    if _registra(plan):
+        plan["cambios_sin_justificar"] = _cambios(plan)
     return plan
 
 
@@ -905,11 +998,13 @@ def _enum(x, opciones, por_omision=None):
 
 def _razon(x) -> tuple[str, str | None]:
     """(razón del catálogo, proposición que nombra) — «no_combate(P2)» →
-    («no_combate», «P2»). Razón desconocida = «» (V0 la rechaza)."""
+    («no_combate», «P2»). Razón desconocida = «» (V0 la rechaza). La
+    renombrada se entiende con cualquiera de sus dos nombres y sale con el que
+    rige (`_nombre_razon`): sin la bandera, `cae_con_principal` como siempre."""
     t = _sin_acentos(str(x or "")).strip().lower()
     p = _pid(t)
     base = re.sub(r"\(.*?\)", "", t).strip().replace(" ", "_")
-    return (base if base in RAZONES else ""), p
+    return (_nombre_razon(base) if _es_razon(base) else ""), p
 
 
 # ═══ VERIFICACIÓN LITERAL (V0 g) ═══════════════════════════════════════════
@@ -1301,6 +1396,14 @@ def clave(crit, fases_huella: str, contexto: str, suplencia, formato: str = "",
         _hd = ""
     if _hd:
         base["decisiva"] = _hd
+    # CON LA BANDERA plan_con_analisis EL PLAN ES OTRO (etapa 4): el prompt
+    # nombra la razón renombrada, la relación desconocida sale «sin_clasificar»
+    # y el plan lleva su original y lo que el código le cambió. Un plan hecho
+    # con ella no puede servirse sin ella ni al revés: el banco mide la MISMA
+    # sesión encendida y apagada, y con la misma clave la segunda corrida
+    # heredaría el plan de la primera. Sin la bandera, la clave de siempre.
+    if _con_analisis():
+        base["con_analisis"] = _CON_ANALISIS
     return hashlib.sha1(json.dumps(base, ensure_ascii=False, sort_keys=True)
                         .encode()).hexdigest()[:20]
 
@@ -1405,7 +1508,9 @@ def prompt_plan(*, tipo_asunto: str, probs: list[dict], segs: list[dict],
     # rige, como en el árbol (`violacion_procesal.guarda_aplica`): en un recurso
     # el planificador la aplicaba y el guion citaba el 189 (revisión
     # adversarial de la integración, 26-sep-2026).
-    _regla_proc = (
+    # La razón renombrada (etapa 4) sale con el nombre que rige: con la bandera,
+    # sin_materia_por_principal; sin ella, el texto de siempre (`_con_nombres`).
+    _regla_proc = _con_nombres(
         "  · Las VIOLACIONES PROCESALES se deciden todas (artículos 74, fracción V, y 174 de la "
         "Ley de Amparo): un segmento de vicio procesal nunca va a cae_con_principal, sin_materia ni "
         "no_se_estudia; la única que puede quedar sin estudio es la de innecesario_mayor_beneficio, "
@@ -1417,13 +1522,13 @@ def prompt_plan(*, tipo_asunto: str, probs: list[dict], segs: list[dict],
         sup_conf = _sp.confirmada(sup)
     except Exception:
         sup_conf = False
-    razones = "\n".join(f"  {k}: {v} → implica {RAZONES[k]['clase'].replace('_', ' ')}"
+    razones = "\n".join(f"  {_nombre_razon(k)}: {v} → implica {RAZONES[k]['clase'].replace('_', ' ')}"
                         for k, v in _DESCRIBE_RAZON.items())
     # EL CATÁLOGO DE LAS ETIQUETAS (plan-5, 28-sep-2026): el prompt daba el de
     # las razones y no el de las calificaciones, y en el AR 631/2025 el
     # planificador llenó la calificación con una razón («fondo_desestimado»).
     etiquetas = " | ".join(ETIQUETAS_DE_FONDO)
-    trats = "\n".join(f"  {k}: {v}" for k, v in _DESCRIBE_TRAT.items())
+    trats = _con_nombres("\n".join(f"  {k}: {v}" for k, v in _DESCRIBE_TRAT.items()))
     vicios = "\n".join(f"  {k}: {v}" for k, v in _DESCRIBE_VICIO.items())
     escrito = "\n\n".join(
         (f"── {q1} {k} ──\n{t}" if k != "escrito" else t) for k, t in tramos
@@ -1597,8 +1702,21 @@ def _palabras_max(t, n: int) -> str:
 def normalizar(crudo: dict) -> dict:
     """Lo que devolvió el modelo, con los tipos del esquema. No corrige nada
     de fondo —eso es `reparar`— sólo la forma: ids, enumeraciones, listas y
-    topes de palabras."""
+    topes de palabras.
+
+    Con la bandera `plan_con_analisis` (etapa 4), dos cosas más:
+      · LA RELACIÓN QUE NO SE ENTIENDE queda «sin_clasificar», con lo que
+        escribió el planificador en `relacion_crudo`, y no «necesaria» en
+        silencio: una «autonoma» o «conjunta» (el vocabulario del análisis de
+        la litis) caía aquí sin que nadie lo viera. Decide como «necesaria»
+        (`_quien_decide`, `reparar` p) pero se ve en el guion y en el aviso.
+        El carácter «toral» y el vicio «fondo» por omisión NO cambian: pesan
+        más (la raíz toral y el «fondo con fondo») y queda por decidir.
+      · EL ORIGINAL: lo que dijo el planificador, ya con los tipos, en
+        `_original`, para que `cambios_sin_justificar` sea la diferencia contra
+        él y no una bitácora que crece con cada pasada."""
     d = crudo if isinstance(crudo, dict) else {}
+    _etapa4 = _con_analisis()
 
     def _lista(x):
         return [y for y in (x if isinstance(x, list) else []) if isinstance(y, dict)]
@@ -1642,12 +1760,15 @@ def normalizar(crudo: dict) -> dict:
             "dice": _palabras_max(p.get("dice"), 30)[:300],
             "caracter": _enum(p.get("caracter"), CARACTERES, "toral"),
             "relacion": (f"dependiente_de:{dep}" if dep else
-                         _enum(rel, ("necesaria", "suficiente"), "necesaria")),
+                         _enum(rel, ("necesaria", "suficiente"),
+                               "sin_clasificar" if _etapa4 else "necesaria")),
             "fuente": _ws(p.get("fuente"))[:60],
             "cita": _ws(p.get("cita"))[:600],
             "vinculada_por_ejecutoria": bool(p.get("vinculada_por_ejecutoria") is True
                                              or str(p.get("vinculada_por_ejecutoria")).lower() in ("true", "1", "si", "sí")),
         })
+        if props[-1]["relacion"] == "sin_clasificar":
+            props[-1]["relacion_crudo"] = _ws(p.get("relacion"))[:60]
     prem = []
     for m in _lista(d.get("premisas")):
         f = m.get("fuentes") if isinstance(m.get("fuentes"), dict) else {}
@@ -1676,7 +1797,7 @@ def normalizar(crudo: dict) -> dict:
                "a": norm_sentido(x.get("a")), "por_que": _ws(x.get("por_que"))[:400]}
               for x in _lista(d.get("propuestas"))]
     orden = d.get("orden") if isinstance(d.get("orden"), dict) else {}
-    return {
+    plan = {
         "segmentos": segs, "proposiciones": props, "premisas": prem, "unidades": unis,
         "propuestas": [x for x in props_ if x["seg"]],
         "avisos_al_secretario": [_ws(x)[:400] for x in (d.get("avisos_al_secretario") or [])
@@ -1684,6 +1805,9 @@ def normalizar(crudo: dict) -> dict:
         "orden": {"criterio": _enum(orden.get("criterio"), ("promovente", "prelacion"), "promovente"),
                   "por_que": _ws(orden.get("por_que"))[:400]},
     }
+    if _etapa4:
+        plan["_original"] = _foto(plan)
+    return plan
 
 
 async def planear(cliente, r, crit, material, contexto: str = "", suplencia=None, *,
@@ -1724,6 +1848,186 @@ def _ficha_de(r) -> str:
         return _fp.bloque(_fp.de_resultado(r)) if getattr(r, "encargo", None) is not None else ""
     except Exception:
         return ""
+
+
+# ═══ LO QUE EL CÓDIGO LE CAMBIÓ AL PLANIFICADOR (etapa 4, 29-sep-2026) ══════
+# `reparar`, `_resolver_en_sitio` y `_reparar_organizacion` corrigen lo que
+# devolvió el planificador —el portador que funda un problema que nadie
+# fundaba, el grupo del que decide, la razón que deja la etiqueta, la unidad
+# partida— y hasta hoy sólo lo decían en un aviso de texto: el plan salía
+# «usado» como cualquier otro y un proyecto con una calificación que puso el
+# código salía como bueno. Con la bandera `plan_con_analisis` cada cambio queda
+# en `plan["cambios_sin_justificar"]`:
+#   {"segmento" | "unidad" | "plan": id, "campo", "antes", "despues", "regla", "cuenta"}
+# CALCULADO COMO DIFERENCIA contra `plan["_original"]` (lo que dijo el
+# planificador, guardado al normalizar) y no como bitácora: `reparar` y
+# `resolver_por_dependencia` corren dos o tres veces sobre el mismo plan —main
+# lo relee en cada GET y al armar el guion— y una bitácora crecería con cada
+# pasada; la diferencia sale igual a la tercera. Cada fase anota en
+# `plan["_reglas"]` la regla que tocó cada campo; lo que cambia sin regla
+# anotada sale «sin_regla», y así aparece el camino que nadie vio.
+# `cuenta` separa lo que toca la calificación o deja algo sin estudio
+# (etiqueta, razón, la proposición que nombra la razón) de la organización
+# (unidades, orden, tratamiento, el problema que fija el inventario): contar la
+# organización pondría pendiente casi todo proyecto, la lección de las
+# notorias (redactor_adelanto.py, «LAS NOTORIAS NO SON FUENTE TARDÍA»).
+# SÓLO REGISTRA: ninguna decisión cambia por esto, V0 no lo mira, y registrar
+# un cambio no lo justifica: sigue sin verificar hasta que lo vea el secretario.
+_CAMPOS_SEG = ("problema_id", "etiqueta", "razon", "razon_p", "trat")
+REGLAS_CAMBIO = {
+    # reparar
+    "fuera_del_inventario": "el planificador nombró un segmento que no está en el inventario; se quitó",
+    "problema_del_inventario": "el problema que eligió no cubre el concepto del segmento; lo fija el inventario",
+    "sin_sentido_fijado": "su problema no tiene sentido fijado: queda sin etiqueta, pendiente del secretario",
+    "razon_como_etiqueta": "escribió una razón en la calificación; se leyó la calificación que esa razón implica",
+    "sin_estudio_es_innecesario": "lo dejó sin estudio dentro de un problema que prospera: se lee «innecesario»",
+    "etiqueta_del_problema_sin_estudio": "su problema no se estudia: lleva el sentido del problema",
+    "fundado_a_insuficiente": "fundado dentro de un problema que no prospera: fundado pero insuficiente",
+    "etiqueta_del_problema": "su calificación no cabía en el sentido del problema: lleva la del problema",
+    "portador": "el problema prospera y ningún argumento lo fundaba: el código hizo que éste lo funde",
+    "reitera_con_ancla_propia": "no reitera: trae un ancla propia y se desarrolla",
+    "suplido_sin_beneficio": "suplido sin beneficio: no se expresa (art. 79, penúltimo párrafo)",
+    "criterio_no_se_estudia": "su criterio no manda estudiarlo: no se estudia",
+    # la jerarquía (resolver_por_dependencia)
+    "razon_del_que_decide": "la razón del que decide su problema, la que deja su calificación",
+    "grupo_con_principal": "va con el principal: la calificación y la razón del grupo",
+    "suficiencia": "innecesario por suficiencia del que decide su problema",
+    "deriva": "cae por derivar de la proposición desestimada",
+    "autonomo_al_estudio": "sin estudio donde la suficiencia no lo cubre: vuelve al estudio con la del grupo",
+    "pendiente_legacy": "pendiente de razón de un plan-4/5: se desarrolla o no se estudia con su problema",
+    "unidad_por_dependencia": "unidades rehechas por la jerarquía",
+    # la organización
+    "referencia_rota": "nombraba lo que no existe (proposición, segmento o premisa): se quitó",
+    "razon_por_etiqueta": "la razón no cabía con la etiqueta o faltaba: va la única que la etiqueta deja",
+    "premisa_retirada": "premisa sin rastro verificado: se retiró y se desarrolla desde la razón del secretario",
+    "partir_unidad": "la unidad mezclaba temas, vicios o razones: se partió",
+    "unidad_sin_premisa": "unidad sin premisa en la que nadie desarrollaba: desarrolla el primero",
+    "orden_de_la_ley": "el orden no cumplía la prelación de la ley: se ajustó",
+    "sin_regla": "cambio sin regla anotada: un camino del código que nadie había visto",
+}
+# Lecturas de lo que el planificador sí dijo, o nada decidido: no cuentan.
+_REGLAS_DE_LECTURA = {"razon_como_etiqueta", "sin_sentido_fijado"}
+
+
+def _registra(plan) -> bool:
+    """¿Se registra lo que el código cambia? Con la bandera y el original."""
+    return isinstance(plan, dict) and isinstance(plan.get("_original"), dict) and _con_analisis()
+
+
+def _foto(plan: dict) -> dict:
+    """Lo que se compara, con la forma en que se guarda: jsonb no conserva el
+    orden de las claves, así que el de las unidades va como lista."""
+    segs, unis = {}, {}
+    for s in plan.get("segmentos") or []:
+        if isinstance(s, dict) and s.get("id") and s["id"] not in segs:
+            segs[s["id"]] = {c: s.get(c) for c in _CAMPOS_SEG}
+    for u in plan.get("unidades") or []:
+        if isinstance(u, dict) and u.get("id") and u["id"] not in unis:
+            unis[u["id"]] = {"segmentos": list(u.get("segmentos") or []), "premisa": u.get("premisa")}
+    return {"segmentos": segs, "unidades": unis,
+            "orden": {"criterio": (plan.get("orden") or {}).get("criterio"), "unidades": list(unis)}}
+
+
+def _foto_si(plan):
+    return _foto(plan) if _registra(plan) else None
+
+
+def _igual(campo: str, a, b) -> bool:
+    """Vacío es vacío (None, «», []); y la razón renombrada es la misma con
+    cualquiera de sus dos nombres."""
+    if campo == "razon":
+        a, b = _clave_razon(a or ""), _clave_razon(b or "")
+    return (None if a in (None, "", []) else a) == (None if b in (None, "", []) else b)
+
+
+def _mismo_orden(a: list, b: list) -> bool:
+    """El orden relativo de lo que está en las dos: partir una unidad añade
+    una, no reordena."""
+    comunes = set(a) & set(b)
+    return [x for x in a if x in comunes] == [x for x in b if x in comunes]
+
+
+def _diferencias(antes: dict, ahora: dict):
+    """(objeto, id, campo, antes, después) de lo que cambió entre dos fotos, en
+    un orden fijo: el del plan de ahora, y lo que ya no está, ordenado."""
+    sa, sb = antes.get("segmentos") or {}, ahora.get("segmentos") or {}
+    for sid, v in sb.items():
+        if sid not in sa:
+            yield "segmento", sid, "presente", False, True
+            continue
+        for c in _CAMPOS_SEG:
+            if not _igual(c, sa[sid].get(c), v.get(c)):
+                yield "segmento", sid, c, sa[sid].get(c), v.get(c)
+    for sid in sorted(set(sa) - set(sb)):
+        yield "segmento", sid, "presente", True, False
+    ua, ub = antes.get("unidades") or {}, ahora.get("unidades") or {}
+    for uid, v in ub.items():
+        if uid not in ua:
+            yield "unidad", uid, "unidad", None, v
+            continue
+        for c in ("segmentos", "premisa"):
+            if not _igual(c, ua[uid].get(c), v.get(c)):
+                yield "unidad", uid, c, ua[uid].get(c), v.get(c)
+    for uid in sorted(set(ua) - set(ub)):
+        yield "unidad", uid, "unidad", ua[uid], None
+    oa, ob = antes.get("orden") or {}, ahora.get("orden") or {}
+    if not _igual("criterio", oa.get("criterio"), ob.get("criterio")):
+        yield "plan", "orden", "criterio", oa.get("criterio"), ob.get("criterio")
+    if not _mismo_orden(oa.get("unidades") or [], ob.get("unidades") or []):
+        yield "plan", "orden", "unidades", oa.get("unidades"), ob.get("unidades")
+
+
+def _anotar(plan: dict, obj: str, id_, campo: str, regla: str) -> None:
+    plan.setdefault("_reglas", {}).setdefault(obj, {}).setdefault(str(id_), {})[campo] = regla
+
+
+def _anotar_fase(plan: dict, antes, regla) -> None:
+    """La regla de cada campo que cambió desde la foto `antes`. `regla`: su
+    nombre, o una función (objeto, id, campo) → nombre cuando la fase aplica
+    varias. Sin foto (sin la bandera o sin original), nada."""
+    if antes is None:
+        return
+    for obj, id_, campo, _a, _d in _diferencias(antes, _foto(plan)):
+        _anotar(plan, obj, id_, campo, regla(obj, id_, campo) if callable(regla) else regla)
+
+
+def _razon_de_exclusion(rz) -> bool:
+    return bool(rz) and _es_razon(rz) and (_info_razon(rz)["clase"] == NO_SE_ESTUDIA
+                                           or _clave_razon(rz) == "deriva_de_desestimado")
+
+
+# LA ORGANIZACIÓN NO CUENTA (revisión adversarial del 29-sep): quitar una
+# referencia a una proposición que no existe es limpieza, no una decisión sobre
+# el argumento. Antes, si tocaba `razon_p`, salía como cambio sin justificar y
+# el proyecto quedaba «justificación pendiente» por un id roto.
+_REGLAS_DE_ORGANIZACION = frozenset({"referencia_rota"})
+
+
+def _cuenta(obj: str, campo: str, antes, despues, regla: str) -> bool:
+    if obj != "segmento" or regla in _REGLAS_DE_LECTURA or regla in _REGLAS_DE_ORGANIZACION:
+        return False
+    if campo == "etiqueta":
+        return True
+    if campo == "razon":
+        return bool(antes) or _razon_de_exclusion(despues)
+    if campo == "razon_p":
+        return bool(antes)
+    return False
+
+
+def _cambios(plan: dict) -> list:
+    """`cambios_sin_justificar`: la diferencia entre lo que dijo el
+    planificador y el plan de ahora, con la regla de cada cambio. Pura: la
+    misma entrada da la misma lista, pasada tras pasada."""
+    notas = plan.get("_reglas") or {}
+    fuera = []
+    for obj, id_, campo, a, d in _diferencias(plan.get("_original") or {}, _foto(plan)):
+        regla = ((notas.get(obj) or {}).get(str(id_)) or {}).get(campo) or "sin_regla"
+        if campo == "razon":
+            a, d = _nombre_razon(a), _nombre_razon(d)
+        fuera.append({obj: id_, "campo": campo, "antes": a, "despues": d, "regla": regla,
+                      "cuenta": _cuenta(obj, campo, a, d, regla)})
+    return fuera
 
 
 # ═══ REPARAR: LO QUE EL CÓDIGO CORRIGE SOLO ═════════════════════════════════
@@ -1837,8 +2141,17 @@ def reparar(plan: dict, crit, segs, fases, material, contexto: str = "", suplenc
     """Lo que el código corrige sin volver a preguntar, y lo que dice al
     hacerlo. Devuelve (plan reparado, avisos). No toca el sentido: lo IMPONE
     (la etiqueta es la del criterio) y lo demás que el modelo afinó va a
-    propuestas."""
+    propuestas.
+
+    Con la bandera `plan_con_analisis` (etapa 4) deja además
+    `cambios_sin_justificar` (ver «LO QUE EL CÓDIGO LE CAMBIÓ AL
+    PLANIFICADOR»): la diferencia contra `_original`, que guarda `normalizar`
+    —y, si el plan no lo trae, lo que entra aquí, que por contrato es lo que
+    devolvió el planificador—. No cambia nada de lo que se decide."""
     plan = copy.deepcopy(plan if isinstance(plan, dict) else {})
+    if _con_analisis() and not isinstance(plan.get("_original"), dict):
+        plan["_original"] = _foto(plan)
+    _reg = _registra(plan)
     if suplencia is None:
         suplencia = plan.get("suplencia") or {}
     cx = _Ctx(crit, segs, fases, material, contexto, suplencia, tocados)
@@ -1859,6 +2172,9 @@ def reparar(plan: dict, crit, segs, fases, material, contexto: str = "", suplenc
     por_id = {}
     for s in segmentos:
         por_id.setdefault(s["id"], s)
+    if _reg:
+        for sid in sorted({s.get("id") for s in plan.get("segmentos") or [] if s.get("id")} - set(por_id)):
+            _anotar(plan, "segmento", sid, "presente", "fuera_del_inventario")
 
     # Los datos del piso mandan sobre lo que el modelo diga de ellos.
     sin_cita = []
@@ -1896,6 +2212,7 @@ def reparar(plan: dict, crit, segs, fases, material, contexto: str = "", suplenc
             f"muestra sin cita: compruébalos en el escrito")
 
     # (c) El problema lo fija el código.
+    _f = _foto_si(plan)
     for s in segmentos:
         perm = problemas_permitidos(cx.seg_piso.get(s["id"]) or s, cx.probs, cx.n)
         if len(perm) == 1 and s.get("problema_id") != perm[0]:
@@ -1904,6 +2221,7 @@ def reparar(plan: dict, crit, segs, fases, material, contexto: str = "", suplenc
             s["problema_id"] = perm[0] if perm else None
             avisos.append(f"{s['id']}: el problema que eligió el planificador no cubre su "
                           f"{'concepto' if s.get('concepto') else 'argumento'}; va al problema {s['problema_id']}")
+    _anotar_fase(plan, _f, "problema_del_inventario")
 
     # (b) LA CALIFICACIÓN DE CADA ARGUMENTO, DENTRO DEL SENTIDO DE SU PROBLEMA
     # (plan-4; ver `etiqueta_fuera`). El sentido del PROBLEMA es el del
@@ -1931,12 +2249,17 @@ def reparar(plan: dict, crit, segs, fases, material, contexto: str = "", suplenc
     # Y la etiqueta vacía se lee de la razón, si la trae: la herencia del
     # sentido del problema es el último recurso, no el primero.
     traducidas = []
+    # La regla de cada rama, para `cambios_sin_justificar` (etapa 4): por
+    # segmento, o por (segmento, campo) cuando una rama toca dos cosas por
+    # motivos distintos.
+    _f, _regla_b = _foto_si(plan), {}
     for s in segmentos:
         p = cx.por_pid.get(s.get("problema_id"))
         fijado = p["sentido"] if p else ""
         if not fijado:
             s["etiqueta"] = ""
             s["pendiente"] = "sentido"
+            _regla_b[s["id"]] = "sin_sentido_fijado"
             continue
         if s.get("pendiente") == "sentido":
             s["pendiente"] = None
@@ -1946,14 +2269,16 @@ def reparar(plan: dict, crit, segs, fases, material, contexto: str = "", suplenc
         # etiqueta es la del problema de todos modos, y traducirla sólo
         # fabricaría propuestas de cambio que nadie hizo.
         if clase_sentido(fijado) != NO_SE_ESTUDIA:
-            if et and not calificacion_conocida(et) and et in RAZONES and _implica(et):
+            if et and not calificacion_conocida(et) and _es_razon(et) and _implica(et):
                 _de_razon = et
-            elif not et and s.get("razon") in RAZONES and _implica(s["razon"]):
+            elif not et and _es_razon(s.get("razon")) and _implica(s["razon"]):
                 _de_razon = s["razon"]
         if _de_razon:
             _cal = _implica(_de_razon)
             if not s.get("razon"):
                 s["razon"] = _de_razon
+                _regla_b[(s["id"], "razon")] = "razon_como_etiqueta"
+            _regla_b[s["id"]] = "razon_como_etiqueta"
             traducidas.append(f"{s['id']} ({et or 'vacía'}→{_cal})")
             avisos.append(f"{s['id']}: el planificador escribió la razón «{_de_razon}» en lugar de la "
                           f"calificación; va como «{_cal}», la que esa razón implica")
@@ -1981,6 +2306,8 @@ def reparar(plan: dict, crit, segs, fases, material, contexto: str = "", suplenc
                     and not _nunca_depende(s, plan.get("tipo_asunto", ""), (p or {}).get("clase", "")) \
                     and s.get("diferencia") != "consecuencia"
             if _cabe:
+                if et != "innecesario" and not _de_razon:
+                    _regla_b[s["id"]] = "sin_estudio_es_innecesario"
                 et = "innecesario"
         motivo = etiqueta_fuera(et, fijado)
         if _sin_estudio_aqui and not _cabe:
@@ -1994,9 +2321,11 @@ def reparar(plan: dict, crit, segs, fases, material, contexto: str = "", suplenc
                 plan["propuestas"].append({"seg": s["id"], "de": fijado, "a": et,
                                            "por_que": "calificación que sugirió el planificador"})
             s["etiqueta"] = fijado
+            _regla_b[s["id"]] = "etiqueta_del_problema_sin_estudio"
         elif clase_sentido(fijado) == NO_PROSPERA and clase_sentido(et) == PROSPERA \
                 and calificacion_conocida(et):
             s["etiqueta"] = "fundado_insuficiente"
+            _regla_b[s["id"]] = "fundado_a_insuficiente"
             avisos.append(f"{s['id']}: el planificador lo calificó «{et}» dentro de un problema "
                           f"«{fijado}»; va como fundado pero insuficiente: el estudio dice por qué "
                           f"no alcanza")
@@ -2005,10 +2334,14 @@ def reparar(plan: dict, crit, segs, fases, material, contexto: str = "", suplenc
                 avisos.append(f"{s['id']}: «{et}» no cabe dentro de un problema «{fijado}»; lleva "
                               f"la calificación del problema")
             s["etiqueta"] = fijado
+            _regla_b[s["id"]] = "etiqueta_del_problema"
             if _sin_estudio_aqui:
                 # Y SE ESTUDIA: con la etiqueta del problema y trat
                 # no_se_estudia, V0 lo rechazaba («el criterio lo decide»).
                 _al_estudio(plan, s)
+    _anotar_fase(plan, _f, lambda obj, id_, campo: (
+        _regla_b.get((id_, campo)) or _regla_b.get(id_) or "etiqueta_del_problema"
+        if obj == "segmento" else "etiqueta_del_problema"))
     if traducidas:
         _aviso(plan, "calificaciones que el planificador escribió con una razón del catálogo, "
                      "leídas como la calificación que esa razón implica (no se tomó la del "
@@ -2032,6 +2365,9 @@ def reparar(plan: dict, crit, segs, fases, material, contexto: str = "", suplenc
     _orden_inv = {s["id"]: i for i, s in enumerate(cx.segs)}
     _torales = {x.get("id") for x in (plan.get("proposiciones") or [])
                 if x.get("caracter") == "toral" and x.get("id")}
+    # EL PORTADOR, REGISTRADO (etapa 4): es el cambio que más pesa —invierte la
+    # etiqueta que razonó el planificador— y hasta hoy sólo lo decía el aviso.
+    _f = _foto_si(plan)
     for pid in problemas_sin_quien_los_funde(segmentos, cx.probs):
         p = cx.por_pid[pid]
         suyos = sorted([s for s in segmentos if s.get("problema_id") == pid
@@ -2070,13 +2406,14 @@ def reparar(plan: dict, crit, segs, fases, material, contexto: str = "", suplenc
                    f"salvo lo que se resuelve por consecuencia de él" if len(suyos) > 1 else ""))
         avisos.append(_msg)
         _aviso(plan, _msg)
+    _anotar_fase(plan, _f, "portador")
     # UNA PROPUESTA ES UNA CALIFICACIÓN (26-sep-2026): el planificador del
     # 642/2024 propuso «fundado → fondo_desestimado» y «→ no_combate», que son
     # RAZONES; el botón del panel pondría eso como sentido. Se traduce a la
     # calificación que la razón implica y la razón queda dicha en el porqué.
     for x in plan["propuestas"]:
         if x.get("a") in RAZONES and _implica(x["a"]) not in ("", x["a"]):
-            x["por_que"] = _ws(f"({x['a']}) {x.get('por_que') or ''}")[:400]
+            x["por_que"] = _ws(f"({_nombre_razon(x['a'])}) {x.get('por_que') or ''}")[:400]
             x["a"] = _implica(x["a"])
 
     # UNA PROPUESTA ES DEL PROBLEMA, NO DEL ARGUMENTO (plan-4): el botón del
@@ -2103,6 +2440,7 @@ def reparar(plan: dict, crit, segs, fases, material, contexto: str = "", suplenc
     plan["propuestas"] = _props
 
     # (f) `reitera` con ancla propia → desarrolla, con la diferencia del ancla.
+    _f = _foto_si(plan)
     for s in segmentos:
         t = s.get("reitera")
         if not t:
@@ -2118,6 +2456,7 @@ def reparar(plan: dict, crit, segs, fases, material, contexto: str = "", suplenc
                 s["trat"] = "desarrolla"
             s["diferencia"] = s.get("diferencia") or tipo_de_ancla(sorted(propias)[0])
             avisos.append(f"{s['id']}: no reitera a {t} porque trae {', '.join(sorted(propias)[:3])}; se desarrolla")
+    _anotar_fase(plan, _f, "reitera_con_ancla_propia")
 
     # (g) Datos verificados palabra por palabra; lo que no, se borra.
     for s in segmentos:
@@ -2194,9 +2533,11 @@ def reparar(plan: dict, crit, segs, fases, material, contexto: str = "", suplenc
 
     # (k) Suplidos sin beneficio: al mapa, no a la sentencia (art. 79,
     # PENÚLTIMO párrafo, LA).
+    _f = _foto_si(plan)
     for s in segmentos:
         if s["id"].startswith("S") and clase_sentido(s.get("etiqueta")) != PROSPERA:
             s["trat"] = "no_se_expresa_art79"
+    _anotar_fase(plan, _f, "suplido_sin_beneficio")
     # Y el ÚLTIMO párrafo del art. 79: la suplencia por violaciones procesales
     # o formales sólo opera si en el acto no hay vicio de fondo. Si el criterio
     # concede por fondo y además por una procesal o formal suplida, el plan no
@@ -2214,6 +2555,7 @@ def reparar(plan: dict, crit, segs, fases, material, contexto: str = "", suplenc
     # «innecesario» o «sin materia», el argumento va a una frase con su razón,
     # no a una unidad con su premisa. Es organización, no sentido: la etiqueta
     # ya es la del criterio. Tampoco se le pide una razón que no se usará.
+    _f = _foto_si(plan)
     for s in segmentos:
         if s.get("etiqueta") and clase_sentido(s["etiqueta"]) == NO_SE_ESTUDIA:
             if s.get("trat") in _EN_UNIDAD + ("",):
@@ -2224,6 +2566,7 @@ def reparar(plan: dict, crit, segs, fases, material, contexto: str = "", suplenc
                 s["trat"] = "no_se_estudia"
             if s.get("pendiente") == "razon":
                 s["pendiente"] = None
+    _anotar_fase(plan, _f, "criterio_no_se_estudia")
     # (m) El adhesivo sigue la suerte del principal (art. 182 LA): si nada
     # prospera y el criterio aun así le da una calificación de estudio, el plan
     # no la cambia; lo dice.
@@ -2246,7 +2589,8 @@ def reparar(plan: dict, crit, segs, fases, material, contexto: str = "", suplenc
     segmentos = plan["segmentos"]
 
     # (p) Proposición suficiente que nadie ataca: aviso, NUNCA reclasificación
-    # (cambiaría el sentido, que no es del plan).
+    # (cambiaría el sentido, que no es del plan). Una «sin_clasificar» no es
+    # suficiente: no avisa aquí, avisa abajo.
     atacadas = {s.get("ataca") for s in segmentos} | {s.get("razon_p") for s in segmentos}
     for pr in plan.get("proposiciones") or []:
         if pr.get("relacion") == "suficiente" and pr.get("id") not in atacadas:
@@ -2254,6 +2598,17 @@ def reparar(plan: dict, crit, segs, fases, material, contexto: str = "", suplenc
                   f"argumento la ataca")
             if _a not in plan["avisos_al_secretario"]:
                 plan["avisos_al_secretario"].append(_a)
+    # LA RELACIÓN QUE EL PLANIFICADOR NO CLASIFICÓ (etapa 4, `normalizar`, sólo
+    # con la bandera): hasta hoy pasaba a «necesaria» sin que nadie lo viera.
+    # Decide igual que una necesaria —nunca se la supone suficiente, que
+    # cambiaría quién decide— y se dice.
+    _sc = [pr for pr in plan.get("proposiciones") or [] if pr.get("relacion") == "sin_clasificar"]
+    if _sc:
+        _aviso(plan, "proposiciones cuya relación con las demás no clasificó el planificador, que quedan "
+                     "«sin_clasificar»: "
+               + ", ".join(f"{pr.get('id')} (escribió «{pr.get('relacion_crudo') or 'nada'}»)" for pr in _sc[:8])
+               + "; el plan decide con ellas como con una necesaria, sin suponerlas suficientes: "
+                 "compruébalas en lo resuelto")
     # (e) El grupo del secretario junta proposiciones distintas: se avisa.
     for u in plan.get("unidades") or []:
         us = [por_id[x] for x in u.get("segmentos") or [] if x in por_id]
@@ -2288,6 +2643,8 @@ def reparar(plan: dict, crit, segs, fases, material, contexto: str = "", suplenc
     _es_jer = [a for a in _av if str(a).lower().startswith(_PREFIJO_AVISO_DEP)]
     plan["avisos_al_secretario"] = [a for a in _av if a not in _del_modelo and a not in _es_jer] + \
                                    _es_jer + [a for a in _av if a in _del_modelo and a not in _es_jer]
+    if _reg:
+        plan["cambios_sin_justificar"] = _cambios(plan)
     return plan, avisos
 
 
@@ -2353,7 +2710,7 @@ def _implica(rz: str) -> str:
         return rz
     if rz in ("sin_materia", "adhesivo_sin_materia"):
         return "sin_materia"
-    if rz in RAZONES:
+    if _es_razon(rz):
         return "innecesario"
     return ""
 
@@ -2362,7 +2719,7 @@ def _falla_razon(rz: str, et: str) -> str:
     """Por qué la razón `rz` no cabe con la etiqueta `et` (V0 d), o «»."""
     if not rz or not et:
         return ""
-    if RAZONES[rz]["clase"] != clase_sentido(et):
+    if _info_razon(rz)["clase"] != clase_sentido(et):
         return f"la razón {rz} no es compatible con «{et}»"
     if et == "infundado" and rz not in _RAZONES_DE_INFUNDADO:
         return f"«infundado» sólo admite {', '.join(sorted(_RAZONES_DE_INFUNDADO))}"
@@ -2379,12 +2736,13 @@ def _razon_de_la_etiqueta(s: dict, et: str, cx: "_Ctx") -> str:
     omisión y fondo_desestimado si no; «fundado pero insuficiente» → la suya.
     Lo que no se estudia, por lo que el CRITERIO dice de él: sin materia, el
     adhesivo sin materia, la procesal que una concesión de fondo vuelve
-    innecesaria (art. 189) y, lo demás, lo que cae con el principal (el
-    árbol escribe «Dado el sentido del estudio del problema principal, queda
-    sin materia…»). La procesal que el criterio deja sin estudiar SIN
-    concesión de fondo no tiene razón que la cubra: se queda como está y la
-    avisa `reparar` (arts. 74-V, 174 y 189). «Inoperante» deja diez: no se
-    elige ninguna; eso lo decide el reintento."""
+    innecesaria (art. 189) y, lo demás, lo que queda sin materia por el
+    principal (el árbol escribe «Dado el sentido del estudio del problema
+    principal, queda sin materia…»): `cae_con_principal`, que con la bandera
+    de la etapa 4 sale como `sin_materia_por_principal`. La procesal que el
+    criterio deja sin estudiar SIN concesión de fondo no tiene razón que la
+    cubra: se queda como está y la avisa `reparar` (arts. 74-V, 174 y 189).
+    «Inoperante» deja diez: no se elige ninguna; eso lo decide el reintento."""
     et = norm_sentido(et)
     cl = clase_sentido(et)
     if cl == PROSPERA:
@@ -2408,7 +2766,7 @@ def _razon_de_la_etiqueta(s: dict, et: str, cx: "_Ctx") -> str:
         # la suficiencia del que lo decide (plan-6).
         if clase_sentido((cx.por_pid.get(s.get("problema_id")) or {}).get("sentido")) == PROSPERA:
             return "innecesario_por_suficiencia"
-        return "cae_con_principal"
+        return _nombre_razon(_RAZON_VIEJA)
     return ""
 
 
@@ -2452,13 +2810,15 @@ def _aviso(plan: dict, texto: str) -> None:
 def _reparar_organizacion(plan: dict, cx: "_Ctx") -> None:
     """Las correcciones organizativas, EN SITIO y en este orden (cada una
     deja lo que la siguiente necesita): referencias, razones, premisas sin
-    rastro, unidades que mezclan y orden."""
+    rastro, unidades que mezclan y orden. Con la bandera de la etapa 4, cada
+    paso anota su regla para `cambios_sin_justificar`."""
     cx.tipo_asunto = plan.get("tipo_asunto", "")
     segmentos = plan.get("segmentos") or []
     por_id = {s["id"]: s for s in segmentos}
     props = {p.get("id") for p in plan.get("proposiciones") or [] if p.get("id")}
 
     # 1 · REFERENCIAS A IDENTIFICADORES QUE NO EXISTEN, limpias.
+    _f = _foto_si(plan)
     quitadas = []
     for s in segmentos:
         if s.get("ataca") and s["ataca"] not in props:
@@ -2496,6 +2856,7 @@ def _reparar_organizacion(plan: dict, cx: "_Ctx") -> None:
     plan["unidades"] = unis
     if quitadas:
         _aviso(plan, "referencias del plan a lo que no existe, quitadas: " + "; ".join(quitadas[:10]))
+    _anotar_fase(plan, _f, "referencia_rota")
 
     # 2 · LA RAZÓN QUE NO CABE CON LA ETIQUETA. La etiqueta es la del criterio
     # (V0 b) y no se toca; en lugar de la razón que la contradice va la única
@@ -2513,6 +2874,7 @@ def _reparar_organizacion(plan: dict, cx: "_Ctx") -> None:
     # omisión), no cómo se califica. Convertirla en propuesta ponía en el panel
     # un botón para invertir el sentido que nadie había propuesto. Las
     # afinaciones del planificador salen de su etiqueta o de sus propuestas.
+    _f = _foto_si(plan)
     ajustadas, puestas = [], []
     for s in segmentos:
         et = s.get("etiqueta") or ""
@@ -2522,14 +2884,14 @@ def _reparar_organizacion(plan: dict, cx: "_Ctx") -> None:
         if rz and not _falla_razon(rz, et):
             continue
         nueva = _razon_de_la_etiqueta(s, et, cx)
-        if not nueva or nueva == rz:
+        if not nueva or _clave_razon(nueva) == _clave_razon(rz):
             continue
         if rz:
-            ajustadas.append(f"{s['id']} ({rz}→{nueva})")
+            ajustadas.append(f"{s['id']} ({_nombre_razon(rz)}→{nueva})")
         else:
             puestas.append(f"{s['id']} ({nueva})")
         s["razon"] = nueva
-        if not RAZONES[nueva].get("con_p"):
+        if not _info_razon(nueva).get("con_p"):
             s["razon_p"] = None
     if ajustadas:
         _aviso(plan, "razones que no cabían con tu sentido, ajustadas a él (antes de la flecha, la "
@@ -2538,6 +2900,7 @@ def _reparar_organizacion(plan: dict, cx: "_Ctx") -> None:
     if puestas:
         _aviso(plan, "razones que el planificador dejó vacías, puestas por tu sentido: "
                      + ", ".join(puestas[:12]))
+    _anotar_fase(plan, _f, "razon_por_etiqueta")
 
     # 3 · PREMISA SIN RASTRO VERIFICADO (V0 i): se retira. Sus unidades quedan
     # sin premisa y lo que se contestaba con ella (aplica, remite) se
@@ -2573,6 +2936,7 @@ def _reparar_organizacion(plan: dict, cx: "_Ctx") -> None:
     def _y_aplican(aplican: list) -> str:
         return (f"; los demás aplican lo construido ahí ({', '.join(aplican[:10])})" if aplican else "")
 
+    _f = _foto_si(plan)
     retiradas = [m for m in plan.get("premisas") or [] if not _premisa_con_rastro(m, cx)]
     if retiradas:
         fuera = {m["id"] for m in retiradas}
@@ -2595,6 +2959,7 @@ def _reparar_organizacion(plan: dict, cx: "_Ctx") -> None:
             _aviso(plan, f"{', '.join(u['id'] for u in rotas_u)} nombraba una premisa que no existe: "
                          f"queda sin premisa expuesta y se desarrolla desde tu razón ({', '.join(segs_m[:10])})"
                          + _y_aplican(aplican))
+    _anotar_fase(plan, _f, "premisa_retirada")
 
     # 4 · UNIDAD QUE MEZCLA tema, vicio o razón (V0 e): se parte. Salvo el
     # grupo del secretario, que manda. Cada parte conserva la premisa (el
@@ -2606,6 +2971,7 @@ def _reparar_organizacion(plan: dict, cx: "_Ctx") -> None:
     # sus argumentos atacaban P1 a P4, que son una sola cadena de razonamiento
     # del juez (dependiente_de, y M1 responde a las cuatro). El tema es
     # `_temas`: la cadena y lo que una misma premisa decide.
+    _f = _foto_si(plan)
     tema = _temas_del_plan(plan)
     nuevas_u = []
     ultimo = max([_int(re.sub(r"\D", "", str(u.get("id") or "")) or 0) for u in plan["unidades"]] + [0])
@@ -2654,6 +3020,7 @@ def _reparar_organizacion(plan: dict, cx: "_Ctx") -> None:
         _aviso(plan, f"{u['id']} juntaba argumentos con {' y '.join(que) or 'rasgos'} distintos; se partió en "
                      + " · ".join(ids) + (f", con la misma premisa {u['premisa']}" if u.get("premisa") else ""))
     plan["unidades"] = nuevas_u
+    _anotar_fase(plan, _f, "partir_unidad")
 
     # 4b · LA PARTE SIN PREMISA EN LA QUE NADIE DESARROLLA (revisión
     # adversarial, 28-sep-2026). «Sólo el primero desarrolla» se decide en el
@@ -2663,6 +3030,7 @@ def _reparar_organizacion(plan: dict, cx: "_Ctx") -> None:
     # combinación del ADC 642/2024: premisa retirada y unidad que mezcla)—. En
     # cada unidad sin premisa donde el código la retiró, el primero —el que
     # decide su problema, si está— desarrolla.
+    _f = _foto_si(plan)
     _ids_m = {m.get("id") for m in plan.get("premisas") or []}
     _huerfanas = []
     for u in plan["unidades"]:
@@ -2679,13 +3047,16 @@ def _reparar_organizacion(plan: dict, cx: "_Ctx") -> None:
     if _huerfanas:
         _aviso(plan, "unidades que quedaron sin premisa al partirse, desarrolladas desde tu razón en su "
                      "primer argumento: " + ", ".join(_huerfanas[:10]))
+    _anotar_fase(plan, _f, "unidad_sin_premisa")
 
     # 5 · EL ORDEN (V0 l), cuando el código puede cumplirlo sin decidir nada:
     # la procedencia primero y, en el amparo directo sin mayor beneficio
     # dicho, el fondo antes que el procedimiento y la forma (art. 189). Si con
     # el orden del escrito no se puede, el de prelación, que es lo que el
     # prompt ya pide. Si ni así, se deja como estaba: lo decide el reintento.
+    _f = _foto_si(plan)
     _reordenar(plan, cx)
+    _anotar_fase(plan, _f, "orden_de_la_ley")
 
 
 def _reordenar(plan: dict, cx: "_Ctx") -> None:
@@ -2841,9 +3212,9 @@ def validar(plan: dict, crit, segs, fases, material, contexto: str = "", *,
             _fr = _falla_razon(rz, s.get("etiqueta") or "")
             if _fr:
                 f.append(f"{sid}: {_fr}")
-            if RAZONES[rz].get("solo_recursos") and not _es_recurso(plan):
+            if _info_razon(rz).get("solo_recursos") and not _es_recurso(plan):
                 f.append(f"{sid}: {rz} sólo cabe en recursos")
-            if RAZONES[rz].get("con_p") and not (s.get("ataca") or s.get("razon_p")):
+            if _info_razon(rz).get("con_p") and not (s.get("ataca") or s.get("razon_p")):
                 f.append(f"{sid}: {rz} tiene que nombrar la proposición (ataca)")
         # (f)
         t = s.get("reitera")
@@ -2890,7 +3261,7 @@ def validar(plan: dict, crit, segs, fases, material, contexto: str = "", *,
         if _guarda_procesal(plan.get("tipo_asunto", "")) and _es_procesal(s, cx) \
                 and not (sid.startswith("AD") and not cx.alguno_prospera):
             _no_estudia = s.get("trat") == "no_se_estudia" or bool(
-                rz and RAZONES[rz]["clase"] == NO_SE_ESTUDIA)
+                rz and _info_razon(rz)["clase"] == NO_SE_ESTUDIA)
             if clase_sentido(s.get("etiqueta")) != NO_SE_ESTUDIA:
                 if _no_estudia:
                     f.append(f"{sid}: una violación procesal no puede quedar sin estudio "
@@ -3317,7 +3688,7 @@ def _linea_seg(s: dict, trat: str, extra: str = "", sentidos: dict = None) -> st
         partes.append(f"etiqueta: {et}" + (f" (dentro del problema {s.get('problema_id')}, {_fp})"
                                              if _fp and _fp != et else ""))
     if s.get("razon"):
-        partes.append(f"razón: {s['razon']}" + (f"({s['razon_p']})" if s.get("razon_p") else ""))
+        partes.append(f"razón: {_nombre_razon(s['razon'])}" + (f"({s['razon_p']})" if s.get("razon_p") else ""))
     if s.get("ataca"):
         partes.append(f"ataca {s['ataca']}")
     if s.get("diferencia") and trat == "desarrolla":
@@ -3521,6 +3892,9 @@ def vista(plan: dict, formato: str = "estandar", concede: bool | None = None,
         # palabras del acto: sin comillas angulares, que en una sentencia dicen
         # «literal» (revisión adversarial de la integración, 26-sep-2026).
         L.append("PROPOSICIONES DEL ACTO (en síntesis del planificador; no son palabras del acto):")
+        # La relación, tal cual: «sin_clasificar» (etapa 4) se ESCRIBE —el
+        # estudio no puede darla por necesaria ni por suficiente—, y su
+        # descripción entra en el bloque sólo cuando aparece.
         for p in props.values():
             L.append(f"  {p['id']} · en síntesis: {p['dice']} · {p['caracter']} · {p['relacion']}"
                      + (" · vinculada por ejecutoria" if p.get("vinculada_por_ejecutoria") else ""))
@@ -3796,11 +4170,11 @@ def vista(plan: dict, formato: str = "estandar", concede: bool | None = None,
     # estudio sepa qué respuesta toca sin tener que adivinar un identificador.
     usadas = []
     for s in segs:
-        if s.get("razon") and s["razon"] not in usadas:
-            usadas.append(s["razon"])
+        if s.get("razon") and _nombre_razon(s["razon"]) not in usadas:
+            usadas.append(_nombre_razon(s["razon"]))
     if usadas:
         L.append("RAZONES (tipo de respuesta; los nombres no se escriben): " + " · ".join(
-            f"{k} = {_DESCRIBE_RAZON.get(k, '')}" for k in usadas))
+            f"{k} = {_DESCRIBE_RAZON.get(_clave_razon(k), '')}" for k in usadas))
     sup = [s for s in segs if s.get("trat") == "no_se_expresa_art79"]
     if sup:
         L.append("SUPLIDOS SIN BENEFICIO (no se expresan, art. 79, penúltimo párrafo): "
@@ -3839,6 +4213,16 @@ _SIN_CALIFICAR_DESC = """
   razón del principal como hechos dados; la calificación la propones tú, sin
   presentarla como del secretario, y van PRIMERO en ADVERTENCIAS diciendo que
   debe confirmarla él."""
+
+# LA RELACIÓN SIN CLASIFICAR (etapa 4, `normalizar` con la bandera): la de una
+# proposición que el planificador no dijo si sostiene lo resuelto sola o con
+# otras. Como los rótulos de arriba, su descripción sólo entra cuando el guion
+# la trae; sin la bandera nunca aparece y el bloque es el de siempre.
+_RX_REL_SIN_CLASIFICAR = " · sin_clasificar"
+_REL_SIN_CLASIFICAR_DESC = """
+- «sin_clasificar» (en una proposición): no se sabe si sostiene lo resuelto por
+  sí sola o junto con otras. El plan la trató como necesaria, sin suponerla
+  suficiente; no la presentes como bastante por sí sola."""
 
 
 # LA JERARQUÍA (plan-6, 28-sep-2026, AR 631/2025): su descripción sólo entra
@@ -3998,7 +4382,7 @@ grupos, manda el guion.
   ningún otro.
 - «razón del secretario para este argumento»: es la razón que decide ese
   argumento; se desarrolla a partir de ella.
-- SIN SENTIDO FIJADO: no lo califiques; dilo en ADVERTENCIAS.{_JERARQUIA_DESC if _RX_JERARQUIA in guion else ""}{_A_EFECTOS_DESC if _RX_A_EFECTOS in guion else ""}{_SIN_CALIFICAR_DESC if _RX_SIN_CALIFICAR in guion else ""}{_SIN_PREMISA_DESC if _RX_SIN_PREMISA in guion else ""}{_REMISION_AJENA_DESC if _RX_REMISION_AJENA in guion else ""}
+- SIN SENTIDO FIJADO: no lo califiques; dilo en ADVERTENCIAS.{_JERARQUIA_DESC if _RX_JERARQUIA in guion else ""}{_A_EFECTOS_DESC if _RX_A_EFECTOS in guion else ""}{_SIN_CALIFICAR_DESC if _RX_SIN_CALIFICAR in guion else ""}{_SIN_PREMISA_DESC if _RX_SIN_PREMISA in guion else ""}{_REMISION_AJENA_DESC if _RX_REMISION_AJENA in guion else ""}{_REL_SIN_CLASIFICAR_DESC if _RX_REL_SIN_CLASIFICAR in guion else ""}
 {_extension}
 {_marcas}
 - Los rótulos y los identificadores del guion (APARTADO, EXPONE, APLICA, C1.a,
@@ -4028,10 +4412,16 @@ def para_ficha(plan: dict, estado: str = "usado", clave_: str = "", avisos=None)
         return " ".join(str(v).split()[:n]) if isinstance(v, str) else v
 
     _topes = {"cita": 40, "razon_secretario": 60}
-    return {
+
+    def _valor(s, k):
+        if k in _topes:
+            return _corta(s.get(k), _topes[k])
+        return _nombre_razon(s.get(k)) if k == "razon" else s.get(k)
+
+    ficha = {
         "estado": estado, "clave": clave_ or plan.get("clave", ""),
         "version": plan.get("version", ""),
-        "segmentos": [{k: _corta(s.get(k), _topes[k]) if k in _topes else s.get(k)
+        "segmentos": [{k: _valor(s, k)
                        for k in ("id", "problema_id", "concepto", "etiqueta", "razon",
                                  "trat", "reitera", "diferencia", "pendiente", "cita",
                                  "razon_secretario", "sin_cita", "sin_premisa",
@@ -4050,6 +4440,22 @@ def para_ficha(plan: dict, estado: str = "usado", clave_: str = "", avisos=None)
                       for j in plan.get("jerarquia") or [] if isinstance(j, dict)],
         "avisos": list(avisos or [])[:12] + list(plan.get("avisos_al_secretario") or [])[:12],
     }
+    # CON LA BANDERA DE LA ETAPA 4, lo que el Mapa de un proyecto guardado no
+    # tenía: las proposiciones —sin ellas una «sin_clasificar» no se ve fuera
+    # del guion— y lo que el código le cambió al planificador. Sin la bandera,
+    # la ficha de siempre.
+    if _con_analisis():
+        ficha["proposiciones"] = [{k: p.get(k) for k in ("id", "dice", "caracter", "relacion", "relacion_crudo")
+                                   if p.get(k) not in (None, "")}
+                                  for p in plan.get("proposiciones") or [] if isinstance(p, dict)][:30]
+        if isinstance(plan.get("cambios_sin_justificar"), list):
+            # LOS QUE CUENTAN, PRIMERO (revisión adversarial): con el tope de
+            # 120, un asunto grande dejaba fuera justo los que hacen pendiente
+            # el proyecto (taller_estado lee la ficha).
+            _cs = [c for c in plan["cambios_sin_justificar"] if isinstance(c, dict)]
+            ficha["cambios_sin_justificar"] = ([c for c in _cs if c.get("cuenta")]
+                                               + [c for c in _cs if not c.get("cuenta")])[:120]
+    return ficha
 
 
 # ═══ EL ESTADO EN LA FILA (taller_sesiones.plan), EN FUNCIONES PURAS ═════════
