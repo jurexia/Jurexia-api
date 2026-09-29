@@ -790,13 +790,21 @@ def desenlace_de(tipo_asunto: str, resolvio_a_quo: str, sentido: str, *,
                     "conceptos de violación: la fracción VI del artículo 93 es para los agravios "
                     "de fondo.")
         elif rama == "revoca_fondo_niega" and reas == "concesion":
+            # LO FIRME, CON LA REGLA DEL DOCUMENTO (AR 631/2025, al generar en
+            # pantalla): si recurre quien no es la quejosa, el sobreseimiento de
+            # la mixta nadie lo impugnó y va PRIMERO, como en el circuito.
+            _firme_t = _ta.sobreseimiento_firme(bool(sobresee_ademas) or a == "sobresee_concede", q)
             puntos = [_rellenar(p) for p in _ta.puntos_reasuncion(
-                "", res, parcial=bool(sobresee_ademas))]
+                "", res, firme=_firme_t, parcial=bool(sobresee_ademas))]
             nota = ("Al revocar la concesión, el tribunal reasume jurisdicción y estudia los "
                     "conceptos de violación que el Juzgado no estudió (art. 93, fr. VI, de la "
                     "Ley de Amparo); sólo si caen, se niega. Si alguno prospera, se concede "
                     "por esa razón.")
-            if sobresee_ademas:
+            if _firme_t:
+                nota += (" La sentencia recurrida también sobreseyó y quien recurre no es la "
+                         "quejosa: ese sobreseimiento no es materia de la revisión y queda firme "
+                         "(salvo que la quejosa se haya adherido para combatirlo).")
+            elif sobresee_ademas:
                 nota += (" La sentencia recurrida también sobreseyó: si nadie lo impugnó, ese "
                          "sobreseimiento queda firme.")
         elif rama == "revoca_fondo_niega" and res:

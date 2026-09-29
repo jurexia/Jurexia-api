@@ -1087,6 +1087,144 @@ _, _res_pc2, _est_pc2 = componer_b(["Solución", "Es fundado el primer agravio. 
 ok("*********" in _res_pc2 and any("NO DICE QUE EL JUZGADO DEJARA CONCEPTOS" in a for a in _est_pc2.avisos),
    "por confirmar y el estudio no concluye: hueco, con el aviso que dice qué comprobar")
 
+# ═══════════════════════════════════════════════════════════════════════════
+# EL 631 GENERADO EN PANTALLA (28-sep-2026, entrega 1). Rama revoca_fondo con
+# reasunción, conceptos que no constan, y la recurrida SOBRESEYÓ respecto de la
+# interlocutoria del Juez Quinto —en sus CONSIDERANDOS; su único punto
+# resolutivo es la concesión— sin que nadie lo impugnara. El registro dijo «la
+# recurrida también sobreseyó» y los resolutivos salieron sin «Queda firme…»:
+# el documento sólo lo ponía si el estudio lo escribía, y el modelo no lo hizo.
+print("\n13 · EL 631 EN PANTALLA: EL SOBRESEIMIENTO QUE NADIE IMPUGNÓ VA PRIMERO")
+import tarjeta_decision as td_r
+import deliberacion as dl_r
+RECURRIDA_REAL = (
+    "JUZGADO SÉPTIMO DE DISTRITO EN EL ESTADO DE EJEMPLO\nAMPARO INDIRECTO 950/2024\n"
+    "CONSIDERANDO QUINTO. Improcedencia. Se sobresee en el juicio respecto de la resolución "
+    "interlocutoria de ocho de abril de dos mil veinticuatro, atribuida al Juzgado Quinto de "
+    "Primera Instancia Civil, con fundamento en los artículos 61, fracción XXI, y 63, fracción V, de "
+    "la Ley de Amparo.\n"
+    "CONSIDERANDO SÉPTIMO. Es fundado el segundo concepto de violación; resulta innecesario el "
+    "estudio de los restantes conceptos de violación.\n"
+    "Por lo expuesto, se R E S U E L V E: ÚNICO. " + RESOL + " Notifíquese.")
+RESUMEN_REAL = ("El Juzgado de Distrito sobreseyó en el juicio respecto de la resolución interlocutoria "
+                "atribuida al Juzgado Quinto de Primera Instancia Civil y concedió el amparo contra la "
+                "resolución de la Sala responsable.")
+# El escrito del recurso del 631 real no trae revisión adhesiva (el ESCRITO6
+# sintético sí: su «REVISIÓN ADHESIVA» es de otra prueba).
+ESCRITO_REAL = ESCRITO6.replace(
+    "REVISIÓN ADHESIVA. La quejosa adherente sostiene que el juicio de origen se tramitó con "
+    "violaciones al procedimiento que la dejaron sin defensa.",
+    "Por último, sostiene que el juicio de origen se tramitó con violaciones al procedimiento.")
+assert ESCRITO_REAL != ESCRITO6
+_o_real = [ESCRITO_REAL.index(x) for x in ("PRIMERO.", "SEGUNDO.")] + [len(ESCRITO_REAL)]
+_CONTEO_REAL = {"estado": "contado", "n": 2, "tramos": [[_o_real[i], _o_real[i + 1]] for i in range(2)]}
+# Los antecedentes reales hablan de la «adhesión a la apelación» del juicio
+# natural: eso no es una revisión adhesiva.
+_ANT_REAL = ["23. Por resolución de dos de julio de dos mil veinticuatro, la Primera Sala Civil confirmó la "
+             "resolución interlocutoria y declaró sin materia la adhesión a la apelación promovida por la "
+             "parte incidentista."]
+_r_real = r_b(fuentes=[RECURRIDA_REAL, ESCRITO_REAL], conteo=dict(_CONTEO_REAL), resumen_acto=RESUMEN_REAL,
+              antecedentes=_ANT_REAL)
+_m_real = material()
+ra._formato_al_material(_r_real, _m_real, None, crit())
+_rr = _m_real.reasuncion or {}
+ok(_rr.get("reasuncion") == "concesion" and _rr.get("tenemos") is False
+   and _rr.get("quien_recurre") == "tercero" and _rr.get("sobresee_ademas")
+   and _rr.get("sobreseimiento_firme") is True and _rr.get("adhesiva") is False,
+   f"los datos del 631 real: reasume, sin conceptos, recurre la tercera, sobreseyó y queda firme: {_rr}")
+# El estudio, como lo escribió el modelo: el párrafo del art. 93 y nada sobre
+# el sobreseimiento.
+_EST_REAL = ["Solución",
+             "Sobre el primer agravio, se considera fundado: la interlocutoria sólo cambió quién ejecuta.",
+             "En consecuencia, el vicio alcanza la razón toral de la sentencia recurrida y procede revocarla.",
+             "El artículo 93 de la Ley de Amparo obliga a que, cuando prosperan los agravios contra una "
+             "sentencia que concedió la protección constitucional, el órgano revisor reasuma jurisdicción "
+             "para ocuparse de los conceptos de violación cuyo estudio fue omitido; sin embargo, éstos no "
+             "obran en el expediente del recurso, por lo que no es jurídicamente posible determinar en esta "
+             "resolución si el amparo debe concederse o negarse.",
+             "Por lo que hace al segundo agravio, resulta innecesario."]
+_reas_real = {k: v for k, v in _rr.items() if k != "conceptos"}
+_ps_r, _res_r, _est_r = componer_b(_EST_REAL, _reas_real)
+_i1 = _res_r.find("PRIMERO. Queda firme el sobreseimiento decretado en la sentencia recurrida.")
+_i2 = _res_r.find("SEGUNDO. En la materia de la revisión, se revoca la sentencia recurrida.")
+_i3 = _res_r.find("TERCERO. La Justicia de la Unión *********")
+ok(0 <= _i1 < _i2 < _i3 and "Unión Ejemplo, A.C." in _res_r[_i3:] and "no ampara" not in _res_r,
+   f"el orden del corpus: firme, en la materia de la revisión se revoca, el amparo en hueco: {_res_r[:420]}")
+ok(any(a.startswith("QUEDA FIRME EL SOBRESEIMIENTO") for a in _est_r.avisos)
+   and not any(a.startswith("LA SENTENCIA RECURRIDA TAMBIÉN SOBRESEYÓ") for a in _est_r.avisos),
+   "y el aviso dice que el punto va por código y que el estudio debe decirlo")
+# Una sesión guardada antes de este arreglo no trae «sobreseimiento_firme»:
+# el documento lo calcula con la misma regla.
+_ps_v, _res_v, _ = componer_b(_EST_REAL, {k: v for k, v in _reas_real.items()
+                                           if k not in ("sobreseimiento_firme", "adhesiva")})
+ok(_res_v.find("PRIMERO. Queda firme el sobreseimiento") >= 0
+   and _res_v.find("PRIMERO. Queda firme") < _res_v.find("SEGUNDO. En la materia de la revisión"),
+   "sin la clave nueva (sesión vieja), el mismo orden por la misma regla")
+# Con revisión adhesiva, la quejosa pudo combatirlo: no se da por firme.
+_r_adh = r_b(fuentes=[RECURRIDA_REAL, ESCRITO6], resumen_acto=RESUMEN_REAL)
+_m_adh = material()
+ra._formato_al_material(_r_adh, _m_adh, None, crit())
+_ra_adh = {k: v for k, v in (_m_adh.reasuncion or {}).items() if k != "conceptos"}
+_, _res_adh, _est_adh = componer_b(_EST_REAL, _ra_adh)
+ok(_ra_adh.get("adhesiva") is True and "Queda firme" not in _res_adh
+   and "PRIMERO. En la materia de la revisión, se revoca" in _res_adh
+   and any("Consta revisión adhesiva" in a for a in _est_adh.avisos),
+   "con revisión adhesiva, el sobreseimiento no se fija por código: se dice que se compruebe")
+# Recurre la quejosa: el sobreseimiento le perjudica y es materia de su recurso.
+ok(not ta.sobreseimiento_firme(True, "quejoso") and not ta.sobreseimiento_firme(True, "")
+   and ta.sobreseimiento_firme(True, "autoridad") and not ta.sobreseimiento_firme(False, "tercero"),
+   "la regla: sólo si recurre la autoridad o la tercera, y nunca sin saber quién recurre")
+# La tarjeta y la deliberación dicen lo mismo que el documento.
+_t_real, _n_real = td_r.desenlace_de("amparo_revision", "concede", "fundado", quien_recurre="tercero",
+                                     sobresee_ademas=True, resolutivo_recurrida=RESOL)
+_d_real = dl_r.consecuencia_de("fundado", "amparo_revision", "concede", RESOL, quien_recurre="tercero",
+                               sobresee_ademas=True)
+ok(_t_real == _d_real["desenlace"] and len(_t_real) == 3
+   and _t_real[0] == "PRIMERO. Queda firme el sobreseimiento decretado en la sentencia recurrida."
+   and _t_real[1] == "SEGUNDO. En la materia de la revisión, se revoca la sentencia recurrida."
+   and _t_real[2].startswith("TERCERO. La Justicia de la Unión") and "queda firme" in (_n_real or ""),
+   f"la tarjeta y la deliberación, con los mismos tres puntos: {_t_real}")
+# La ficha procesal lo da por firme con la misma regla.
+import ficha_procesal as fp_r
+_fi_r = fp_r.de_resultado(_r_real)
+ok(any(x.startswith("sobreseimiento") for x in _fi_r.get("firme") or []),
+   f"la ficha: el sobreseimiento, entre lo que quedó firme: {_fi_r.get('firme')}")
+_fi_adh = fp_r.de_resultado(_r_adh)
+ok(not any(x.startswith("sobreseimiento") for x in _fi_adh.get("firme") or [])
+   and any("revisión adhesiva" in a for a in _fi_adh.get("avisos") or []),
+   "la ficha, con adhesiva: no lo fija y avisa")
+# El estudio recibe el dato como hecho, no como condición.
+_pb_real = f6.prompt_estudio(ACTO, "c", crit(), _m_real, es_recurso=True, rama="revoca_fondo_niega")
+ok("la única a quien ese sobreseimiento perjudica" in _pb_real
+   and "Si ningún agravio combate ese sobreseimiento" not in _pb_real,
+   "el prompt del estudio dice que ese sobreseimiento no es materia de la revisión")
+# (2) LA TESIS DE LA REASUNCIÓN SIN CONCEPTOS TAMBIÉN HABLA: el prompt lo pide…
+ok("HAZLO HABLAR Y APLÍCALO" in _pb_real and "impide decidir aquí el amparo" in _pb_real
+   and "no lo cites" in _pb_real,
+   "sin conceptos, el prompt pide decir qué exige la tesis de la reasunción y por qué impide decidir")
+# …y 1-duodecies lo acusa si no: «Sirve de apoyo el criterio de registro
+# 171925:» cerrando el párrafo del art. 93 y, debajo, el segundo agravio.
+_R171925 = ("REVISIÓN EN AMPARO. CUANDO EL ÓRGANO REVISOR CONSIDERA FUNDADOS LOS AGRAVIOS Y REVOCA LA "
+            "SENTENCIA QUE CONCEDIÓ LA PROTECCIÓN CONSTITUCIONAL, DEBE ANALIZAR LOS CONCEPTOS DE VIOLACIÓN "
+            "CUYO ESTUDIO OMITIÓ EL JUEZ DE DISTRITO, SIN IMPORTAR QUIÉN INTERPONGA EL RECURSO")
+_T171925 = [{"registro": "171925", "rubro": _R171925}]
+_malo = "\n".join(_EST_REAL[2:4] + ["Sirve de apoyo el criterio de registro 171925:"] + _EST_REAL[4:])
+_d_malo = f6.tesis_que_no_hablan(_malo, _T171925)
+ok(any(d["registro"] == "171925" and "sin explicar" in d["defectos"] for d in _d_malo),
+   f"1-duodecies acusa la 171925 citada al cerrar y seguida del segundo agravio: {_d_malo}")
+_bueno = "\n".join(_EST_REAL[2:4] + [
+    "Sirve de apoyo el criterio de registro 171925:",
+    "Conforme a ese criterio, al revocar la concesión el órgano revisor debe analizar los conceptos de "
+    "violación cuyo estudio omitió el Juez de Distrito, sin importar quién recurra, antes de conceder o "
+    "negar. En el caso esa exigencia no puede cumplirse, porque la demanda de amparo no obra en el "
+    "expediente del recurso; por eso el sentido del amparo queda pendiente."] + _EST_REAL[4:])
+ok(not f6.tesis_que_no_hablan(_bueno, _T171925),
+   "y no acusa la misma cita cuando lo que sigue dice qué exige y por qué impide decidir")
+_rev_malo = f6.revisar(_malo, crit(), f6.Material(tipo_asunto="amparo_revision", tesis=_T171925))
+ok(any(a.startswith("CRITERIOS QUE NO HABLAN") and "CITADO AL CERRAR" in a and "171925" in a
+       for a in _rev_malo),
+   "el aviso llega al secretario, con el registro")
+
 print()
 if FALLOS:
     print(f"FALLAN {len(FALLOS)}: " + " · ".join(FALLOS))

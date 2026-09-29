@@ -1700,6 +1700,24 @@ def _bloque_ficha(material) -> str:
     return ("\n" + b + "\n") if b else ""
 
 
+# LA TESIS DE LA REASUNCIÓN, CUANDO FALTAN LOS CONCEPTOS, TAMBIÉN HABLA (AR
+# 631/2025, al generar en pantalla, 28-sep-2026). El estudio cerró el párrafo
+# del art. 93 con «Sirve de apoyo el criterio de registro 171925:» y el párrafo
+# siguiente ya era el segundo agravio: ni lo que el criterio exige ni por qué
+# eso impide decidir aquí (SPEC_D: cita → regla con palabras propias →
+# aplicación al caso). Descripción de lo que se hace, sin frase que copiar.
+_CITA_REASUNCION_SIN_CONCEPTOS = (
+    "SI CITAS EL CRITERIO QUE MANDA REASUMIR JURISDICCIÓN (uno de los apoyos de esta técnica, "
+    "sólo si llegó entre las tesis del material), HAZLO HABLAR Y APLÍCALO, como cualquier otra "
+    "cita: después de citarlo, di con tus palabras lo que exige —que el órgano revisor, al "
+    "revocar la concesión, analice los conceptos cuyo estudio omitió el juzgado antes de "
+    "conceder o negar, sin importar quién recurra— y aplícalo a este expediente: esa exigencia "
+    "es justo la que impide decidir aquí el amparo, porque los conceptos no obran en el "
+    "expediente del recurso; por eso el punto del amparo queda pendiente. Si no vas a decir las "
+    "dos cosas, no lo cites: no cierres un párrafo con la cita ni pases de ella al siguiente "
+    "agravio.\n")
+
+
 def _bloque_reasuncion(conceptos: str, reas: dict) -> str:
     """ARTÍCULO 93, FRACCIÓN VI: revocada la concesión, el tribunal reasume
     jurisdicción y estudia los conceptos de violación que el juzgado no
@@ -1712,7 +1730,12 @@ def _bloque_reasuncion(conceptos: str, reas: dict) -> str:
     desestimada cae por las mismas razones o por derivar; lo de contenido
     propio se contesta. El resolutivo sale de la conclusión de este considerando
     (`fase_rama.sentido_en_plenitud`), por eso se pide que la diga."""
-    firme = ("\n- La sentencia recurrida también sobreseyó respecto de algún acto. Si "
+    firme = ("\n- La sentencia recurrida también sobreseyó respecto de algún acto, y quien "
+             "recurre no es la parte quejosa, la única a quien ese sobreseimiento perjudica: "
+             "no es materia de la revisión. Dilo en el estudio y declara que queda firme; por "
+             "eso la revocación se acota a la materia de la revisión."
+             if reas.get("sobreseimiento_firme") else
+             "\n- La sentencia recurrida también sobreseyó respecto de algún acto. Si "
              "ningún agravio combate ese sobreseimiento, dilo y declara que queda firme; "
              "por eso la revocación se acota a la materia de la revisión."
              if reas.get("sobresee_ademas") else
@@ -1736,7 +1759,8 @@ def _bloque_reasuncion(conceptos: str, reas: dict) -> str:
                 "niega. Si alguno quedó sin estudiar, NO LO INVENTES ni lo deduzcas de los "
                 "agravios: di que el tribunal reasume jurisdicción, NO concluyas si se concede "
                 "o se niega y añade en ADVERTENCIAS que el estudio de esos conceptos queda "
-                "pendiente porque no obran en el expediente del recurso.\n")
+                "pendiente porque no obran en el expediente del recurso.\n"
+                + _CITA_REASUNCION_SIN_CONCEPTOS)
     if not (conceptos or "").strip():
         return ("\n\nREVOCAR NO ES NEGAR (artículo 93, fracción VI, de la Ley de Amparo). "
                 "El Juzgado de Distrito concedió y el recurso lo interpone quien no pidió el "
@@ -1749,7 +1773,8 @@ def _bloque_reasuncion(conceptos: str, reas: dict) -> str:
                 "tribunal reasume jurisdicción, pero NO concluyas si se concede o se niega el "
                 "amparo: esa conclusión depende de unos conceptos que no tienes. Añade en "
                 "ADVERTENCIAS que el estudio de los conceptos de violación no estudiados queda "
-                "pendiente porque no obran en el expediente del recurso.\n")
+                "pendiente porque no obran en el expediente del recurso.\n"
+                + _CITA_REASUNCION_SIN_CONCEPTOS)
     origen = _ORIGEN_CONCEPTOS.get(str(reas.get("donde") or "secretario"),
                                    _ORIGEN_CONCEPTOS["secretario"])
     return f"""
@@ -4678,8 +4703,15 @@ def preceptos_fuera(estudio: str, material: Material) -> tuple:
 _RX_PISTA_CRITERIO = re.compile(
     r"\b(?:rubros?|jurisprudencias?|tesis|registro|criterios?|precedentes?|"
     r"ejecutoria|intitulan|t[íi]tulo|siguientes?\s*:|transcribe|en\s+cita)\b", re.I)
+# «registro 171925» CON UN SOLO ESPACIO (AR 631/2025, 28-sep-2026, al generar
+# en pantalla): la forma anterior exigía dos separadores tras «registro» —el
+# espacio y otro, o «digital»— y no veía «Sirve de apoyo el criterio de
+# registro 171925:», que es justo la forma que el prompt enseña al modelo. El
+# control corría ciego sobre toda cita por registro sin rubro en el texto. Se
+# añade SÓLO esa forma: «Registro: 2009468» (la ficha de una nota al pie de la
+# Corte) sigue sin contar, como en la calibración.
 _RX_REG_EN_CITA = re.compile(
-    r"registro\s+(?:digital\s*)?(?:n[úu]mero\s*)?[:\s]\s*(\d{6,7})\b", re.I)
+    r"registro(?:\s+(?:digital\s*)?(?:n[úu]mero\s*)?[:\s]\s*|\s+)(\d{6,7})\b", re.I)
 _RX_RUBRO_COMILLAS = re.compile(r"[“«\"]\s*([A-ZÁÉÍÓÚÑÜ][^”»\"«“\n]{20,1500}?)\s*[”»\"]")
 _RX_RUBRO_SIN_COMILLAS = re.compile(
     r"(?<![\wÁÉÍÓÚÑÜáéíóúñü])((?:[A-ZÁÉÍÓÚÑÜ][A-ZÁÉÍÓÚÑÜ0-9.,;()\-–/°º]*[ \t]+){7,}"
@@ -4844,8 +4876,11 @@ def citas_de_criterios(texto: str, tesis=None) -> list:
         if any(c["ini"] <= m.start() < c["fin"] for c in citas):
             continue
         x = por_reg.get(reg) or {}
+        # «solo_registro»: la forma del modelo, «…el criterio de registro N:»,
+        # sin el rubro en el texto; el compositor lo pone debajo.
         citas.append({"ini": m.start(), "fin": m.end(),
-                      "rubro": str(x.get("rubro") or ""), "registro": reg})
+                      "rubro": str(x.get("rubro") or ""), "registro": reg,
+                      "solo_registro": True})
     citas.sort(key=lambda c: c["ini"])
     return citas
 
@@ -4867,6 +4902,49 @@ def _palabras_propias(t: str) -> int:
     return len([w for w in re.findall(r"[A-Za-zÁÉÍÓÚÑÜáéíóúñü]{3,}", t)])
 
 
+# LO QUE ABRE OTRO PUNTO DEL ESTUDIO: el siguiente agravio, concepto o
+# planteamiento, o un rótulo. Si el párrafo que sigue a una cita lo abre, entre
+# la cita y él no se dijo nada de ella.
+_RX_ABRE_OTRO_PUNTO = re.compile(
+    r"^\s*(?:(?:Por\s+lo\s+que\s+(?:hace|toca|respecta)|En\s+(?:cuanto|lo\s+que\s+"
+    r"(?:hace|toca|respecta)|relaci[óo]n)|Respecto|Sobre|Por\s+otra\s+parte|En\s+otro\s+orden"
+    r"|Finalmente|Ahora\s+bien)[^.\n]{0,120}?\b(?:agravios?|conceptos?\s+de\s+violaci[óo]n|"
+    r"planteamientos?|argumentos?|motivos?\s+de\s+(?:inconformidad|disenso))\b"
+    r"|(?:(?:primer|segund|tercer|cuart|quint|sext|s[ée]ptim|octav|noven|d[ée]cim)\w*|"
+    r"[úu]ltimo)\s+(?:agravio|concepto)\b)", re.I)
+
+
+def _cierra_sin_hablar(t: str, c: dict) -> bool:
+    """«Sin explicar»: la cita en la forma del modelo (sólo el registro; el
+    compositor pone debajo el rubro y el texto) CIERRA su párrafo y el párrafo
+    siguiente ya abre otro agravio, otro concepto u otro apartado. Entre la
+    tesis y el punto siguiente no queda ni su regla ni su aplicación.
+
+    AR 631/2025, al generar en pantalla (28-sep-2026): «Sirve de apoyo el
+    criterio de registro 171925:» al final del párrafo del art. 93 y, debajo,
+    «Por lo que hace al segundo agravio…». Por vocabulario «hablaba» —el
+    párrafo de antes parafrasea el art. 93 con las palabras del rubro y el
+    segundo agravio comparte «recurrente», «conceptos»…—, así que ni la
+    huérfana en sombra la veía. Por forma es inequívoca: la Corte, tras
+    transcribir, sigue con la regla y la aplicación (SPEC_D), no con el punto
+    siguiente. Los textos de la calibración traen el rubro en el cuerpo, así
+    que esta forma no aparece en ellos: los ceros se mantienen."""
+    if not c.get("solo_registro"):
+        return False
+    fin_par = t.find("\n", c["fin"])
+    resto = t[c["fin"]:fin_par if fin_par >= 0 else len(t)]
+    if re.search(r"[A-Za-zÁÉÍÓÚÑÜáéíóúñü]{3,}", resto):
+        return False                                    # el párrafo sigue: no cierra
+    if fin_par < 0:
+        return False
+    sig = t[fin_par + 1:]
+    sig = sig[:sig.find("\n")] if "\n" in sig else sig
+    if not sig.strip():
+        return False
+    rotulo = (len(sig.split()) <= 10 and not re.search(r"[.:;]\s*$", sig.strip()))
+    return bool(_RX_ABRE_OTRO_PUNTO.search(sig)) or rotulo
+
+
 # LOS UMBRALES, DE LA CALIBRACIÓN (28-sep-2026): con ellos, 0 avisos en las
 # diez sentencias anotadas de la Corte, 0 en los cinco engroses, 0 en los otros
 # 109 extractos de la Corte y 18 engroses Kingston, y 7 en la Solución del 631.
@@ -4881,7 +4959,7 @@ VENTANA_DESPUES = 1600        # caracteres de lo que sigue a la cita
 # sentencias de la Corte y 2 de los engroses, que no tienen ninguna. Se mide
 # y se registra; al secretario sólo le llega lo que la calibración separa sin
 # error: la pila sin prosa, la contradicción y la tesis de la parte reciclada.
-DEFECTOS_AL_SECRETARIO = ("apilada", "contradictoria", "de la parte")
+DEFECTOS_AL_SECRETARIO = ("apilada", "contradictoria", "de la parte", "sin explicar")
 
 
 def tesis_sin_hablar(estudio: str, tesis=None, de_la_parte=None,
@@ -4903,6 +4981,9 @@ def tesis_sin_hablar(estudio: str, tesis=None, de_la_parte=None,
         `rubros_de_la_parte`) y se usa con verbo de apoyo, sin ninguna de las
         tres respuestas de la técnica (aplicarla dándole la razón, acotarla,
         distinguirla) y sin que lo que sigue la retome;
+      · «sin explicar»: en la forma del modelo, anunciada como apoyo al cerrar
+        su párrafo, y el siguiente ya abre otro punto (`_cierra_sin_hablar`;
+        el 171925 del 631 generado en pantalla);
       · «huérfana»: no habla. SÓLO EN SOMBRA (ver `DEFECTOS_AL_SECRETARIO`).
     Sin rubro no se puede medir si habla: esa cita sólo entra en las pilas y
     en la contradicción.
@@ -5001,6 +5082,10 @@ def tesis_sin_hablar(estudio: str, tesis=None, de_la_parte=None,
                     mudas += 1
             if apoyo and _RX_NO_APLICA.search(cola):
                 defectos.append("contradictoria")
+            # «sin explicar»: anunciada como apoyo al cerrar el párrafo, y lo
+            # que sigue ya es otro punto (ver `_cierra_sin_hablar`).
+            if apoyo and k == pila[-1] and _cierra_sin_hablar(t, c):
+                defectos.append("sin explicar")
             es_parte = bool((c["registro"] and c["registro"] in parte) or
                             (c["rubro"] and _nr(c["rubro"]) in rub_parte))
             if es_parte and apoyo and "contradictoria" not in defectos \
@@ -5327,7 +5412,9 @@ def revisar(estudio: str, criterios: list[Criterio], material: Material,
     #    sentencias de la Corte y cinco engroses del colegiado (cero avisos) y
     #    la Solución del 631 (siete de nueve): al secretario llega lo que la
     #    calibración separa sin error —la fila de rubros sin regla, la cita
-    #    contradictoria y la tesis de la parte como apoyo—; la cita suelta que
+    #    contradictoria, la tesis de la parte como apoyo y, desde el 631
+    #    generado en pantalla, la que cierra su párrafo y deja paso al agravio
+    #    siguiente sin decir qué exige («sin explicar»)—; la cita suelta que
     #    no habla sólo se registra, en sombra (`DEFECTOS_AL_SECRETARIO`).
     try:
         # EN LA REVISIÓN, TAMBIÉN LO QUE RELATA LA RECURRIDA (revisión del
@@ -5359,6 +5446,13 @@ def revisar(estudio: str, criterios: list[Criterio], material: Material,
         if _por["contradictoria"]:
             _partes_av.append(
                 f"ANUNCIADO COMO APOYO Y DECLARADO INAPLICABLE: {', '.join(_por['contradictoria'])}")
+        if _por["sin explicar"]:
+            _partes_av.append(
+                f"CITADO AL CERRAR, SIN DECIR QUÉ SOSTIENE NI APLICARLO: "
+                f"{', '.join(_por['sin explicar'])} se anuncia(n) como apoyo al final de un "
+                f"razonamiento y el párrafo siguiente ya pasa a otro punto; tras la tesis va "
+                f"lo que exige, con palabras propias, y por qué eso decide —o impide "
+                f"decidir— aquí, o no se cita")
         if _por["de la parte"]:
             _partes_av.append(
                 f"DE LA PARTE, COMO APOYO: {', '.join(_por['de la parte'])} los invocó "

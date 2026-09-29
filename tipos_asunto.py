@@ -3262,6 +3262,25 @@ _GENERICO_REASUNCION = ("La Justicia de la Unión {verbo} a {quejoso}, contra el
                         "ejecutoria.")
 
 
+def sobreseimiento_firme(sobresee_ademas: bool, quien_recurre: str = "",
+                         adhesiva: bool = False) -> bool:
+    """¿El sobreseimiento de una sentencia mixta quedó firme, por código?
+
+    AR 631/2025 (28-sep-2026, al generar en pantalla): el juzgado sobreseyó
+    respecto de la interlocutoria del Juez Quinto —en sus considerandos, no en
+    sus puntos— y concedió contra la Sala; recurrió la tercera interesada. El
+    documento sólo ponía «Queda firme el sobreseimiento…» si el ESTUDIO lo
+    declaraba (`fase_rama.declara_firme_el_sobreseimiento`), el modelo no lo
+    escribió y los resolutivos salieron sin él, aunque el registro dijera «la
+    recurrida también sobreseyó». Pero eso no depende de la prosa: el
+    sobreseimiento sólo perjudica a la quejosa (`ficha_procesal._perjudica`);
+    si quien recurre es la autoridad o la tercera interesada, nadie lo impugnó
+    —salvo que la quejosa se adhiriera (art. 82), y entonces se comprueba a
+    mano—. Sin saber quién recurre, tampoco se afirma."""
+    q = (quien_recurre or "").strip().lower()
+    return bool(sobresee_ademas) and q in ("tercero", "autoridad") and not adhesiva
+
+
 def puntos_reasuncion(sentido_amparo: str, resolutivo_reproducido: str = "",
                       firme: bool = False, parcial: bool = False) -> list:
     """Los puntos de una revisión que revoca una concesión y reasume

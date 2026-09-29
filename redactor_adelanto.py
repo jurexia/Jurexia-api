@@ -1138,11 +1138,26 @@ def _reasuncion_del_asunto(r, criterios) -> dict | None:
                     "procedencia": _proc}
         _txt, _donde = _fr_a.conceptos_disponibles(info.get("conceptos_violacion", ""),
                                                    getattr(r, "fases", None))
+        # ¿QUEDÓ FIRME EL SOBRESEIMIENTO? (AR 631/2025, al generar en pantalla,
+        # 28-sep-2026): el registro decía «la recurrida también sobreseyó» y
+        # los resolutivos salieron sin «Queda firme…», porque el documento sólo
+        # lo ponía si el estudio lo escribía. Se decide aquí, por código y con
+        # la misma regla que la ficha (`tipos_asunto.sobreseimiento_firme`).
+        _sob = bool(info.get("sobresee_ademas"))
+        try:
+            import ficha_procesal as _fp_a
+            _adh = bool(_fp_a.donde_adhesivo(getattr(r, "fases", None), "amparo_revision"))
+        except Exception:
+            _adh = False
+        _firme = _ta_a.sobreseimiento_firme(_sob, info.get("quien_recurre", ""), _adh)
         print(f"   ⚖️ REASUNCIÓN ({co['reasuncion']}, {co['fundamento']}): conceptos "
               + (f"de {_donde} ({len(_txt)} caracteres)" if _donde else "NO CONSTAN")
-              + (" · la recurrida también sobreseyó" if info.get("sobresee_ademas") else ""))
+              + (" · la recurrida también sobreseyó" if _sob else "")
+              + (" (queda firme: nadie lo impugnó)" if _firme else
+                 " (consta revisión adhesiva: firmeza por comprobar)" if _sob and _adh else ""))
         return {**co, "conceptos": _txt, "quien_recurre": info.get("quien_recurre", ""),
-                "sobresee_ademas": bool(info.get("sobresee_ademas")), "procedencia": _proc}
+                "sobresee_ademas": _sob, "adhesiva": _adh,
+                "sobreseimiento_firme": _firme, "procedencia": _proc}
     except Exception as _er:
         print(f"   ⚠️ REASUNCIÓN: no se pudo calcular: {type(_er).__name__}")
         return None

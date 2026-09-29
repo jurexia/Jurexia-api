@@ -311,6 +311,23 @@ def puntos_resolutivos(seccion: str) -> list:
     return fuera
 
 
+def donde_adhesivo(fases, tipo: str = "amparo_revision") -> str:
+    """Dónde consta la revisión adhesiva (el amparo adhesivo en un directo):
+    «escrito» | «resumen de lo que se combate» | «antecedentes» | «» si no
+    consta. La leen la ficha y el adelanto (`redactor_adelanto._reasuncion_del_asunto`):
+    con adhesiva de la quejosa, el sobreseimiento de una mixta no se da por
+    firme sin mirarlo (`tipos_asunto.sobreseimiento_firme`)."""
+    fuentes = list(getattr(fases, "fuentes", None) or []) + ["", ""]
+    rx = _RX_ADHESIVO_AD if tipo == "amparo_directo" else _RX_ADHESIVA
+    for nombre, texto in (("escrito", fuentes[1]),
+                          ("resumen de lo que se combate", getattr(fases, "resumen_conceptos", "")),
+                          ("antecedentes", getattr(fases, "antecedentes", ""))):
+        if rx.search(str(texto or "") if not isinstance(texto, (list, tuple))
+                     else "\n".join(map(str, texto))):
+            return nombre
+    return ""
+
+
 def _perjudica(que: str, papel: str):
     """¿Ese punto perjudica a quien recurre? True | False | None (no se sabe).
     El sobreseimiento y la negativa perjudican a la quejosa; la concesión, a la
@@ -413,6 +430,7 @@ def armar(encargo, fases=None, partes=None, *, acto: str = "", declarado: str = 
     el juzgado al proponer (última fuente, como en `que_hizo_el_juzgado`)."""
     import fase_rama as _fr
     import redactor_adelanto as _ra
+    import tipos_asunto as _ta_f
     e = encargo
     tipo = _normalizar_tipo(getattr(e, "tipo_asunto", "") or "amparo_directo")
     es_recurso = bool(getattr(e, "es_recurso", False))
@@ -479,6 +497,7 @@ def armar(encargo, fases=None, partes=None, *, acto: str = "", declarado: str = 
     resolvio = {}
     materia, firme = [], []
     responsables = []
+    _donde_ad = donde_adhesivo(fases, tipo)
     if tipo == "amparo_revision":
         que = _fr.que_hizo_el_juzgado(fases, declarado) if fases is not None else \
             _fr.resolvio_segun_resolutivos(acto)
@@ -564,10 +583,15 @@ def armar(encargo, fases=None, partes=None, *, acto: str = "", declarado: str = 
         if firme and not materia:
             materia = [x + " (sus términos o efectos)" for x in firme]
             firme = []
-        if sob_ad and papel in ("tercero", "autoridad") and not any(
+        # LA MISMA REGLA QUE EL RESOLUTIVO (`tipos_asunto.sobreseimiento_firme`):
+        # con revisión adhesiva, la quejosa pudo combatirlo y se dice, no se fija.
+        if _ta_f.sobreseimiento_firme(sob_ad, papel, bool(_donde_ad)) and not any(
                 x.startswith("sobreseimiento") for x in firme):
             firme.append(f"sobreseimiento (en sus considerandos): {_sob_objeto}" if _sob_objeto
                          else "sobreseimiento respecto de otro acto")
+        elif sob_ad and papel in ("tercero", "autoridad") and _donde_ad:
+            avisos.append("La recurrida también sobreseyó y consta revisión adhesiva: comprueba si "
+                          "la quejosa combate ese sobreseimiento antes de darlo por firme.")
     # La autoridad del formulario, si los puntos no la nombran (en la revisión
     # es la del acto reclamado, nunca el juzgado).
     _resp_f = _txt(getattr(e, "responsable", "")) or _txt(getattr(partes, "autoridad_responsable", ""))
@@ -588,16 +612,7 @@ def armar(encargo, fases=None, partes=None, *, acto: str = "", declarado: str = 
     if tipo == "amparo_directo" and not terceros:
         avisos.append("No consta el tercero interesado.")
 
-    # ── ¿HAY ADHESIVO? ──
-    _donde_ad = ""
-    _rx_ad = _RX_ADHESIVO_AD if tipo == "amparo_directo" else _RX_ADHESIVA
-    for nombre, texto in (("escrito", fuentes[1]),
-                          ("resumen de lo que se combate", getattr(fases, "resumen_conceptos", "")),
-                          ("antecedentes", getattr(fases, "antecedentes", ""))):
-        if _rx_ad.search(str(texto or "") if not isinstance(texto, (list, tuple))
-                         else "\n".join(map(str, texto))):
-            _donde_ad = nombre
-            break
+    # ── ¿HAY ADHESIVO? ── (se leyó arriba, antes de decir qué quedó firme)
     adhesivo = {"consta": bool(_donde_ad), "donde": _donde_ad}
 
     # ── EL ART. 93 Y EL DESENLACE, POR CÓDIGO ──

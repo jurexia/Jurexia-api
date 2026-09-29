@@ -5549,7 +5549,19 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
                 # del resolutivo del juzgado. Ver `tipos_asunto.puntos_reasuncion`.
                 _sobresee_ad = (_que_hizo == "sobresee_concede"
                                 or bool(_reas_d.get("sobresee_ademas")))
-                _firme = _fr.declara_firme_el_sobreseimiento(_txt_est)
+                # LO FIRME NO DEPENDE DE LA PROSA (AR 631/2025, al generar en
+                # pantalla, 28-sep-2026): recurrió la tercera, la recurrida
+                # también sobreseyó (en sus considerandos) y el estudio no lo
+                # dijo; `_firme` salía falso y los resolutivos se quedaban en
+                # «PRIMERO. En la materia de la revisión, se revoca…» sin el
+                # punto del sobreseimiento. Si quien recurre no es la quejosa y
+                # no consta adhesiva, nadie lo impugnó: queda firme por código
+                # (`tipos_asunto.sobreseimiento_firme`, la regla de la ficha).
+                _firme_prosa = _fr.declara_firme_el_sobreseimiento(_txt_est)
+                _firme_codigo = (bool(_reas_d.get("sobreseimiento_firme"))
+                                 or _ta.sobreseimiento_firme(_sobresee_ad, _quien_d,
+                                                             bool(_reas_d.get("adhesiva"))))
+                _firme = _firme_prosa or _firme_codigo
                 _parcial = (_firme or _sobresee_ad
                             or _fr.hay_aspectos_no_combatidos(_txt_est))
                 _puntos = _ta.puntos_reasuncion(
@@ -5599,7 +5611,18 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
                         "proyecto no dice que ese sobreseimiento quedó firme. Si nadie lo "
                         "impugnó, dilo en el estudio y añade el punto «Queda firme el "
                         "sobreseimiento…»; la revocación ya va acotada a la materia de la "
-                        "revisión.")
+                        "revisión."
+                        + (" Consta revisión adhesiva: comprueba si la quejosa lo combate."
+                           if _reas_d.get("adhesiva") else ""))
+                elif _firme_codigo and not _firme_prosa:
+                    # El punto va porque nadie pudo impugnarlo; que el estudio
+                    # lo diga es cosa del secretario, y se le dice.
+                    _avisos_bk.append(
+                        "QUEDA FIRME EL SOBRESEIMIENTO que la sentencia recurrida decretó "
+                        "respecto de otro acto: la recurrente no es la quejosa —la única a quien "
+                        "ese sobreseimiento perjudica— y no consta revisión adhesiva, así que va "
+                        "como PRIMER punto resolutivo. El estudio no lo dice: añade que ese "
+                        "sobreseimiento no es materia de la revisión y queda firme.")
             elif (_clave == "revoca_fondo_concede" and _que_hizo == "concede"
                   and _quien_d.strip().lower() == "quejoso"):
                 # LA QUEJOSA RECURRE SU CONCESIÓN Y GANA (revisión del 28-sep-2026,
