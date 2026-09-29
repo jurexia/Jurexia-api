@@ -121,6 +121,16 @@ d3 = correr(cli3)
 ok(all("LA FALLA DECISIVA" not in x[1] for x in cli3.de("JUEZ")) and all("fallas" not in pz for pz in d3["juez"]["pasadas"]),
    "sin la bandera, el juez de siempre (prompt y documento sin fallas)")
 
+print("\n2c · LA LISTA DE SOLUCIONES EN LA TARJETA")
+import tarjeta_decision as _td
+_ls = _td._soluciones_para_tarjeta(d, d["vias"]["A"].get("solucion"), d["vias"]["B"].get("solucion"))
+ok(len(_ls) == len(sols) and {x["papel"] for x in _ls} >= {"propuesta", "contraria"},
+   "cada solución con su papel (la propuesta y la contraria son las columnas A y B)")
+ok(all({"prospera", "tipo_efecto", "resumen", "revision", "falla"} <= set(x) for x in _ls),
+   "con lado, tipo de efecto, resumen, revisión y la falla que vio el juez")
+ok(_td._soluciones_para_tarjeta({"vias": {}}, None, None) == [],
+   "una deliberación sin soluciones (sin la bandera) no añade nada a la tarjeta")
+
 print("\n3 · SIN UNA SOLUCIÓN DE CADA LADO, LA DE SIEMPRE")
 ct.poner(True, {}, pruebas=True)
 cli = Falso(respuestas())

@@ -1028,6 +1028,38 @@ def _via(sentido: str, razon: str, efecto: str, apoyos_crudos, catalogo: dict,
             "apoyos": apoyos, "via_protectora": vp}
 
 
+def _soluciones_para_tarjeta(delib: dict, id_propuesta, id_contraria) -> list:
+    """La lista de soluciones de la deliberación, resumida para la pantalla.
+    [] si la deliberación no las trae (sin la bandera, como siempre)."""
+    sols = [s for s in (delib or {}).get("soluciones") or [] if isinstance(s, dict)]
+    if not sols:
+        return []
+    vias = (delib or {}).get("vias") or {}
+    por_sol = {(v or {}).get("solucion"): k for k, v in vias.items() if isinstance(v, dict)}
+    fallas = {}
+    for p in ((delib or {}).get("juez") or {}).get("pasadas") or []:
+        for via, f in ((p or {}).get("fallas") or {}).items():
+            if isinstance(f, dict) and f.get("falla") and via not in fallas:
+                fallas[via] = f
+    out = []
+    for s in sols:
+        rv = s.get("revision") or {}
+        f = fallas.get(por_sol.get(s.get("id")))
+        out.append({
+            "id": s.get("id"), "prospera": bool(s.get("prospera")), "sentido": _txt(s.get("sentido")),
+            "tipo_efecto": _txt(s.get("tipo_efecto")), "rama": _txt(s.get("rama")),
+            "desenlace": [_txt(x) for x in (s.get("desenlace") or [])][:3],
+            "resumen": _txt(s.get("resumen")) or _txt((s.get("conclusion") or {}).get("texto")),
+            "revision": {"estado": _txt(rv.get("estado")) or "sin_revisar",
+                         "avisos": [_txt(a) for a in (rv.get("avisos") or [])][:3]},
+            "falla": ({"que": _txt(f.get("falla")), "fatal": bool(f.get("fatal"))} if f else None),
+            "sostenible": s.get("sostenible", True) is not False,
+            "papel": ("propuesta" if s.get("id") == id_propuesta
+                      else "contraria" if s.get("id") == id_contraria else None),
+        })
+    return out
+
+
 def _via_de_deliberacion(v: dict, glob: dict, catalogo: dict, rama_info: dict,
                          avisos: list, etiqueta: str, normas=None) -> dict:
     """Una vía del abogado de la deliberación, verificada aquí otra vez: los
@@ -1309,6 +1341,14 @@ def armar(propuesta_guardada, material, problemas_fase3, contraste=None, espejo=
             for a in (delib.get("avisos") or []):
                 if _txt(a):
                     avisos.append(_txt(a))
+            # LAS SOLUCIONES POSIBLES (rediseño, etapa 3): sólo si la
+            # deliberación las trae (bandera «soluciones_por_desenlace»). Las
+            # dos columnas siguen siendo A y B; esto es la lista completa, con
+            # la revisión por código y la falla que vio el juez en cada una.
+            _sols = _soluciones_para_tarjeta(delib, vias_d.get(rec, {}).get("solucion"),
+                                             vias_d.get(otra, {}).get("solucion") if otra else None)
+            if _sols:
+                delib_ctx["soluciones"] = _sols
         else:
             delib = None
     if not (delib and delib_ctx):
