@@ -111,3 +111,39 @@ def por_conducto(parte: str, representante: str, figura: str = "") -> str:
         return p
     f = (figura or "representante legal").strip().lower()
     return f"{p}, por conducto de su {f} {r}"
+
+
+# ═══ LA MISMA PARTE, ESCRITA DE DOS MANERAS (28-sep-2026) ═══════════════════
+# AR 631/2025: la recurrente aparece como «Impulsora de Desarrollos
+# Inmobiliarios S.A de C.V.» en el formulario y «Impulsora de Desarrollos
+# Inmobiliarios VV, sociedad anónima de capital variable» en las constancias. La
+# comparación por igualdad —o una dentro de la otra— no las junta por un punto
+# y una forma social. Aquí se comparan las palabras que NOMBRAN, sin
+# puntuación, sin la forma social, sin la fórmula de representación y sin las
+# palabras de enlace; basta que las de una estén todas en la otra, con dos
+# como mínimo (para que «Juzgado Quinto» no case con cualquier juzgado).
+_NO_NOMBRAN = {
+    "de", "del", "la", "el", "los", "las", "y", "e", "en", "s", "a", "c", "v", "r", "l",
+    "sa", "cv", "rl", "sc", "ac", "sapi", "sab", "sociedad", "anonima", "capital",
+    "variable", "responsabilidad", "limitada", "asociacion", "civil", "por",
+    "conducto", "su", "representante", "legal", "apoderado", "apoderada",
+    "representada", "representado", "traves"}
+
+
+def palabras_que_nombran(x: str) -> list:
+    import unicodedata as _u
+    x = _u.normalize("NFD", (x or "").lower())
+    x = "".join(c for c in x if _u.category(c) != "Mn")
+    return [w for w in re.sub(r"[^a-z0-9ñ]+", " ", x).split() if w not in _NO_NOMBRAN]
+
+
+def misma_parte(a: str, b: str) -> bool:
+    """¿`a` y `b` nombran a la misma parte? Tolera la puntuación, la forma
+    social y la fórmula de representación; exige dos palabras que nombren."""
+    if not (a or "").strip() or not (b or "").strip():
+        return False
+    _pa, _pb = palabras_que_nombran(a), palabras_que_nombran(b)
+    if _pa and _pa == _pb:
+        return True
+    _a, _b = set(_pa), set(_pb)
+    return min(len(_a), len(_b)) >= 2 and (_a <= _b or _b <= _a)

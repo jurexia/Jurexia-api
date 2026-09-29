@@ -1280,14 +1280,21 @@ def suplencia_de_otra_materia(texto: str, materia: str) -> list:
 # sentencia recurrida», y con ella el proyecto nunca amparaba, nunca modificaba
 # efectos y nunca ordenaba reponer.
 #
-#   RAMA 1 — LEVANTAMIENTO DE SOBRESEIMIENTO (art. 93, fr. I). El a quo
+#   RAMA 1 — LEVANTAMIENTO DE SOBRESEIMIENTO (art. 93, frs. I y V). El a quo
 #   sobreseyó indebidamente; se destruye la causal, se levanta el
 #   sobreseimiento y, en plenitud de jurisdicción, se estudian por primera vez
-#   los conceptos de violación que aquél omitió. Resolutivo DOBLE.
+#   los conceptos de violación que aquél omitió. Resolutivo DOBLE. (Decía «fr.
+#   I» a secas: la I manda examinar los agravios contra el sobreseimiento; el
+#   estudio de fondo que sigue lo manda la V —«revocará la sentencia recurrida
+#   y dictará la que corresponda»—. Cotejado con el texto vigente de
+#   normas_ley_de_amparo.json el 28-sep-2026, AR 631/2025.)
 #
 #   RAMA 2 — FONDO (art. 93, frs. V y VI). Tres supuestos: revocar la negativa
-#   —se concede—, revocar la concesión —se niega— y modificar los EFECTOS, que
-#   es el único de los tres con resolutivo ÚNICO.
+#   —se concede—, revocar la concesión y modificar los EFECTOS, que es el único
+#   de los tres con resolutivo ÚNICO. REVOCAR LA CONCESIÓN NO ES NEGAR SIN MÁS
+#   (fr. VI): si recurre la autoridad o la tercera interesada y sus agravios de
+#   fondo son fundados, el tribunal «analizará los conceptos de violación no
+#   estudiados y concederá o negará el amparo». Ver `reasuncion`.
 #
 #   RAMA 3 — VIOLACIÓN PROCESAL DENTRO DEL AMPARO (art. 93, fr. IV). El único
 #   supuesto en que se devuelven los autos al Juzgado para reponer el
@@ -1381,7 +1388,7 @@ RAMAS_REVISION = {
     },
     # ── RAMA 1: se levanta el sobreseimiento y se asume jurisdicción ──────
     "revoca_sobreseimiento_concede": {
-        "fundamento": "artículo 93, fracción I, de la Ley de Amparo",
+        "fundamento": "artículo 93, fracciones I y V, de la Ley de Amparo",
         "puntos": [
             "PRIMERO. Se revoca la sentencia recurrida.",
             "SEGUNDO. La Justicia de la Unión ampara y protege a {quejoso}, "
@@ -1392,7 +1399,7 @@ RAMAS_REVISION = {
         "plenitud": True,
     },
     "revoca_sobreseimiento_niega": {
-        "fundamento": "artículo 93, fracción I, de la Ley de Amparo",
+        "fundamento": "artículo 93, fracciones I y V, de la Ley de Amparo",
         "puntos": [
             "PRIMERO. Se revoca la sentencia recurrida.",
             "SEGUNDO. La Justicia de la Unión no ampara ni protege a {quejoso}, "
@@ -1622,7 +1629,9 @@ TECNICA_RESOLUCION = {
     "revision_levanta_sobreseimiento": {
         "cuando": "El recurso es FUNDADO y el Juzgado de Distrito había "
                   "SOBRESEÍDO.",
-        "fuente": "artículo 93, fracción I, de la Ley de Amparo",
+        # I y V (28-sep-2026): la I es la de los agravios contra el
+        # sobreseimiento; el estudio de fondo que sigue lo manda la V.
+        "fuente": "artículo 93, fracciones I y V, de la Ley de Amparo",
         "tecnica": [
             "NO HAY REENVÍO. El tribunal colegiado no devuelve el asunto al "
             "Juzgado de Distrito: levanta el sobreseimiento y asume "
@@ -1642,6 +1651,68 @@ TECNICA_RESOLUCION = {
             "expediente si la sentencia recurrida los relató. Súbelos o "
             "escríbelos antes de generar: sin ellos el proyecto levanta el "
             "sobreseimiento y no resuelve nada.",
+    },
+
+    # ── REVISIÓN: se revoca una CONCESIÓN y se reasume jurisdicción ──────
+    # AR 631/2025 (28-sep-2026): el juzgado concedió con el segundo concepto y
+    # declaró innecesarios los demás; recurrió la tercera interesada y el
+    # recurso prosperó. El proyecto pasó de «procede revocarla» a «no ampara ni
+    # protege» sin estudiar un solo concepto de los que el juzgado no estudió:
+    # el «no ampara» quedó sin considerando que lo sostuviera. Es la fracción
+    # VI del artículo 93, y la Segunda Sala ya lo decía de la ley anterior
+    # (2a./J. 113/2007, registro 171925, en el acervo: «…debe analizar los
+    # conceptos de violación cuyo estudio omitió el juez de distrito, sin
+    # importar quién interponga el recurso»).
+    #
+    # LOS APOYOS SE COMPROBARON EN EL ACERVO el 28-sep-2026, con su rubro y sin
+    # marca de pérdida de vigencia: 171925 (2a./J., la reasunción), 178784
+    # (J. de colegiado: inoperantes los conceptos que descansan en lo ya
+    # desestimado), 182039 (aislada, lo mismo de los agravios) y 174177 (1a./J.:
+    # lo no impugnado de la sentencia se declara firme). La 3a./J. 20/91
+    # (registro 207016) NO está en el acervo y no se cita. Se traen por su
+    # registro al resolver y el prompt sólo nombra los que llegaron
+    # (`solo_si_estan`).
+    "revision_reasume_concesion": {
+        "cuando": "El Juzgado de Distrito CONCEDIÓ el amparo (o sobreseyó "
+                  "respecto de un acto y concedió por otro), recurre la "
+                  "autoridad responsable o la parte tercera interesada, y sus "
+                  "agravios de fondo PROSPERAN.",
+        "fuente": "artículo 93, fracción VI, de la Ley de Amparo",
+        "tecnica": [
+            "REVOCAR NO ES NEGAR. Que los agravios prosperen prueba que la "
+            "concesión no se sostiene por la razón que dio el juzgado; no dice "
+            "si el amparo procede por otra. El tribunal reasume jurisdicción, "
+            "sin reenvío, y estudia los conceptos de violación cuyo estudio "
+            "omitió el juzgado —los que declaró innecesarios al conceder con "
+            "uno—, y de ese estudio sale si concede o niega.",
+            "LO QUE NADIE IMPUGNÓ QUEDA FIRME. Lo que la sentencia recurrida "
+            "resolvió y ningún agravio combate —por ejemplo, un sobreseimiento "
+            "respecto de otra autoridad— no es materia de la revisión: se dice "
+            "que queda firme y la revocación se acota a la materia de la "
+            "revisión.",
+            "UN CONSIDERANDO PROPIO para los conceptos no estudiados, después "
+            "del de los agravios, con la misma lógica de dependencia: los que "
+            "descansan en la tesis que el estudio de los agravios ya desestimó "
+            "caen por las mismas razones, o son inoperantes por derivar de ella, "
+            "en grupo; los de contenido propio —otra prueba, otro vicio, otra "
+            "consecuencia— se contestan en lo suyo.",
+            "SI ALGUNO PROSPERA, SE CONCEDE POR UNA RAZÓN DISTINTA de la del "
+            "juzgado, y entonces sí hay efectos que fijar. Si todos caen, se "
+            "niega. El punto resolutivo del amparo sale de ahí, no de la "
+            "revocación.",
+        ],
+        "apoyos": ["171925", "178784", "182039", "174177"],
+        # El prompt sólo nombra los apoyos que de verdad llegaron al material:
+        # se traen al resolver (la rama no se conoce en el adelanto).
+        "solo_si_estan": True,
+        "necesita": "conceptos_de_violacion",
+        "aviso_si_falta":
+            "Se revoca una concesión, así que el tribunal reasume jurisdicción "
+            "y tiene que estudiar los conceptos de violación que el juzgado no "
+            "estudió (artículo 93, fracción VI, de la Ley de Amparo) — y no "
+            "constan. Pégalos o sube la demanda de amparo antes de generar: sin "
+            "ellos el proyecto revoca pero no puede decir si se concede o se "
+            "niega, y el punto resolutivo del amparo sale con hueco.",
     },
 
     # ── REVISIÓN: lo que queda fuera, y son DOS figuras distintas ─────────
@@ -1995,6 +2066,13 @@ def tecnica_de(tipo: str, rama: str = "", con_violacion_procesal: bool = False) 
             fuera = [TECNICA_RESOLUCION["recurso_sin_materia"]]
         if rama.startswith("revoca_sobreseimiento"):
             fuera.append(TECNICA_RESOLUCION["revision_levanta_sobreseimiento"])
+        # ANTES DE ESCRIBIR, «revoca_fondo_niega» SÓLO SALE de un juzgado que
+        # concedió y un recurso que prospera (`rama_revision` sin el sentido del
+        # estudio): es exactamente el supuesto de la fracción VI. Lo que el
+        # estudio concluya después —conceder por razón distinta o negar— no
+        # cambia la técnica que había que darle (AR 631/2025, 28-sep-2026).
+        if rama == "revoca_fondo_niega":
+            fuera.append(TECNICA_RESOLUCION["revision_reasume_concesion"])
     # La queja tiene el mismo problema y con mas frecuencia: 434 de 2,955.
     # LA REVISIÓN FISCAL, SIEMPRE: el deslinde con el amparo en revisión hay
     # que tenerlo delante tanto para reenviar como para no hacerlo.
@@ -2087,8 +2165,90 @@ def rama_revision(resolvio_a_quo: str, sentido: str,
         return ("revoca_sobreseimiento_niega"
                 if str(sentido_amparo or "").strip().lower() == "niega"
                 else "revoca_sobreseimiento_concede")
-    return ("revoca_fondo_niega" if a == "concede"
-            else "revoca_fondo_concede")
+    if a == "concede":
+        # REVOCAR LA CONCESIÓN ES REASUMIR JURISDICCIÓN (art. 93, fr. VI; AR
+        # 631/2025, 28-sep-2026). El segundo punto lo dice el estudio de los
+        # conceptos que el juzgado no estudió: si uno prospera, se concede por
+        # razón distinta. Sin ese dato se sigue diciendo «niega» —es la rama
+        # que el estudio recibe ANTES de escribir, y la que `tecnica_de`
+        # reconoce—; el documento pone el hueco cuando los conceptos no
+        # constaron o el estudio calla (`puntos_reasuncion`).
+        return ("revoca_fondo_concede"
+                if str(sentido_amparo or "").strip().lower() == "concede"
+                else "revoca_fondo_niega")
+    return "revoca_fondo_concede"
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# ¿HAY QUE REASUMIR JURISDICCIÓN? (art. 93, frs. I, V y VI; 28-sep-2026)
+# ═══════════════════════════════════════════════════════════════════════════
+# Dos supuestos, y en los dos el tribunal estudia CONCEPTOS DE VIOLACIÓN que
+# nadie examinó, cuyo texto no está en el expediente del recurso salvo que la
+# sentencia recurrida los transcriba o se suba la demanda:
+#   · «sobreseimiento»: el juzgado sobreseyó y el recurso prospera (frs. I y V);
+#   · «concesion»: el juzgado concedió —o sobreseyó un acto y concedió por
+#     otro—, recurre la autoridad o la tercera interesada y el recurso
+#     prospera (fr. VI). Fue el defecto de fondo del AR 631/2025: revocó y negó
+#     sin estudiar los conceptos que el juzgado declaró innecesarios.
+# Un solo sitio para las tres puertas: la pantalla (`necesita_conceptos`), el
+# estudio (`fase6_estudio._bloque_conceptos`) y el resolutivo.
+FUNDAMENTO_REASUNCION = {
+    "sobreseimiento": "artículo 93, fracciones I y V, de la Ley de Amparo",
+    "concesion": "artículo 93, fracción VI, de la Ley de Amparo",
+}
+
+
+def reasuncion(resolvio_a_quo: str, sentido: str, solo_efectos: bool = False,
+               violacion_procesal: bool = False, quien_recurre: str = "") -> str:
+    """«sobreseimiento» | «concesion» | «» — si, con lo que hizo el juzgado y
+    el sentido del recurso, el tribunal tiene que estudiar conceptos de
+    violación por primera vez.
+
+    `quien_recurre` —«quejoso» | «tercero» | «autoridad» | «»— sólo excluye la
+    fracción VI cuando recurre la propia quejosa (ahí rige la V); vacío = no
+    consta y se aplica, que es lo que dice la Segunda Sala: «sin importar quién
+    interponga el recurso» (2a./J. 113/2007, registro 171925). Reponer el
+    procedimiento o modificar sólo los efectos no reasumen nada."""
+    a = (resolvio_a_quo or "").strip().lower()
+    if not prospera(sentido) or violacion_procesal or solo_efectos:
+        return ""
+    if a == "sobresee":
+        return "sobreseimiento"
+    if a in ("concede", "sobresee_concede"):
+        if (quien_recurre or "").strip().lower() == "quejoso":
+            return ""
+        return "concesion"
+    return ""
+
+
+# ¿ESTA EJECUTORIA CONCEDE —y le toca fijar los efectos—? Un solo predicado para
+# los avisos que suponían concesión con que un agravio prosperara (AR 631/2025:
+# «Se concede y los efectos van en prosa», «EFECTOS INCOMPLETOS PARA UNA
+# VIOLACIÓN PROCESAL» y «El resolutivo concede porque hay conceptos
+# fundados…» en un proyecto que revoca y NIEGA). Confirmar una concesión no
+# cuenta: los efectos son los de la recurrida.
+_RAMAS_QUE_CONCEDEN = ("revoca_fondo_concede", "revoca_sobreseimiento_concede",
+                       "modifica_efectos")
+
+
+def ejecutoria_concede(rama: str, sentido_amparo: str = "") -> bool | None:
+    """True | False | None (no se sabe: rama vacía o sin determinar). Con
+    `sentido_amparo` —lo que concluye el estudio, `fase_rama.sentido_en_plenitud`—
+    una rama calculada ANTES de escribir se corrige con lo que el estudio
+    resolvió al reasumir jurisdicción: «revoca_fondo_niega» concede si el
+    estudio de los conceptos concluye conceder; «revoca_sobreseimiento_*»,
+    según lo que concluya (sin dato, concede, como `rama_revision`)."""
+    k = (rama or "").strip()
+    sa = (sentido_amparo or "").strip().lower()
+    if not k or k == "sin_determinar" or k not in RAMAS_REVISION:
+        return None
+    if k == "revoca_fondo_niega":
+        return sa == "concede"
+    if k.startswith("revoca_sobreseimiento"):
+        if sa:
+            return sa != "niega"
+        return k == "revoca_sobreseimiento_concede"
+    return k in _RAMAS_QUE_CONCEDEN
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -2485,9 +2645,35 @@ LEGITIMACION = {
 }
 
 
+# QUIEN RECURRE NO SIEMPRE ES LA QUEJOSA (28-sep-2026, AR 631/2025): la
+# tercera interesada que recurrió quedó legitimada «conforme al artículo 6º»,
+# que es el de quien promueve el amparo. Está legitimada por ser PARTE del
+# juicio de amparo (art. 5o., fr. III) y su personería es la del 11, que la
+# nombra; la autoridad responsable, por el 5o., fr. II, con el límite del 87.
+_LEGITIMACION_REVISION_POR_PAPEL = {
+    "tercero": {
+        "molde": ("El presente medio de impugnación fue interpuesto por "
+                  "{parte}{rep}, quien se encuentra legitimad{a} para "
+                  "interponer el recurso de revisión en su carácter de parte "
+                  "tercera interesada en el juicio de amparo, conforme al "
+                  "artículo 5o., fracción III, de la Ley de Amparo, toda vez "
+                  "que la resolución impugnada le resulta desfavorable."),
+        "rep": "en términos del artículo 11 de la Ley de Amparo"},
+    "autoridad": {
+        "molde": ("El presente medio de impugnación fue interpuesto por "
+                  "{parte}{rep}, quien se encuentra legitimad{a} para "
+                  "interponer el recurso de revisión en su carácter de "
+                  "autoridad responsable, conforme a los artículos 5o., "
+                  "fracción II, y 87 de la Ley de Amparo, toda vez que la "
+                  "sentencia recurrida afecta directamente el acto que se le "
+                  "reclamó."),
+        "rep": "en términos del artículo 9o. de la Ley de Amparo"},
+}
+
+
 def legitimacion_de(tipo: str, parte: str = "", representante: str = "",
                     hueco: str = "*********", figura: str = "",
-                    moral=None) -> str:
+                    moral=None, papel: str = "") -> str:
     """El párrafo de legitimación de esta vía, o cadena vacía si no hay parte.
 
     SIN NOMBRE NO SE ESCRIBE. Un párrafo que dice «la parte está legitimada»
@@ -2508,6 +2694,10 @@ def legitimacion_de(tipo: str, parte: str = "", representante: str = "",
     if not m or not (parte or "").strip():
         return ""
     t = normalizar(tipo)
+    _por_papel = (_LEGITIMACION_REVISION_POR_PAPEL.get((papel or "").strip().lower())
+                  if t == "amparo_revision" else None)
+    if _por_papel:
+        m = _por_papel
     if moral is None:
         try:
             import promovente as _pv
@@ -2519,6 +2709,8 @@ def legitimacion_de(tipo: str, parte: str = "", representante: str = "",
         fig = (figura or "representante legal").strip().lower()
         if t == "revision_fiscal":
             rep = f", por conducto de su {fig} {representante.strip()}"
+        elif _por_papel:
+            rep = f", por conducto de su {fig} {representante.strip()}, {_por_papel['rep']}"
         else:
             rep = (f", por conducto de su {fig} {representante.strip()}, en "
                    f"términos de los artículos 6º y 11 de la Ley de Amparo")
@@ -2770,21 +2962,75 @@ _RX_COLA_DEL_JUZGADO = re.compile(
     r"|para\s+(?:los|el)\s+efectos?\b|en\s+t[ée]rminos\s+del?\b).*$", re.I)
 
 
+def _cuerpo_con_verbo(resolutivo_reproducido: str, verbo: str) -> str:
+    """El punto del juzgado —su sujeto y su acto— con otro verbo y la cola hacia
+    esta ejecutoria; «» si no es un «ampara y protege» limpio."""
+    t = " ".join((resolutivo_reproducido or "").split())
+    if (not t or not _RX_AMPARA_PROTEGE.search(t)
+            or re.search(r"\bno\s+ampara\b|\bsobrese", t, re.I)):
+        return ""
+    cuerpo = _RX_COLA_DEL_JUZGADO.sub("", t).rstrip(" .,;:")
+    cuerpo = _RX_AMPARA_PROTEGE.sub(verbo, cuerpo, count=1)
+    if len(cuerpo.split()) < 8:
+        return ""
+    return (f"{cuerpo}, por los motivos y fundamentos expuestos en el último "
+            f"considerando de esta ejecutoria.")
+
+
 def puntos_revoca_concesion(resolutivo_reproducido: str = "") -> list:
     """Los dos puntos de una revisión que revoca una concesión y niega, con el
     sujeto y el acto del resolutivo del juzgado; [] si ese resolutivo no es un
     «ampara y protege» limpio (entonces va la fórmula genérica de la rama)."""
-    t = " ".join((resolutivo_reproducido or "").split())
-    if (not t or not _RX_AMPARA_PROTEGE.search(t)
-            or re.search(r"\bno\s+ampara\b|\bsobrese", t, re.I)):
+    cuerpo = _cuerpo_con_verbo(resolutivo_reproducido, "no ampara ni protege")
+    if not cuerpo:
         return []
-    cuerpo = _RX_COLA_DEL_JUZGADO.sub("", t).rstrip(" .,;:")
-    cuerpo = _RX_AMPARA_PROTEGE.sub("no ampara ni protege", cuerpo, count=1)
-    if len(cuerpo.split()) < 8:
-        return []
-    return [RAMAS_REVISION["revoca_fondo_niega"]["puntos"][0],
-            f"SEGUNDO. {cuerpo}, por los motivos y fundamentos expuestos en el último "
-            f"considerando de esta ejecutoria."]
+    return [RAMAS_REVISION["revoca_fondo_niega"]["puntos"][0], f"SEGUNDO. {cuerpo}"]
+
+
+# ═══ REVOCAR UNA CONCESIÓN Y REASUMIR JURISDICCIÓN (art. 93, fr. VI) ════════
+# AR 631/2025 (28-sep-2026). Tres cosas que el resolutivo del proyecto arreglado
+# no hacía:
+#   · «Se revoca la sentencia recurrida» a secas arrastraba también el
+#     sobreseimiento respecto del Juez Quinto, que nadie impugnó: la revocación
+#     se acota a la MATERIA DE LA REVISIÓN y lo no impugnado queda firme
+#     (1a./J., registro 174177, en el acervo);
+#   · el punto del amparo salía «no ampara» sin que nadie estudiara los
+#     conceptos que el juzgado no estudió: sale de ESE estudio —concede por
+#     razón distinta o niega—;
+#   · y si los conceptos no constaron o el estudio no concluye, el verbo va en
+#     HUECO, a la vista, como en los adelantos de David: «no ampara» sin
+#     considerando que lo sostenga es peor que un hueco.
+# LA FORMA Y EL ORDEN SON LOS DEL CIRCUITO, medidos en los 3,526 amparos en
+# revisión de oaj/lectura (28-sep-2026): «Queda firme el sobreseimiento
+# decretado en …» va PRIMERO (AR 105/2019, 112/2021, 168/2025: firme, luego «En
+# la materia de la revisión, se revoca…», luego el amparo); «En la materia de
+# la revisión, se revoca la sentencia recurrida» en más de 40 resolutivos.
+REVOCA_PARCIAL = "PRIMERO. En la materia de la revisión, se revoca la sentencia recurrida."
+FIRME_SOBRESEIMIENTO = "Queda firme el sobreseimiento decretado en la sentencia recurrida."
+_GENERICO_REASUNCION = ("La Justicia de la Unión {verbo} a {quejoso}, contra el "
+                        "acto reclamado a {responsable_originaria}, por los motivos "
+                        "y fundamentos expuestos en el último considerando de esta "
+                        "ejecutoria.")
+
+
+def puntos_reasuncion(sentido_amparo: str, resolutivo_reproducido: str = "",
+                      firme: bool = False, parcial: bool = False) -> list:
+    """Los puntos de una revisión que revoca una concesión y reasume
+    jurisdicción. `sentido_amparo` es lo que concluye el estudio de los
+    conceptos no estudiados —«concede» | «niega» | «»—; vacío deja el verbo en
+    {HUECO}. `firme`: el estudio declara firme un sobreseimiento no impugnado
+    (va como punto propio, el PRIMERO, como en el circuito). `parcial`: algo de la recurrida quedó fuera de la
+    revisión (PRIMERO «en la materia de la revisión»). Con {quejoso},
+    {responsable_originaria} y {HUECO} para que el compositor los llene, como
+    los de `RAMAS_REVISION`."""
+    sa = (sentido_amparo or "").strip().lower()
+    verbo = {"niega": "no ampara ni protege", "concede": "ampara y protege"}.get(sa, "{HUECO}")
+    revoca = (REVOCA_PARCIAL if (parcial or firme)
+              else RAMAS_REVISION["revoca_fondo_niega"]["puntos"][0]).split(". ", 1)[1]
+    cuerpo = (_cuerpo_con_verbo(resolutivo_reproducido, verbo)
+              or _GENERICO_REASUNCION.replace("{verbo}", verbo))
+    cuerpos = ([FIRME_SOBRESEIMIENTO] if firme else []) + [revoca, cuerpo]
+    return [f"{o}. {c}" for o, c in zip(("PRIMERO", "SEGUNDO", "TERCERO"), cuerpos)]
 
 
 # ═══════════════════════════════════════════════════════════════════════════

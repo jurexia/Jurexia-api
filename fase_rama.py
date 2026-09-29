@@ -556,13 +556,23 @@ def cuaderno_recurrido(texto: str) -> tuple:
 # MEDIDO sobre los engroses reales del corpus (17 con resolutivo legible):
 # acierta 13, se equivoca 0, calla 4. Callar es la respuesta correcta cuando no
 # consta: quien decide el sentido es el secretario, y el aviso se lo recuerda.
+# «PROCEDE REVOCAR LA SENTENCIA RECURRIDA Y NEGAR EL AMPARO» (28-sep-2026): la
+# conclusión del estudio que revoca una concesión y reasume jurisdicción (art.
+# 93, fr. VI; AR 631/2025) junta los dos verbos en una frase, y el patrón de
+# dos palabras entre «procede» y «negar» no la veía. Se admite el tramo
+# «revocar … y …» —sin punto ni punto y coma en medio, y sin un «no» pegado al
+# verbo— y nada más.
 _RX_NIEGA_FONDO = re.compile(
     r"(?:procede|procedente\s+es|debe|deber[áa]|ha\s+lugar\s+a|se\s+impone)\s+"
     r"(?:\w+\s+){0,2}?neg(?:ar|arse|ada)\s+(?:el\s+)?(?:amparo|la\s+protecci[óo]n)|"
+    r"(?:procede|procedente\s+es|debe|se\s+impone)\s+revocar\s+[^.;]{0,160}?\by\b[^.;]{0,90}?"
+    r"(?<!no\s)\bneg(?:ar|arse)\s+(?:el\s+)?(?:amparo|la\s+protecci[óo]n)|"
     r"neg(?:ar|arse)\s+(?:el\s+)?amparo\s+(?:y\s+la\s+)?protecci[óo]n", re.I)
 _RX_CONCEDE_FONDO = re.compile(
     r"(?:procede|procedente\s+es|debe|deber[áa]|ha\s+lugar\s+a|se\s+impone)\s+"
     r"(?:\w+\s+){0,2}?conced(?:er|erse|ida)\s+(?:el\s+)?(?:amparo|la\s+protecci[óo]n)|"
+    r"(?:procede|procedente\s+es|debe|se\s+impone)\s+revocar\s+[^.;]{0,160}?\by\b[^.;]{0,90}?"
+    r"(?<!no\s)\bconced(?:er|erse)\s+(?:el\s+)?(?:amparo|la\s+protecci[óo]n)|"
     r"conced(?:er|erse)\s+(?:el\s+)?amparo\s+y\s+(?:la\s+)?protecci[óo]n", re.I)
 
 
@@ -791,3 +801,300 @@ _RX_SIN_ESTUDIAR = re.compile(
 def hay_conceptos_sin_estudiar(estudio: str) -> bool:
     """¿El estudio afirma que la Sala dejó algo sin resolver?"""
     return bool(_RX_SIN_ESTUDIAR.search(" ".join((estudio or "").split())))
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# REVOCAR UNA CONCESIÓN ES REASUMIR JURISDICCIÓN (art. 93, fr. VI; 28-sep-2026)
+# ═══════════════════════════════════════════════════════════════════════════
+# AR 631/2025: el juzgado concedió con el segundo concepto y declaró
+# innecesarios los demás; recurrió la tercera interesada, el recurso prosperó y
+# el proyecto negó el amparo sin estudiar uno solo de esos conceptos. El flujo
+# ni siquiera los pedía: `necesita_conceptos` sólo se encendía cuando el
+# juzgado había sobreseído. Lo de abajo es lo que las tres puertas —la
+# pantalla, el estudio y el resolutivo— necesitan saber sin llamar a ningún
+# modelo: si hacen falta, si ya los tenemos y de dónde salieron, y qué concluyó
+# el estudio.
+
+# ── ¿Los conceptos ya están en el material? ───────────────────────────────
+# Antes de pedírselos al secretario se buscan donde pueden estar: la demanda de
+# amparo entre las constancias que subió, o la sentencia recurrida cuando los
+# TRANSCRIBE. Sólo cuenta un rótulo de «conceptos de violación» seguido del
+# texto de los conceptos —con su ordinal—; no cuenta la mención suelta («los
+# restantes conceptos de violación resultan innecesarios»), ni la fórmula que
+# los da por reproducidos sin transcribirlos, que es lo que hacen casi todas
+# las sentencias de amparo.
+_RX_ROTULO_CONCEPTOS = re.compile(
+    r"(?:^|\n)[ \t]*(?:[A-Z]{1,8}\.[ \t]*|[IVXL]{1,5}[.)][ \t]*)?"
+    r"(?:CONCEPTOS?\s+DE\s+VIOLACI[ÓO]N|Conceptos?\s+de\s+violaci[óo]n)[ \t]*[.:]?[ \t]*"
+    r"(?=\n|[A-ZÁÉÍÓÚ«\"“])")
+_RX_FIN_CONCEPTOS = re.compile(
+    r"\n[ \t]*(?:[A-Z]{1,8}\.[ \t]*|[IVXL]{1,5}[.)][ \t]*)?"
+    r"(?:PRUEBAS\b|SUSPENSI[ÓO]N\b|PUNTOS\s+PETITORIOS|PETITORIOS|"
+    r"P\s?R\s?O\s?T\s?E\s?S\s?T\s?O\b|R\s?E\s?S\s?U\s?E\s?L\s?V\s?E|"
+    r"C\s?O\s?N\s?S\s?I\s?D\s?E\s?R\s?A\s?N\s?D\s?O\b|Por\s+lo\s+(?:anteriormente\s+)?expuesto|"
+    r"OTROS[IÍ]\b|[A-ZÁÉÍÓÚ]+\.\s+(?:Estudio|Fijaci[óo]n|Existencia|Precisi[óo]n|Improcedencia|"
+    r"Causas?\s+de\s+improcedencia|Efectos|Oportunidad|Competencia)\b)")
+_RX_ORDINAL_CONCEPTO = re.compile(
+    r"\b(?:PRIMERO|[ÚU]NICO|Primer[oa]?|[ÚU]nico)\b[\s.:\-–—]", re.I)
+_RX_SOLO_REPRODUCIDOS = re.compile(
+    r"(?:se\s+tienen?\s+(?:aqu[íi]\s+)?por\s+reproducid|innecesari[oa]\s+(?:su\s+)?"
+    r"(?:transcri|reproduc)|no\s+se\s+transcrib|en\s+obvio\s+de\s+repeticiones)", re.I)
+MIN_CONCEPTOS = 600
+
+
+def conceptos_en_texto(texto: str) -> str:
+    """El texto de los conceptos de violación si `texto` los trae escritos
+    —una demanda de amparo, o una sentencia que los transcribe—; «» si no.
+
+    Heurística declarada, sin modelo: rótulo propio en su renglón, un ordinal
+    en los primeros 500 caracteres, al menos MIN_CONCEPTOS caracteres, y que no
+    empiece por darlos por reproducidos. Se corta en el siguiente rótulo de
+    otro apartado (pruebas, suspensión, petitorios, considerando, resolutivos).
+    Lo que se toma de aquí va al estudio con su procedencia y con un aviso para
+    que el secretario compruebe que están completos."""
+    t = str(texto or "")
+    if not t.strip():
+        return ""
+    mejor = ""
+    for m in _RX_ROTULO_CONCEPTOS.finditer(t):
+        resto = t[m.end():m.end() + 80000]
+        fin = _RX_FIN_CONCEPTOS.search(resto)
+        cuerpo = (resto[:fin.start()] if fin else resto).strip()
+        cabeza = " ".join(cuerpo[:500].split())
+        if len(cuerpo) < MIN_CONCEPTOS or not _RX_ORDINAL_CONCEPTO.search(cabeza):
+            continue
+        if _RX_SOLO_REPRODUCIDOS.search(cabeza[:300]):
+            continue
+        if len(cuerpo) > len(mejor):
+            mejor = cuerpo
+    return mejor
+
+
+def _textos_de(material) -> dict:
+    """{«constancias», «recurrida», «secretario»}: de dónde pueden salir los
+    conceptos, lea lo que lea quien llama —un objeto de fases (con `fuentes` y
+    `autos`), un dict con esas claves o con «acto»/«autos», o un str—."""
+    if material is None:
+        return {}
+    if isinstance(material, str):
+        return {"constancias": material}
+    if isinstance(material, dict):
+        fu = list(material.get("fuentes") or [])
+        return {"constancias": str(material.get("autos") or material.get("constancias") or ""),
+                "recurrida": str(material.get("acto") or material.get("recurrida")
+                                 or (fu[0] if fu else "") or ""),
+                "secretario": str(material.get("conceptos_violacion") or "")}
+    fu = list(getattr(material, "fuentes", None) or [])
+    return {"constancias": str(getattr(material, "autos", "") or ""),
+            "recurrida": str(fu[0] if fu else ""),
+            "secretario": str(getattr(material, "conceptos_violacion", "") or "")}
+
+
+def conceptos_disponibles(conceptos_secretario: str = "", material=None) -> tuple:
+    """(texto, dónde): «secretario» | «constancias» | «recurrida» | «». Manda lo
+    que aportó el secretario; si no, la demanda entre las constancias; si no,
+    la sentencia recurrida cuando los transcribe."""
+    propio = str(conceptos_secretario or "").strip()
+    if propio:
+        return propio, "secretario"
+    tx = _textos_de(material)
+    if (tx.get("secretario") or "").strip():
+        return tx["secretario"].strip(), "secretario"
+    for donde in ("constancias", "recurrida"):
+        c = conceptos_en_texto(tx.get(donde) or "")
+        if c:
+            return c, donde
+    return "", ""
+
+
+DONDE_CONCEPTOS = {
+    "secretario": "los aportó el secretario",
+    "constancias": "se tomaron de la demanda de amparo que obra entre las constancias",
+    "recurrida": "se tomaron de la sentencia recurrida, que los transcribe",
+}
+
+
+# ── ¿La recurrida también sobreseyó? ───────────────────────────────────────
+# En el 631 el juzgado sobreseyó respecto de la interlocutoria del Juez Quinto
+# y concedió contra la resolución de la Sala; nadie impugnó el sobreseimiento,
+# y el proyecto revocó «la sentencia recurrida» entera. `que_hizo_el_juzgado`
+# lee un solo punto resolutivo (el que se reproduce): el otro se busca en la
+# sección resolutiva completa, en lo que declaró el motor y en el resumen de la
+# recurrida —NUNCA en los antecedentes, que narran otros juicios: los del 631
+# cuentan un amparo directo anterior que «negó»—.
+def sobreseyo_ademas(fases, declarado: str = "") -> bool:
+    """¿La sentencia recurrida, además de conceder, sobreseyó respecto de algún
+    acto? Se exige el verbo o la fórmula del resolutivo, nunca el sustantivo."""
+    if que_dice_el_resolutivo(str(getattr(fases, "resolutivo_recurrida", "") or "")) == "sobresee_concede":
+        return True
+    fu = list(getattr(fases, "fuentes", None) or [])
+    if fu and resolvio_segun_resolutivos(str(fu[0] or "")) == "sobresee_concede":
+        return True
+    for t in (declarado, str(getattr(fases, "resumen_acto", "") or "")):
+        if _mixto(t) == "sobresee_concede":
+            return True
+    return False
+
+
+_RX_SOBRESEIMIENTO_FIRME = re.compile(
+    r"sobreseimiento[^.]{0,220}?\b(?:queda(?:n)?|qued[óo]|debe\s+quedar|permanece|"
+    r"subsiste|rige)\s+(?:intocado\s+y\s+)?(?:firme|intocad|intocable)|"
+    r"\bfirme(?:za)?\s+(?:el|del)\s+sobreseimiento\b", re.I)
+
+
+def declara_firme_el_sobreseimiento(estudio: str) -> bool:
+    """¿El estudio dice que un sobreseimiento de la recurrida quedó firme?"""
+    return bool(_RX_SOBRESEIMIENTO_FIRME.search(" ".join((estudio or "").split())))
+
+
+# ── Para la tarjeta de decisión (contrato formato 1, `conceptos_omitidos`) ──
+def _info(rama_info) -> dict:
+    if isinstance(rama_info, str):
+        return {"tipo_asunto": "amparo_revision", "que_hizo": rama_info}
+    if isinstance(rama_info, dict):
+        return dict(rama_info)
+    return {k: getattr(rama_info, k) for k in (
+        "tipo_asunto", "que_hizo", "resolvio_a_quo", "quien_recurre", "solo_efectos",
+        "violacion_procesal", "conceptos_violacion", "sobresee_ademas") if hasattr(rama_info, k)}
+
+
+def conceptos_omitidos(rama_info, sentido_global: str, material=None) -> dict | None:
+    """¿Este asunto obliga a estudiar conceptos de violación que nadie estudió?
+    Función pura, sin modelo ni red. None si no aplica.
+
+    `rama_info`: dict —o str con lo que hizo el juzgado— con:
+      · tipo_asunto: sólo aplica a «amparo_revision» (falta = revisión);
+      · que_hizo | resolvio_a_quo: «concede», «sobresee_concede», «sobresee»…
+        (`que_hizo_el_juzgado`: el resolutivo del juzgado manda, 577c700);
+      · quien_recurre: «quejoso» | «tercero» | «autoridad» | «» (sólo la quejosa
+        excluye la fracción VI);
+      · solo_efectos, violacion_procesal: bool (reponer o modificar efectos no
+        reasume nada);
+      · conceptos_violacion: los que aportó el secretario, si los hay;
+      · sobresee_ademas: la recurrida también sobreseyó (se dice en `por_que`).
+    `sentido_global`: el sentido del recurso (la vía que se enseña).
+    `material`: donde buscar los conceptos antes de pedirlos —las fases del
+    adelanto (fuentes y autos), un dict {acto, autos, conceptos_violacion} o
+    un str—. Sin textos, `tenemos` sale de lo que aportó el secretario.
+
+    Devuelve {"hacen_falta": True, "tenemos": bool, "donde": …, "por_que": …,
+    "fundamento": …, "reasuncion": «concesion» | «sobreseimiento»}."""
+    import tipos_asunto as _ta_c
+    info = _info(rama_info)
+    tipo = _ta_c.normalizar(str(info.get("tipo_asunto") or "amparo_revision"))
+    if tipo != "amparo_revision":
+        return None
+    que = str(info.get("que_hizo") or info.get("resolvio_a_quo") or "").strip().lower()
+    tipo_r = _ta_c.reasuncion(que, sentido_global,
+                              solo_efectos=bool(info.get("solo_efectos")),
+                              violacion_procesal=bool(info.get("violacion_procesal")),
+                              quien_recurre=str(info.get("quien_recurre") or ""))
+    if not tipo_r:
+        return None
+    _txt, donde = conceptos_disponibles(str(info.get("conceptos_violacion") or ""), material)
+    fund = _ta_c.FUNDAMENTO_REASUNCION[tipo_r]
+    if tipo_r == "concesion":
+        por_que = (f"Si el recurso prospera se revoca una concesión, y revocar no es negar: el "
+                   f"tribunal reasume jurisdicción y estudia los conceptos de violación que el "
+                   f"juzgado no estudió ({fund}; 2a./J. 113/2007). Sólo si todos caen se niega; "
+                   f"si alguno prospera, se concede por una razón distinta.")
+        if info.get("sobresee_ademas"):
+            por_que += (" La sentencia recurrida también sobreseyó respecto de un acto: si "
+                        "nadie lo impugnó, ese sobreseimiento queda firme.")
+    else:
+        por_que = (f"Si el recurso prospera se levanta el sobreseimiento y el tribunal estudia "
+                   f"por primera vez los conceptos de violación ({fund}).")
+    if donde and donde != "secretario":
+        por_que += f" Los conceptos {DONDE_CONCEPTOS[donde]}: comprueba que estén completos."
+    return {"hacen_falta": True, "tenemos": bool(donde), "donde": donde,
+            "por_que": por_que, "fundamento": fund, "reasuncion": tipo_r}
+
+
+# ── ¿A quién amparó —o no— el juzgado? ─────────────────────────────────────
+# AR 631/2025: el encargo guardaba a la recurrente (la tercera interesada) como
+# «quejoso» y el proyecto salió con «QUEJOSA Y RECURRENTE: IMPULSORA…». El
+# resolutivo del juzgado dice a quién amparó con todas sus letras; es la misma
+# fuente de verdad que ya manda sobre qué hizo el juzgado (577c700).
+_RX_A_QUIEN = re.compile(
+    r"\b(?:no\s+)?ampara\s+(?:y|ni)\s+protege\s+a\s+(?P<q>.+?)"
+    r"(?=,\s*(?:en\s+contra|contra|respecto|por\s+(?:los|las|el|la|conducto|su)|para\s+(?:los|el)|"
+    r"representad|quien|que\b|cuy|mism[oa]\b|el\s+cual|la\s+cual|dentro)|"
+    r"\s+(?:en\s+contra|contra|respecto)\b|\.\s*$|$)", re.I)
+_RX_PROMOVIDO_POR = re.compile(
+    r"\bamparo\s+(?:indirecto\s+)?(?:n[úu]mero\s+)?(?:\d{1,5}/\d{2,4}\s*,?\s*)?promovido\s+por\s+"
+    r"(?P<q>.+?)(?=,\s*(?:en\s+contra|contra|respecto|por\s+(?:su|conducto)|representad|quien|"
+    r"que\b|cuy|mism[oa]\b|el\s+cual|la\s+cual|dentro)|"
+    r"\s+(?:en\s+contra|contra|respecto)\b|\.\s*$|$)", re.I)
+
+
+def quejoso_del_resolutivo(texto: str) -> str:
+    """El nombre de la parte quejosa según el resolutivo del juzgado («ampara y
+    protege a X, contra…», «Se sobresee en el juicio de amparo promovido por X»);
+    «» si no lo dice con esa fórmula."""
+    t = " ".join((texto or "").split())
+    for rx in (_RX_A_QUIEN, _RX_PROMOVIDO_POR):
+        m = rx.search(t)
+        if m:
+            q = m.group("q").strip(" ,;:")
+            # EL PUNTO DE «A.C.» O «C.T.M.» ES DEL NOMBRE; el de fin de frase, no.
+            if q.endswith(".") and not re.search(r"(?:\b\w\.){2,}$", q):
+                q = q[:-1].rstrip()
+            # UNA REMISIÓN NO ES UN NOMBRE: «a la parte quejosa precisada en el
+            # resultando primero» no dice quién es.
+            if re.search(r"\bquejos[oa]s?\b|precisad|resultando|considerando|mencionad|"
+                         r"se[ñn]alad|referid", q, re.I):
+                continue
+            if 3 <= len(q) <= 240 and not re.search(r"\{|\*{3}", q):
+                return q
+    return ""
+
+
+# ── ¿Quién dictó la sentencia recurrida? ───────────────────────────────────
+# El formulario guarda en `responsable` a la autoridad del acto reclamado (en el
+# 631, la Magistrada de la Sala), y la carátula de la revisión rotulaba ese dato
+# «ÓRGANO RECURRIDO» y la competencia decía «dictada … por la MAGISTRADA». Lo
+# recurrido es la sentencia del Juzgado de Distrito; su nombre está en la
+# propia sentencia.
+_CONECTOR = r"(?:en|EN|En|de|DE|De|del|DEL|y|Y|la|LA|el|EL|los|LOS|las|LAS|e|E)\b"
+_RX_JUZGADO_DISTRITO = re.compile(
+    r"\b(?:Juzgado|JUZGADO)\s+(?:[A-ZÁÉÍÓÚÑ][\wáéíóúñÁÉÍÓÚÑ]+\s+)?(?:de|DE)\s+(?:Distrito|DISTRITO)"
+    r"(?:(?:[ \t]+" + _CONECTOR + r"|[ \t]+[A-ZÁÉÍÓÚÑ][\wáéíóúñÁÉÍÓÚÑ]+|,(?=[ \t]+[A-ZÁÉÍÓÚÑ][\wáéíóúñÁÉÍÓÚÑ]+[ \t])))*")
+
+
+def juzgado_de_la_recurrida(texto: str) -> str:
+    """El Juzgado de Distrito que dictó la sentencia recurrida, tal como lo
+    nombra ella misma; «» si no lo nombra. El primero que aparece: el que
+    encabeza la sentencia o su «VISTOS»."""
+    # SIN JUNTAR LOS RENGLONES: el encabezado en versales va en su renglón y,
+    # juntado, se llevaba el siguiente («… DE QUERÉTARO AMPARO INDIRECTO»).
+    t = re.sub(r"[ \t]+", " ", str(texto or ""))
+    m = _RX_JUZGADO_DISTRITO.search(t)
+    if not m:
+        return ""
+    j = re.sub(r"(?:,|\s+" + _CONECTOR + r")+$", "", m.group(0).strip()).strip(" ,")
+    if j.isupper():
+        _min = {"en", "de", "del", "y", "la", "el", "los", "las", "e"}
+        j = " ".join(w.lower() if w.lower() in _min and i else w.capitalize()
+                     for i, w in enumerate(j.split()))
+    return j if len(j.split()) >= 4 else ""
+
+
+# El NÚMERO DEL AMPARO, no el primero que aparezca: en el 631 los resultandos
+# nombran antes el toca de apelación (2338/2024) que el amparo (950/2024), y la
+# existencia del acto salió «los autos del juicio de amparo indirecto 2338/2024».
+_RX_NUMERO_AMPARO = re.compile(
+    r"(?:juicio\s+de\s+amparo(?:\s+indirecto)?|amparo\s+indirecto|"
+    r"registr[óo]\s+(?:la\s+demanda\s+)?(?:con\s+el\s+n[úu]mero|bajo\s+el\s+(?:n[úu]mero|expediente))"
+    r"|radic[óo]\s+(?:la\s+demanda\s+)?(?:con\s+el\s+n[úu]mero|bajo\s+el\s+(?:n[úu]mero|expediente)))"
+    r"\s+(?:n[úu]mero\s+)?(\d{1,5}\s*/\s*\d{4})", re.I)
+
+
+def numero_del_amparo(texto: str, propio: str = "") -> str:
+    """El número del juicio de amparo indirecto del que viene la revisión; «»."""
+    t = " ".join((texto or "").split())
+    for m in _RX_NUMERO_AMPARO.finditer(t):
+        n = re.sub(r"\s+", "", m.group(1))
+        if propio and n == re.sub(r"\s+", "", propio):
+            continue
+        return n
+    return ""
