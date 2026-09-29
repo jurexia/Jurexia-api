@@ -163,10 +163,24 @@ def cuentas() -> set:
             if c.strip()}
 
 
+def _por_soluciones() -> bool:
+    """¿Rige el camino de N soluciones (rediseño, etapa 3)? Bandera de
+    contexto_taller: sólo cuentas de prueba @iurexia.com, con su propio
+    interruptor de apagado (SOLUCIONES_POR_DESENLACE=0)."""
+    try:
+        import contexto_taller as _ctx_s
+        return _ctx_s.rediseno("soluciones_por_desenlace")
+    except Exception:
+        return False
+
+
 def activa_para(email: str) -> bool:
     """¿Corre la deliberación para esta cuenta? Hacen falta las DOS cosas: la
     bandera encendida y la cuenta en la lista («*» = todas). Por omisión, no
-    corre para nadie."""
+    corre para nadie. O BIEN rige la bandera del rediseño `soluciones_por_desenlace`
+    (etapa 3), que sólo existe para las cuentas de prueba y se apaga sola."""
+    if _por_soluciones() and (email or "").strip():
+        return True
     if not _activa_global():
         return False
     c = (email or "").strip().lower()
@@ -1748,7 +1762,11 @@ def clave_de(huella: str, contexto: str = "", registros: list = None) -> str:
     """Qué hace a esta deliberación ESTA: el adelanto (huella), lo que aportó el
     secretario y el acervo sobre el que se delibera. No entra la propuesta del
     motor: el juez no la ve."""
-    base = json.dumps([VERSION, huella or "", " ".join(str(contexto or "").split()),
+    # EL CAMINO DE N SOLUCIONES ES OTRA DELIBERACIÓN: con la misma clave, la
+    # marca binaria «listo» se reutilizaría al encender la bandera (y el banco
+    # mediría lo mismo en las dos etapas).
+    ver = VERSION + ("|soluciones-1" if _por_soluciones() else "")
+    base = json.dumps([ver, huella or "", " ".join(str(contexto or "").split()),
                        sorted(str(r) for r in (registros or []))], ensure_ascii=False)
     return hashlib.sha1(base.encode("utf-8")).hexdigest()[:20]
 
@@ -1779,7 +1797,9 @@ async def deliberar(cliente, *, problemas: list, material=None,
                     clave_propia: str = "", tasa_base: str = "", tribunal: str = "",
                     quien_recurre: str = "", sobresee_ademas: bool = False,
                     ficha: str = "",
-                    decisiva_previa: Optional[dict] = None) -> dict:
+                    decisiva_previa: Optional[dict] = None,
+                    analisis: Optional[dict] = None,
+                    demostracion: Optional[dict] = None) -> dict:
     """La deliberación del problema principal. Devuelve el documento que va a la
     marca «deliberacion» (JSON puro). Las búsquedas se inyectan:
       buscar(pregunta, figura)                     → tesis (lista, dict o Material)
@@ -1877,15 +1897,62 @@ async def deliberar(cliente, *, problemas: list, material=None,
             regla_ley=_f5._regla_de_ley(material) if material is not None else "",
             hay_procesal_ad=hay_proc, ficha=ficha)
 
-    crudoA, crudoB = await asyncio.gather(
-        _pedir(cliente, _pa("A"), modelo=_modelo(), esfuerzo=ESFUERZO_DELIBERACION,
-               tope=TOKENS_ABOGADO, semilla=20260928, uso=uso),
-        _pedir(cliente, _pa("B"), modelo=_modelo(), esfuerzo=ESFUERZO_DELIBERACION,
-               tope=TOKENS_ABOGADO, semilla=20260929, uso=uso))
-    # E · antes de que el juez lea nada
+    # C' · UN JUSTIFICADOR POR SOLUCIÓN (rediseño, etapa 3; bandera
+    # «soluciones_por_desenlace»). Las soluciones las enumera el código
+    # (`soluciones.posibles`); cada una la argumenta el abogado de su lado con
+    # el anexo de SU solución, ciego a las demás. Si la enumeración no da al
+    # menos una de cada lado, se delibera como siempre, con A y B.
+    candidatas: list = []
+    _sols: list = []
+    if _por_soluciones():
+        try:
+            import soluciones as _so
+            _enum = _so.posibles(tipo_asunto, probs, resolvio_a_quo=resolvio_a_quo,
+                                 quien_recurre=quien_recurre, sobresee_ademas=sobresee_ademas,
+                                 resolutivo_recurrida=resolutivo_recurrida, quejoso=quejoso,
+                                 responsable=responsable, tenemos_conceptos=tenemos_conceptos)
+            _sols = _enum.get("soluciones") or []
+            avisos.extend(_enum.get("avisos") or [])
+            if not (any(s.get("prospera") for s in _sols) and any(not s.get("prospera") for s in _sols)):
+                _sols = []
+        except Exception as ex:
+            avisos.append(f"No se pudieron enumerar las soluciones ({type(ex).__name__}): "
+                          f"se delibera con las dos vías.")
+            _sols = []
     quitadas: list = []
-    vias = {"A": verificar_via(crudoA, "A", cat, tx, avisos, quitadas),
-            "B": verificar_via(crudoB, "B", cat, tx, avisos, quitadas)}
+    if _sols:
+        import justificador as _jz
+        import analisis_litis as _al_j
+        _T = _al_j.textos(tx.crudos.get("acto", ""), tx.crudos.get("escrito", ""),
+                          tx.crudos.get("constancia", ""))
+
+        def _ps(sol: dict) -> str:
+            return _pa("A" if sol.get("prospera") else "B") + _jz.anexo_solucion(sol, analisis, demostracion)
+        crudos = await asyncio.gather(*[
+            _pedir(cliente, _ps(s), modelo=_modelo(), esfuerzo=ESFUERZO_DELIBERACION,
+                   tope=TOKENS_ABOGADO, semilla=20260928 + k, uso=uso)
+            for k, s in enumerate(_sols)])
+        por_id = {}
+        for s, cr in zip(_sols, crudos):
+            v = verificar_via(cr, "A" if s.get("prospera") else "B", cat, tx, avisos, quitadas)
+            por_id[s["id"]] = v
+            candidatas.append(_jz.a_candidata(cr, v, s, cat=cat, T=_T, analisis=analisis))
+        _ia, _ib = _jz.elegir_vias(candidatas)
+        if _ia and _ib:
+            vias = {"A": dict(por_id[_ia], via="A", solucion=_ia),
+                    "B": dict(por_id[_ib], via="B", solucion=_ib)}
+        else:
+            avisos.append("Ningún justificador respondió de uno de los dos lados: se delibera con las dos vías.")
+            candidatas, _sols = [], []
+    if not _sols:
+        crudoA, crudoB = await asyncio.gather(
+            _pedir(cliente, _pa("A"), modelo=_modelo(), esfuerzo=ESFUERZO_DELIBERACION,
+                   tope=TOKENS_ABOGADO, semilla=20260928, uso=uso),
+            _pedir(cliente, _pa("B"), modelo=_modelo(), esfuerzo=ESFUERZO_DELIBERACION,
+                   tope=TOKENS_ABOGADO, semilla=20260929, uso=uso))
+        # E · antes de que el juez lea nada
+        vias = {"A": verificar_via(crudoA, "A", cat, tx, avisos, quitadas),
+                "B": verificar_via(crudoB, "B", cat, tx, avisos, quitadas)}
     for k in ("A", "B"):
         if not vias[k]["respondio"]:
             avisos.append(f"El abogado de la vía {k} no respondió: esa vía queda sin argumentar.")
@@ -1966,6 +2033,11 @@ async def deliberar(cliente, *, problemas: list, material=None,
                  "precedente_propio": guia.get("precedente_propio")},
         "avisos": avisos, "uso": uso.doc(), "segundos": seg,
     }
+    if candidatas:
+        # LAS N SOLUCIONES (etapa 3), campo nuevo: A y B de arriba son su
+        # proyección para la tarjeta de hoy.
+        doc["soluciones"] = candidatas
+        doc["soluciones_version"] = "soluciones-1"
     print(f"   ⚖️ DELIBERACIÓN: {doc['estado']} · recomendada {doc['recomendada'] or '—'} · "
           f"{len(cat)} fuentes · {uso.llamadas} llamadas · {doc['uso']['coste_usd']} USD · {seg} s")
     return doc

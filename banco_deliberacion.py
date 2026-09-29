@@ -75,7 +75,8 @@ BANDERAS_OAJ = {"fuerza_unificada": False, "fuente_tardia_aviso": False, "normas
                 "tesis_parte_al_consultar": False, "consulta_provisional": False,
                 "analisis_neutral": False, "recuperacion_requisitos": False,
                 "propuesta_unica": False,
-                "plan_con_analisis": False, "exclusiones_con_prueba": False, "estados_sesion": False}
+                "plan_con_analisis": False, "exclusiones_con_prueba": False, "estados_sesion": False,
+                "soluciones_por_desenlace": False}
 
 
 def _fecha_de_neun(neun) -> str:

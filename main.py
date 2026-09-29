@@ -33380,7 +33380,8 @@ def _taller_lanzar_deliberacion(email: str, numero: str, r, ses: dict, resp: dic
         return False
 
 
-async def _taller_deliberar_nucleo(r, ses: dict, resp: dict, contexto: str = "") -> dict:
+async def _taller_deliberar_nucleo(r, ses: dict, resp: dict, contexto: str = "",
+                                   analisis: dict | None = None) -> dict:
     """La deliberación del principal SIN ESCRIBIR NADA: arma las entradas desde
     la sesión y llama a `deliberacion.deliberar` con las búsquedas de verdad
     inyectadas. La usan la tarea en segundo plano y `banco_deliberacion.py`
@@ -33518,7 +33519,12 @@ async def _taller_deliberar_nucleo(r, ses: dict, resp: dict, contexto: str = "")
         clave_propia=os.getenv("DELIBERACION_CLAVE_PROPIA", ""),
         # LA PREGUNTA DECISIVA QUE YA SE FORMULÓ PARA TODOS (SPEC E3): se
         # reutiliza si es la del principal; si no, la deliberación la formula.
-        decisiva_previa=getattr(material, "decisiva", None))
+        decisiva_previa=getattr(material, "decisiva", None),
+        # ETAPA 3 (bandera «soluciones_por_desenlace»): cada justificador ve
+        # las razones de la responsable (análisis neutral) y los requisitos de
+        # la regla (demostración). Sin la bandera, `deliberar` no los lee.
+        analisis=analisis if isinstance(analisis, dict) else None,
+        demostracion=(getattr(material, "requisitos", None) or None))
 
 
 async def _taller_predeliberar(email: str, numero: str, r, ses: dict, resp: dict,
@@ -33543,8 +33549,19 @@ async def _taller_predeliberar(email: str, numero: str, r, ses: dict, resp: dict
                 "huella": huella, "clave": clave, "estado": "en_curso", "desde": _desde}, huella):
             return
         _t0 = time.perf_counter()
+        _an_d = None
+        try:
+            import deliberacion as _dl_s
+            if _dl_s._por_soluciones():
+                import analisis_litis as _al_d
+                _m_an = _taller_leer_marca(email, numero, _al_d.CLAVE_MARCA)
+                if isinstance(_m_an, dict) and _m_an.get("huella") == huella \
+                        and _m_an.get("huella_analisis") == _al_d.huella(r) and isinstance(_m_an.get("doc"), dict):
+                    _an_d = _m_an["doc"]
+        except Exception:
+            _an_d = None
         doc = await _taller_con_latido(email, numero, "deliberacion", huella, _desde,
-                                       _taller_deliberar_nucleo(r, ses, resp, contexto))
+                                       _taller_deliberar_nucleo(r, ses, resp, contexto, analisis=_an_d))
         doc = json.loads(json.dumps(doc, ensure_ascii=False, default=str))
         _seg = time.perf_counter() - _t0
         _taller_guardar_marca(email, numero, "deliberacion", {
