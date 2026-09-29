@@ -426,8 +426,13 @@ def construir_catalogo(candidatas: list, normas: list = None, filas_propias: lis
                   "fuerza_texto": FUERZA_SENTENCIA_PROPIA,
                   **{c: fila.get(c) for c in ("expediente", "fecha", "sentido", "tipo_asunto",
                                               "tema", "calificacion", "razon", "similitud",
-                                              "nivel", "neun", "pdf_url")
-                     if fila.get(c) not in (None, "")}}
+                                              "nivel", "neun", "pdf_url", "pregunta", "cota_inferior")
+                     if fila.get(c) not in (None, "")},
+                  # LAS DOS PREGUNTAS, DE LA PIEZA COMÚN (rediseño, punto 3): no
+                  # vincula (es sentencia, no jurisprudencia) y, si la OAJ lo
+                  # midió, su aplicabilidad es el nivel calibrado.
+                  "vincula": False,
+                  "aplicabilidad": __import__("fuerza_juridica").de_sentencia_propia(fila)["aplicabilidad"]}
     vistas_n, n = set(), 0
     for nm in normas or []:
         if not isinstance(nm, dict):
@@ -482,8 +487,16 @@ def bloque_catalogo(cat: dict, caracteres: int = TESIS_CARACTERES_ABOGADO) -> st
     if propios:
         L.append("PRECEDENTES DEL PROPIO TRIBUNAL (cómo resolvió él mismo; no son voto ni se cuentan)")
         for e in propios:
+            _ap = e.get("aplicabilidad") or {}
             L.append(f"[{e['id']}] {e.get('tipo_asunto', '')} {e['expediente']} · {e.get('fecha', '')} · "
-                     f"sentido: {e.get('sentido', '') or 'no consta'}"
+                     f"sentido de la sentencia entera: {e.get('sentido', '') or 'no consta'}"
+                     # EL MISMO PROBLEMA, MEDIDO (OAJ): probabilidad calibrada
+                     # de que sea el mismo planteamiento; no dice que su regla
+                     # gobierne este caso: eso se comprueba con los hechos.
+                     + (f" · mismo problema: {e.get('similitud')}%"
+                        f"{' o más' if e.get('cota_inferior') else ''} (calibrado)"
+                        if _ap.get("estado") == "mismo_problema" and e.get("similitud") else "")
+                     + (f"\n    su planteamiento: {str(e['pregunta'])[:300]}" if e.get("pregunta") else "")
                      + (f" · calificó: {e['calificacion']}" if e.get("calificacion") else "")
                      + (f"\n    razón: {str(e['razon'])[:500]}" if e.get("razon") else "")
                      + (f"\n    tema: {e['tema']}" if e.get("tema") else ""))
