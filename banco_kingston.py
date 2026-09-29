@@ -214,7 +214,7 @@ def ya_hechos(etapa: str) -> dict:
         for ln in RESULTADOS.read_text(encoding="utf-8").splitlines():
             if ln.strip():
                 r = json.loads(ln)
-                if r.get("etapa") == etapa and not r.get("error") and r.get("exclusion"):
+                if r.get("etapa") == etapa and "error" not in r and r.get("exclusion"):
                     # EN LA ETAPA «DESPUÉS» SÓLO CUENTA LO QUE LLEVA CONTRASTE. La
                     # primera corrida arrancó con el despliegue recién vivo y dos
                     # casos los atendió el worker que aún rodaba el código viejo:
@@ -301,7 +301,9 @@ async def correr_caso(caso: dict, etapa: str, sem: asyncio.Semaphore,
                 })
                 fila["acierta"] = (fila["propuesto"] == oro)
         except Exception as e:
-            fila["error"] = str(e)[:300]
+            # Con el tipo: un corte de conexión (la app cerrada a media corrida)
+            # llega con mensaje VACÍO, y «error: ''» se contaba como fila buena.
+            fila["error"] = f"{type(e).__name__}: {e}"[:300]
     anotar(fila)
     marca = "✓" if fila.get("acierta") else ("✗" if not fila.get("error") else "!")
     print(f"  {marca} {asunto[:44]:<44} oro={oro:<8} motor={fila.get('propuesto', '—'):<13} "
@@ -327,7 +329,7 @@ def comparar(contra: str = "") -> None:
     filas = [json.loads(l) for l in RESULTADOS.read_text(encoding="utf-8").splitlines() if l.strip()]
     por = collections.defaultdict(dict)
     for f in filas:
-        if f.get("error"):
+        if "error" in f or not f.get("propuesto"):
             continue
         # LAS FILAS DE ANTES DEL ARREGLO (sin exclusión) no se comparan con las
         # nuevas: se midieron con fuga.
