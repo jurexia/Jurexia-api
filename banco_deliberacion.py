@@ -69,6 +69,7 @@ OAJ_DIR = "/Users/josedavidalcantarmendoza/Documents/IUREXIA-MAC/redactor-senten
 # existía y el brazo «hoy» salía vacío sin avisar.
 KINGSTON_RESULTADOS = Path("/Users/josedavidalcantarmendoza/Documents/IUREXIA-MAC/jurexia-api-git/bancos/kingston/resultados.jsonl")
 INDICE_OAJ = "/Users/josedavidalcantarmendoza/Documents/IUREXIA-MAC/redactor-sentencias/oaj/indice_oaj_v2.sqlite"
+BRAZO = "hoy"
 # Las banderas del banco OAJ: por omisión, las de producción para un secretario
 # de fuera (apagadas). `--banderas` las cambia para medir un cambio.
 BANDERAS_OAJ = {"fuerza_unificada": False, "fuente_tardia_aviso": False, "normas_al_documento": False,
@@ -396,9 +397,29 @@ async def _deliberar_sesion(m, correo: str, numero: str) -> dict:
     ses = m._taller_recuperar_sesion(correo, numero)
     if not ses or ses.get("material") is None:
         raise RuntimeError("sin sesión o sin acervo guardado")
+    # LAS BANDERAS DEL BRAZO, TODAS EXPLÍCITAS (29-sep). La sesión guarda las
+    # banderas de cuando se hizo su adelanto; las que no nombra quedan
+    # encendidas por omisión en una cuenta de prueba (`contexto_taller.bandera`,
+    # modo «casa»), así que el brazo «hoy» habría corrido con la etapa 3. Se
+    # conserva la EXCLUSIÓN de evaluación de la sesión (sin ella, fuga).
+    import contexto_taller as _ct_b
+    _ev = dict(getattr(ses["resultado"], "evaluacion", None) or {})
+    _ev["banderas"] = dict(BANDERAS_OAJ)
+    _ct_b.poner(True, _ev, pruebas=True)
     doc = m._taller_leer_marca(correo, numero, "propuesta") or {}
     resp = doc.get("respuesta") if isinstance(doc.get("respuesta"), dict) else {}
-    return await m._taller_deliberar_nucleo(ses["resultado"], ses, resp, "")
+    # EL ANÁLISIS NEUTRAL, como lo pasa `_taller_predeliberar` (misma huella):
+    # sólo lo lee el camino de N soluciones.
+    an = None
+    if BANDERAS_OAJ.get("soluciones_por_desenlace"):
+        import analisis_litis as _al_b
+        mk = m._taller_leer_marca(correo, numero, _al_b.CLAVE_MARCA)
+        if isinstance(mk, dict) and mk.get("huella") == m._te.huella_contraste(ses["resultado"]) \
+                and mk.get("huella_analisis") == _al_b.huella(ses["resultado"]) and isinstance(mk.get("doc"), dict):
+            an = mk["doc"]
+        else:
+            print(f"   (sin análisis neutral vigente para {numero})")
+    return await m._taller_deliberar_nucleo(ses["resultado"], ses, resp, "", analisis=an)
 
 
 async def correr_kingston(solo: int = 0) -> list:
@@ -413,13 +434,16 @@ async def correr_kingston(solo: int = 0) -> list:
         _oro = _aud.get(caso["asunto"]) or bk.sentido_del_oro(caso["oro"])
         if _oro == "excluir":
             continue
-        fila = {"banco": "kingston", "asunto": caso["asunto"], "numero": numero,
+        fila = {"banco": "kingston", "asunto": caso["asunto"], "numero": numero, "brazo": BRAZO,
+                "banderas": dict(BANDERAS_OAJ),
                 "oro": _oro == "concede", "oro_auditado": bool(_aud.get(caso["asunto"])),
                 "t0": time.strftime("%Y-%m-%d %H:%M:%S")}
         try:
             d = await _deliberar_sesion(m, bk.CORREO, numero)
             fila["predicho"], fila["estado"] = veredicto(d)
             fila.update({"otra_sostenible": d.get("otra_sostenible"),
+                         "n_soluciones": len(d.get("soluciones") or []),
+                         "fallas": [p.get("fallas") for p in (d.get("juez") or {}).get("pasadas") or []],
                          "citas_fuera": citas_fuera(d), "citas_quitadas": citas_quitadas(d),
                          "uso": d.get("uso"),
                          "recomendada": d.get("recomendada"), "inclinacion": d.get("inclinacion")})
@@ -554,9 +578,29 @@ def comparar() -> None:
         return
     filas = [json.loads(x) for x in RESULTADOS.read_text(encoding="utf-8").splitlines() if x.strip()]
     por = collections.defaultdict(list)
+    _aud = {}
+    try:
+        import banco_kingston as _bk_c
+        _aud = _bk_c.oro_auditado()
+    except Exception:
+        pass
+    ultimo = {}
     for f in filas:
-        if not f.get("error") and f.get("banco") in ("kingston", "oaj"):
+        if f.get("error") or f.get("banco") not in ("kingston", "oaj"):
+            continue
+        if f["banco"] == "kingston":
+            # EL ORO AUDITADO y los brazos por separado; la última fila de cada
+            # asunto en cada brazo manda.
+            o = _aud.get(f.get("asunto"))
+            if o == "excluir":
+                continue
+            if o:
+                f = dict(f, oro=(o == "concede"))
+            ultimo[(f"kingston · {f.get('brazo') or 'sin_brazo'}", f["asunto"])] = f
+        else:
             por[f["banco"]].append(f)
+    for (b, _), f in ultimo.items():
+        por[b].append(f)
     for b, fs in por.items():
         informe(b, fs)
         if b == "oaj" and any("predicho_hoy" in f for f in fs):
@@ -575,7 +619,10 @@ def main(argv=None) -> int:
     ap.add_argument("--si-gastar", action="store_true")
     ap.add_argument("--comparar", action="store_true")
     ap.add_argument("--banderas", default="", help='JSON; p. ej. {"fuerza_unificada": true}')
+    ap.add_argument("--brazo", default="hoy", help="nombre del brazo en los resultados (p. ej. hoy, soluciones)")
     a = ap.parse_args(argv)
+    global BRAZO
+    BRAZO = a.brazo
     if a.banderas:
         BANDERAS_OAJ.update(json.loads(a.banderas))
     print(f"  banderas efectivas: {BANDERAS_OAJ}")
