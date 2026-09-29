@@ -87,6 +87,40 @@ ok(_sa["pendientes"] and _sa["pendientes"][0]["bloquea"] is True and d.get("esta
    "un pendiente que «bloquea» sólo informa: la deliberación termina igual")
 ok(any(len(x[1]) > 0 for x in cli.de("JUEZ")), "el juez sigue decidiendo entre A y B")
 
+print("\n2b · EL JUEZ BUSCA LA FALLA DECISIVA")
+_jz_prompts = [x[1] for x in cli.de("JUEZ")]
+ok(_jz_prompts and all("LA FALLA DECISIVA" in p and "LO QUE EL TALLER COMPROBÓ EN LA VÍA 1" in p for p in _jz_prompts),
+   "con la bandera, el juez busca la falla decisiva de cada vía y ve la revisión por código")
+ok(all("fallas" in pz for pz in d["juez"]["pasadas"] if pz.get("respondio")),
+   "las fallas de cada pasada quedan en el documento del juez")
+_base = respuestas()
+
+
+def _con_falla(p, kw):
+    r = _base(p, kw)
+    if p.startswith("TAREA: JUEZ DE LAS DOS VÍAS") and r:
+        x = json.loads(r)
+        x["estado"] = "claro"
+        x["fallas"] = {"1": {"falla": "no vence la razón autónoma R1", "fatal": True, "eslabon": "razon_autonoma"},
+                       "2": {"falla": "ninguna grave", "fatal": False, "eslabon": ""}}
+        # la vía 1 es la recomendada por el juez falso cuando es la «fundado»
+        return json.dumps(x)
+    return r
+
+
+ct.poner(True, {}, pruebas=True)
+cli2 = Falso(_con_falla)
+d2 = correr(cli2, analisis=ANALISIS, demostracion=DEMOS)
+_rec = d2.get("recomendada")
+_fat_rec = any((pz.get("fallas") or {}).get(_rec, {}).get("fatal") for pz in d2["juez"]["pasadas"])
+ok(_fat_rec and d2["estado"] != "claro",
+   "una falla FATAL en la vía recomendada no deja el estado «claro» (no cambia la vía, sólo su certeza)")
+ct.poner(False, {})
+cli3 = Falso(respuestas())
+d3 = correr(cli3)
+ok(all("LA FALLA DECISIVA" not in x[1] for x in cli3.de("JUEZ")) and all("fallas" not in pz for pz in d3["juez"]["pasadas"]),
+   "sin la bandera, el juez de siempre (prompt y documento sin fallas)")
+
 print("\n3 · SIN UNA SOLUCIÓN DE CADA LADO, LA DE SIEMPRE")
 ct.poner(True, {}, pruebas=True)
 cli = Falso(respuestas())

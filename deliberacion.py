@@ -1335,15 +1335,37 @@ def _bloque_via_para_juez(etq: str, v: dict, cat: dict) -> str:
 {prop}"""
 
 
+_FALLA_JUEZ = """
+LA FALLA DECISIVA (rediseño, etapa 3). ANTES de decidir, busca en CADA vía su
+falla decisiva: el eslabón que, si cae, la derrumba. Puede ser un requisito de
+su regla sin hecho acreditado (cita VERIFICADA), una razón AUTÓNOMA de lo
+resuelto que no vence (si basta sola para sostener lo resuelto, derrotar las
+demás no cambia el resultado), una fuente presentada como obligatoria que no
+obliga a este tribunal, o efectos que no corresponden a lo que concede. Debajo
+de cada vía va lo que el taller comprobó por código; úsalo, pero juzga tú.
+Una falla es FATAL sólo si, sin ese eslabón, la vía no se sostiene. No puedes
+recomendar una vía con falla fatal si la otra no la tiene.
+"""
+
+
+def _bloque_revision_para_juez(etq: str, avisos: list) -> str:
+    if not avisos:
+        return f"LO QUE EL TALLER COMPROBÓ EN LA {etq}: nada que señalar."
+    return f"LO QUE EL TALLER COMPROBÓ EN LA {etq}:\n" + "\n".join(f"  · {a}" for a in avisos[:8])
+
+
 def prompt_juez(orden: tuple, vias: dict, *, decisiva: dict, cat: dict,
                 constancias_faltantes: list, suplencia: str = "", tasa_base: str = "",
-                ficha: str = "") -> str:
+                ficha: str = "", revisiones: Optional[dict] = None) -> str:
     toral = decisiva.get("proposicion_toral") or {}
     faltan = "\n".join(f"  · {c.get('que')}" + (f" — para: {c.get('para_que')}" if c.get("para_que") else "")
                        for c in constancias_faltantes or [] if isinstance(c, dict) and c.get("que")) \
         or "  (no se señaló ninguna)"
     _sup = ("\n   Aquí OPERA LA SUPLENCIA DE LA QUEJA (abajo): cura la deficiencia del "
             "argumento, no obliga a darle la razón." if suplencia.strip() else "")
+    _json_fallas = (',\n  "fallas": {"1": {"falla": "<el eslabón>", "fatal": true, "eslabon": '
+                    '"requisito|razon_autonoma|fuente|hecho|efecto"}, "2": {"falla": "<…>", "fatal": false, '
+                    '"eslabon": "<…>"}}')
     return f"""TAREA: JUEZ DE LAS DOS VÍAS
 Eres el magistrado ponente de un Tribunal Colegiado. Tienes delante dos vías
 argumentadas por separado, rotuladas «Vía 1» y «Vía 2». No sabes quién
@@ -1384,9 +1406,11 @@ FUENTES (catálogo cerrado; la fuerza y la vigencia las calculó el taller):
 {suplencia}
 
 {_bloque_via_para_juez('VÍA 1', vias[orden[0]], cat)}
+{_bloque_revision_para_juez('VÍA 1', (revisiones or {}).get(orden[0]) or []) if revisiones is not None else ''}
 
 {_bloque_via_para_juez('VÍA 2', vias[orden[1]], cat)}
-
+{_bloque_revision_para_juez('VÍA 2', (revisiones or {}).get(orden[1]) or []) if revisiones is not None else ''}
+{_FALLA_JUEZ if revisiones is not None else ''}
 DEVUELVES:
 - `recomendada`: "1", "2" o "ninguna" (ninguna sólo si ninguna de las dos se
   sostiene con lo que hay).
@@ -1413,7 +1437,7 @@ Devuelve SÓLO un JSON:
   "crux": {{"que": "<…>", "si_cambia": "<…>", "constancia": null | "<…>"}},
   "debilidad": "<…>", "otra_sostenible": true,
   "estado": "claro|reñido|no_alcanza",
-  "precedente_propio": {{"se_aparta": null, "por_que": "<…>"}}}}"""
+  "precedente_propio": {{"se_aparta": null, "por_que": "<…>"}}{_json_fallas if revisiones is not None else ''}}}"""
 
 
 # ═══ LAS ETAPAS ══════════════════════════════════════════════════════════════
@@ -1639,11 +1663,11 @@ def tiene_apoyo(v: dict) -> bool:
 
 async def etapa_d(cliente, orden: tuple, vias: dict, *, decisiva: dict, cat: dict,
                   constancias_faltantes: list, suplencia: str, tasa_base: str,
-                  uso: _Uso, semilla: int, ficha: str = "") -> dict:
+                  uso: _Uso, semilla: int, ficha: str = "", revisiones: Optional[dict] = None) -> dict:
     d = await _pedir(cliente, prompt_juez(orden, vias, decisiva=decisiva, cat=cat,
                                          constancias_faltantes=constancias_faltantes,
                                          suplencia=suplencia, tasa_base=tasa_base,
-                                         ficha=ficha),
+                                         ficha=ficha, revisiones=revisiones),
                      modelo=_modelo(), esfuerzo=ESFUERZO_DELIBERACION, tope=TOKENS_JUEZ,
                      semilla=semilla, uso=uso)
     rec = str(d.get("recomendada") or "").strip().lower()
@@ -1667,7 +1691,23 @@ async def etapa_d(cliente, orden: tuple, vias: dict, *, decisiva: dict, cat: dic
             "crux": d.get("crux") if isinstance(d.get("crux"), dict) else None,
             "debilidad": str(d.get("debilidad") or ""),
             "otra_sostenible": d.get("otra_sostenible") if isinstance(d.get("otra_sostenible"), bool) else None,
-            "precedente_propio": d.get("precedente_propio") if isinstance(d.get("precedente_propio"), dict) else None}
+            "precedente_propio": d.get("precedente_propio") if isinstance(d.get("precedente_propio"), dict) else None,
+            **({"fallas": _fallas_de(d.get("fallas"), orden)} if revisiones is not None else {})}
+
+
+def _fallas_de(x, orden: tuple) -> dict:
+    """Las fallas decisivas del juez, por vía (A/B), no por su número en el
+    prompt. Nunca lanza."""
+    out = {}
+    if not isinstance(x, dict):
+        return out
+    for num, via in (("1", orden[0]), ("2", orden[1])):
+        f = x.get(num)
+        if isinstance(f, dict):
+            esl = str(f.get("eslabon") or "").strip().lower()
+            out[via] = {"falla": str(f.get("falla") or "")[:400], "fatal": f.get("fatal") is True,
+                        "eslabon": esl if esl in ("requisito", "razon_autonoma", "fuente", "hecho", "efecto") else ""}
+    return out
 
 
 def _escalon_comprobado(p: dict, vias: dict, cat: dict) -> tuple:
@@ -1965,14 +2005,30 @@ async def deliberar(cliente, *, problemas: list, material=None,
     # estado es «no_alcanza» por código y se ahorran las dos pasadas.
     if (vias["A"]["respondio"] or vias["B"]["respondio"]) and (
             tiene_apoyo(vias["A"]) or tiene_apoyo(vias["B"])):
+        # CON LAS SOLUCIONES (etapa 3), el juez busca la FALLA DECISIVA de cada
+        # vía y ve lo que la revisión por código encontró en ella.
+        _rev = None
+        if candidatas:
+            _por_sol = {c["id"]: (c.get("revision") or {}).get("avisos") or [] for c in candidatas}
+            _rev = {k: _por_sol.get(vias[k].get("solucion"), []) for k in ("A", "B")}
         p1, p2 = await asyncio.gather(
             etapa_d(cliente, ("A", "B"), vias, decisiva=decisiva, cat=cat,
                     constancias_faltantes=constancias_faltantes or [], suplencia=suplencia,
-                    tasa_base=tasa_base, uso=uso, semilla=20260930, ficha=ficha),
+                    tasa_base=tasa_base, uso=uso, semilla=20260930, ficha=ficha, revisiones=_rev),
             etapa_d(cliente, ("B", "A"), vias, decisiva=decisiva, cat=cat,
                     constancias_faltantes=constancias_faltantes or [], suplencia=suplencia,
-                    tasa_base=tasa_base, uso=uso, semilla=20260930, ficha=ficha))
+                    tasa_base=tasa_base, uso=uso, semilla=20260930, ficha=ficha, revisiones=_rev))
     comb = combinar(p1, p2, vias, cat)
+    # LA FALLA FATAL NO DEJA «CLARO» (etapa 3): si alguna pasada del juez
+    # señaló una falla fatal en la vía que se recomienda, el estado es
+    # «reñido» y se dice por qué. No cambia la vía: sólo su certeza.
+    if candidatas and comb.get("recomendada") and comb.get("estado") == "claro":
+        _fat = [p.get("fallas", {}).get(comb["recomendada"]) for p in (p1, p2)]
+        _fat = [f for f in _fat if isinstance(f, dict) and f.get("fatal")]
+        if _fat:
+            comb["estado"] = "reñido"
+            comb["estado_por_que"] = list(comb.get("estado_por_que") or []) + [
+                f"El juez señaló una falla fatal en la vía recomendada: {_fat[0].get('falla', '')[:200]}"]
 
     # E · lo del juez, limpio. Habla la pasada que recomendó la vía en que
     # coincidieron; si no coincidieron, la primera que respondió.
@@ -2028,7 +2084,8 @@ async def deliberar(cliente, *, problemas: list, material=None,
         # del 28-sep-2026), igual que aquí `secundarios_por_arbol`.
         "checklist": lista,
         "juez": {"pasadas": [{c: p.get(c) for c in ("orden", "respondio", "recomendada", "escalon",
-                                                    "estado")} for p in (p1, p2)],
+                                                    "estado") + (("fallas",) if "fallas" in p else ())}
+                             for p in (p1, p2)],
                  "coinciden": bool(p1.get("recomendada") and p1.get("recomendada") == p2.get("recomendada")),
                  "precedente_propio": guia.get("precedente_propio")},
         "avisos": avisos, "uso": uso.doc(), "segundos": seg,
