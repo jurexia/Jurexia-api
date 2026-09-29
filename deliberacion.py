@@ -1351,7 +1351,11 @@ consulta sólo si el anterior no decide.
 4. EL PRECEDENTE PROPIO. Si este tribunal ya resolvió el punto (fuentes O), la
    vía que se aparte tiene que decir por qué; apartarse sin razón pesa en su
    contra. No se cuenta como voto.
-5. LA TASA BASE, sólo para desempatar y diciéndolo: {tasa_base or '(no se tiene)'}
+5. LA TASA BASE NO DECIDE NI DESEMPATA (David, 29-sep-2026: «la frecuencia
+   histórica no debería suplir una premisa jurídica faltante»). Sirve sólo para
+   ADVERTIR: si la vía que recomiendas se aparta de lo usual, dilo y di qué
+   tiene este asunto de distinto. Si lo que falta es una premisa, di cuál
+   falta; no la suplas con la frecuencia: {tasa_base or '(no se tiene)'}
 
 {_bloque_ficha(ficha)}LA PREGUNTA DECISIVA: {decisiva.get('pregunta_decisiva') or '(no se formuló)'}
 LA FIGURA: {decisiva.get('figura') or '(no consta)'}
@@ -1732,7 +1736,7 @@ def combinar(p1: dict, p2: dict, vias: dict, cat: dict) -> dict:
                               else "(el hecho acreditado frente a la proposición toral)."))
         elif not rebajado and tiene_apoyo(vias[r1]):
             razones.append("Las dos pasadas coinciden, pero hubo que llegar a la presunción de "
-                           "legalidad, al precedente propio o a la tasa base.")
+                           "legalidad o al precedente propio: no basta para recomendar.")
     return {"estado": "claro" if claro else "reñido",
             "recomendada": r1 if claro else None,
             "inclinacion": inclinacion, "estado_por_que": razones}
