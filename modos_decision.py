@@ -201,7 +201,8 @@ def razon_de_la_otra_via(texto: str, sentido: str, glob) -> tuple:
 def repartir(problemas: list, modo: str, sentido_global: str = "",
              propuestas: list = None, calificaciones: dict = None,
              global_dictado: bool = False,
-             temas_distintos: set = None, tipo_asunto: str = "") -> tuple:
+             temas_distintos: set = None, tipo_asunto: str = "",
+             checklist: list = None) -> tuple:
     """(lista de {problema, sentido, razonamiento, jerarquia}, avisos).
 
     `problemas` son los dicts de la fase 3; `propuestas`, lo que sugirió el
@@ -369,6 +370,21 @@ def repartir(problemas: list, modo: str, sentido_global: str = "",
         _pdict.get(principal["problema"]) or principal["problema"],
         principal["sentido"], True))
     _por_189: list = []
+    try:
+        import contexto_taller as _ctx_md
+        _con_prueba = _ctx_md.rediseno("exclusiones_con_prueba")
+    except Exception:                                   # pragma: no cover
+        _con_prueba = False
+    if _con_prueba:
+        import arbol_decision as _ad
+        _num_principal = fuera.index(principal) + 1
+        _lista_por_num = {}
+        for _c in checklist or []:
+            if isinstance(_c, dict):
+                try:
+                    _lista_por_num[int(_c.get("numero"))] = _c
+                except (TypeError, ValueError):
+                    pass
 
     tocados = 0
     for x in fuera:
@@ -414,6 +430,39 @@ def repartir(problemas: list, modo: str, sentido_global: str = "",
                 _vpm.clase_de(_pdict.get(principal["problema"]) or principal["problema"])
                 == "procesal"))
             continue
+        # EL CASO (h) (rediseño, etapa 4; bandera «exclusiones_con_prueba»).
+        # La sustracción declaraba innecesario TODO accesorio no marcado, sin
+        # mirar si depende del principal, y el árbol —que corre después— no lo
+        # deshacía: un tema que el motor escribió «independiente» en su lista
+        # (sin la marca `tema_distinto`, la única que se leía) quedaba sin
+        # materia. Con la bandera se lee la relación como la lee el árbol
+        # (`arbol_decision.relacion_de` y la suerte escrita «si prospera»):
+        # lo distinto se estudia; lo que depende se sustrae como siempre; y lo
+        # que no dice nada conserva la calificación que el motor le propuso,
+        # o se sustrae como hoy pero AVISANDO y marcado para justificar.
+        if _con_prueba:
+            _ent = _lista_por_num.get(fuera.index(x) + 1) or {}
+            _rel = _ad.relacion_de(_pdict.get(x["problema"]) or x["problema"], _num_principal, _ent)
+            _sp_suerte, _ = _ad._suerte(_ent, "si_prospera") if _ent else ("", "")
+            if _rel == "distinto":
+                avisos.append(
+                    f"NO SE DECLARÓ INNECESARIO «{x['problema'][:90]}»: la lista del motor lo "
+                    f"trata como independiente del principal. Se estudia.")
+                continue
+            if _rel != "depende" and _sp_suerte != INNECESARIO:
+                _pr = props.get(x["problema"]) or {}
+                _sp = str(_pr.get("sentido") or "").strip().lower()
+                if _sp and _sp not in (INNECESARIO, "sin_materia"):
+                    x["sentido"] = _sp
+                    x["razonamiento"] = str(_pr.get("razon") or "")
+                    avisos.append(
+                        f"«{x['problema'][:90]}» NO se declaró innecesario: no consta que dependa del "
+                        f"principal, y se conserva la calificación que el motor le propuso.")
+                    continue
+                x["justificacion_pendiente"] = True
+                avisos.append(
+                    f"«{x['problema'][:90]}» se declaró innecesario SIN que conste que dependa del "
+                    f"principal: revisa si su estudio queda de verdad sin materia.")
         x["sentido"] = INNECESARIO
         x["razonamiento"] = (
             "Dado el sentido del estudio del problema principal, queda sin "

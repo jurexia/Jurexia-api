@@ -34086,6 +34086,9 @@ def _taller_armar_criterio(r, ses, glob: dict, *, sentido: str = "", problema: s
             # sentido global manda sobre lo que el motor propuso por problema.
             global_dictado=_dictado,
             temas_distintos=_distintos,
+            # La lista del motor, para el caso (h): sólo la lee la bandera
+            # «exclusiones_con_prueba» (etapa 4).
+            checklist=(_glob or {}).get("checklist") or [],
             tipo_asunto=str(getattr(getattr(r, "encargo", None), "tipo_asunto", "") or ""))
         crit = [_f6.Criterio(problema=x["problema"], sentido=x["sentido"],
                              razonamiento=x.get("razonamiento", ""),
