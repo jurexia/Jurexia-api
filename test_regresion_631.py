@@ -1028,12 +1028,14 @@ ok(not any(a.startswith("Se concede y los efectos") for a in _rev)
    "ni «Se concede y los efectos van en prosa», ni «EFECTOS INCOMPLETOS…», ni «El resolutivo concede…»")
 # (e) LOS PAPELES: carátula, competencia, existencia y legitimación.
 _cab = " ".join(_ps2[:8]).upper()
-ok("QUEJOSA: UNIÓN EJEMPLO, A.C." in _cab and "RECURRENTE: INMOBILIARIA EJEMPLO" in _cab
+ok("QUEJOSA: UNIÓN EJEMPLO, A.C." in _cab and "TERCERA INTERESADA Y RECURRENTE: INMOBILIARIA EJEMPLO" in _cab
    and "QUEJOSA Y RECURRENTE" not in _cab,
-   f"la carátula separa a la quejosa de la recurrente: {_cab[:200]}")
-_org = next((t for t in _ps2[:8] if t.upper().startswith("ÓRGANO RECURRIDO")), "").upper()
-ok("JUZGADO SÉPTIMO DE DISTRITO" in _org and "MAGISTRADA" not in _org,
-   f"el órgano recurrido es el juzgado, no la Magistrada: {_org}")
+   f"la carátula separa a la quejosa de la recurrente, con su carácter: {_cab[:200]}")
+# SIN ÓRGANO RECURRIDO EN EL RUBRO: el corpus de la revisión no lo lleva (0 de
+# 478, SCR/caratulas_revision.md). El juzgado se nombra en la competencia.
+ok(not any(t.upper().startswith("ÓRGANO RECURRIDO") for t in _ps2[:8])
+   and "MAGISTRADA" not in _cab,
+   f"la carátula no rotula al juzgado ni a la Magistrada: {_cab[:260]}")
 _comp = next((t for t in _ps2 if "es competente" in t), "")
 ok("por el Juzgado Séptimo de Distrito" in _comp and "Magistrada" not in _comp,
    f"competencia: dictada por el juzgado de distrito: {_comp[180:330]}")

@@ -1508,19 +1508,28 @@ def prompt_estructura(datos: dict) -> str:
     # cuando lo interpuso la UIF. Con `recurrente` aparte, la hoja lo dice en
     # su renglón y el molde del VISTO recibe al que de verdad recurrió.
     _recurrente_hoja = str(datos.get("recurrente") or "").strip()
+    # LA MISMA CARÁTULA QUE EL .docx (`tipos_asunto.filas_caratula`): el
+    # recurrente con su carácter en su renglón y, en la revisión, sin el
+    # juzgado en el rubro (0 de 478 en el corpus; AR 631/2025). El juzgado y
+    # la responsable del acto van como DATOS aparte, sin rótulo de carátula.
     _filas_hoja = []
-    for _et, _cl, _ob in _ta_r.caratula_de(_tipo):
-        if not (datos.get(_cl) or _ob):
-            continue
-        if _recurrente_hoja and _cl == "quejoso" and "Y RECURRENTE" in _et:
-            _filas_hoja.append(f"{_etiqueta_parte(_et.replace(' Y RECURRENTE', ''), _cl)}: {datos.get(_cl, '')}")
-            _filas_hoja.append(f"RECURRENTE (quien interpuso el recurso): {_recurrente_hoja}")
-            continue
-        if _cl == "responsable" and str(datos.get("organo_recurrido") or "").strip():
-            _filas_hoja.append(f"{_et}: {datos.get('organo_recurrido')}")
-            _filas_hoja.append(f"AUTORIDAD RESPONSABLE DEL ACTO RECLAMADO EN EL AMPARO: {datos.get(_cl, '')}")
-            continue
-        _filas_hoja.append(f"{_etiqueta_parte(_et, _cl)}: {datos.get(_cl, '')}")
+    for _et, _cl, _val in _ta_r.filas_caratula(_tipo, datos):
+        # El género ya viene concordado (con `quejoso_moral` sólo si recurre la
+        # propia quejosa): `_etiqueta_parte` se aplica sólo en ese caso, el de
+        # antes, para no feminizar a la quejosa por la forma de la recurrente.
+        if _cl == "quejoso" and not _recurrente_hoja:
+            _et = _etiqueta_parte(_et, _cl)
+        if _cl == "recurrente":
+            _et += " (quien interpuso el recurso)"
+        _filas_hoja.append(f"{_et}: {_val or ''}")
+    if _ta_r.normalizar(_tipo) == "amparo_revision":
+        _org_hoja = str(datos.get("organo_recurrido") or "").strip()
+        if _org_hoja:
+            _filas_hoja.append(f"Dato, no va en la carátula · juzgado que dictó la "
+                               f"sentencia recurrida: {_org_hoja}")
+        if str(datos.get("responsable") or "").strip():
+            _filas_hoja.append(f"Dato, no va en la carátula · autoridad responsable "
+                               f"del acto reclamado en el amparo: {datos.get('responsable')}")
     _ficha_partes = "\n".join(_filas_hoja)
     if _recurrente_hoja:
         _ficha_partes += ("\nOJO: el recurso lo interpuso el RECURRENTE, no la quejosa. En el "
@@ -4048,26 +4057,13 @@ def _caratula(doc, datos, tipo_asunto: str = "") -> list:
     # quien perdió el amparo. En el 711/2025 lo ganó la sociedad y recurrió la
     # UIF: con un solo renglón la carátula decía «QUEJOSA Y RECURRENTE: la
     # UIF», que es falso por partida doble. Si `recurrente` viene aparte, la
-    # etiqueta se parte: QUEJOSA con la parte, RECURRENTE con la autoridad.
-    _recurrente = str(datos.get("recurrente") or "").strip()
-    _filas_caratula = []
-    for et, clave, _ob in _ta_c.caratula_de(_t):
-        if _recurrente and clave == "quejoso" and "Y RECURRENTE" in et:
-            _filas_caratula.append(
-                (_ta_c.etiqueta_concordada(et.replace(" Y RECURRENTE", ""),
-                                           str(datos.get("quejoso", ""))),
-                 datos.get("quejoso", "")))
-            _filas_caratula.append(("RECURRENTE", _recurrente))
-            continue
-        if clave == "responsable" and str(datos.get("organo_recurrido") or "").strip():
-            # Ver `_organo_recurrido` en redactor_adelanto: en la revisión, el
-            # renglón «ÓRGANO RECURRIDO» lleva al juzgado, no a la UIF.
-            _filas_caratula.append((_ta_c.etiqueta_concordada(et, ""),
-                                    _limpia(clave, datos.get("organo_recurrido"))))
-            continue
-        _filas_caratula.append(
-            (_ta_c.etiqueta_concordada(et, str(datos.get(clave, ""))),
-             _limpia(clave, datos.get(clave, ""))))
+    # etiqueta se parte: QUEJOSA con la parte y el recurrente con su CARÁCTER
+    # («TERCERA INTERESADA Y RECURRENTE» en el AR 631/2025), que es como lo
+    # rotula el corpus; y sin «ÓRGANO RECURRIDO», que el corpus no lleva en la
+    # revisión (0 de 478). La regla vive en `tipos_asunto.filas_caratula`, la
+    # misma que arma la hoja de datos del prompt.
+    _filas_caratula = [(et, _limpia(clave, valor))
+                       for et, clave, valor in _ta_c.filas_caratula(_t, datos)]
     campos += _filas_caratula
     # «SECRETARIO», no «SECRETARIA/O». La barra es de un formulario, no de una
     # sentencia: el adelanto ajustado firma «SECRETARIO:» y quien firma sabe su
@@ -5455,9 +5451,10 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
             # ═══════════════════════════════════════════════════════════════
             # EL RESPALDO AMPARABA CONTRA EL ÓRGANO RECURRIDO
             # ═══════════════════════════════════════════════════════════════
-            # `datos["responsable"]` en un recurso es el ÓRGANO RECURRIDO —la
-            # propia carátula lo rotula así: «ÓRGANO RECURRIDO: EL JUZGADO
-            # SEGUNDO DE DISTRITO»—, no la responsable originaria. Cuando
+            # `datos["responsable"]` en un recurso puede ser el ÓRGANO
+            # RECURRIDO —«EL JUZGADO SEGUNDO DE DISTRITO»; la carátula de la
+            # revisión ya no lo rotula (0 de 478 en el corpus, AR 631/2025)—,
+            # no la responsable originaria. Cuando
             # `responsable_originaria` no lograba leerla del resumen, el
             # respaldo escribía «La Justicia de la Unión ampara y protege a
             # Juan Pérez, contra el acto reclamado AL JUZGADO SEGUNDO DE
