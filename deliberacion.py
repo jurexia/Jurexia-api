@@ -960,9 +960,21 @@ def _ventana(texto: str, tope: int, centro: str = "", desde_el_final: bool = Fal
     return t[-tope:] if desde_el_final else t[:tope]
 
 
+def _bloque_ficha(ficha: str) -> str:
+    """La ficha procesal del asunto como DATOS (SPEC_E2, 28-sep-2026;
+    `ficha_procesal.bloque`): quién promovió, quién recurre y con qué
+    carácter, qué resolvió el juzgado por acto, qué es materia de la revisión
+    y qué quedó firme, la fracción del art. 93 y el desenlace de cada vía por
+    código. En el AR 631/2025 los dos abogados y el juez no sabían que la
+    recurrente era la tercera interesada. «» si no hay ficha."""
+    b = str(ficha or "").strip()
+    return (b + "\n\n") if b else ""
+
+
 def prompt_pregunta_decisiva(pral: dict, contraste: Optional[dict], resumen_acto: str,
                              resumen_conceptos: str, texto_acto: str,
-                             tipo_asunto: str = "", es_recurso: bool = False) -> str:
+                             tipo_asunto: str = "", es_recurso: bool = False,
+                             ficha: str = "") -> str:
     q, org = _vocab(tipo_asunto, es_recurso)
     c = contraste or {}
     _c = (f"\nEl contraste previo identificó como razón toral: {c.get('razon_toral')}\n"
@@ -971,7 +983,7 @@ def prompt_pregunta_decisiva(pral: dict, contraste: Optional[dict], resumen_acto
 Eres secretario de un Tribunal Colegiado. Antes de buscar criterio y antes de
 decidir, identificas QUÉ decide el planteamiento principal. No lo resuelves.
 
-EL PLANTEAMIENTO PRINCIPAL
+{_bloque_ficha(ficha)}EL PLANTEAMIENTO PRINCIPAL
 {_pregunta(pral)}
 Lo que resolvió {org}: {pral.get('resolvio') or '(no consta)'}
 Lo que sostienen los {q}: {pral.get('combate') or '(no consta)'}
@@ -1077,7 +1089,7 @@ def prompt_abogado(via: str, *, pral: dict, pi: int, problemas: list, decisiva: 
                    textos: dict, cat: dict, tipo_asunto: str = "", es_recurso: bool = False,
                    marco: str = "", metodo: str = "", suplencia: str = "",
                    direccion: str = "", regla_ley: str = "",
-                   hay_procesal_ad: bool = False) -> str:
+                   hay_procesal_ad: bool = False, ficha: str = "") -> str:
     q, org = _vocab(tipo_asunto, es_recurso)
     prospera = via == "A"
     nombre = "PROSPERA" if prospera else "NO PROSPERA"
@@ -1125,7 +1137,7 @@ persona argumenta la vía contraria por separado, y un tercero que no sabe quié
 escribió cada una las compara después. Tu trabajo es la mejor versión HONESTA
 de esta vía con lo que consta; no decides cuál es mejor.
 {direccion}
-EL PLANTEAMIENTO PRINCIPAL
+{_bloque_ficha(ficha)}EL PLANTEAMIENTO PRINCIPAL
 {_pregunta(pral)}
 Lo que resolvió {org}: {pral.get('resolvio') or '(no consta)'}
 Lo que sostienen los {q}: {pral.get('combate') or '(no consta)'}
@@ -1251,7 +1263,8 @@ def _bloque_via_para_juez(etq: str, v: dict, cat: dict) -> str:
 
 
 def prompt_juez(orden: tuple, vias: dict, *, decisiva: dict, cat: dict,
-                constancias_faltantes: list, suplencia: str = "", tasa_base: str = "") -> str:
+                constancias_faltantes: list, suplencia: str = "", tasa_base: str = "",
+                ficha: str = "") -> str:
     toral = decisiva.get("proposicion_toral") or {}
     faltan = "\n".join(f"  · {c.get('que')}" + (f" — para: {c.get('para_que')}" if c.get("para_que") else "")
                        for c in constancias_faltantes or [] if isinstance(c, dict) and c.get("que")) \
@@ -1281,7 +1294,7 @@ consulta sólo si el anterior no decide.
    contra. No se cuenta como voto.
 5. LA TASA BASE, sólo para desempatar y diciéndolo: {tasa_base or '(no se tiene)'}
 
-LA PREGUNTA DECISIVA: {decisiva.get('pregunta_decisiva') or '(no se formuló)'}
+{_bloque_ficha(ficha)}LA PREGUNTA DECISIVA: {decisiva.get('pregunta_decisiva') or '(no se formuló)'}
 LA FIGURA: {decisiva.get('figura') or '(no consta)'}
 LA PROPOSICIÓN TORAL DE LO RESUELTO: {toral.get('dice') or '(no consta)'}
   cita {'VERIFICADA' if toral.get('verificada') else 'NO verificada'}: {toral.get('cita') or '(sin cita)'}
@@ -1330,14 +1343,14 @@ Devuelve SÓLO un JSON:
 
 async def etapa_a(cliente, pral: dict, contraste: Optional[dict], resumen_acto: str,
                   resumen_conceptos: str, textos: _Textos, tipo_asunto: str,
-                  es_recurso: bool, uso: _Uso, avisos: list) -> dict:
+                  es_recurso: bool, uso: _Uso, avisos: list, ficha: str = "") -> dict:
     """La pregunta decisiva, con la cita de la proposición toral VERIFICADA
     contra el acto. Si la llamada falla, se sigue con la pregunta de la fase 3
     y se dice: peor búsqueda, pero búsqueda."""
     acto = textos.crudos.get("acto", "")
     d = await _pedir(cliente, prompt_pregunta_decisiva(
         pral, contraste, resumen_acto, resumen_conceptos,
-        _ventana(acto, 60000, desde_el_final=True), tipo_asunto, es_recurso),
+        _ventana(acto, 60000, desde_el_final=True), tipo_asunto, es_recurso, ficha=ficha),
         modelo=MODELO_LECTURA, esfuerzo=ESFUERZO_LECTURA, tope=TOKENS_LECTURA,
         semilla=20260928, uso=uso)
     if not d.get("pregunta_decisiva"):
@@ -1517,10 +1530,11 @@ def tiene_apoyo(v: dict) -> bool:
 
 async def etapa_d(cliente, orden: tuple, vias: dict, *, decisiva: dict, cat: dict,
                   constancias_faltantes: list, suplencia: str, tasa_base: str,
-                  uso: _Uso, semilla: int) -> dict:
+                  uso: _Uso, semilla: int, ficha: str = "") -> dict:
     d = await _pedir(cliente, prompt_juez(orden, vias, decisiva=decisiva, cat=cat,
                                          constancias_faltantes=constancias_faltantes,
-                                         suplencia=suplencia, tasa_base=tasa_base),
+                                         suplencia=suplencia, tasa_base=tasa_base,
+                                         ficha=ficha),
                      modelo=_modelo(), esfuerzo=ESFUERZO_DELIBERACION, tope=TOKENS_JUEZ,
                      semilla=semilla, uso=uso)
     rec = str(d.get("recomendada") or "").strip().lower()
@@ -1668,7 +1682,8 @@ async def deliberar(cliente, *, problemas: list, material=None,
                     internet: Optional[Callable[..., Awaitable[Any]]] = None,
                     filas_propias: Optional[list] = None, region: Optional[str] = None,
                     clave_propia: str = "", tasa_base: str = "", tribunal: str = "",
-                    quien_recurre: str = "", sobresee_ademas: bool = False) -> dict:
+                    quien_recurre: str = "", sobresee_ademas: bool = False,
+                    ficha: str = "") -> dict:
     """La deliberación del problema principal. Devuelve el documento que va a la
     marca «deliberacion» (JSON puro). Las búsquedas se inyectan:
       buscar(pregunta, figura)                     → tesis (lista, dict o Material)
@@ -1690,7 +1705,7 @@ async def deliberar(cliente, *, problemas: list, material=None,
 
     # A · la pregunta decisiva
     decisiva = await etapa_a(cliente, pral, c_pral, resumen_acto, resumen_conceptos, tx,
-                             tipo_asunto, es_recurso, uso, avisos)
+                             tipo_asunto, es_recurso, uso, avisos, ficha=ficha)
 
     # B · la escalera
     cat = await etapa_b(cliente, decisiva, pral, pi, material, buscar=buscar, reforzar=reforzar,
@@ -1732,7 +1747,7 @@ async def deliberar(cliente, *, problemas: list, material=None,
                                            str(pral.get("combate") or ""),
                                            str(pral.get("resolvio") or "")),
             regla_ley=_f5._regla_de_ley(material) if material is not None else "",
-            hay_procesal_ad=hay_proc)
+            hay_procesal_ad=hay_proc, ficha=ficha)
 
     crudoA, crudoB = await asyncio.gather(
         _pedir(cliente, _pa("A"), modelo=_modelo(), esfuerzo=ESFUERZO_DELIBERACION,
@@ -1758,10 +1773,10 @@ async def deliberar(cliente, *, problemas: list, material=None,
         p1, p2 = await asyncio.gather(
             etapa_d(cliente, ("A", "B"), vias, decisiva=decisiva, cat=cat,
                     constancias_faltantes=constancias_faltantes or [], suplencia=suplencia,
-                    tasa_base=tasa_base, uso=uso, semilla=20260930),
+                    tasa_base=tasa_base, uso=uso, semilla=20260930, ficha=ficha),
             etapa_d(cliente, ("B", "A"), vias, decisiva=decisiva, cat=cat,
                     constancias_faltantes=constancias_faltantes or [], suplencia=suplencia,
-                    tasa_base=tasa_base, uso=uso, semilla=20260930))
+                    tasa_base=tasa_base, uso=uso, semilla=20260930, ficha=ficha))
     comb = combinar(p1, p2, vias, cat)
 
     # E · lo del juez, limpio. Habla la pasada que recomendó la vía en que

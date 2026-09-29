@@ -86,8 +86,15 @@ Sólo el JSON, sin texto alrededor."""
 
 def prompt(*, tipo_asunto: str = "", expediente: str = "", quejoso: str = "",
            sentido: str = "", estudio: str = "", recurrente: str = "",
-           papel_recurrente: str = "", organo: str = "") -> str:
-    """El prompt de la síntesis, con los papeles de ESTE asunto como datos."""
+           papel_recurrente: str = "", organo: str = "", ficha: str = "") -> str:
+    """El prompt de la síntesis, con los papeles de ESTE asunto como datos.
+
+    `ficha` (SPEC_E2, 28-sep-2026): el bloque de `ficha_procesal.bloque`. Si
+    llega, sustituye a los renglones sueltos de recurrente y órgano: la
+    síntesis del 631 contó que «la parte quejosa adquirió el inmueble» porque
+    no sabía quién era quién, y la ficha lo dice con su fuente —quejosa,
+    recurrente y su carácter, órgano recurrido, qué resolvió y qué es materia
+    de la revisión—."""
     try:
         import tipos_asunto as _ta_s
         _t = _ta_s.normalizar(tipo_asunto or "")
@@ -100,6 +107,8 @@ def prompt(*, tipo_asunto: str = "", expediente: str = "", quejoso: str = "",
                     + (f" ({_car})" if _car else ""))
     if _t == "amparo_revision" and (organo or "").strip():
         papeles += f"\nÓrgano que dictó la sentencia recurrida: {organo.strip()}"
+    if (ficha or "").strip():
+        papeles = "\n" + ficha.rstrip()
     return _PROMPT.format(
         tipo=tipo_asunto or "no consta",
         expediente=expediente or "no consta",
@@ -147,7 +156,7 @@ _CARACTER = {"tercero": "parte tercera interesada", "autoridad": "autoridad resp
 async def sintetizar(cliente, *, tipo_asunto: str = "", expediente: str = "",
                      quejoso: str = "", sentido: str = "",
                      estudio: str = "", recurrente: str = "",
-                     papel_recurrente: str = "", organo: str = "") -> dict:
+                     papel_recurrente: str = "", organo: str = "", ficha: str = "") -> dict:
     """{titulo, hechos, criterio, justificacion}; vacío si no procede.
 
     NUNCA REVIENTA EL PROYECTO. La síntesis es la última página; si el modelo
@@ -164,7 +173,7 @@ async def sintetizar(cliente, *, tipo_asunto: str = "", expediente: str = "",
             messages=[{"role": "user", "content": prompt(
                 tipo_asunto=tipo_asunto, expediente=expediente, quejoso=quejoso,
                 sentido=sentido, estudio=estudio, recurrente=recurrente,
-                papel_recurrente=papel_recurrente, organo=organo)}])
+                papel_recurrente=papel_recurrente, organo=organo, ficha=ficha)}])
         m = _RX_JSON.search((r.choices[0].message.content or "").strip())
         d = json.loads(m.group(0)) if m else {}
     except Exception:

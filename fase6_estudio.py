@@ -314,6 +314,12 @@ class Material:
     materia: str = ""
     # Para nombrar a las partes con las figuras que existen en este tipo.
     tipo_asunto: str = "amparo_directo"
+    # LA FICHA PROCESAL DEL ASUNTO, ya escrita como bloque de datos
+    # (`ficha_procesal.bloque`; SPEC_E2, 28-sep-2026). La fija en CADA
+    # petición `redactor_adelanto._formato_al_material`, como la reasunción:
+    # el material vive en la memoria del worker. Vacía = el prompt queda
+    # idéntico al de antes (la v1 está congelada por instantánea).
+    ficha_procesal: str = ""
     # LA ENTIDAD, por el mismo motivo que la materia: viaja con el material
     # porque el material ya llega a todos los prompts. Sale de la colección
     # estatal que eligió el secretario («leyes_queretaro» → «Querétaro»).
@@ -1647,6 +1653,18 @@ _ORIGEN_CONCEPTOS = {
 }
 
 
+def _bloque_ficha(material) -> str:
+    """LA FICHA PROCESAL, en el encabezado de los datos del estudio (SPEC_E2,
+    28-sep-2026). Junto a la ficha de partes: quién promovió, quién recurre y
+    con qué carácter, qué resolvió el juzgado por acto, qué es materia de la
+    revisión y qué quedó firme, y la fracción del art. 93 que rige. En el AR
+    631/2025 el estudio no sabía que la recurrente era la tercera interesada
+    ni que el sobreseimiento del otro acto no se había impugnado. «» si no hay
+    ficha (entonces el prompt no cambia)."""
+    b = str(getattr(material, "ficha_procesal", "") or "").strip()
+    return ("\n" + b + "\n") if b else ""
+
+
 def _bloque_reasuncion(conceptos: str, reas: dict) -> str:
     """ARTÍCULO 93, FRACCIÓN VI: revocada la concesión, el tribunal reasume
     jurisdicción y estudia los conceptos de violación que el juzgado no
@@ -2640,7 +2658,7 @@ FUNDAMENTO — hay que fundar, y hay que fundar bien:
 {_bloque_ley_de_la_via(material)}
 {_bloque_aportado(contexto)}
 {_bloque_constancias(propuesta_global, contexto, criterios)}
-{partes.bloque() if partes is not None else ""}
+{partes.bloque() if partes is not None else ""}{_bloque_ficha(material)}
 {marco if isinstance(marco, str) else ""}
 {_bloque_arquitectura(materia or getattr(material, "materia", ""))}
 {_bloque_tecnica(getattr(material, "tipo_asunto", "") or ("amparo_revision" if es_recurso else "amparo_directo"), rama, violacion_procesal, material)}
@@ -3458,7 +3476,7 @@ FUNDAMENTO — hay que fundar, y hay que fundar bien:
 {_bloque_ley_de_la_via(material)}
 {_bloque_aportado(contexto)}
 {_bloque_constancias(propuesta_global, contexto, criterios)}
-{partes.bloque() if partes is not None else ""}
+{partes.bloque() if partes is not None else ""}{_bloque_ficha(material)}
 {marco if isinstance(marco, str) else ""}
 {_bloque_arquitectura(_materia_v, "v2")}
 {_bloque_tecnica(_tipo_tec, rama, violacion_procesal, material)}

@@ -1535,6 +1535,15 @@ def prompt_estructura(datos: dict) -> str:
     # acto en cada tipo —«fecha, sala, toca y expediente de origen» en el
     # amparo directo— y ahora entra donde sirve, junto a la ficha de datos.
     _identifica = _IDENTIFICA_ACTO.get(_tipo, _IDENTIFICA_ACTO["amparo_directo"])
+    # LA FICHA PROCESAL, COMO DATOS (SPEC_E2, 28-sep-2026): quién promovió,
+    # quién recurre y con qué carácter, qué órgano dictó la recurrida y qué
+    # resolvió por acto, con su fuente. Es de donde salen la carátula, la
+    # competencia y la legitimación; en el AR 631/2025 el prompt sólo tenía los
+    # renglones de la hoja y escribió «dictada … por la MAGISTRADA». Vacía, el
+    # prompt queda como estaba.
+    _ficha_bloque = str(datos.get("ficha_bloque") or "").rstrip()
+    if _ficha_bloque:
+        _ficha_partes += "\n" + _ficha_bloque
     return f"""Eres el secretario de un Tribunal Colegiado de Circuito y escribes las
 partes ESTRUCTURALES de una sentencia de {_clase}. No escribes el estudio
 de fondo —ese ya está hecho—: escribes lo que la ley obliga a decir antes de
