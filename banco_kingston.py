@@ -339,11 +339,31 @@ async def correr(etapa: str, paralelo: int, solo: int | None, banderas: dict | N
 ORO_AUDITADO = AQUI / "oro_auditado.json"
 
 
+def nfc(s) -> str:
+    """El nombre del asunto en una sola forma Unicode. Los nombres del corpus
+    vienen de archivos de macOS (acentos descompuestos, NFD) y los del oro
+    auditado se escribieron compuestos (NFC): «INFRACCIÓN» no casaba con
+    «INFRACCIÓN» y cuatro asuntos se quedaban con la etiqueta vieja."""
+    import unicodedata
+    return unicodedata.normalize("NFC", str(s or ""))
+
+
+class _PorNFC(dict):
+    def get(self, k, d=None):
+        return super().get(nfc(k), d)
+
+    def __contains__(self, k):
+        return super().__contains__(nfc(k))
+
+    def __getitem__(self, k):
+        return super().__getitem__(nfc(k))
+
+
 def oro_auditado() -> dict:
     try:
-        return {k: v["oro"] for k, v in json.loads(ORO_AUDITADO.read_text(encoding="utf-8"))["asuntos"].items()}
+        return _PorNFC({nfc(k): v["oro"] for k, v in json.loads(ORO_AUDITADO.read_text(encoding="utf-8"))["asuntos"].items()})
     except Exception:
-        return {}
+        return _PorNFC()
 
 
 def comparar(contra: str = "") -> None:
