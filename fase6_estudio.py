@@ -4186,7 +4186,8 @@ _RX_ARTICULO = re.compile(r"art[íi]culos?\s+(\d{1,4})\s*(?:bis|ter)?\.?\s*([^.;
 # antes de proponer ni de redactar.
 _RX_ARTICULOS_LISTA = re.compile(
     r"art[íi]culos?\s+(?P<lista>\d{1,4}(?:\s*(?:º|°|o\.|bis|ter))?"
-    r"(?:\s*(?:,|y|e)\s*\d{1,4}(?:\s*(?:º|°|o\.|bis|ter))?)*)\.?\s*(?=(?P<cola>[^.;:]{0,110}))", re.I)
+    r"(?:\s*(?:,|y|e)\s*\d{1,4}(?:\s*(?:º|°|o\.|bis|ter))?)*)\.?\s*(?=(?P<cola>[^.;:]{0,110})(?P<mas>[^.;:]{0,110}))",
+    re.I)
 # «y 2284 y 2294 del Código Civil local»: también una LISTA tras la «y».
 _RX_Y_OTRO_DE_LEY = re.compile(
     r"\b(?:y|e)\s+(?:el\s+|los\s+)?(\d{1,4}(?:\s*(?:º|°|o\.))?"
@@ -4212,8 +4213,22 @@ def citas_de_articulos(texto: str) -> list:
         for nu in nums:
             fuera.append((nu, cola_1))
         if cont:
+            # EL NOMBRE DE LA SEGUNDA LEY, ENTERO (humo del AR 631/2025,
+            # 29-sep-2026): «artículos 14 y 16 de la Constitución Política de
+            # los Estados Unidos Mexicanos y 49, 57 y 279 del Código de
+            # Procedimientos Civiles del Estado de Querétaro» — la ventana de
+            # 110 lo dejaba en «…Procedimientos Civile» y el verificador
+            # acusaba como ausentes tres artículos que estaban en el material.
+            # Qué es continuación se decide como siempre, en la ventana corta;
+            # sólo su ley se completa con lo que sigue.
+            ley_2 = cont.group(2)
+            larga = " ".join((m.group("cola") + (m.group("mas") or "")).split())
+            larga = _RX_OTRO_ARTICULO.split(larga, 1)[0]
+            c2 = _RX_Y_OTRO_DE_LEY.match(larga, cont.start())
+            if c2 and c2.group(1) == cont.group(1) and c2.group(2).startswith(ley_2.rstrip()):
+                ley_2 = c2.group(2)
             for nu in re.findall(r"\d{1,4}", cont.group(1)):
-                fuera.append((nu, cont.group(2)))
+                fuera.append((nu, ley_2))
     return fuera
 
 _VACIAS = {"de", "del", "la", "el", "los", "las", "y", "en", "que", "propio",

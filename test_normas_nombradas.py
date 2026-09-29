@@ -58,6 +58,19 @@ ok(f6._normas_para_el_estudio(types.SimpleNamespace(normas=RELLENO + AL_FINAL, i
    "sin inventario o sin normas, nada raro (nunca lanza)")
 ct.poner(False, {})
 
+print("\n3 · LA SEGUNDA LEY DE UNA LISTA, CON SU NOMBRE ENTERO")
+_t = ("En cuanto a los artículos 14 y 16 de la Constitución Política de los Estados Unidos Mexicanos y 49, 57 y 279 "
+      "del Código de Procedimientos Civiles del Estado de Querétaro, su invocación no cambia nada.")
+_c = dict((n, c) for n, c in f6.citas_de_articulos(_t))
+ok(_c.get("49") == _c.get("279") and "del Estado de Querétaro" in (_c.get("49") or "")
+   and _c.get("14", "").startswith("de la Constitución"),
+   "«…Mexicanos y 49, 57 y 279 del Código de Procedimientos Civiles del Estado de Querétaro»: la ventana corta ya "
+   "no deja la ley en «…Civile» (el verificador acusaba como ausentes tres artículos del material)")
+_mat = types.SimpleNamespace(normas=[norma("Código de Procedimientos Civiles del Estado de Querétaro", a)
+                                     for a in (49, 57, 279)] + [norma("Constitución Política de los Estados Unidos "
+                                                                      "Mexicanos", a) for a in (14, 16)])
+ok(not f6.preceptos_fuera(_t, _mat)[0], "y el verificador ya no los da por ausentes")
+
 print()
 if FALLOS:
     print("FALLAS:\n  " + "\n  ".join(FALLOS))
