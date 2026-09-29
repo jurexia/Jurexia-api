@@ -25,6 +25,7 @@ EST = "\n".join([
     "⟦A1.a⟧ Es infundado el agravio, porque conforme a la jurisprudencia registro 2020001 la notificación surtió efectos.",
     "⟦M1⟧",
     "La premisa: el artículo 17 de la Ley del Seguro Social fija el plazo.",
+    "II. LO QUE LA RECURRENTE ALEGA APARTE",
     "La recurrente invoca, sin razón, el criterio de registro 2020009.",
     "Por lo expuesto, se confirma.",
 ])
@@ -47,6 +48,26 @@ ok(d["registro 2020009"]["estado"] == "sin_unidad" and not d["registro 2020009"]
 ok(d["registro 2020077"]["estado"] == "no_usada", "la que el estudio no usa, «no_usada»")
 ok(d["art. 17 — Código Fiscal de la Federación"]["estado"] == "no_usada",
    "el mismo número de otra ley NO se confunde con la citada")
+
+print("\n1b · LA CITA, PEGADA A SU LEY (revisión del 29-sep)")
+N = lambda a, l: {"articulo": a, "cuerpo_legal": l}
+ok(not ft._cita_norma("⟦C1.b⟧ El artículo 17 de la Constitución garantiza el acceso; la relación de trabajo es otra cosa.",
+                      N("17", "Ley Federal del Trabajo")),
+   "«artículo 17 de la Constitución … trabajo» NO es la Ley Federal del Trabajo")
+ok(not ft._cita_norma("⟦C2.a⟧ El artículo 14 constitucional no se viola.",
+                      N("14", "Ley de Amparo, Reglamentaria de los Artículos 103 y 107 de la Constitución Política de los Estados Unidos Mexicanos")),
+   "«14 constitucional» NO es la Ley de Amparo aunque su nombre mencione la Constitución")
+ok(ft._cita_norma("⟦C1.a⟧ Se violan los artículos 1o., 14 y 16 de la Constitución Política.",
+                  N("14", "Constitución Política de los Estados Unidos Mexicanos")),
+   "la enumeración con ordinales («1o., 14 y 16») se reconoce")
+ok(ft._cita_norma("⟦C1.a⟧ Conforme al artículo 51 de la LFPCA procede.",
+                  N("51", "Ley Federal de Procedimiento Contencioso Administrativo")), "y las siglas")
+ok(ft._cita_tesis("la jurisprudencia 1a./J. 67/2014 aplica", {"clave": "1a./J. 67/2014 (10a.)"}),
+   "la clave citada sin la época («(10a.)») también")
+_d = ft.clasificar("⟦C1.a⟧ Es infundado.\nLo anterior, conforme al registro 2020001.\nSÉPTIMO. Efectos.\nY el registro 2020077.",
+                   [dict(TES[0]), dict(TES[2])], [])
+ok(_d[0]["unidades"] == ["C1.a"] and _d[1]["estado"] == "sin_unidad",
+   "la unidad sigue en el párrafo que continúa la respuesta, y un rótulo la corta")
 
 print("\n2 · EL AVISO Y EL ESTADO DE SALIDA")
 av, est = ft.informe_y_aviso(cl)

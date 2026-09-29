@@ -207,6 +207,17 @@ async def _esperar(r):
     return await r if inspect.isawaitable(r) else r
 
 
+def _top_eval(top: int) -> int:
+    """En una evaluación se pide el TRIPLE y se corta después de excluir: si
+    no, con un corte antiguo la muestra salía truncada (los vecinos recientes
+    se tiraban y no se reponían). En producción, el mismo `top`."""
+    try:
+        import contexto_taller as _ct
+        return int(top) * 3 if _ct.exclusion() is not None else int(top)
+    except Exception:
+        return int(top)
+
+
 async def _buscar(qdrant, vector, debe, top: int) -> list:
     """[(id-del-punto, payload, score)]. El id es el `holding_id` del estudio.
 
@@ -219,7 +230,7 @@ async def _buscar(qdrant, vector, debe, top: int) -> list:
         r = await _esperar(qdrant.query_points(
             collection_name=COL_HOLDINGS, query=vector, using="dense",
             query_filter=Filter(must=debe) if debe else None,
-            limit=top, with_payload=True))
+            limit=_top_eval(top), with_payload=True))
         fuera = [(str(p.id), p.payload, float(getattr(p, "score", 0.0) or 0.0))
                  for p in (getattr(r, "points", None) or [])]
         # EN UNA EVALUACIÓN, EL HOLDING DEL FALLO OBJETIVO NO CUENTA: le diría al
@@ -228,7 +239,7 @@ async def _buscar(qdrant, vector, debe, top: int) -> list:
         _exc = _ct.exclusion()
         if _exc is not None:
             fuera = [x for x in fuera if not (_exc.excluye_holding(x[1] or {})
-                                              or str(x[0]) in _exc.holding_ids)]
+                                              or str(x[0]) in _exc.holding_ids)][:top]
         return fuera
     except Exception as e:
         print(f"   ⚠️ sondeo de precedente: {e}")

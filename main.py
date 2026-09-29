@@ -32321,6 +32321,18 @@ async def taller_adelanto(
     import tempfile
 
     _taller_puerta(user_email)
+    # LA EVALUACIÓN SE VALIDA ANTES DE GENERAR (revisión del 29-sep): una
+    # mal escrita tumbaba el adelanto DESPUÉS de los minutos de generarlo.
+    _ev_pedida = None
+    if (evaluacion or "").strip() and _taller_es_casa(user_email):
+        import contexto_taller as _ctx_v
+        try:
+            _ev_pedida = json.loads(evaluacion)
+        except Exception:
+            raise HTTPException(422, "La evaluación no es JSON válido.")
+        _mal = _ctx_v.valida(_ev_pedida)
+        if _mal:
+            raise HTTPException(422, f"Evaluación inválida: {_mal}")
 
     import redactor_adelanto as _ra
     import tipos_asunto as _ta
@@ -32544,17 +32556,16 @@ async def taller_adelanto(
     # LA EVALUACIÓN SE PEGA AL RESULTADO ANTES DE GUARDAR LA SESIÓN, y se pone
     # en el contexto ANTES de lanzar las tareas sueltas (consulta, contraste):
     # heredan el contexto de esta petición.
-    if (evaluacion or "").strip() and _taller_es_casa(user_email):
-        try:
-            _ev = json.loads(evaluacion)
-            if isinstance(_ev, dict):
-                r.evaluacion = _ev
-                print(f"   🧪 TALLER: {numero} en EVALUACIÓN · exclusión "
-                      f"{sorted((_ev.get('exclusion') or {}).keys())} · banderas {_ev.get('banderas') or {}}")
-        except Exception as _eev:
-            print(f"   ⚠️ evaluación ilegible, se ignora: {type(_eev).__name__}")
-    import contexto_taller as _ctx_t
-    _ctx_t.poner(_taller_es_casa(user_email), getattr(r, "evaluacion", None))
+    if isinstance(_ev_pedida, dict):
+        r.evaluacion = _ev_pedida
+        print(f"   🧪 TALLER: {numero} en EVALUACIÓN · exclusión "
+              f"{sorted((_ev_pedida.get('exclusion') or {}).keys())} · banderas {_ev_pedida.get('banderas') or {}}")
+    try:
+        import contexto_taller as _ctx_t
+        _ctx_t.poner(_taller_es_casa(user_email), getattr(r, "evaluacion", None))
+    except Exception as _ecx:
+        # El adelanto YA se generó: pase lo que pase aquí, se guarda.
+        print(f"   ⚠️ contexto del taller sin poner: {type(_ecx).__name__}")
     _taller_guardar_sesion(user_email, numero, r, tmp)
     # EL CONTRASTE DE LA PROPUESTA EMPIEZA AQUÍ, no en /taller/proponer. Sólo
     # lee lo que este adelanto acaba de producir, cuesta una llamada con
@@ -32707,6 +32718,16 @@ def _taller_guardar_material(email: str, numero: str, m, huella: str = "",
     """
     if not (supabase_admin and m is not None):
         return False
+    # UN SOLO PUNTO ANTES DE GUARDAR (revisión del 29-sep): lo que entró
+    # después de anotar —técnica, figura, refuerzo— se anota con el tribunal
+    # que resuelve, y en una evaluación sale lo publicado desde el corte.
+    try:
+        import fuerza_juridica as _fj_g
+        import contexto_taller as _ctx_g
+        m.tesis = _ctx_g.filtrar_tesis(m.tesis)
+        _fj_g.anotar(m.tesis, getattr(m, "tribunal", "") or "")
+    except Exception as _eag:
+        print(f"   ⚠️ material sin anotar antes de guardar: {type(_eag).__name__}")
     # EN UNA SENTENCIA, si la migración está (ver `_taller_parchar_estado`).
     _parche = {"material": _material_ligero(m)}
     if marca is not None:
@@ -32945,6 +32966,22 @@ def _taller_estado_consulta(material, tarea, doc) -> None:
                                     else {"estado": "completa", "faltan": []})
     except Exception:
         pass
+
+
+def _taller_con_aplicado(resp, email: str, recalculada=None):
+    """A una cuenta de CASA se le devuelve lo que rigió en la petición
+    (exclusión, banderas y si se recalculó): el banco comprueba con esto que el
+    servidor aplicó lo pedido. A los demás, la respuesta de siempre."""
+    if not (isinstance(resp, dict) and _taller_es_casa(email)):
+        return resp
+    try:
+        import contexto_taller as _ctx_a
+        _ap = _ctx_a.aplicado()
+        if recalculada is not None:
+            _ap["recalculada"] = bool(recalculada)
+        return dict(resp, evaluacion_aplicada=_ap)
+    except Exception:
+        return resp
 
 
 def _taller_marca_decisiva(doc, r):
@@ -36825,7 +36862,7 @@ async def taller_consultar(
     _taller_marcar_consultado(user_email, numero)
     _taller_registrar_uso(user_email, numero, "consulta")
 
-    return {
+    return _taller_con_aplicado({
         "expediente": numero,
         "problema_global": r.fases.problema_global,
         # Se devuelve el problema ENTERO, no sólo la pregunta: «qué resolvió» y
@@ -36871,7 +36908,7 @@ async def taller_consultar(
         "espejo": [x for x in (getattr(material, "espejo", []) or [])
                    if isinstance(x, dict)],
         "avisos": r.avisos,
-    }
+    }, user_email)
 
 
 @app.post("/taller/contexto")
@@ -38059,7 +38096,9 @@ async def taller_proponer(
     # llegado, se propone igual y la tarjeta lo dice (rediseño, etapa 2).
     try:
         _m_p = ses.get("material")
-        if _m_p is not None and (getattr(_m_p, "consulta_estado", None) or {}).get("estado") == "provisional":
+        import contexto_taller as _ctx_cp
+        if (_m_p is not None and _ctx_cp.rediseno("consulta_provisional")
+                and (getattr(_m_p, "consulta_estado", None) or {}).get("estado") == "provisional"):
             _dg = _taller_decisiva_guardada(user_email, numero, ses["resultado"])
             if _dg is not None:
                 await _taller_figura_al_material(ses["resultado"], _m_p, _dg)
@@ -38080,7 +38119,10 @@ async def taller_proponer(
                 print(f"   🧪 TALLER: {numero} propone con banderas {_ban}")
         except Exception as _eb:
             print(f"   ⚠️ banderas ilegibles, se ignoran: {type(_eb).__name__}")
-    _forzar = _casa_p and (recalcular or "").strip() in ("1", "true", "si", "sí")
+    # CON BANDERAS SE RECALCULA SIEMPRE (revisión del 29-sep): servir la
+    # propuesta guardada, calculada con otras banderas, la rotularía mal.
+    _forzar = _casa_p and ((recalcular or "").strip() in ("1", "true", "si", "sí")
+                           or bool((banderas or "").strip()))
 
     # LA PROPUESTA YA CORRIÓ SOLA —`_taller_preproponer`, encadenada a la
     # consulta automática— y vale tal cual si el secretario no aporta
@@ -38107,14 +38149,14 @@ async def taller_proponer(
         _taller_guardar_global(user_email, numero, ses["resultado"], _previa)
         print(f"   ⚖️ TALLER: propuesta {numero} servida de la calculada sola · "
               f"{len(_previa.get('propuestas') or [])} sentidos")
-        return _previa
+        return _taller_con_aplicado(_previa, user_email, recalculada=False)
     _resp = await _taller_proponer_nucleo(user_email, numero, ses, contexto)
     _taller_registrar_uso(user_email, numero, "propuesta")
     _taller_guardar_global(user_email, numero, ses["resultado"], _resp)
     # Una propuesta calculada aquí (con contexto del secretario, o sin la
     # precalculada) también lleva su deliberación, si la bandera lo permite.
     _taller_lanzar_deliberacion(user_email, numero, ses["resultado"], ses, _resp, contexto)
-    return _resp
+    return _taller_con_aplicado(_resp, user_email, recalculada=True)
 
 
 # ═══ LA TARJETA «EL PROBLEMA PRINCIPAL Y SU SOLUCIÓN» (AR 631/2025, 28-sep-2026) ═══

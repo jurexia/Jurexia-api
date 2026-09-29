@@ -68,6 +68,40 @@ ct.poner(True, {"banderas": {"b": True}})
 ok(ct.bandera("b", "PRUEBA_BANDERA", "casa") is True, "la bandera pedida en la evaluación manda sobre la variable")
 os.environ.pop("PRUEBA_BANDERA", None)
 
+print("\n4b · LO QUE ESCRIBE UNA PERSONA (revisión del 29-sep)")
+ct.poner(True, {"banderas": {"fuerza_unificada": "false", "x": "0", "y": "sí"}})
+ok(ct.bandera("fuerza_unificada") is False and ct.bandera("x") is False and ct.bandera("y") is True,
+   "«false», «0» apagan; «sí» enciende (antes bool('false') encendía)")
+ct.poner(True, {"exclusion": {"neuns": 38118729, "expedientes": "274/2025"}})
+ok(ct.exclusion() is not None and ct.exclusion().neuns == {38118729} and ct.exclusion().expedientes == {(274, "2025")},
+   "un valor suelto vale como lista de uno (antes tumbaba el adelanto)")
+ok(ct.valida({"exclusion": {"neuns": "x"}}) and ct.valida({"banderas": {"a": "quizá"}})
+   and ct.valida({"exclusion": {"fecha_corte": "mañana", "neuns": [1]}}) and ct.valida({"exclusion": {"neuns": [1]}}) == "",
+   "la evaluación se valida ANTES de generar: vacía, bandera ilegible o fecha ilegible → 422")
+ct.poner(True, {"exclusion": {"fecha_corte": "2026-01-01", "neuns": [1]}, "banderas": {"fuerza_unificada": True}})
+ok([t["r"] for t in ct.filtrar_tesis([{"r": 1, "fecha_publicacion": "2026-02-01"}, {"r": 2, "fecha_publicacion": "2025-02-01"}, {"r": 3}])] == [2, 3],
+   "un solo filtro de tesis para todas las entradas")
+ok(ct.aplicado() == {"exclusion": {"neuns": [1], "expedientes": [], "holding_ids": [], "fecha_corte": "2026-01-01",
+                                    "serie": "", "web": False}, "banderas": {"fuerza_unificada": True}},
+   "lo que rigió se puede devolver al banco")
+import fase_precedente as fpr
+ok(fpr._top_eval(40) == 120, "en evaluación se pide el triple y se corta después de excluir")
+ct.poner(False, {})
+ok(fpr._top_eval(40) == 40 and ct.filtrar_tesis([{"fecha_publicacion": "2030-01-01"}]) != [],
+   "en producción, nada cambia")
+src = open("main.py", encoding="utf-8").read()
+i_val, i_gen = src.find("_ctx_v.valida(_ev_pedida)"), src.find("r = await _ra.generar(chat_client, encargo")
+ok(0 < i_val < i_gen, "el adelanto valida la evaluación antes de generar")
+
+ct.poner(False, {})
+ok(not any(ct.rediseno(k) for k in ct.BANDERAS_REDISENO), "todas las banderas del rediseño, apagadas para los de fuera")
+ct.poner(True, {})
+ok(all(ct.rediseno(k) for k in ct.BANDERAS_REDISENO), "y encendidas para la casa")
+import banco_kingston as _bk0, banco_deliberacion as _bd0
+ok(set(_bk0.BANDERAS_BASE) == set(ct.BANDERAS_REDISENO) and not any(_bk0.BANDERAS_BASE.values())
+   and set(_bd0.BANDERAS_OAJ) == set(ct.BANDERAS_REDISENO),
+   "los bancos fijan TODAS las banderas del rediseño; la base, apagadas (= producción de fuera)")
+
 print("\n5 · LAS FUENTES LA RESPETAN")
 import fase_oaj as fo
 ct.poner(True, {"exclusion": {"neuns": [700], "fecha_corte": "2026-01-01"}})

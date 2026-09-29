@@ -323,7 +323,7 @@ def _tesis_de(p: dict) -> dict:
         # el circuito, la región de un Pleno Regional y la designación propia
         # —sin ella la jurisprudencia propia (art. 228) salía como la de
         # cualquier colegiado—; la ÉPOCA y la FECHA son el régimen temporal.
-        "clave": p.get("clave_tesis") or "",
+        "clave_tesis": p.get("clave_tesis") or "",
         "epoca": p.get("epoca") or "",
         "fecha_publicacion": p.get("fecha_publicacion") or "",
         # EL SELLO DE VIGENCIA (25-sep-2026): None si no consta pérdida. Todas
@@ -706,6 +706,7 @@ async def completar_tesis_citadas(qdrant, material, citas: list, tipo_asunto: st
     if qdrant is None or not citas:
         return []
     from qdrant_client.models import FieldCondition, Filter, MatchValue
+    import contexto_taller as _ct_ct
     tengo = {str(t.get("registro") or "") for t in (material.tesis or [])}
     claves_tengo = {re.sub(r"\s+", "", str(t.get("clave") or t.get("clave_tesis") or "")).upper()
                     for t in (material.tesis or [])}
@@ -751,6 +752,11 @@ async def completar_tesis_citadas(qdrant, material, citas: list, tipo_asunto: st
         anadidas.append(f"{t['registro']} · {str(t.get('rubro') or '')[:50]}")
     if anadidas:
         print(f"   ⚖️ RAG: {len(anadidas)} tesis citadas traídas del acervo: {[a.split(' · ')[0] for a in anadidas]}")
+    # EN UNA EVALUACIÓN, lo traído que se publicó desde el corte sale.
+    if _ct_ct.exclusion() is not None:
+        material.tesis = _ct_ct.filtrar_tesis(material.tesis)
+        _quedan = {str(t.get("registro") or "") for t in material.tesis}
+        anadidas = [a for a in anadidas if not str(a).isdigit() or str(a) in _quedan]
     return anadidas
 
 
@@ -1155,7 +1161,7 @@ async def _sembrar(qdrant, silo: str, vector, materia: str) -> list:
             collection_name="sentencias_holdings", query=vector, using="dense",
             query_filter=Filter(must=[FieldCondition(key="materia",
                                                      match=MatchAny(any=grafias))]),
-            limit=HOLDINGS_A_SEMBRAR,
+            limit=HOLDINGS_A_SEMBRAR * (3 if __import__("contexto_taller").exclusion() is not None else 1),
             with_payload=["circuito", "expediente", "fecha_sentencia", "holding_id"])
         if inspect.isawaitable(r):
             r = await r
@@ -1165,7 +1171,7 @@ async def _sembrar(qdrant, silo: str, vector, materia: str) -> list:
                 for p in (getattr(r, "points", None) or [])
                 # EN UNA EVALUACIÓN, el holding del fallo objetivo no siembra.
                 if not (_exc is not None and (_exc.excluye_holding(p.payload or {})
-                                              or str(p.id) in _exc.holding_ids))]
+                                              or str(p.id) in _exc.holding_ids))][:HOLDINGS_A_SEMBRAR]
     except Exception as e:
         log.error("sembrado: no se pudo sondear holdings: %s", e)
         return []
@@ -1541,6 +1547,10 @@ async def material_para(qdrant, embed_juris, embed_leyes,
     normas = list(await asyncio.gather(
         *[_completar(qdrant, c, n) for c, n in pares])) if pares else []
 
+    # EN UNA EVALUACIÓN, SIN LO PUBLICADO DESDE EL CORTE (contexto_taller:
+    # el mismo filtro para todas las entradas de tesis).
+    import contexto_taller as _ct_mp
+    unicas = _ct_mp.filtrar_tesis(unicas)
     return f6.Material(tesis=unicas[:TESIS_POR_PROBLEMA],
                        normas=normas[:NORMAS_POR_PROBLEMA * 2
                                      + (NORMAS_DEL_ACTO if _acto else 0)],
@@ -1680,6 +1690,8 @@ def sumar_figura(material, tesis: list, numero_principal: int) -> dict:
     ya = {str(t.get("registro") or ""): t for t in (getattr(material, "tesis", None) or [])
           if isinstance(t, dict)}
     nuevas, marcadas = [], 0
+    import contexto_taller as _ct_sf
+    tesis = _ct_sf.filtrar_tesis(tesis)   # en una evaluación, sin lo posterior al corte
     for t in tesis or []:
         reg = str(t.get("registro") or "")
         if not reg:

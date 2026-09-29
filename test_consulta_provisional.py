@@ -17,6 +17,8 @@ def ok(c, q):
 import tarjeta_decision as td
 import taller_estado as te
 import fase6_estudio as f6
+import contexto_taller as ct
+ct.poner(True, {})          # cuenta de casa: la bandera «consulta_provisional» encendida
 
 print("\n1 · LA TARJETA")
 m = f6.Material()
@@ -29,6 +31,11 @@ m.consulta_estado = {"estado": "completa", "faltan": []}
 ok(td._provisional(m, "propuesta", "claro", ["R"]) == {"recomendada": "propuesta", "estado": "claro", "estado_por_que": ["R"]},
    "completa (o sin dato, sesión vieja): como siempre")
 ok(td._provisional(f6.Material(), "opuesta", "reñido", []) ["recomendada"] == "opuesta", "sin el campo, como siempre")
+ct.poner(False, {})
+m.consulta_estado = {"estado": "provisional", "faltan": ["decisiva"]}
+ok(td._provisional(m, "propuesta", "claro", ["R"])["recomendada"] == "propuesta",
+   "para los de fuera, sin la bandera, la tarjeta como hoy (se mide antes)")
+ct.poner(True, {})
 
 print("\n2 · VIAJA CON LA SESIÓN")
 m2 = f6.Material()

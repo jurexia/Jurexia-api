@@ -67,7 +67,7 @@ ok("await _taller_proponer_nucleo(user_email, numero, ses, contexto)" in handler
 ok('_taller_leer_marca(user_email, numero, "propuesta")' in handler
    and ('if not (contexto or "").strip():' in handler
         or 'if not (contexto or "").strip() and not _forzar:' in handler)
-   and 'return _previa' in handler,
+   and ('return _previa' in handler or 'return _taller_con_aplicado(_previa' in handler),
    "sin contexto sirve la propuesta calculada sola; con contexto, calcula")
 i_pre = m.find("async def _taller_preconsultar(")
 i_pp = m.find("async def _taller_preproponer(")

@@ -65,6 +65,12 @@ AQUI = Path("/Users/josedavidalcantarmendoza/Documents/IUREXIA-MAC/jurexia-api-g
 INDICE_OAJ = "/Users/josedavidalcantarmendoza/Documents/IUREXIA-MAC/redactor-sentencias/oaj/indice_oaj_v2.sqlite"
 ORGANO_OAJ = "Tercer Tribunal Colegiado en Materias Administrativa y Civil del Vig%"
 ETAPAS_CON_ADELANTO = ("antes", "base")
+# LA LÍNEA BASE ES PRODUCCIÓN DE HOY PARA UN SECRETARIO DE FUERA (revisión del
+# 29-sep): con la cuenta de casa, las banderas «casa» se encenderían solas y la
+# base mediría dos cambios a la vez. Toda etapa fija TODAS las banderas; las que
+# no se pidan, apagadas.
+BANDERAS_BASE = {"fuerza_unificada": False, "fuente_tardia_aviso": False, "normas_al_documento": False,
+                 "tesis_parte_al_consultar": False, "consulta_provisional": False}
 AQUI.mkdir(parents=True, exist_ok=True)
 PDFS = AQUI / "pdf"; PDFS.mkdir(exist_ok=True)
 RESULTADOS = AQUI / "resultados.jsonl"
@@ -127,6 +133,26 @@ def exclusion_de(caso: dict) -> dict:
     corte = min((x for x in map(_f, fechas) if x), default=None)
     return {"expedientes": nums, "neuns": sorted(set(neuns)),
             "fecha_corte": corte.isoformat() if corte else "", "serie": caso["asunto"][:60]}
+
+
+def _comprobar_aplicado(resp: dict, exc: dict, banderas: dict, donde: str, recalculada=None) -> None:
+    """LA FILA ES LIMPIA POR LO QUE EL SERVIDOR APLICÓ, NO POR LO QUE SE ENVIÓ
+    (revisión del 29-sep): un worker con código viejo ignora sin error los
+    campos que no conoce, y sirve la propuesta guardada. La API devuelve a las
+    cuentas de casa `evaluacion_aplicada`; si falta o no casa, error."""
+    ap = (resp or {}).get("evaluacion_aplicada")
+    if not isinstance(ap, dict):
+        raise RuntimeError(f"{donde}: el servidor no devolvió evaluacion_aplicada (¿código viejo?)")
+    ex = ap.get("exclusion") or {}
+    if exc.get("neuns") and sorted(ex.get("neuns") or []) != sorted(exc["neuns"]):
+        raise RuntimeError(f"{donde}: la exclusión aplicada no es la pedida ({ex.get('neuns')})")
+    if (exc.get("fecha_corte") or "") != (ex.get("fecha_corte") or ""):
+        raise RuntimeError(f"{donde}: fecha de corte aplicada {ex.get('fecha_corte')!r}")
+    for k, v in (banderas or {}).items():
+        if (ap.get("banderas") or {}).get(k) != v:
+            raise RuntimeError(f"{donde}: la bandera {k} no rigió como se pidió")
+    if recalculada is not None and ap.get("recalculada") is not recalculada:
+        raise RuntimeError(f"{donde}: no se recalculó la propuesta")
 
 
 def fugas_en(espejo, exc: dict) -> int:
@@ -193,7 +219,10 @@ def ya_hechos(etapa: str) -> dict:
                     # casos los atendió el worker que aún rodaba el código viejo:
                     # salieron «ok» y sin contraste. Darlos por hechos sería medir
                     # el antes y llamarlo después.
-                    if etapa != "antes" and not r.get("contraste"):
+                    # «base» también crea sesiones: no se re-corre por traer
+                    # el contraste vacío (sobrescribiría la sesión que ya
+                    # midieron las otras etapas).
+                    if etapa not in ETAPAS_CON_ADELANTO and not r.get("contraste"):
                         continue
                     hechos[r["asunto"]] = r
     return hechos
@@ -210,8 +239,9 @@ async def correr_caso(caso: dict, etapa: str, sem: asyncio.Semaphore,
     asunto = caso["asunto"]; numero = numero_de(asunto)
     oro = sentido_del_oro(caso["oro"])
     exc = exclusion_de(caso)
+    banderas = {**BANDERAS_BASE, **(banderas or {})}
     fila = {"etapa": etapa, "asunto": asunto, "numero": numero, "oro": oro,
-            "exclusion": exc, "banderas": banderas or {},
+            "exclusion": exc, "banderas": banderas, "sin_corte": not exc.get("fecha_corte"),
             "t0": time.strftime("%Y-%m-%d %H:%M:%S")}
     async with sem:
         t = time.time()
@@ -246,19 +276,18 @@ async def correr_caso(caso: dict, etapa: str, sem: asyncio.Semaphore,
                     if r.status_code != 200:
                         raise RuntimeError(f"consultar {r.status_code}: {r.text[:200]}")
                     _cj = r.json() or {}
+                    _comprobar_aplicado(_cj, exc, banderas, "consultar")
                     fila["problemas"] = len(_cj.get("problemas") or [])
                     fila["fugas"] = fugas_en(_cj.get("espejo"), exc)
                     fila["t_acervo"] = round(time.time() - t)
 
-                _dp = {"numero": numero, "user_email": CORREO}
-                if etapa not in ETAPAS_CON_ADELANTO:
-                    _dp["recalcular"] = "1"
-                if banderas:
-                    _dp["banderas"] = json.dumps(banderas)
+                _dp = {"numero": numero, "user_email": CORREO, "recalcular": "1",
+                       "banderas": json.dumps(banderas)}
                 r = await cx.post(f"{BASE}/taller/proponer", data=_dp)
                 if r.status_code != 200:
                     raise RuntimeError(f"proponer {r.status_code}: {r.text[:200]}")
                 p = r.json()
+                _comprobar_aplicado(p, exc, banderas, "proponer", recalculada=True)
                 g = p.get("global") or {}
                 fila.update({
                     "sentido_global": g.get("sentido"),
@@ -313,6 +342,13 @@ def comparar(contra: str = "") -> None:
         print(f"  {etapa:<10} sentido acertado {ok}/{n} = {100*ok/max(n,1):.0f}%   "
               f"(línea base «siempre niega»: {sum(1 for f in d.values() if f['oro']=='niega')}/{n})"
               + (f"   ⚠️ FUGAS: {fug}" if fug else ""))
+        # LOS SEIS SIN FECHA DE CORTE, APARTE: en ellos lo posterior no se
+        # excluye (no están en la OAJ como AD) y «0 fugas» no dice nada.
+        con = [f for f in d.values() if not f.get("sin_corte") and f.get("exclusion", {}).get("fecha_corte")]
+        sin = [f for f in d.values() if f not in con]
+        if sin:
+            print(f"             · con corte {sum(1 for f in con if f.get('acierta'))}/{len(con)} · "
+                  f"SIN corte {sum(1 for f in sin if f.get('acierta'))}/{len(sin)} (lo posterior no se excluyó)")
         for (o, p), k in sorted(conf.items()):
             print(f"           oro={o:<8} motor={p:<13} {k}")
     ref = contra or ("base" if "base" in por else "antes")

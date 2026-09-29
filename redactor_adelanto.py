@@ -861,8 +861,9 @@ async def consultar(qdrant, embed_juris, embed_leyes,
     # estudio. Sólo entra lo que EXISTE en el acervo, por registro o clave.
     try:
         import fases123_pipeline as _f123q
+        import contexto_taller as _ct_q
         _esc_q = (list(getattr(r.fases, "fuentes", []) or []) + ["", ""])[1]
-        _citas_q = sorted(_f123q.citas_invocadas(_esc_q))
+        _citas_q = sorted(_f123q.citas_invocadas(_esc_q)) if _ct_q.rediseno("tesis_parte_al_consultar") else []
         if _citas_q and qdrant is not None:
             _nq = await f6rag.completar_tesis_citadas(
                 qdrant, material, _citas_q,
@@ -1687,11 +1688,33 @@ async def _fuentes_tardias(r, e, material, estudio: str, avisos: list, qdrant,
                                   + ". Compruébalos antes de firmar.")
     except Exception as _ex:
         print(f"   ⚠️ no se pudieron completar los preceptos citados: {_ex}")
+    # LO TRAÍDO, CON LA FUERZA PARA ESTE TRIBUNAL Y SIN LO EXCLUIDO (revisión
+    # del 29-sep): completar_tesis_citadas las anota sin tribunal.
+    try:
+        import fuerza_juridica as _fj_t
+        import contexto_taller as _ct_t
+        material.tesis = _ct_t.filtrar_tesis(material.tesis)
+        _fj_t.anotar(material.tesis, getattr(material, "tribunal", "") or getattr(e, "tribunal", "") or "")
+    except Exception as _eat:
+        print(f"   ⚠️ tesis tardías sin anotar: {type(_eat).__name__}")
     # ═══ ¿TOCA UNA PREMISA? (rediseño, punto 7) ═══
     try:
         import fuente_tardia as _ft
         _tn = [t for t in (material.tesis or []) if isinstance(t, dict)
                and str(t.get("registro") or "") not in _t0]
+        # QUIÉN LA CITÓ, DE VERDAD: `completar_tesis_citadas` marca todas como
+        # «de la parte»; desde la decisión 3 las de la parte llegan al
+        # consultar, así que las tardías son casi siempre del estudio.
+        try:
+            import fases123_pipeline as _f123p
+            _esc_p = (list(getattr(r.fases, "fuentes", []) or []) + ["", ""])[1]
+            _de_parte = {re.sub(r"\s+", "", str(x)).upper() for x in _f123p.citas_invocadas(_esc_p)}
+            for _t in _tn:
+                _t["citada_por_la_parte"] = (
+                    str(_t.get("registro") or "") in _de_parte
+                    or re.sub(r"\s+", "", str(_t.get("clave") or "")).upper() in _de_parte)
+        except Exception:
+            pass
         _nn = [n for n in (material.normas or []) if isinstance(n, dict)
                and (str(n.get("articulo")), str(n.get("cuerpo_legal") or n.get("fuente") or "")) not in _n0]
         if _tn or _nn:
@@ -2479,17 +2502,39 @@ async def _terminar(cliente, r, e, criterios, material, estudio,
                    for n_ in (material.normas or [])}
             nuevos = [x for x in _extra
                       if (x["articulo"], x["cuerpo_legal"]) not in _ya]
+            # EL MISMO CANDADO DE LA LITIS (revisión del 29-sep): antes de
+            # sumarlos al documento, fuera lo que la litis declara inadmisible
+            # —p. ej. un Código Civil local citado de memoria en un asunto que
+            # sólo litiga el procesal—, con su aviso.
+            try:
+                if _litis:
+                    nuevos, _fuera_n = _ln.filtrar_normas(nuevos, _litis)
+                    if _fuera_n:
+                        avisos.append("Artículos citados que la litis no admite y NO se "
+                                      "transcriben: " + "; ".join(
+                                          f"art. {x.get('articulo')} — {x.get('cuerpo_legal')}"
+                                          for x in _fuera_n[:6]) + ".")
+            except Exception as _elf:
+                print(f"   ⚠️ litis sobre los artículos recuperados: {type(_elf).__name__}")
             material.normas = list(material.normas or []) + nuevos
             # AL DOCUMENTO TAMBIÉN (29-sep-2026). El relleno se armó arriba con
             # la lista anterior y aquí se reasignaba otra: los artículos
             # recuperados nunca llegaban a `_componer_generado`.
-            relleno.normas = material.normas
+            import contexto_taller as _ct_nd
+            if _ct_nd.rediseno("normas_al_documento"):
+                relleno.normas = material.normas
             print(f"   ⚖️ artículos citados recuperados: {len(nuevos)} nuevos "
                   f"de {len(_extra)} hallados")
             # Y SON FUENTE TARDÍA: el estudio los citó sin su texto (punto 7).
             try:
                 import fuente_tardia as _ft
-                _cl = _ft.clasificar(estudio, (), nuevos,
+                # LAS NOTORIAS NO SON FUENTE TARDÍA (revisión del 29-sep): la
+                # Ley de Amparo, la Constitución y la LOPJF se citan sin tener
+                # su texto a propósito (`preceptos_fuera` las exime); marcarlas
+                # dejaba casi todo proyecto en «justificación pendiente».
+                _no_notorias = [x for x in nuevos if not any(
+                    n in str(x.get("cuerpo_legal") or "").lower() for n in f6._NOTORIAS)]
+                _cl = _ft.clasificar(estudio, (), _no_notorias,
                                      mapa=(meta_estudio or {}).get("mapa"),
                                      parrafos=f6.parrafos(estudio))
                 _av_ft, _estado_ft = _ft.informe_y_aviso(_cl)
@@ -2498,7 +2543,12 @@ async def _terminar(cliente, r, e, criterios, material, estudio,
                     if _estado_ft:
                         meta_estudio["estado_salida"] = _estado_ft
                 if _av_ft and _aviso_tardio_visible():
-                    avisos.insert(0, _av_ft)
+                    # UN SOLO AVISO: si ya había uno de las tesis tardías, se
+                    # rehace con TODAS las fuentes tardías del proyecto.
+                    _todas = [c for c in (meta_estudio or {}).get("fuentes_tardias") or []]
+                    _av_uno, _ = _ft.informe_y_aviso(_todas or _cl)
+                    avisos[:] = [a for a in avisos if not str(a).startswith("JUSTIFICACIÓN PENDIENTE")]
+                    avisos.insert(0, _av_uno or _av_ft)
             except Exception as _eft:
                 print(f"   ⚠️ artículos tardíos sin clasificar: {type(_eft).__name__}")
     except Exception as _ea:

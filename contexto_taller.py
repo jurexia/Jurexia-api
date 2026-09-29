@@ -97,8 +97,18 @@ class Exclusion:
 
     @classmethod
     def de_dict(cls, d: dict) -> "Exclusion | None":
+        """Tolerante con lo que escribe una persona: un valor suelto vale como
+        lista de uno; lo que no se entiende se descarta (nunca lanza)."""
         if not isinstance(d, dict):
             return None
+
+        def _lista(v):
+            if v is None:
+                return []
+            if isinstance(v, (list, tuple, set)):
+                return list(v)
+            return [v]
+        d = {k: (_lista(v) if k in ("neuns", "expedientes", "holding_ids") else v) for k, v in d.items()}
         exps = set()
         for x in (d.get("expedientes") or []):
             na = numero_anio(x)
@@ -157,11 +167,78 @@ def poner(casa: bool = False, evaluacion: dict | None = None) -> None:
     sesión. Sólo se toma si la cuenta es de casa: un usuario no puede apagar
     fuentes ni encender banderas desde fuera."""
     ev = evaluacion if (casa and isinstance(evaluacion, dict)) else {}
-    exc = Exclusion.de_dict(ev.get("exclusion") or {}) if ev.get("exclusion") else None
+    try:
+        exc = Exclusion.de_dict(ev.get("exclusion") or {}) if ev.get("exclusion") else None
+    except Exception:
+        exc = None
     if exc is not None and exc.vacia():
         exc = None
-    ban = {str(k): v for k, v in (ev.get("banderas") or {}).items()} if isinstance(ev.get("banderas"), dict) else {}
+    ban = {}
+    if isinstance(ev.get("banderas"), dict):
+        for k, v in ev["banderas"].items():
+            b = _booleano(v)
+            if b is not None:
+                ban[str(k)] = b
     _CTX.set({"casa": bool(casa), "exclusion": exc, "banderas": ban})
+
+
+def _booleano(v):
+    """True/False de un valor escrito a mano («false», «0», «no» son False);
+    None si no se entiende (entonces no se usa y manda el entorno)."""
+    if isinstance(v, bool):
+        return v
+    if isinstance(v, (int, float)):
+        return bool(v)
+    s = str(v or "").strip().lower()
+    if s in ("1", "true", "si", "sí", "on", "encendida", "yes"):
+        return True
+    if s in ("0", "false", "no", "off", "apagada"):
+        return False
+    return None
+
+
+def valida(evaluacion) -> str:
+    """«» si la evaluación se puede usar; si no, qué tiene mal (para un 422
+    ANTES de generar, no un 500 después)."""
+    if not isinstance(evaluacion, dict):
+        return "la evaluación debe ser un objeto JSON"
+    exc = evaluacion.get("exclusion")
+    if exc is not None:
+        if not isinstance(exc, dict):
+            return "«exclusion» debe ser un objeto"
+        e = Exclusion.de_dict(exc)
+        if e is None or e.vacia():
+            return "la exclusión quedó vacía: faltan NEUN, expedientes, holdings o fecha de corte legibles"
+        if exc.get("fecha_corte") and e.fecha_corte is None:
+            return f"fecha_corte ilegible: {exc.get('fecha_corte')!r}"
+    ban = evaluacion.get("banderas")
+    if ban is not None and not isinstance(ban, dict):
+        return "«banderas» debe ser un objeto"
+    for k, v in (ban or {}).items():
+        if _booleano(v) is None:
+            return f"la bandera {k!r} no es sí/no: {v!r}"
+    return ""
+
+
+def filtrar_tesis(tesis) -> list:
+    """Las tesis sin lo que la evaluación excluye (publicadas desde el corte).
+    Fuera de una evaluación, la lista tal cual. UN SOLO FILTRO para todas las
+    entradas de tesis: consulta, figura, refuerzo, citadas y tardías."""
+    exc = exclusion()
+    lista = list(tesis or [])
+    if exc is None:
+        return lista
+    return [t for t in lista if not exc.excluye_tesis(t)]
+
+
+def aplicado() -> dict:
+    """Lo que RIGIÓ en esta petición, para devolverlo a una cuenta de casa: el
+    banco comprueba con esto que el servidor aplicó lo que se le pidió (un
+    worker con código viejo ignora los campos sin error)."""
+    c = actual()
+    exc = c.get("exclusion")
+    return {"exclusion": exc.a_dict() if exc is not None else None,
+            "banderas": dict(c.get("banderas") or {})}
 
 
 def actual() -> dict:
@@ -184,11 +261,29 @@ def bandera(nombre: str, defecto_env: str = "", omision: str = "casa") -> bool:
     si no hay, `omision`. «casa» = sólo para las cuentas de casa: así un cambio
     que toca los prompts de todos se enciende primero donde se puede medir."""
     ban = actual().get("banderas") or {}
-    if nombre in ban:
-        return bool(ban[nombre])
+    if nombre in ban and _booleano(ban[nombre]) is not None:
+        return _booleano(ban[nombre])
     modo = (os.getenv(defecto_env, "") if defecto_env else "").strip().lower() or omision
     if modo in ("1", "true", "si", "sí", "todos"):
         return True
     if modo == "casa":
         return es_casa()
     return False
+
+
+# ═══ LAS BANDERAS DEL REDISEÑO (revisión del 29-sep) ═════════════════════════
+# Cada cambio que altera lo que ve o recibe un secretario va detrás de la suya,
+# «casa» por omisión: la cuenta de David lo ve, los demás no, hasta medirlo con
+# el banco (base con todas apagadas = producción de hoy para los de fuera).
+BANDERAS_REDISENO = {
+    "fuerza_unificada": "FUERZA_UNIFICADA",          # fuerza por tribunal, clave, vigencia única
+    "fuente_tardia_aviso": "FUENTE_TARDIA_AVISO",    # aviso «justificación pendiente»
+    "normas_al_documento": "NORMAS_AL_DOCUMENTO",    # artículos recuperados al .docx (con litis)
+    "tesis_parte_al_consultar": "TESIS_PARTE_AL_CONSULTAR",  # decisión 3
+    "consulta_provisional": "CONSULTA_PROVISIONAL",  # la tarjeta no recomienda sin la figura
+}
+
+
+def rediseno(nombre: str) -> bool:
+    """¿Rige este cambio del rediseño en esta petición? (ver BANDERAS_REDISENO)."""
+    return bandera(nombre, BANDERAS_REDISENO.get(nombre, ""), "casa")

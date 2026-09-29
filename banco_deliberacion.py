@@ -60,13 +60,19 @@ import sys
 import time
 from pathlib import Path
 
-AQUI = Path(__file__).parent / "bancos" / "deliberacion"
+# En el checkout principal, como Kingston (revisión del 29-sep): los resultados
+# pagados no pueden morir con el worktree.
+AQUI = Path("/Users/josedavidalcantarmendoza/Documents/IUREXIA-MAC/jurexia-api-git/bancos/deliberacion")
 RESULTADOS = AQUI / "resultados.jsonl"
 OAJ_DIR = "/Users/josedavidalcantarmendoza/Documents/IUREXIA-MAC/redactor-sentencias/oaj/lectura_json"
 # En el checkout principal (29-sep-2026): desde un worktree la ruta relativa no
 # existía y el brazo «hoy» salía vacío sin avisar.
 KINGSTON_RESULTADOS = Path("/Users/josedavidalcantarmendoza/Documents/IUREXIA-MAC/jurexia-api-git/bancos/kingston/resultados.jsonl")
 INDICE_OAJ = "/Users/josedavidalcantarmendoza/Documents/IUREXIA-MAC/redactor-sentencias/oaj/indice_oaj_v2.sqlite"
+# Las banderas del banco OAJ: por omisión, las de producción para un secretario
+# de fuera (apagadas). `--banderas` las cambia para medir un cambio.
+BANDERAS_OAJ = {"fuerza_unificada": False, "fuente_tardia_aviso": False, "normas_al_documento": False,
+                "tesis_parte_al_consultar": False, "consulta_provisional": False}
 
 
 def _fecha_de_neun(neun) -> str:
@@ -448,7 +454,9 @@ async def correr_oaj(n_por_tipo: int, semilla: int, con_base: bool) -> list:
         _exc = {"neuns": [caso["neun"]] if caso.get("neun") else [],
                 "expedientes": [caso["numero"]] if caso.get("numero") else [],
                 "fecha_corte": _fecha_de_neun(caso.get("neun")) if caso.get("neun") else ""}
-        _ct.poner(True, {"exclusion": _exc})
+        # TODAS LAS BANDERAS FIJAS (revisión del 29-sep): casa=True encendería
+        # las «casa» sin decirlo y el banco mediría dos cambios a la vez.
+        _ct.poner(True, {"exclusion": _exc, "banderas": dict(BANDERAS_OAJ)})
         fila["exclusion"] = _exc
         try:
             mat = await f6r.material_para(m.qdrant_client, m._embedding_juris, embed_leyes,
@@ -495,9 +503,11 @@ async def correr_oaj(n_por_tipo: int, semilla: int, con_base: bool) -> list:
     return filas
 
 
-def kingston_hoy() -> list:
-    """El brazo «hoy» de Kingston, sin coste: las filas «antes» del banco que
-    ya corrió (la última de cada asunto), en la escala de este banco."""
+def kingston_hoy(etapa: str = "base") -> list:
+    """El brazo «hoy» de Kingston, sin coste: las filas de la etapa de
+    referencia del banco que ya corrió (la última de cada asunto), en la escala
+    de este banco. SÓLO las medidas con la exclusión puesta (revisión del
+    29-sep): las del 14-sep se midieron con fuga."""
     if not KINGSTON_RESULTADOS.exists():
         return []
     ult = {}
@@ -505,7 +515,8 @@ def kingston_hoy() -> list:
         if not x.strip():
             continue
         f = json.loads(x)
-        if f.get("etapa") == "antes" and not f.get("error") and f.get("oro") in ("concede", "niega"):
+        if (f.get("etapa") == etapa and f.get("exclusion") and not f.get("error")
+                and f.get("oro") in ("concede", "niega")):
             ult[f["asunto"]] = f
     return [{"asunto": a, "oro": f["oro"] == "concede",
              "predicho": {"concede": True, "niega": False}.get(f.get("propuesto"))}
@@ -541,7 +552,11 @@ def main(argv=None) -> int:
                     help="en la OAJ, corre también la propuesta de hoy (brazo de comparación)")
     ap.add_argument("--si-gastar", action="store_true")
     ap.add_argument("--comparar", action="store_true")
+    ap.add_argument("--banderas", default="", help='JSON; p. ej. {"fuerza_unificada": true}')
     a = ap.parse_args(argv)
+    if a.banderas:
+        BANDERAS_OAJ.update(json.loads(a.banderas))
+    print(f"  banderas efectivas: {BANDERAS_OAJ}")
     if a.comparar:
         comparar()
         return 0

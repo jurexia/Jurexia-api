@@ -1003,15 +1003,20 @@ def _bloque_material(m: Material) -> str:
                 # LA MISMA DEFINICIÓN QUE LA TARJETA Y LA DELIBERACIÓN
                 # (fuerza_juridica, rediseño punto 3): «aclarada» o de «texto
                 # sustituido» no pierden vigencia; se dice qué cambió.
-                if _fj.sello_perdio_vigencia(_v):
+                if (_fj.sello_perdio_vigencia(_v) if _fj.activa()
+                        else not _v.get("parcial")):
                     fuerza = "SIN VIGENCIA"
                     _linea += (f" — ⚠️ {_vig.etiqueta(_v)}: no la invoques como vigente"
                                + (f"; funda en la {_v['por_clave']}" if _v.get("por_clave") else ""))
-                else:
+                elif _fj.activa():
                     _linea += (f" — ⚠️ {_vig.etiqueta(_v)}"
                                + ("" if not _v.get("parcial") else
                                   ": perdió vigencia sólo EN PARTE; invócala sólo en lo que sigue vigente")
                                + (f"; ver la {_v['por_clave']}" if _v.get("por_clave") else ""))
+                else:
+                    # Sin la bandera, exactamente como antes.
+                    _linea += (f" — ⚠️ {_vig.etiqueta(_v)}: no la invoques como vigente"
+                               + (f"; funda en la {_v['por_clave']}" if _v.get("por_clave") else ""))
             p.append(f"\n  · [{fuerza}] [{tipo}] Registro "
                      f"{t.get('registro','')} — {t.get('instancia','')}{_uso}{_linea}")
             p.append(f"    {t.get('rubro','')}")
@@ -2363,6 +2368,13 @@ Interamericana que no cambie la respuesta.
         f"       para {parte}, dilo y di en qué consiste ese beneficio.)"
         if _ad_189 else
         "estudio de las violaciones procesales que inciden en el sentido del fallo.»")
+    # LA REGLA DE FUNDAR, CON LA FUERZA COMÚN (revisión del 29-sep): con la
+    # fuerza unificada, «obligatoria» es «vincula a ESTE tribunal», y la
+    # jurisprudencia de otro colegiado se cita como orientadora, no se calla.
+    import fuerza_juridica as _fj_rf
+    _regla_funda = ("FUNDA CON LAS TESIS DEL MATERIAL: la OBLIGATORIA para este tribunal, como"
+                    " razón que decide; si no la hay, la ORIENTADORA, como apoyo y diciendo que orienta."
+                    if _fj_rf.activa() else "FUNDA CON LAS TESIS OBLIGATORIAS DEL MATERIAL.")
     return f"""Eres el secretario de un Tribunal Colegiado de Circuito redactando el
 estudio de fondo de {_clase}. Escribes mejor que la media del
 oficio: con más orden, más precisión y menos relleno, pero en su mismo registro.
@@ -2648,7 +2660,7 @@ tema principal, has repartido mal el proyecto y hay que rehacer el reparto.
   «infundado» en el mismo estudio obliga a rehacer el resolutivo.
 
 FUNDAMENTO — hay que fundar, y hay que fundar bien:
-- FUNDA CON LAS TESIS OBLIGATORIAS DEL MATERIAL. Un estudio de fondo sin citas
+- {_regla_funda} Un estudio de fondo sin citas
   no es un engrose: es una opinión con formato de sentencia.
 
   LA MEDIDA, tomada de los engroses reales de este tribunal: entre TRES y SEIS
@@ -3198,6 +3210,13 @@ de un planteamiento, enúncialo AHÍ, en una frase, y sigue. Nada de repaso
 general de derechos humanos, de la Convención Americana o de la Corte
 Interamericana que no cambie la respuesta.
 """
+    # LA REGLA DE FUNDAR, CON LA FUERZA COMÚN (revisión del 29-sep): con la
+    # fuerza unificada, «obligatoria» es «vincula a ESTE tribunal», y la
+    # jurisprudencia de otro colegiado se cita como orientadora, no se calla.
+    import fuerza_juridica as _fj_rf
+    _regla_funda = ("FUNDA CON LAS TESIS DEL MATERIAL: la OBLIGATORIA para este tribunal, como"
+                    " razón que decide; si no la hay, la ORIENTADORA, como apoyo y diciendo que orienta."
+                    if _fj_rf.activa() else "FUNDA CON LAS TESIS OBLIGATORIAS DEL MATERIAL.")
     return f"""Eres el secretario de un Tribunal Colegiado de Circuito redactando el
 estudio de fondo de {_clase}. Escribes mejor que la media del
 oficio: con más orden, más precisión y menos relleno, pero en su mismo registro.
@@ -3483,7 +3502,7 @@ puede necesitar.
   menciona.
 
 FUNDAMENTO — hay que fundar, y hay que fundar bien:
-- FUNDA CON LAS TESIS OBLIGATORIAS DEL MATERIAL. Una premisa que decide sin
+- {_regla_funda} Una premisa que decide sin
   apoyo no es un engrose: es una opinión con formato de sentencia.
 
   LA MEDIDA: cada premisa que decide, con su apoyo —el que de verdad la
@@ -5253,7 +5272,10 @@ def revisar(estudio: str, criterios: list[Criterio], material: Material,
     #        estudio no invocó ni una. La causa fue el propio prompt, que tras
     #        los arreglos avisaba tres veces contra citar mal y ninguna a favor
     #        de citar bien.
-    obligatorias = [t for t in material.tesis if t.get("obligatoria")]
+    # CON LA FUERZA UNIFICADA, «obligatoria» ya no es «es jurisprudencia»: el
+    # aviso sigue contando la jurisprudencia citable (revisión del 29-sep), si
+    # no se quedaría sin objeto en los asuntos sin jurisprudencia de la Corte.
+    obligatorias = [t for t in material.tesis if t.get("obligatoria") or t.get("vincula_origen")]
     # EN LA v2, «PREMISA SIN NINGÚN APOYO», Y EN SOMBRA. La v2 manda un apoyo
     # por premisa, máximo dos, y ninguna tesis dos veces: un estudio bueno de
     # un solo problema vivo cita una. «Menos de dos… entre tres y seis» lo

@@ -87,7 +87,7 @@ print("\n5b · LA CLAVE Y LA VIGENCIA")
 d2 = r._tesis_de({"registro": "2030001", "instancia": "Tribunales Colegiados de Circuito", "tipo": "Jurisprudencia",
                   "vincula": True, "clave_tesis": "XXII.3o.A.C. J/5 K (11a.)", "epoca": "Undécima Época",
                   "fecha_publicacion": "2024-05-10"})
-ok(d2["clave"] == "XXII.3o.A.C. J/5 K (11a.)" and d2["epoca"] and d2["fecha_publicacion"],
+ok(d2["clave_tesis"] == "XXII.3o.A.C. J/5 K (11a.)" and d2["epoca"] and d2["fecha_publicacion"],
    "_tesis_de ya no tira la clave, la época ni la fecha")
 fj.anotar([d2], TER)
 ok(d2["vincula_al_tribunal"] is True and "228" in d2["fuerza_texto"],
@@ -115,6 +115,13 @@ nuevo = r._tesis_de(dict(TCC_J))
 ok(nuevo["obligatoria"] is False and fj.rotulo(nuevo).startswith("orientadora"), "encendida, la regla nueva")
 fj.anotar([viejo])
 ok(viejo["obligatoria"] is False, "y una tesis anotada con la bandera apagada se RECALCULA al encenderla")
+
+ct.poner(False, {})
+d3 = r._tesis_de({"registro": "2030002", "instancia": "Tribunales Colegiados de Circuito", "tipo": "Jurisprudencia",
+                  "vincula": True, "clave_tesis": "XXII.3o.A.C. J/5 K (11a.)"})
+ok(td.fuerza_para_colegiado(d3, TER)["fuerza"] == "orienta",
+   "sin la bandera, la clave guardada NO cambia la fuerza en la tarjeta de los de fuera (se mide antes)")
+ct.poner(True, {})
 
 print("\n6 · LAS SENTENCIAS PROPIAS")
 s = fj.de_sentencia_propia({"nivel": "posible", "similitud": 66, "cota_inferior": True})

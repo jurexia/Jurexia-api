@@ -163,10 +163,16 @@ def clave_de_tesis(t: dict) -> str:
     localización. El material del taller casi nunca la trae: `_tesis_de` no la
     guarda (ver las dudas de `fuerza_para_colegiado`). «» si no consta: nunca
     se inventa."""
-    for k in ("clave", "clave_tesis", "numero_tesis", "tesis"):
+    for k in ("clave", "numero_tesis", "tesis"):
         v = _txt(_get(t, k))
         if v:
             return v
+    # LA CLAVE QUE AHORA GUARDA `_tesis_de` (campo propio `clave_tesis`) sólo se
+    # lee con la fuerza unificada: cambia la fuerza en la tarjeta de todos
+    # (Pleno Regional con región, jurisprudencia propia) y eso se mide antes.
+    v = _txt(_get(t, "clave_tesis"))
+    if v and activa():
+        return v
     m = _RX_CLAVE_EN_TEXTO.search(str(_get(t, "texto") or "")[:400])
     if m:
         return m.group(1).strip()
@@ -327,6 +333,15 @@ def fuerza_para_colegiado(tesis: dict, tribunal: str = "", circuito: int = 0, *,
          Semanario la publicó como jurisprudencia: se lee del `tipo`.
     """
     tesis = tesis if isinstance(tesis, dict) else {}
+    # LAS CORRECCIONES A MANO, PARA TODOS LOS QUE LEEN LA FUERZA (revisión del
+    # 29-sep): DELIBERACION_REGION y DELIBERACION_CLAVE_PROPIA sólo llegaban a
+    # la deliberación, y la misma tesis salía «propia» ahí y «orienta» en la
+    # propuesta. Valen como respaldo: sólo si no se pasan ni se leen del nombre.
+    import os as _os
+    if not (region or "").strip():
+        region = (_os.getenv("DELIBERACION_REGION", "") or "").strip() or None
+    if not (clave_propia or "").strip() and not (designacion_de(tribunal) if tribunal else ""):
+        clave_propia = (_os.getenv("DELIBERACION_CLAVE_PROPIA", "") or "").strip()
     organo = _organo(tesis)
     tipo = _tipo(tesis)
     obligatorio = tipo in ("jurisprudencia", "precedente")

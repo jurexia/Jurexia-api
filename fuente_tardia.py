@@ -57,14 +57,34 @@ def _prefijo(i: str) -> str:
     return m.group(1) if m else ""
 
 
+_RX_RUBRO = re.compile(r"^\s*(PRIMER[OA]?|SEGUND[OA]|TERCER[OA]?|CUART[OA]|QUINT[OA]|SEXT[OA]|S[ÉE]PTIM[OA]|"
+                       r"OCTAV[OA]|NOVEN[OA]|D[ÉE]CIM[OA])\b|^\s*[IVXLC]+\.\s|^\s*[A-Z]\)\s")
+
+
+def _es_rotulo(texto: str) -> bool:
+    """Un rótulo de apartado («SEXTO. Estudio.», «I. …», «A) …») corta la
+    unidad: lo que sigue ya no es la respuesta del argumento anterior."""
+    s = (texto or "").strip()
+    if not s or len(s) > 110:
+        return False
+    letras = [c for c in s if c.isalpha()]
+    mayus = sum(1 for c in letras if c.isupper()) / max(len(letras), 1)
+    return bool(_RX_RUBRO.match(s)) or mayus > 0.7
+
+
 def parrafos_con_unidades(estudio: str) -> list:
     """[(texto del párrafo, [ids de su unidad])]. Una marca sola en su renglón
-    vale para el párrafo siguiente (la misma regla de `marcas.separar_marcas`)."""
+    vale para el párrafo siguiente (la misma regla de `marcas.separar_marcas`).
+
+    LA UNIDAD SIGUE HASTA LA SIGUIENTE MARCA O EL SIGUIENTE RÓTULO (revisión del
+    29-sep): el prompt pone la marca sólo en el PRIMER párrafo de cada
+    respuesta, así que la jurisprudencia citada en el desarrollo —el caso
+    típico— caía en un párrafo «sin unidad»."""
     try:
         import marcas as _mc
     except Exception:                                   # pragma: no cover
         _mc = None
-    fuera, pendientes = [], []
+    fuera, pendientes, vigente = [], [], []
     for renglon in (estudio or "").split("\n"):
         if not renglon.strip():
             continue
@@ -77,9 +97,18 @@ def parrafos_con_unidades(estudio: str) -> list:
         if ids and not limpio.strip():
             pendientes.extend(ids)          # marca sola: vale para el siguiente
             continue
-        fuera.append((limpio, list(dict.fromkeys(pendientes + ids))))
+        propios = list(dict.fromkeys(pendientes + ids))
         pendientes = []
+        if propios:
+            vigente = propios
+        elif _es_rotulo(limpio):
+            vigente = []
+        fuera.append((limpio, list(propios or vigente)))
     return fuera
+
+
+def _sin_epoca(clave: str) -> str:
+    return re.sub(r"\(\s*\d{1,2}\s*a\.\s*\)\s*$", "", (clave or "").replace(" ", ""), flags=re.I)
 
 
 def _cita_tesis(parrafo: str, t: dict) -> bool:
@@ -91,26 +120,69 @@ def _cita_tesis(parrafo: str, t: dict) -> bool:
         clave = _fj.clave_de_tesis(t)
     except Exception:                                   # pragma: no cover
         clave = ""
-    clave = (clave or "").replace(" ", "")
-    return bool(clave) and clave in parrafo.replace(" ", "")
+    base = _sin_epoca(clave)
+    # Con o sin la época: «1a./J. 67/2014» también es la «1a./J. 67/2014 (10a.)».
+    return bool(base) and len(base) >= 6 and base in parrafo.replace(" ", "")
+
+
+_VACIAS = {"de", "del", "la", "las", "los", "el", "y", "para", "en", "ley", "codigo",
+           "federal", "estado", "general", "nacional"}
+# Las siglas con que los estudios citan: sigla → palabras que la ley debe tener.
+_SIGLAS = {"lfpca": ("procedimiento", "contencioso"), "cff": ("fiscal", "federacion"),
+           "lft": ("trabajo",), "lss": ("seguro", "social"), "cpeum": ("constitucion",),
+           "lissste": ("seguridad", "servicios", "sociales"), "cnpcf": ("procedimientos", "civiles"),
+           "cfpc": ("procedimientos", "civiles"), "ccf": ("civil",), "lgt": ("transparencia",),
+           "lfpa": ("procedimiento", "administrativo")}
+_RX_LEY_CUE = re.compile(r"\b(constituci\w*|ley\b|codigo\b|reglamento\b|estatuto\b|"
+                         + "|".join(_SIGLAS) + r")\b")
 
 
 def _palabras_ley(nombre: str) -> set:
-    vacias = {"de", "del", "la", "las", "los", "el", "y", "para", "en", "ley", "codigo", "federal"}
-    return {w for w in re.findall(r"[a-z]{4,}", _plano(nombre)) if w not in vacias}
+    return {w for w in re.findall(r"[a-z]{4,}", _plano(nombre)) if w not in _VACIAS}
+
+
+def _es_esta_ley(segmento: str, nombre: str) -> bool:
+    """¿El segmento que nombra una ley («de la Constitución…», «del Código
+    Civil…», «de la LFPCA») es ESTA ley?"""
+    n = _plano(nombre)
+    s = segmento
+    if n.startswith("constitucion"):
+        return s.startswith("constituci") or re.match(r"^cpeum\b", s) is not None
+    for sig, pals in _SIGLAS.items():
+        if re.match(r"^" + sig + r"\b", s):
+            return all(p in n for p in pals)
+    pal = _palabras_ley(nombre)
+    if not pal:
+        return False
+    hits = sum(1 for w in pal if w in s)
+    return hits >= min(2, len(pal))
 
 
 def _cita_norma(parrafo: str, n: dict) -> bool:
-    art = str((n or {}).get("articulo") or "").strip()
+    """¿El párrafo cita el artículo `n`? El número tiene que ir tras «artículo»
+    (también en una enumeración: «artículos 1o., 14 y 16») y la PRIMERA ley que
+    se nombra después tiene que ser la suya. Buscar el nombre en todo el
+    párrafo confundía leyes: «el artículo 17 de la Constitución… la relación de
+    trabajo» pasaba por la Ley Federal del Trabajo (revisión del 29-sep)."""
+    art = _plano(str((n or {}).get("articulo") or "").strip())
     if not art:
         return False
     p = _plano(parrafo)
-    if not re.search(r"\bart(?:iculos?|s?\.)[^.;]{0,60}?(?<!\d)" + re.escape(_plano(art)) + r"(?!\d)", p):
-        return False
     ley = str(n.get("cuerpo_legal") or n.get("fuente") or "")
-    pal = _palabras_ley(ley)
-    # Sin nombre de ley legible, el número solo no basta para afirmar la cita.
-    return bool(pal) and any(w in p for w in pal)
+    for m in re.finditer(r"\bart(?:iculos?|s?\.)", p):
+        ventana = p[m.end(): m.end() + 90]
+        mn = re.search(r"(?<![\d])" + re.escape(art) + r"(?:o\.?|°|º)?(?![\d])", ventana)
+        if not mn:
+            continue
+        cola = ventana[mn.end():] + p[m.end() + 90: m.end() + 250]
+        cue = _RX_LEY_CUE.search(cola)
+        if not cue:
+            continue
+        seg = cola[cue.start(): cue.start() + 90]
+        seg = re.split(r"[;:]|\.\s", seg)[0]
+        if _es_esta_ley(seg, ley):
+            return True
+    return False
 
 
 def clasificar(estudio: str, tesis_nuevas=(), normas_nuevas=(), *, mapa: dict = None,
@@ -128,7 +200,14 @@ def clasificar(estudio: str, tesis_nuevas=(), normas_nuevas=(), *, mapa: dict = 
         for k, idxs in (mapa or {}).items():
             for i in (idxs or []):
                 inv.setdefault(i, []).append(k)
-        pars = [(p, inv.get(i, [])) for i, p in enumerate(parrafos)]
+        pars, vigente = [], []
+        for i, p in enumerate(parrafos):
+            propios = inv.get(i, [])
+            if propios:
+                vigente = propios
+            elif _es_rotulo(p):
+                vigente = []
+            pars.append((p, list(propios or vigente)))
     else:
         pars = parrafos_con_unidades(estudio)
     fuera = []

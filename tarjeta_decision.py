@@ -1143,7 +1143,12 @@ def _provisional(material, recomendada, estado, por_que) -> dict:
     una o pedir al motor que redacte—, pero no rotula ninguna como
     recomendada: la recomendación dependería de un análisis que no se hizo."""
     ce = _get(material, "consulta_estado") or {}
-    if isinstance(ce, dict) and ce.get("estado") == "provisional":
+    try:
+        import contexto_taller as _ct_p
+        _on = _ct_p.rediseno("consulta_provisional")
+    except Exception:
+        _on = False
+    if _on and isinstance(ce, dict) and ce.get("estado") == "provisional":
         falta = ", ".join(ce.get("faltan") or []) or "parte de la consulta"
         return {"recomendada": None, "estado": "no_alcanza",
                 "estado_por_que": [f"Consulta PROVISIONAL: falta {falta} (la pregunta decisiva no "
