@@ -946,36 +946,35 @@ CARATULA = {
         ("TERCERO INTERESADO", "tercero", False),
         ("AUTORIDAD RESPONSABLE", "responsable", True),
     ],
-    # EL ADELANTO QUE DAVID AJUSTÓ ESCRIBE UNA SOLA FIGURA: «QUEJOSA Y
-    # RECURRENTE». No dos renglones, y sin el del órgano recurrido.
+    # LA FORMA LA MANDA EL CORPUS (28-sep-2026, AR 631/2025). Medido sobre la
+    # primera página de 500 amparos en revisión del propio Tercer Tribunal
+    # Colegiado en Materias Administrativa y Civil del Vigésimo Segundo
+    # Circuito (oaj/lectura, semilla 631; 478 carátulas legibles; conteos y
+    # ejemplos en SCR/caratulas_revision.md):
     #
-    # Y tiene su lógica: en un amparo EN REVISIÓN quien recurre es —casi
-    # siempre— quien fue quejoso en el amparo indirecto, así que separarlo en
-    # dos etiquetas repite a la misma persona; y el Juzgado de Distrito no es
-    # parte del recurso, es el órgano cuya sentencia se revisa, y ya se nombra
-    # en el V I S T O y en la competencia. Ponerlo en el rubro lo asciende a
-    # parte, que es el error que este catálogo existía para evitar… y se corregía
-    # en la dirección contraria.
+    #   · el órgano recurrido o el juzgado NO aparece en NINGUNA (0 de 478).
+    #     Una sesión anterior añadió «ÓRGANO RECURRIDO» citando engroses que
+    #     no eran de revisión, y el 631 salió con «ÓRGANO RECURRIDO:
+    #     MAGISTRADA…». El juzgado ya se nombra donde el corpus lo nombra: en
+    #     el V I S T O y en la competencia (`organo_recurrido` sigue vivo ahí);
+    #     en el rubro lo ascendía a parte;
+    #   · cuando recurre la quejosa, «QUEJOSA Y RECURRENTE» (162 de 226; el
+    #     resto «RECURRENTE (PARTE QUEJOSA)»);
+    #   · cuando recurre OTRA parte, el recurrente lleva su CARÁCTER en el
+    #     rótulo —«TERCERA INTERESADA Y RECURRENTE», «AUTORIDAD RESPONSABLE Y
+    #     RECURRENTE»— y en 51 de 146 va además un renglón «QUEJOSA:» encima
+    #     (AR 60/2020: «QUEJOSO: … / TERCERA INTERESADA Y RECURRENTE: …», la
+    #     forma del 631). Se usa ésa porque David pidió los dos renglones y
+    #     porque la carátula de una sola figura callaba quién pidió el amparo;
+    #     el partido lo hace `filas_caratula`, no esta tabla;
+    #   · «RECURRENTE ADHESIVO» o «ADHERENTE», también con su carácter cuando
+    #     consta.
     #
     # LA ETIQUETA CONCUERDA EN GÉNERO con quien promueve, porque «QUEJOSO Y
     # RECURRENTE» sobre una sociedad rural no lo firma nadie.
     "amparo_revision": [
         ("{QUEJOSO_A} Y RECURRENTE", "quejoso", True),
         ("RECURRENTE ADHESIVO", "adherente", False),
-        # EL ÓRGANO RECURRIDO FALTABA, y era el único tipo sin él: el amparo
-        # directo lleva «AUTORIDAD RESPONSABLE», la queja «ÓRGANO QUE DICTÓ EL
-        # AUTO RECURRIDO» y la revisión fiscal «SALA RESPONSABLE». La revisión
-        # se quedó con quejoso y adherente, así que el proyecto salía con una
-        # carátula que no dice contra quién va el asunto.
-        #
-        # Los engroses reales de David SÍ lo llevan: «ÓRGANO RECURRIDO: SALA
-        # REGIONAL EN QUERÉTARO DEL TRIBUNAL FEDERAL DE JUSTICIA ADMINISTRATIVA
-        # Y DE LA DIRECCIÓN LOCAL QUERÉTARO DE LA COMISIÓN NACIONAL DEL AGUA».
-        #
-        # Se rotula «ÓRGANO RECURRIDO» y no «AUTORIDAD RESPONSABLE»: en un
-        # recurso lo que se recurre es la resolución de un órgano, y la
-        # responsable es otra figura del amparo de origen.
-        ("ÓRGANO RECURRIDO", "responsable", True),
     ],
     "queja": [
         ("RECURRENTE", "quejoso", True),
@@ -996,8 +995,11 @@ CARATULA = {
 # hombre. No se adivina del nombre de pila —eso es exactamente lo que este
 # proyecto no hace— sino de la FORMA JURÍDICA cuando consta, y en la duda se
 # usa el neutro, que existe y es correcto: «PARTE QUEJOSA Y RECURRENTE».
+# «A.C.», «S.C.» e «I.A.P.» son asociación, sociedad e institución: femeninas.
+# Sin ellas «Unión Ejemplo, A.C.» (la quejosa del AR 631/2025) salía «PARTE
+# QUEJOSA» en la carátula.
 _RX_FEMENINO = re.compile(
-    r"\bsociedad\b|\bS\.?\s*A\.?\b|\bS\.?\s*de\s*R\.?\s*L\.?\b|"
+    r"\bA\.\s*C\.|\bS\.\s*C\.|\bI\.\s*A\.\s*P\.|\bsociedad\b|\bS\.?\s*A\.?\b|\bS\.?\s*de\s*R\.?\s*L\.?\b|"
     r"\basociaci[óo]n\b|\bcooperativa\b|\bempresa\b|\binstituci[óo]n\b|"
     r"\bcomisi[óo]n\b|\bsecretar[íi]a\b|\bdirecci[óo]n\b|\bsala\b|"
     r"\bjunta\b|\bunidad\b|\buniversidad\b|\bfundaci[óo]n\b", re.I)
@@ -1006,16 +1008,49 @@ _RX_MASCULINO = re.compile(
     r"\bconsejo\b|\bbanco\b|\btribunal\b|\bjuzgado\b", re.I)
 
 
+# EL SUSTANTIVO QUE ENCABEZA EL NOMBRE MANDA (revisión adversarial de la fase
+# E, 28-sep-2026). Con el nombre REAL de la quejosa del AR 631/2025 —«la Unión
+# de Trabajadores de la Construcción, Transportistas, Materialistas y Similares
+# y Anexos del Estado de Querétaro, C.T.M.»— la carátula salía «PARTE
+# QUEJOSA»: el arreglo de «A.C.» sólo cubría el nombre sintético de la prueba.
+# Y con «Impulsora de Desarrollos Inmobiliarios VV», sin «S.A.», el renglón
+# salía «PARTE TERCERA INTERESADA». El género de una persona moral es el de
+# su sustantivo de cabeza (la unión, la impulsora, el sindicato); si no hay
+# uno conocido, lo de siempre: la forma jurídica, y en la duda el neutro.
+_RX_CABEZA_FEM = re.compile(
+    r"^(?:(?:la|las)\s+)?(?:uni[óo]n|federaci[óo]n|confederaci[óo]n|liga|central|alianza|"
+    r"agrupaci[óo]n|c[áa]mara|coalici[óo]n|organizaci[óo]n|asociaci[óo]n|sociedad|cooperativa|"
+    r"empresa|instituci[óo]n|comisi[óo]n|secretar[íi]a|direcci[óo]n|sala|junta|unidad|"
+    r"universidad|fundaci[óo]n|inmobiliaria|\w+(?:dora|tora|sora))\b", re.I)
+_RX_CABEZA_MASC = re.compile(
+    r"^(?:(?:el|los)\s+)?(?:sindicato|instituto|ayuntamiento|municipio|organismo|consejo|banco|"
+    r"tribunal|juzgado|frente|grupo|colegio|comit[ée]|patronato|fideicomiso)\b", re.I)
+# «C.T.M.» (Confederación de Trabajadores de México) y las demás centrales
+# obreras al final del nombre: la afiliación es femenina.
+_RX_CENTRAL_OBRERA = re.compile(r"\bC\.\s*T\.\s*M\.|\bC\.\s*R\.\s*O\.\s*C\.|\bC\.\s*R\.\s*O\.\s*M\.")
+
+
 def genero_de(nombre: str) -> str:
     """«a», «o» o «" "» —neutro— para concordar la etiqueta de la carátula."""
     n = (nombre or "").strip()
     if not n:
         return ""
-    if _RX_FEMENINO.search(n):
+    if _RX_CABEZA_FEM.search(n):
+        return "a"
+    if _RX_CABEZA_MASC.search(n):
+        return "o"
+    if _RX_FEMENINO.search(n) or _RX_CENTRAL_OBRERA.search(n):
         return "a"
     if _RX_MASCULINO.search(n):
         return "o"
     return ""
+
+
+def sin_articulo_de_prosa(nombre: str) -> str:
+    """«la Unión …» → «Unión …» para un renglón de la carátula. Sólo el
+    artículo en MINÚSCULA, que es el de la prosa («la quejosa, la Unión…»);
+    el que va en mayúscula es parte del nombre («La Costeña, S.A.»)."""
+    return re.sub(r"^\s*(?:el|la|los|las)\s+(?=[A-ZÁÉÍÓÚÑ])", "", str(nombre or ""))
 
 
 def etiqueta_concordada(etiqueta: str, nombre: str) -> str:
@@ -1029,6 +1064,90 @@ def etiqueta_concordada(etiqueta: str, nombre: str) -> str:
 
 def caratula_de(tipo: str) -> list:
     return CARATULA.get(normalizar(tipo), CARATULA["amparo_directo"])
+
+
+# LAS FIGURAS QUE EXISTEN EN EL TIPO PERO NO VAN EN EL RUBRO. En la revisión el
+# juzgado que dictó la sentencia recurrida es una figura del expediente —la
+# ficha de partes lo lee y la competencia lo nombra— aunque la carátula no lo
+# lleve (0 de 478 en el corpus). Sin esta tabla, quien rotulaba la ficha con
+# `caratula_de` caía al «AUTORIDAD RESPONSABLE» del amparo directo y le ponía
+# ese nombre al juzgado (AR 631/2025).
+FIGURAS_FUERA_DEL_RUBRO = {
+    "amparo_revision": {
+        "responsable": "ÓRGANO RECURRIDO (Juzgado de Distrito que dictó la sentencia recurrida)",
+    },
+}
+
+
+def etiqueta_de_figura(tipo: str, clave: str, omision: str = "") -> str:
+    """El rótulo de esa figura en este tipo: el de la carátula o, si no va en
+    el rubro, el de `FIGURAS_FUERA_DEL_RUBRO`."""
+    for et, cl, _ob in caratula_de(tipo):
+        if cl == clave:
+            return et
+    return FIGURAS_FUERA_DEL_RUBRO.get(normalizar(tipo), {}).get(clave, omision)
+
+
+# EL CARÁCTER DE QUIEN RECURRE, EN EL RÓTULO (medido: SCR/caratulas_revision.md).
+# Concuerda con el nombre como el de la quejosa; sin género legible, la forma
+# con «PARTE», que es la neutra del propio corpus.
+_CARACTER_RECURRENTE = {
+    "tercero": {"a": "TERCERA INTERESADA", "o": "TERCERO INTERESADO",
+                "": "PARTE TERCERA INTERESADA"},
+    "autoridad": {"a": "AUTORIDAD RESPONSABLE", "o": "AUTORIDAD RESPONSABLE",
+                  "": "AUTORIDAD RESPONSABLE"},
+}
+
+
+def filas_caratula(tipo: str, datos: dict) -> list:
+    """[(etiqueta, clave, valor)] del rubro de este asunto, ya concordadas.
+
+    Una sola fuente para la hoja de datos del prompt y para el .docx, que
+    partían la etiqueta cada una a su manera. En la revisión, cuando recurre
+    otro que la quejosa (`datos["recurrente"]` no vacío, con
+    `datos["papel_recurrente"]` = «tercero» | «autoridad»), son dos renglones:
+    «QUEJOSA: …» y «{CARÁCTER} Y RECURRENTE: …» (AR 60/2020; el 631 lo
+    recurrió la tercera interesada). En la queja y la revisión fiscal, el
+    renglón de `responsable` lleva `organo_recurrido` cuando se leyó, como
+    antes. La clave del segundo renglón es «recurrente». Las filas vacías y
+    no obligatorias no salen."""
+    d = dict(datos or {})
+    _t = normalizar(tipo)
+    # SIN EL ARTÍCULO DE LA PROSA (fase E): la ficha da «la Unión …»; en el
+    # renglón de la carátula va el nombre.
+    for _k in ("quejoso", "recurrente"):
+        if isinstance(d.get(_k), str):
+            d[_k] = sin_articulo_de_prosa(d[_k])
+    _rec = str(d.get("recurrente") or "").strip()
+    _q = str(d.get("quejoso") or "")
+    # `quejoso_moral` se calcula sobre lo TECLEADO en el formulario, que en un
+    # recurso de otra parte puede ser la recurrente (el 631 guardó a la
+    # tercera en «quejoso»): con recurrente aparte sólo cuenta el nombre.
+    _fem_q = (bool(d.get("quejoso_moral")) and not _rec) or genero_de(_q) == "a"
+    filas = []
+    for et, clave, ob in caratula_de(tipo):
+        valor = d.get(clave, "")
+        if _rec and clave == "quejoso" and "Y RECURRENTE" in et:
+            _et_q = et.replace(" Y RECURRENTE", "")
+            _et_q = ("QUEJOSA" if _fem_q else etiqueta_concordada(_et_q, _q)) \
+                if "{QUEJOSO_A}" in _et_q else _et_q
+            filas.append((_et_q, "quejoso", valor))
+            _papel = str(d.get("papel_recurrente") or "").strip()
+            _car = _CARACTER_RECURRENTE.get(_papel, {}).get(genero_de(_rec), "")
+            filas.append((f"{_car} Y RECURRENTE" if _car else "RECURRENTE",
+                          "recurrente", _rec))
+            continue
+        if (clave == "responsable" and _t != "amparo_revision"
+                and str(d.get("organo_recurrido") or "").strip()):
+            filas.append((etiqueta_concordada(et, ""), clave, d.get("organo_recurrido")))
+            continue
+        if not (valor or ob):
+            continue
+        if "{QUEJOSO_A}" in et and _fem_q:
+            filas.append((et.replace("{QUEJOSO_A}", "QUEJOSA"), clave, valor))
+            continue
+        filas.append((etiqueta_concordada(et, str(valor or "")), clave, valor))
+    return filas
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -2009,11 +2128,14 @@ TECNICA_RESOLUCION["recurso_revoca_o_modifica"] = {
         "SE MODIFICA cuando la ilegalidad, advertida y todo, DEJA EN PIE otras "
         "consideraciones: se corrige lo ilegal y subsiste el resto. Aquí hay "
         "que decir QUÉ SUBSISTE, porque el resolutivo lo conserva.",
-        "ESCRÍBELO EN UNA FRASE, antes de cerrar el estudio: «el vicio alcanza "
-        "a la razón toral del fallo y no permite conservar consideración "
-        "alguna, por lo que procede REVOCAR» o «la ilegalidad se limita a X y "
-        "deja intactas las consideraciones sobre Y, por lo que procede "
-        "MODIFICAR». Sin esa frase, el resolutivo queda afirmado y no razonado.",
+        # SIN LA FRASE HECHA (revisión adversarial de la fase E, 28-sep-2026):
+        # el prompt v4 del AR 631/2025 traía las dos frases enteras entre
+        # comillas y el estudio las copiaba; se describe lo que la frase dice.
+        "DILO ANTES DE CERRAR EL ESTUDIO, con tus palabras y en una frase: hasta "
+        "dónde llega el vicio (si alcanza la razón que sostiene el fallo o sólo "
+        "una parte), qué consideraciones subsisten si alguna subsiste, y por eso "
+        "si procede REVOCAR o MODIFICAR. Sin esa frase, el resolutivo queda "
+        "afirmado y no razonado.",
         "Y NO CONFUNDAS REVOCAR CON DEJAR INSUBSISTENTE: revocar es lo que hace "
         "este tribunal con la sentencia recurrida; dejar insubsistente es lo "
         "que se le ordena a la responsable en un AMPARO concedido.",

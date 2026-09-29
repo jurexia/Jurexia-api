@@ -68,6 +68,9 @@ NORMA_CARACTERES = 4000
 # la instrucción de fundar quedaba al 2% del texto, enterrada bajo 30,000 tokens
 # de jurisprudencia. Diez bien elegidas se leen; cuarenta y cuatro se hojean.
 MAX_TESIS_PROMPT = 10
+# Las de la figura que no traía ningún problema (fase E): cupo propio, fuera de
+# las diez (`_bloque_material`).
+MAX_TESIS_FIGURA_PROMPT = 3
 MAX_NORMAS_PROMPT = 12
 
 PALABRAS_ESTUDIO = 3733
@@ -306,6 +309,11 @@ class Material:
     # preceptos. Ver `fase_rama.sede_del_acto` y `fase_rama.cuaderno_recurrido`.
     sede_del_acto: str = ""
     cuaderno: str = ""
+    # LA PREGUNTA DECISIVA DEL PRINCIPAL (SPEC E3, AR 631/2025): el documento
+    # de `pregunta_decisiva.formular`, o None. Viaja con el material por la
+    # misma razón que la materia: llega a la propuesta, al estudio y a la
+    # tarjeta sin un parámetro nuevo en cada sitio.
+    decisiva: object = None
     # LA MATERIA VIAJA CON EL MATERIAL, no como parámetro. Hay cuatro sitios que
     # arman el prompt y cada parámetro nuevo es un sitio donde olvidarlo; el
     # Material ya llega a todos. Y aquí importa de veras: entregar la
@@ -314,6 +322,12 @@ class Material:
     materia: str = ""
     # Para nombrar a las partes con las figuras que existen en este tipo.
     tipo_asunto: str = "amparo_directo"
+    # LA FICHA PROCESAL DEL ASUNTO, ya escrita como bloque de datos
+    # (`ficha_procesal.bloque`; SPEC_E2, 28-sep-2026). La fija en CADA
+    # petición `redactor_adelanto._formato_al_material`, como la reasunción:
+    # el material vive en la memoria del worker. Vacía = el prompt queda
+    # idéntico al de antes (la v1 está congelada por instantánea).
+    ficha_procesal: str = ""
     # LA ENTIDAD, por el mismo motivo que la materia: viaja con el material
     # porque el material ya llega a todos los prompts. Sale de la colección
     # estatal que eligió el secretario («leyes_queretaro» → «Querétaro»).
@@ -524,7 +538,7 @@ def _misma_direccion(a: str, b: str) -> bool:
 def _bloque_criterio(criterios: list[Criterio], materia: str = "",
                      material_texto: str = "", tipo_asunto: str = "",
                      formato: str = "", problemas: list = None,
-                     variante: str = "v1") -> str:
+                     variante: str = "v1", decisiva: dict = None) -> str:
     if not criterios:
         return ""
     import formato_sentencia as _fs_c
@@ -565,10 +579,28 @@ def _bloque_criterio(criterios: list[Criterio], materia: str = "",
     _ord = sorted(enumerate(criterios),
                   key=lambda x: (0 if (x[1].jerarquia or "").lower() == "principal"
                                  else 1, x[0]))
+    # LA CUESTIÓN DECISIVA DEL PRINCIPAL (SPEC E3, AR 631/2025): la recurrida
+    # planteó «¿alteró la cosa juzgada?» y lo que decide es si el adquirente
+    # puede sustituirse en la ejecución; el estudio se escribía sobre la
+    # primera. Va como DATO bajo el problema cuya pregunta es la que se
+    # formuló, y sólo bajo ése: si el secretario cambió de principal o
+    # reescribió su pregunta, ya no es la cuestión de ese problema.
+    _dec_lineas, _dec_en = [], None
+    try:
+        import pregunta_decisiva as _pd_c
+        if _pd_c.util(decisiva):
+            _rec = _pd_c._plano(decisiva.get("pregunta_recurrida"))
+            _dec_en = next((id(c) for _, c in _ord if _rec and _pd_c._plano(c.problema) == _rec),
+                           None)
+            _dec_lineas = _pd_c.lineas_criterio(decisiva) if _dec_en is not None else []
+    except Exception:
+        _dec_lineas, _dec_en = [], None
     for i, (_, c) in enumerate(_ord, 1):
         _g = str(getattr(c, "grupo", "") or "").strip()
         lineas.append(f"{i}. [{(c.jerarquia or 'accesorio').upper()}]"
                       f"{f' [GRUPO {_g}]' if _g else ''} {c.problema}")
+        if _dec_lineas and id(c) == _dec_en:
+            lineas.extend(_dec_lineas)
         # SIN CALIFICAR TRAS EL CAMBIO DE SENTIDO (26-sep-2026): lo dice el
         # bloque de datos que sigue (`_bloque_sin_calificar`). Sólo desde la
         # v2; la v1 está congelada. Conserva el puente con su concepto (CUBRE),
@@ -888,8 +920,17 @@ def _bloque_material(m: Material) -> str:
     # No se sube el tope: las del fondo siguen siendo diez, y las de la técnica
     # van aparte porque responden a otra pregunta.
     _tec = [t for t in (m.tesis or []) if t.get("tecnica")]
+    # LAS DE LA FIGURA TAMPOCO (revisión adversarial de la fase E, 28-sep-2026):
+    # las que sólo trajo la búsqueda sobre la cuestión decisiva
+    # (`fase6_rag.sumar_figura`, marca `cupo_figura`) entraban DELANTE y se
+    # quedaban hasta con ocho de las diez plazas; las obligatorias de los
+    # demás problemas salían del prompt. Van aparte, con su tope pequeño. Las
+    # que ya traía la búsqueda de un problema siguen en su sitio.
+    _fig = [t for t in (m.tesis or [])
+            if t.get("cupo_figura") and not t.get("tecnica")][:MAX_TESIS_FIGURA_PROMPT]
     tesis = [t for t in (m.tesis or [])
-             if not t.get("tecnica")][:MAX_TESIS_PROMPT] + _tec
+             if not t.get("tecnica") and not t.get("cupo_figura")][:MAX_TESIS_PROMPT] \
+        + _fig + _tec
     normas = (m.normas or [])[:MAX_NORMAS_PROMPT]
     if tesis:
         p.append("\nTESIS Y JURISPRUDENCIA (existen: salen del acervo, no de tu memoria).")
@@ -1647,6 +1688,18 @@ _ORIGEN_CONCEPTOS = {
 }
 
 
+def _bloque_ficha(material) -> str:
+    """LA FICHA PROCESAL, en el encabezado de los datos del estudio (SPEC_E2,
+    28-sep-2026). Junto a la ficha de partes: quién promovió, quién recurre y
+    con qué carácter, qué resolvió el juzgado por acto, qué es materia de la
+    revisión y qué quedó firme, y la fracción del art. 93 que rige. En el AR
+    631/2025 el estudio no sabía que la recurrente era la tercera interesada
+    ni que el sobreseimiento del otro acto no se había impugnado. «» si no hay
+    ficha (entonces el prompt no cambia)."""
+    b = str(getattr(material, "ficha_procesal", "") or "").strip()
+    return ("\n" + b + "\n") if b else ""
+
+
 def _bloque_reasuncion(conceptos: str, reas: dict) -> str:
     """ARTÍCULO 93, FRACCIÓN VI: revocada la concesión, el tribunal reasume
     jurisdicción y estudia los conceptos de violación que el juzgado no
@@ -1862,9 +1915,11 @@ def _bloque_global(g, criterios: list = None, de_otros=None) -> str:
         partes.append(
             f"LA OBJECIÓN MÁS SERIA A ESTA SOLUCIÓN —el motor habría resuelto "
             f"{str(g.get('sentido') or '').replace('_', ' ')}, por esto—:\n{g['razon']}\n"
-            f"CONTÉSTALA EN EL ESTUDIO, con el lenguaje del oficio («No se "
-            f"pierde de vista que…», «No pasa inadvertido que…»), y a renglón "
-            f"seguido la razón del caso. Lo que el motor escribió como "
+            # Sin frases hechas (revisión adversarial de la fase E): se
+            # describe qué hace el párrafo, no cómo empieza.
+            f"CONTÉSTALA EN EL ESTUDIO: un párrafo que reconoce la objeción como "
+            f"advertida y ponderada, y a renglón seguido la razón del caso que la "
+            f"vence. Lo que el motor escribió como "
             f"«efecto» o como suerte de los demás temas en SU vía NO se usa: "
             f"es de la vía que no se tomó.")
     _alt = g.get("alternativa") if isinstance(g.get("alternativa"), dict) else {}
@@ -2699,13 +2754,13 @@ FUNDAMENTO — hay que fundar, y hay que fundar bien:
 {_bloque_ley_de_la_via(material)}
 {_bloque_aportado(contexto)}
 {_bloque_constancias(propuesta_global, contexto, criterios)}
-{partes.bloque() if partes is not None else ""}
+{partes.bloque() if partes is not None else ""}{_bloque_ficha(material)}
 {marco if isinstance(marco, str) else ""}
 {_bloque_arquitectura(materia or getattr(material, "materia", ""))}
 {_bloque_tecnica(getattr(material, "tipo_asunto", "") or ("amparo_revision" if es_recurso else "amparo_directo"), rama, violacion_procesal, material)}
 {_bloque_circuito(getattr(material, "tipo_asunto", "") or ("amparo_revision" if es_recurso else "amparo_directo"), criterios)}
 {_bloque_conceptos(rama, conceptos_violacion, reasuncion=getattr(material, "reasuncion", None))}
-{_bloque_criterio(criterios, materia or getattr(material, "materia", ""), _texto_de(material), getattr(material, "tipo_asunto", ""), _formato, getattr(material, "problemas", None) or [])}{_bloque_sin_calificar(criterios)}
+{_bloque_criterio(criterios, materia or getattr(material, "materia", ""), _texto_de(material), getattr(material, "tipo_asunto", ""), _formato, getattr(material, "problemas", None) or [], decisiva=getattr(material, "decisiva", None))}{_bloque_sin_calificar(criterios)}
 {_bloque_suplencia(material)}
 {_bloque_global(propuesta_global, criterios, registros_de_otros(resumen_acto, str(getattr(material, 'tipo_asunto', '') or '').strip().lower() == 'amparo_revision'))}
 {_bloque_precedente(material, criterios)}
@@ -3098,9 +3153,10 @@ estudio de fondo de {_clase}. Escribes mejor que la media del
 oficio: con más orden, más precisión y menos relleno, pero en su mismo registro.
 
 FORMA — medida sobre 40 engroses firmados, no inventada:
-- ABRE con el encabezado ordinal y la CALIFICACIÓN: «SEXTO. Estudio. Los {q}
-  son {calif}.» Anunciar el resultado y luego demostrarlo es el orden que mejor
-  se lee, y el que sigue el 40% de los engroses reales.
+- ABRE con el encabezado ordinal del considerando y la CALIFICACIÓN general de
+  los {q} (dato: {calif}), en una frase tuya. Anunciar el resultado y luego
+  demostrarlo es el orden que mejor se lee, y el que sigue el 40% de los
+  engroses reales.
 - FRASE de unas 35 palabras, SUBORDINADA; PÁRRAFO de unas 49, es decir UNA O
   DOS FRASES POR PÁRRAFO. Es la medida real del corpus y no es un capricho: la
   prosa judicial encadena la premisa y su consecuencia dentro de la misma
@@ -3482,7 +3538,7 @@ FUNDAMENTO — hay que fundar, y hay que fundar bien:
     obligatorio conforme al artículo 217 de la Ley de Amparo y la legislación
     que interpretó resulta irrelevante. Se aplica en seco, sin «por analogía».
   · SI ES DE UN COLEGIADO DE OTRO CIRCUITO el verbo es COMPARTIR, no obedecer:
-    «Por lo anterior se comparte el criterio sustentado en la jurisprudencia…».
+    se dice que este tribunal comparte ese criterio, no que lo acata.
 - EL REGISTRO DIGITAL VA SIEMPRE, sin excepción, en la misma frase que el rubro.
   La clave —«2a./J. 58/2010»— no lo sustituye: sin el registro nadie comprueba
   la cita en el Semanario, que es para lo que sirve citarla.
@@ -3517,13 +3573,13 @@ FUNDAMENTO — hay que fundar, y hay que fundar bien:
 {_bloque_ley_de_la_via(material)}
 {_bloque_aportado(contexto)}
 {_bloque_constancias(propuesta_global, contexto, criterios)}
-{partes.bloque() if partes is not None else ""}
+{partes.bloque() if partes is not None else ""}{_bloque_ficha(material)}
 {marco if isinstance(marco, str) else ""}
 {_bloque_arquitectura(_materia_v, "v2")}
 {_bloque_tecnica(_tipo_tec, rama, violacion_procesal, material)}
 {_bloque_circuito(_tipo_tec, criterios)}
 {_bloque_conceptos(rama, conceptos_violacion, "v2", reasuncion=getattr(material, "reasuncion", None))}
-{_bloque_criterio(criterios, _materia_v, _texto_de(material), getattr(material, "tipo_asunto", ""), _formato, getattr(material, "problemas", None) or [], variante="v2")}{_bloque_sin_calificar(criterios)}
+{_bloque_criterio(criterios, _materia_v, _texto_de(material), getattr(material, "tipo_asunto", ""), _formato, getattr(material, "problemas", None) or [], variante="v2", decisiva=getattr(material, "decisiva", None))}{_bloque_sin_calificar(criterios)}
 {_bloque_suplencia(material)}
 {_bloque_global(propuesta_global, criterios, registros_de_otros(resumen_acto, str(getattr(material, 'tipo_asunto', '') or '').strip().lower() == 'amparo_revision'))}
 {_bloque_precedente(material, criterios)}

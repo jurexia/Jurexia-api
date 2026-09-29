@@ -795,9 +795,14 @@ HUELLAS = {
     # (test_congruencia.py). La v1 no se mueve. Y en acuerdos-efectos
     # (27-sep-2026): los EFECTOS de tres a cinco órdenes breves en infinitivo,
     # sin frase de introducción, porque la apertura con el artículo 77 la pone
-    # el documento; el diff contra la anterior es sólo ese bloque.
-    ("v2", "estandar"): "e1dba05e34399b9ec37b6b1175651e31d8e73e92db7abd6ef9bde7f46795186f",
-    ("v2", "moderna"): "3ec71df89c1523bec320724449d7f487e34ea4bda5da0521c15b5aad01fe05a4",
+    # el documento; el diff contra la anterior es sólo ese bloque. Y en la
+    # revisión adversarial de la fase E (28-sep-2026): sin frases modelo
+    # concordadas con el caso —la apertura «Los {q} son {calif}.» y «SEXTO.
+    # Estudio. Los {q} son …» pasan a la calificación como dato, y «Por lo
+    # anterior se comparte el criterio…» a lo que se dice—; el diff son sólo
+    # esos pasajes (datos/instantaneas, test_inventario.py).
+    ("v2", "estandar"): "7132302a232b6ca96c83427394ee7e17bf308ea9d1042415958a28732d672801",
+    ("v2", "moderna"): "d7d9c1d27cba22fb5eb411a09ad66055befbb2e1e229a5a6c78954f05f5184da",
 }
 
 

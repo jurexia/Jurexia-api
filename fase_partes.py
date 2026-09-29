@@ -68,11 +68,16 @@ class Partes:
         # prosa del fondo. El módulo que existe justamente para que no se
         # confundan las partes las confundía él.
         import tipos_asunto as _ta_p
-        _et = {c: e for e, c, _o in _ta_p.caratula_de(self.tipo_asunto)}
+        # EL JUZGADO NO VA EN EL RUBRO DE LA REVISIÓN (0 de 478 en el corpus,
+        # AR 631/2025), pero sigue siendo la figura que la ficha lee en
+        # `autoridad_responsable`: se rotula por `etiqueta_de_figura`, que no
+        # cae al «AUTORIDAD RESPONSABLE» del amparo directo.
+        _tp = self.tipo_asunto
         for papel, quien in (
-                (_et.get("quejoso", "PARTE QUEJOSA"), self.quejoso),
-                (_et.get("tercero", "TERCERO INTERESADO"), self.tercero_interesado),
-                (_et.get("responsable", "AUTORIDAD RESPONSABLE"),
+                (_ta_p.etiqueta_de_figura(_tp, "quejoso", "PARTE QUEJOSA"), self.quejoso),
+                (_ta_p.etiqueta_de_figura(_tp, "tercero", "TERCERO INTERESADO"),
+                 self.tercero_interesado),
+                (_ta_p.etiqueta_de_figura(_tp, "responsable", "AUTORIDAD RESPONSABLE"),
                  self.autoridad_responsable),
                 ("ACTOR en el juicio de origen", self.actor_origen),
                 ("DEMANDADO en el juicio de origen", self.demandado_origen)):
@@ -161,10 +166,8 @@ def _figura(tipo: str, clave: str) -> str:
     _def = _FIGURAS_PARTES.get(_ta_f.normalizar(tipo) or "", {}).get(clave)
     if _def:
         return _def
-    for et, cl, _ob in _ta_f.caratula_de(tipo):
-        if cl == clave:
-            return et
-    return "(no existe en este tipo de asunto: deja la cadena vacía)"
+    return _ta_f.etiqueta_de_figura(
+        tipo, clave, "(no existe en este tipo de asunto: deja la cadena vacía)")
 
 
 async def fichar(cliente, texto_acto: str, texto_conceptos: str,

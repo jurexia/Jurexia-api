@@ -1198,8 +1198,13 @@ def indice_material(material, fases=None) -> dict:
     import fase6_estudio as _f6
     tesis_m = list(getattr(material, "tesis", None) or [])
     _tec = [t for t in tesis_m if isinstance(t, dict) and t.get("tecnica")]
-    _sel = [t for t in tesis_m if isinstance(t, dict) and not t.get("tecnica")][:_f6.MAX_TESIS_PROMPT]
-    tesis = [t for t in _sel + _tec if not t.get("metodo")]
+    # Las de la figura con su cupo aparte, como en `_bloque_material` (fase E):
+    # sin ellas el plan no podía citarlas y el estudio sí las veía.
+    _fig = [t for t in tesis_m if isinstance(t, dict) and t.get("cupo_figura")
+            and not t.get("tecnica")][:_f6.MAX_TESIS_FIGURA_PROMPT]
+    _sel = [t for t in tesis_m if isinstance(t, dict) and not t.get("tecnica")
+            and not t.get("cupo_figura")][:_f6.MAX_TESIS_PROMPT]
+    tesis = [t for t in _sel + _fig + _tec if not t.get("metodo")]
     normas_m = [n for n in (getattr(material, "normas", None) or []) if isinstance(n, dict)]
     if fases is not None:
         try:
@@ -1263,7 +1268,7 @@ def suplencia_de_clave(suplencia) -> dict:
 
 
 def clave(crit, fases_huella: str, contexto: str, suplencia, formato: str = "",
-          variante: str = "v4") -> str:
+          variante: str = "v4", decisiva=None) -> str:
     """LA CLAVE DE UN PLAN. Lleva la RAZÓN literal del secretario: usar un plan
     hecho con otra razón es el riesgo jurídico mayor (w2_final §3.7, la
     objeción que se descartó), y el coste de invalidar se controla con el
@@ -1284,6 +1289,16 @@ def clave(crit, fases_huella: str, contexto: str, suplencia, formato: str = "",
         "contexto": hashlib.sha1(_ws(contexto).encode()).hexdigest()[:12],
         "suplencia": suplencia_de_clave(suplencia),
     }
+    # LA CUESTIÓN DECISIVA, EN LA CLAVE SÓLO CUANDO LA HAY (fase E): el plan
+    # se arma con ella (`prompt_plan`), así que otro plan sin ella no sirve;
+    # sin decisiva la clave es la de siempre y no se replanea nada.
+    try:
+        import pregunta_decisiva as _pd_k
+        _hd = _pd_k.huella_plan(decisiva)
+    except Exception:
+        _hd = ""
+    if _hd:
+        base["decisiva"] = _hd
     return hashlib.sha1(json.dumps(base, ensure_ascii=False, sort_keys=True)
                         .encode()).hexdigest()[:20]
 
@@ -1369,9 +1384,16 @@ def _bloque_indice(ind: dict) -> str:
 def prompt_plan(*, tipo_asunto: str, probs: list[dict], segs: list[dict],
                 resumen_acto: str, tramos: list, indice: dict, contexto: str = "",
                 conceptos_violacion: str = "", contraste=None, checklist=None,
-                suplencia=None, faltas: list = None, n: int = 2) -> str:
+                suplencia=None, faltas: list = None, n: int = 2,
+                decisiva=None, ficha: str = "") -> str:
     """El prompt del planificador: DESCRIPCIONES de lo que decide, el esquema
-    con TIPOS y los DATOS del asunto. Ni una frase para copiar."""
+    con TIPOS y los DATOS del asunto. Ni una frase para copiar.
+
+    `decisiva` y `ficha` (fase E, AR 631/2025): la cuestión decisiva del
+    principal (`pregunta_decisiva.bloque_plan`) y la ficha procesal
+    (`ficha_procesal.bloque`), como datos. Sin ellas el guion —que manda la
+    organización del estudio— se armaba sobre la pregunta como la planteó la
+    recurrida, y la decisiva quedaba en un renglón."""
     import tipos_asunto as _ta
     voc = _ta.vocabulario_de(tipo_asunto or "amparo_directo")
     q1 = voc["combate_singular"]
@@ -1419,6 +1441,12 @@ def prompt_plan(*, tipo_asunto: str, probs: list[dict], segs: list[dict],
         _contraste = ("\nEL CONTRASTE DEL MOTOR (razón toral de cada planteamiento y si el "
                       f"{q1} la combate; es lectura, no decisión):\n"
                       + json.dumps(contraste, ensure_ascii=False)[:6000] + "\n")
+    try:
+        import pregunta_decisiva as _pd_p
+        _decisiva_p = _pd_p.bloque_plan(decisiva)
+    except Exception:
+        _decisiva_p = ""
+    _ficha_p = ("\n" + str(ficha).strip() + "\n") if str(ficha or "").strip() else ""
     _check = ""
     if checklist:
         _check = ("\nLA LISTA DE COMPROBACIÓN DEL MOTOR (temas que la respuesta debe cubrir):\n"
@@ -1504,7 +1532,7 @@ LO QUE RESOLVIÓ {organo.upper()} (resumen):
 
 EL ESCRITO, LITERAL, POR {q1.upper()}:
 {escrito}
-{_contraste}{_check}{_cv}{_ctx}
+{_ficha_p}{_decisiva_p}{_contraste}{_check}{_cv}{_ctx}
 ÍNDICE DEL MATERIAL (lo único citable como fuente, además de lo que el secretario escribió en su razón):
 {_bloque_indice(indice)}
 """
@@ -1658,7 +1686,7 @@ def normalizar(crudo: dict) -> dict:
 
 async def planear(cliente, r, crit, material, contexto: str = "", suplencia=None, *,
                   segs: list = None, contraste=None, faltas: list = None,
-                  conceptos_violacion: str = "", checklist=None) -> dict:
+                  conceptos_violacion: str = "", checklist=None, decisiva=None) -> dict:
     """UNA llamada al planificador. Devuelve el plan con los tipos del esquema,
     sin reparar ni validar (eso es `preparar`). Nunca redacta nada que llegue
     al documento: su salida sólo se lee como datos."""
@@ -1678,12 +1706,22 @@ async def planear(cliente, r, crit, material, contexto: str = "", suplencia=None
         contraste=contraste,
         checklist=(checklist if checklist is not None else
                    (glob.get("checklist") if isinstance(glob, dict) else None)),
-        suplencia=suplencia, faltas=faltas, n=n_planteamientos(fases))
+        suplencia=suplencia, faltas=faltas, n=n_planteamientos(fases),
+        decisiva=decisiva, ficha=_ficha_de(r))
     txt = await _llamar(cliente, prompt)
     plan = normalizar(_json_de(txt))
     plan.update({"version": PLAN_VERSION, "tipo_asunto": tipo,
                  "suplencia": dict(suplencia) if isinstance(suplencia, dict) else {}})
     return plan
+
+
+def _ficha_de(r) -> str:
+    """La ficha procesal del asunto como bloque de datos; «» si no se puede."""
+    try:
+        import ficha_procesal as _fp
+        return _fp.bloque(_fp.de_resultado(r)) if getattr(r, "encargo", None) is not None else ""
+    except Exception:
+        return ""
 
 
 # ═══ REPARAR: LO QUE EL CÓDIGO CORRIGE SOLO ═════════════════════════════════
@@ -3122,7 +3160,7 @@ def _faltas_de_orden(plan: dict, cx: _Ctx, por_id: dict) -> list[str]:
 
 async def preparar(cliente, r, crit, material, contexto: str = "", suplencia=None, *,
                    segs: list = None, contraste=None, tocados=None,
-                   conceptos_violacion: str = "", checklist=None) -> tuple:
+                   conceptos_violacion: str = "", checklist=None, decisiva=None) -> tuple:
     """planear → reparar → validar; si V0 falla, UN reintento con la lista de lo
     que falló; si vuelve a fallar, (None, avisos, info): el estudio se escribe
     sin plan (v3) y se dice. Devuelve (plan | None, avisos, info)."""
@@ -3140,7 +3178,8 @@ async def preparar(cliente, r, crit, material, contexto: str = "", suplencia=Non
         info["intentos"] += 1
         crudo = await planear(cliente, r, crit, material, contexto, suplencia, segs=segs,
                               contraste=contraste, faltas=faltas,
-                              conceptos_violacion=conceptos_violacion, checklist=checklist)
+                              conceptos_violacion=conceptos_violacion, checklist=checklist,
+                              decisiva=decisiva)
         plan, avisos = reparar(crudo, crit, segs, fases, material, contexto, suplencia,
                                tocados=tocados)
         faltas = validar(plan, crit, segs, fases, material, contexto, suplencia=suplencia,
@@ -3411,7 +3450,8 @@ def _linea_premisa(m: dict, props: dict, uid: str = "") -> str:
             + (f" · anclas: {' | '.join(m.get('anclas') or [])}" if m.get("anclas") else ""))
 
 
-def vista(plan: dict, formato: str = "estandar", concede: bool | None = None) -> str:
+def vista(plan: dict, formato: str = "estandar", concede: bool | None = None,
+          decisiva: dict | None = None) -> str:
     """EL GUION. Datos, no prosa: identificadores, etiquetas, razones
     tipificadas, fuentes, anclas y citas verificadas. Nada que el estudio
     pueda copiar como frase hecha (lección del ejemplo que se firma literal).
@@ -3465,6 +3505,15 @@ def vista(plan: dict, formato: str = "estandar", concede: bool | None = None) ->
     if _sent:
         L.append("SENTIDO DE CADA PROBLEMA (del secretario; no se toca): problema "
                  + " · problema ".join(_sent))
+    # LA CUESTIÓN DECISIVA DEL PRINCIPAL (SPEC E3, AR 631/2025): dato, no
+    # prosa. El apartado del principal se organiza en torno a ella; la pregunta
+    # como llegó planteada es el marco. `decisiva` ya viene comprobada contra
+    # el principal de hoy (`pregunta_decisiva.de_material`).
+    try:
+        import pregunta_decisiva as _pd_v
+        L += _pd_v.lineas_guion(decisiva)
+    except Exception:
+        pass
     if props:
         # LO QUE DICE CADA PROPOSICIÓN ES LA PARÁFRASIS DEL PLANIFICADOR, no
         # palabras del acto: sin comillas angulares, que en una sentencia dicen

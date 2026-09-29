@@ -1429,12 +1429,12 @@ def vacia(estado_calculo: str, huella: str = "") -> dict:
             "recomendada": None, "estado": None, "estado_por_que": [], "secundarios": [],
             "independientes": [], "que_la_cambiaria": None, "tu_tribunal": [],
             "linea_corte": {"confirmadas": [], "pistas": []}, "deliberacion": None,
-            "conceptos_omitidos": None, "avisos": []}
+            "conceptos_omitidos": None, "ficha": None, "avisos": []}
 
 
 def armar(propuesta_guardada, material, problemas_fase3, contraste=None, espejo=None,
           internet=None, rama_info=None, deliberacion=None, *, propuestas_motor=None,
-          fases=None) -> dict:
+          fases=None, decisiva=None) -> dict:
     """La tarjeta (formato 1 de contrato_tarjeta.md), sin modelo.
 
     `propuesta_guardada`: la respuesta de /taller/proponer (formato 2):
@@ -1445,13 +1445,17 @@ def armar(propuesta_guardada, material, problemas_fase3, contraste=None, espejo=
       {pistas, resumen, …}. `rama_info`: lo de `redactor_adelanto.info_de_rama`
       —tipo_asunto, que_hizo, quien_recurre, conceptos_violacion (el TEXTO que
       aportó el secretario), sobresee_ademas— más tribunal, circuito?,
-      resolvio_a_quo?, resolutivo_recurrida?, huella?, necesita_conceptos?.
+      resolvio_a_quo?, resolutivo_recurrida?, huella?, necesita_conceptos?,
+      ficha? (FICHA del contrato, de `ficha_procesal.para_tarjeta`).
       `deliberacion`: la marca «deliberacion» (SPEC C2) o None.
       `propuestas_motor`: las propuestas con `sentido_propio`/`razon_propia`
       (lo que el motor propuso antes del árbol; viajan en la columna
       `propuestas` de la fila); si None, las de la respuesta.
       `fases`: las del adelanto, donde `fase_rama.conceptos_omitidos` busca
       la demanda entre las constancias o la recurrida que los transcribe.
+      `decisiva`: el documento de `pregunta_decisiva` (SPEC E3); si None, el
+      que viaja con el material. `principal.pregunta` es la cuestión decisiva
+      y `principal.pregunta_recurrida`, la de la fase 3, aparte.
     """
     resp = propuesta_guardada if isinstance(propuesta_guardada, dict) else {}
     rama_info = dict(rama_info or {})
@@ -1510,7 +1514,21 @@ def armar(propuesta_guardada, material, problemas_fase3, contraste=None, espejo=
     # enseña porcentajes. Si el dato vuelve —sin cifra relativa, rotulado como
     # dato que no decide o plegado tras un clic— lo decide David (SPEC C
     # mencionaba la predicción). Sigue en la propuesta, donde estaba.
-    principal = {"numero": p_num, "pregunta": p_preg, "clase": _txt(pral.get("clase")) or None,
+    # LA PREGUNTA DEL ENCABEZADO ES LA QUE DECIDE (SPEC E3, AR 631/2025): la
+    # recurrida preguntó por la cosa juzgada y lo que decide es si el
+    # adquirente puede sustituirse en la ejecución. La de la fase 3 va aparte
+    # («así lo planteó la recurrida»); `p_preg` sigue emparejando propuesta,
+    # espejo y secundarios, que se guardaron con ella.
+    try:
+        import pregunta_decisiva as _pd_t
+        _dec_t = _pd_t.vigente(decisiva if decisiva is not None else _get(material, "decisiva"),
+                               problemas)
+        _enc = _pd_t.para_tarjeta(_dec_t, p_preg)
+    except Exception:
+        _enc = {"pregunta": p_preg, "pregunta_recurrida": None, "figura": None}
+    principal = {"numero": p_num, "pregunta": _enc["pregunta"],
+                 "pregunta_recurrida": _enc["pregunta_recurrida"], "figura": _enc["figura"],
+                 "clase": _txt(pral.get("clase")) or None,
                  "jerarquia_de": jer_de,
                  "por_que_principal": _txt(ctx.get("tema_principal")) or None,
                  "discrepa_motor": discrepa,
@@ -1719,6 +1737,13 @@ def armar(propuesta_guardada, material, problemas_fase3, contraste=None, espejo=
         "linea_corte": _linea_corte(material, internet, tribunal, circuito),
         "deliberacion": delib_ctx if delib else None,
         "conceptos_omitidos": omitidos,
+        # LA FICHA PROCESAL (SPEC_E2, 28-sep-2026; contrato FICHA): quién
+        # promovió, quién recurre y con qué carácter, qué resolvió el juzgado
+        # por acto, qué es materia y qué quedó firme. La arma quien llama con
+        # `ficha_procesal.para_tarjeta` y viaja en `rama_info`; la pantalla la
+        # enseña en una línea. None si no llegó.
+        "ficha": rama_info.get("ficha") if isinstance(rama_info.get("ficha"), dict)
+                 and rama_info.get("ficha") else None,
         "avisos": list(dict.fromkeys(a for a in avisos if a)),
     }
     return _limpio(tarjeta)

@@ -1198,6 +1198,15 @@ def _formato_al_material(r, material, cliente=None, criterios=None) -> None:
         # petición: el material vive en la memoria del worker.
         material.reasuncion = None
         material.reasuncion = _reasuncion_del_asunto(r, criterios)
+        # LA FICHA PROCESAL, POR EL MISMO CAMINO Y SIEMPRE (SPEC_E2): se vacía
+        # y se vuelve a armar en cada petición —es pura y sin modelo— para que
+        # el estudio la lea en su encabezado de datos.
+        material.ficha_procesal = ""
+        try:
+            import ficha_procesal as _fp_m
+            material.ficha_procesal = _fp_m.bloque(_fp_m.de_resultado(r))
+        except Exception as _efp:
+            print(f"   ⚠️ FICHA PROCESAL: no se pudo poner en el material: {type(_efp).__name__}")
         # Y EL INVENTARIO SE VACÍA AQUÍ, antes de nada que pueda fallar: el de
         # la vuelta anterior no puede sobrevivir a una excepción de más abajo.
         material.inventario = []
@@ -2745,7 +2754,13 @@ def _organo_recurrido(e: Encargo, partes=None, acto: str = "") -> str:
     _tecleado = str(getattr(e, "responsable", "") or "").strip()
     import tipos_asunto as _ta_o
     if _ta_o.normalizar(getattr(e, "tipo_asunto", "")) == "amparo_revision":
-        if (_leido and re.search(r"juzgad|juez|tribunal", _leido, re.I)
+        # «DE DISTRITO» O UN TRIBUNAL DE AMPARO (revisión adversarial de la
+        # fase E, 28-sep-2026): bastaba «juzgad|juez|tribunal», y en el AR
+        # 631/2025 la ficha de partes podía leer al «Juzgado Quinto de Primera
+        # Instancia Civil» (responsable) o al «Tribunal Superior de Justicia
+        # del Estado» y darlo como órgano de la recurrida, «fijado por código».
+        if (_leido and re.search(r"\bde\s+distrito\b|tribunal\s+(?:colegiado|unitario)",
+                                 _leido, re.I)
                 and not re.search(r"\bsala\b|magistrad", _leido, re.I)
                 and not _mismo_nombre(_leido, _tecleado)):
             return _leido
@@ -2890,19 +2905,50 @@ def _datos_estructura(e: Encargo, antecedentes: str = "", acto: str = "",
     quejoso cuando el formulario guardó a la recurrente (AR 631/2025).
     """
     import fase0_oportunidad as _f0
-    _terceros = ""
-    if partes is not None:
-        _terceros = str(getattr(partes, "tercero_interesado", "") or "")
-    _res_aq = ""
-    if getattr(e, "es_recurso", False):
-        try:
-            _res_aq = _resolutivo_del_a_quo(fases, acto)
-        except Exception:
-            _res_aq = ""
-        # LA RECURRENTE QUE NO ES LA QUEJOSA NI UNA AUTORIDAD ES LA TERCERA
-        # INTERESADA: si la ficha no la trae, se nombra así en los resultandos.
-        if not _terceros.strip() and papel_del_recurrente(e, partes, _res_aq) == "tercero":
-            _terceros = _recurrente_de(e, partes, _res_aq)
+    # LOS PAPELES SALEN DE LA FICHA PROCESAL (SPEC_E2, 28-sep-2026): quejosa,
+    # recurrente y su carácter, tercero y órgano recurrido se fijan UNA vez
+    # —`ficha_procesal.armar`, que reutiliza `_quejoso_del_amparo`,
+    # `_recurrente_de`, `papel_del_recurrente` y `_organo_recurrido`— y de ahí
+    # los leen la carátula, la competencia, la legitimación, los resolutivos y
+    # la síntesis. En el 631 cada una los adivinaba por su lado. Si la ficha
+    # no se puede armar, las mismas deducciones sueltas de antes.
+    _ficha = {}
+    try:
+        import ficha_procesal as _fp_d
+        _ficha = _fp_d.armar(e, fases, partes, acto=acto)
+    except Exception as _ex_f:
+        print(f"   ⚠️ FICHA PROCESAL: no se pudo armar ({type(_ex_f).__name__}); "
+              f"los papeles salen de las deducciones sueltas")
+        _ficha = {}
+    if _ficha:
+        _q_ficha = (_ficha.get("quejosa") or {}).get("nombre") or ""
+        _rc_ficha = _ficha.get("recurrente") or {}
+        _terceros = "; ".join(t.get("nombre", "") for t in (_ficha.get("terceros") or [])
+                              if t.get("nombre"))
+        _recurrente_d = _rc_ficha.get("aparte") or ""
+        _papel_d = _rc_ficha.get("papel") or ""
+        _organo_d = (_ficha.get("organo_recurrido") or {}).get("nombre") or ""
+        import ficha_procesal as _fp_b
+        _ficha_bloque = _fp_b.bloque(_ficha)
+    else:
+        _terceros = ""
+        if partes is not None:
+            _terceros = str(getattr(partes, "tercero_interesado", "") or "")
+        _res_aq = ""
+        if getattr(e, "es_recurso", False):
+            try:
+                _res_aq = _resolutivo_del_a_quo(fases, acto)
+            except Exception:
+                _res_aq = ""
+            # LA RECURRENTE QUE NO ES LA QUEJOSA NI UNA AUTORIDAD ES LA TERCERA
+            # INTERESADA: si la ficha no la trae, se nombra así en los resultandos.
+            if not _terceros.strip() and papel_del_recurrente(e, partes, _res_aq) == "tercero":
+                _terceros = _recurrente_de(e, partes, _res_aq)
+        _q_ficha = _quejoso_del_amparo(e, partes, _res_aq)
+        _recurrente_d = _recurrente_de(e, partes, _res_aq)
+        _papel_d = papel_del_recurrente(e, partes, _res_aq)
+        _organo_d = _organo_recurrido(e, partes, acto)
+        _ficha_bloque = ""
     return {
         # LA CABEZA DEL ACTO, que es donde se identifica: fecha, órgano,
         # expediente y toca. No el documento entero —eso ya lo leen las fases—
@@ -2922,20 +2968,23 @@ def _datos_estructura(e: Encargo, antecedentes: str = "", acto: str = "",
         # en la legitimación y en el resolutivo (v5 del ADC 93/2026: «ampara
         # y protege a Alondra…»). La parte es la representada; la persona
         # física sólo tiene la personería (arts. 6 y 11 de la Ley de Amparo).
-        "quejoso": _pv.separar(_quejoso_del_amparo(e, partes, _res_aq))["parte"]
-                   or _quejoso_del_amparo(e, partes, _res_aq),
+        "quejoso": _pv.separar(_q_ficha)["parte"] or _q_ficha,
         # Quien recurrió, cuando no es el quejoso. Vacío = es el mismo.
-        "recurrente": _recurrente_de(e, partes, _res_aq),
+        "recurrente": _recurrente_d,
         # Y EN QUÉ CARÁCTER (28-sep-2026): la legitimación de la tercera
         # interesada no es la del quejoso (AR 631/2025).
-        "papel_recurrente": papel_del_recurrente(e, partes, _res_aq),
+        "papel_recurrente": _papel_d,
         # EL ÓRGANO RECURRIDO ES EL JUZGADO, no la responsable del amparo. El
         # formulario guarda en `responsable` a la autoridad del acto reclamado
         # —en el 711/2025, la UIF— y la carátula de la revisión rotulaba ese
         # dato como «ÓRGANO RECURRIDO». Lo recurrido es la sentencia del juez
         # de distrito; la ficha de partes lo lee de ella. Sólo para la carátula:
         # `responsable` sigue siendo la del acto en los otros doce sitios.
-        "organo_recurrido": _organo_recurrido(e, partes, acto),
+        "organo_recurrido": _organo_d,
+        # LA FICHA ENTERA Y SU BLOQUE DE DATOS: el bloque va al prompt de la
+        # estructura (carátula, competencia, legitimación) y al de la síntesis.
+        "ficha_procesal": _ficha,
+        "ficha_bloque": _ficha_bloque,
         "representante": _pv.separar(e.quejoso)["representante"],
         "figura_representante": _pv.separar(e.quejoso)["figura"],
         "quejoso_moral": _pv.separar(e.quejoso)["moral"],
@@ -3055,7 +3104,10 @@ async def _componer_generado(cliente, e: Encargo, relleno, computo,
             estudio="\n\n".join(relleno.estudio or []),
             recurrente=str(datos.get("recurrente") or ""),
             papel_recurrente=str(datos.get("papel_recurrente") or ""),
-            organo=str(datos.get("organo_recurrido") or ""))
+            organo=str(datos.get("organo_recurrido") or ""),
+            # LA FICHA PROCESAL COMO DATOS (SPEC_E2): quién es quién y qué se
+            # revisa, con su fuente, en lugar de dos renglones sueltos.
+            ficha=str(datos.get("ficha_bloque") or ""))
     except Exception:
         _sint = {}
 

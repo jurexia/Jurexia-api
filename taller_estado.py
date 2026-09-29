@@ -85,7 +85,13 @@ def material_ligero(m) -> dict:
     def _dicts(xs, n):
         return [x for x in (xs or []) if isinstance(x, dict)][:n]
     return {
-        "tesis": _dicts(getattr(m, "tesis", []), 80),
+        # LAS DE LA FIGURA, FUERA DEL TOPE DE 80 (fase E): van al final
+        # (`fase6_rag.sumar_figura`) y no deben ni recortar lo de siempre ni
+        # perderse ellas en un material grande.
+        "tesis": (_dicts([t for t in (getattr(m, "tesis", None) or [])
+                          if not (isinstance(t, dict) and t.get("cupo_figura"))], 80)
+                  + _dicts([t for t in (getattr(m, "tesis", None) or [])
+                            if isinstance(t, dict) and t.get("cupo_figura")], 12)),
         "normas": _dicts(getattr(m, "normas", []), 80),
         "convencional": _dicts(getattr(m, "convencional", []), 24),
         "materia": str(getattr(m, "materia", "") or ""),
@@ -104,6 +110,11 @@ def material_ligero(m) -> dict:
         "entidad": str(getattr(m, "entidad", "") or ""),
         "preceptos_de_internet": _lista(getattr(m, "preceptos_de_internet", []), 24),
         "sondeo": sondeo_ligero(getattr(m, "sondeo", None)),
+        # LA PREGUNTA DECISIVA VIAJA CON EL MATERIAL (SPEC E3, AR 631/2025):
+        # la propuesta, el estudio y la tarjeta la leen de aquí, en el worker
+        # que sea. Un dict pequeño; si no es un dict, no va.
+        "decisiva": (getattr(m, "decisiva", None)
+                     if isinstance(getattr(m, "decisiva", None), dict) else None),
         "completo": True,
     }
 
@@ -126,6 +137,7 @@ def material_rehidratado(d: dict):
     m.entidad = str(d.get("entidad") or "")
     m.preceptos_de_internet = list(d.get("preceptos_de_internet") or [])
     m.sondeo = sondeo_rehidratado(d.get("sondeo"))
+    m.decisiva = d.get("decisiva") if isinstance(d.get("decisiva"), dict) else None
     return m
 
 

@@ -1527,6 +1527,175 @@ async def material_para(qdrant, embed_juris, embed_leyes,
                          principios=list(getattr(tesis_cocitadas, 'ultimos_principios', []) or []))
 
 
+# ═══ LA FIGURA QUE DECIDE (SPEC E3, 28-sep-2026) ══════════════════════════
+# AR 631/2025: la búsqueda fue detrás de la pregunta como la planteó la
+# recurrida —«¿la sustitución alteró la cosa juzgada?»— y el motor se apoyó en
+# dos jurisprudencias genéricas de cosa juzgada. Lo que decide es otra cosa: si
+# el tercero adquirente del inmueble objeto de un juicio sobre una acción
+# personal puede sustituirse válidamente en la ejecución. Esa pregunta llega a
+# otro anaquel del acervo (causahabiencia, sustitución procesal). Las consultas
+# sobre la figura las formula `pregunta_decisiva.py` en lenguaje de rubro, que
+# es la configuración medida arriba (rubro conceptual: 50 % en primera
+# posición; prosa: 3 %). SE SUMAN con cupo propio y marcadas `para` el
+# principal; lo que ya traía la búsqueda de cada problema no se toca.
+CUPO_FIGURA = int(os.getenv("CUPO_FIGURA", "8"))
+FIGURA_POR_CONSULTA = 10
+
+# LO QUE NO ES DE LA FIGURA AUNQUE LO PAREZCA (revisión adversarial de la fase
+# E, 28-sep-2026). La figura del AR 631/2025 tiene un homónimo peligroso: el
+# material del propio 631 ya traía los registros 2031384 y 2030635,
+# «IMPROCEDENCIA… CESACIÓN DE EFECTOS… LA RESOLUCIÓN RECLAMADA SE SUSTITUYE
+# PROCESALMENTE», por el sobreseimiento del Juzgado Quinto; una consulta en
+# lenguaje de rubro sobre la «SUSTITUCIÓN PROCESAL» del adquirente cae en ese
+# mismo anaquel semántico. Esas tesis entraban marcadas «de la figura», «para»
+# el principal y DELANTE de todo. Cuando la figura no es de procedencia del
+# amparo ni de su suspensión, sus rubros quedan fuera por esta puerta (no por
+# la de cada problema, que no se toca).
+_RX_PROCEDENCIA_AMPARO = re.compile(
+    r"\bimprocedencia\b|\bsobresei\w*|\bcesaci[óo]n\s+de\s+(?:los\s+)?efectos\b|"
+    r"\bcausa(?:l)?\s+de\s+improcedencia\b", re.I)
+
+
+def ajena_a_la_figura(rubro: str, figura: str, materia: str = "") -> bool:
+    """¿Esta tesis de la búsqueda de la figura habla de OTRA cosa?
+
+    Fuera: la improcedencia, el sobreseimiento o la cesación de efectos del
+    amparo, y la suspensión del amparo, salvo que la figura misma sea ésa."""
+    r = " ".join((rubro or "").split())
+    f = " ".join((figura or "").split())
+    if _RX_PROCEDENCIA_AMPARO.search(r[:300]) and not _RX_PROCEDENCIA_AMPARO.search(f):
+        return True
+    if es_suspension_amparo(r, materia) and not re.search(r"suspensi[óo]n", f, re.I):
+        return True
+    return False
+
+
+async def tesis_de_la_figura(qdrant, embed_juris, consultas: list,
+                             cupo: int = CUPO_FIGURA, *, cliente=None,
+                             pregunta: str = "", figura: str = "",
+                             hecho: str = "") -> list:
+    """Las tesis que contestan las consultas sobre la figura: una búsqueda por
+    consulta contra el vector `rubro`, fundidas por rango recíproco. Lo que
+    perdió vigencia no entra por esta puerta (no se va a proponer lo abandonado
+    como lo que decide).
+
+    EL MISMO FILTRO DE PERTINENCIA QUE LA CONSULTA (revisión adversarial de la
+    fase E): antes entraban sin rerank ni lectura, sólo por RRF. Ahora: fuera
+    lo ajeno a la figura (`ajena_a_la_figura`) y, con `cliente`, el mismo
+    rerank del modelo de la consulta (`rerank_tesis`), con la PREGUNTA
+    DECISIVA como pregunta y los hechos que deciden como hecho: sólo entran
+    las que el modelo elige, en su orden. Si el modelo no elige ninguna, no
+    entra ninguna (la figura no tiene criterio propio en el acervo, y lo de
+    cada problema sigue como estaba). Coste: una llamada corta más al modelo
+    de la consulta (≈ 20 rubros de entrada)."""
+    qs = [" ".join(str(q or "").split()) for q in (consultas or [])]
+    qs = [q for q in qs if q]
+    if not qs or qdrant is None or embed_juris is None:
+        return []
+    vs = await asyncio.gather(*[embed_juris(q) for q in qs])
+    listas = await asyncio.gather(*[_buscar(qdrant, COLECCION_JURIS, VECTOR_RUBRO, v,
+                                            FIGURA_POR_CONSULTA) for v in vs])
+    orden = _rrf_registros([[str(p.get("registro") or "") for p in L] for L in listas])
+    por_reg = {}
+    for L in listas:
+        for p in L:
+            reg = str(p.get("registro") or "")
+            if reg and reg not in por_reg:
+                por_reg[reg] = _tesis_de(p)
+    try:
+        import deliberacion as _dl
+        _pierde = _dl.pierde_vigencia
+    except Exception:                                   # pragma: no cover
+        _pierde = lambda v: False                       # noqa: E731
+    _fig = " ".join([figura or "", pregunta or ""])
+    cand, fuera_ajenas = [], 0
+    for reg in orden:
+        t = por_reg.get(reg)
+        if t is None or _pierde(t.get("vigencia")):
+            continue
+        if ajena_a_la_figura(t.get("rubro", ""), _fig, t.get("materia", "")):
+            fuera_ajenas += 1
+            continue
+        cand.append(t)
+    if fuera_ajenas:
+        print(f"   ⚖️ RAG figura: {fuera_ajenas} tesis de otra cosa (improcedencia, "
+              f"cesación de efectos o suspensión del amparo) fuera")
+    if cliente is not None and RAG_RERANK_TESIS and cand and (pregunta or figura):
+        for t in cand:
+            t.pop("rerank", None)
+        await rerank_tesis(cliente, pregunta or figura, hecho, cand)
+        elegidas = sorted([t for t in cand if t.get("rerank")], key=lambda t: t["rerank"])
+        for t in cand:
+            if t.get("rerank"):
+                t["rerank_figura"] = t.pop("rerank")
+        cand = elegidas
+    out = []
+    for t in cand:
+        t["de_figura"] = True
+        out.append(t)
+        if len(out) >= max(0, int(cupo)):
+            break
+    return out
+
+
+def sumar_figura(material, tesis: list, numero_principal: int) -> dict:
+    """Suma al material las tesis de la figura, marcadas `para` el principal.
+
+    La que ya estaba se queda donde estaba y gana la marca (`de_figura` y el
+    número del principal en `para`). La nueva entra AL FINAL y con
+    `cupo_figura`, que le da plaza propia donde se recorta:
+
+    SUMAN, NO SUSTITUYEN (revisión adversarial de la fase E, 28-sep-2026).
+    Antes entraban DELANTE de `material.tesis`, que ya venía ordenado con las
+    obligatorias primero; el estudio corta en `MAX_TESIS_PROMPT` (10) contando
+    con ese orden, así que ocho tesis de la figura desplazaban a casi toda la
+    jurisprudencia obligatoria (reproducido: de 8 jurisprudencias de los
+    problemas 1, 2 y 3 entraban 2). Ahora el estudio les da un cupo aparte,
+    como a las de la técnica (`fase6_estudio._bloque_material`), la propuesta
+    las pone tras las obligatorias dentro del principal
+    (`fase5_propuesta._tesis_del_material`) y la fila las guarda aparte del
+    tope de 80 (`taller_estado.material_ligero`). Devuelve {nuevas, marcadas}
+    para el registro."""
+    n = int(numero_principal or 1)
+    ya = {str(t.get("registro") or ""): t for t in (getattr(material, "tesis", None) or [])
+          if isinstance(t, dict)}
+    nuevas, marcadas = [], 0
+    for t in tesis or []:
+        reg = str(t.get("registro") or "")
+        if not reg:
+            continue
+        if reg in ya:
+            y = ya[reg]
+            y["de_figura"] = True
+            if y.get("para") and n not in y["para"]:
+                y["para"] = sorted(set(list(y["para"]) + [n]))
+            marcadas += 1
+            continue
+        x = dict(t, de_figura=True, cupo_figura=True, para=[n])
+        ya[reg] = x
+        nuevas.append(x)
+    if nuevas:
+        material.tesis = list(getattr(material, "tesis", None) or []) + nuevas
+    return {"nuevas": len(nuevas), "marcadas": marcadas}
+
+
+def quitar_figura(material) -> int:
+    """Quita del material lo que trajo la búsqueda de una figura que ya no es
+    la del principal: las tesis que sólo vinieron por ella (`cupo_figura`)
+    salen y las demás pierden la marca. Devuelve cuántas salieron.
+
+    Revisión adversarial de la fase E (AR 631/2025): si el secretario
+    corrige el principal, la decisiva vieja no vale, y tampoco lo que se
+    buscó para ella."""
+    tesis = list(getattr(material, "tesis", None) or [])
+    fuera = [t for t in tesis if isinstance(t, dict) and t.get("cupo_figura")]
+    material.tesis = [t for t in tesis if not (isinstance(t, dict) and t.get("cupo_figura"))]
+    for t in material.tesis:
+        if isinstance(t, dict):
+            t.pop("de_figura", None)
+    return len(fuera)
+
+
 async def material_del_caso(qdrant, embed_juris, embed_leyes,
                             problemas: list[str],
                             coleccion_estatal: Optional[str] = None,
@@ -1560,6 +1729,12 @@ async def material_del_caso(qdrant, embed_juris, embed_leyes,
         else:
             hechos.append("")
 
+    # LA FIGURA NO SE BUSCA AQUÍ (revisión adversarial de la fase E): los
+    # parámetros `figura`/`principal` no los pasaba nadie y su comentario
+    # prometía un paralelismo que no existía. La suman, después de consultar,
+    # `main._taller_figura_al_material` (preconsulta, botón y rescates) y
+    # `sumar_figura`; cuesta de 2 a 4 embeddings, consultas a Qdrant y un
+    # rerank corto.
     partes = await asyncio.gather(*[
         material_para(qdrant, embed_juris, embed_leyes, p, coleccion_estatal,
                       materia, cliente, contexto, h, sede_acto, cuaderno)

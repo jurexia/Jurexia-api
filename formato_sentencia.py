@@ -219,10 +219,16 @@ FORMATO: ESTÁNDAR — concepto por concepto, con la fórmula del oficio.
 #     es un techo. Cada apartado sigue siendo un problema con su pregunta.
 def _forma_del_estudio_v2(formato: str, q: str, q1: str, parte: str, calif: str,
                           palabras: int) -> str:
+    # LA APERTURA YA NO ES UNA FRASE HECHA (revisión adversarial de la fase E,
+    # 28-sep-2026): «ABRE con… («Los agravios son en parte fundados y en parte
+    # innecesarios.»)» llegaba al prompt v4 del AR 631/2025 ya concordada con
+    # sus calificaciones, y se copiaba literal. La calificación va como dato.
+    # La v1 (`forma_del_estudio` sin variante) queda como estaba: congelada.
     if normalizar(formato) == MODERNA:
         return f"""
 FORMATO: VERSIÓN MODERNA — la pregunta y enseguida la respuesta.
-- ABRE con la calificación general en una frase («Los {q} son {calif}.») y
+- ABRE con la calificación general de los {q}, en una frase tuya (dato: {calif};
+  no es una fórmula que copiar) y
   ACTO SEGUIDO el primer problema, numerado y como pregunta, SOLA en su
   párrafo y terminada en «?». El párrafo siguiente EMPIEZA POR LA RESPUESTA
   —«Sí.», «No.»— y enseguida, EN ESE MISMO PÁRRAFO, NOMBRA el {q1} o los {q}
@@ -252,7 +258,8 @@ FORMATO: ESTÁNDAR — por la consideración que se ataca, con la fórmula del o
 - NO HAY PREGUNTAS NI RÓTULOS NUMERADOS. Los problemas jurídicos que vienen
   abajo son tu guía para decidir y ordenar; NO se escriben en la sentencia.
   Ninguna línea del estudio empieza por «¿» ni por «1.», «2.».
-- ABRE con la calificación general en una frase («Los {q} son {calif}.») y,
+- ABRE con la calificación general de los {q}, en una frase tuya (dato: {calif};
+  no es una fórmula que copiar) y,
   si reagrupas o alteras el orden, el anuncio de método con el artículo 76 de
   la Ley de Amparo.
 - LA UNIDAD DEL ESTUDIO ES LA CONSIDERACIÓN QUE SE ATACA Y LA RAZÓN QUE LA

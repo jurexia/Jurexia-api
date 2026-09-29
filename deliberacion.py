@@ -971,9 +971,21 @@ def _ventana(texto: str, tope: int, centro: str = "", desde_el_final: bool = Fal
     return t[-tope:] if desde_el_final else t[:tope]
 
 
+def _bloque_ficha(ficha: str) -> str:
+    """La ficha procesal del asunto como DATOS (SPEC_E2, 28-sep-2026;
+    `ficha_procesal.bloque`): quién promovió, quién recurre y con qué
+    carácter, qué resolvió el juzgado por acto, qué es materia de la revisión
+    y qué quedó firme, la fracción del art. 93 y el desenlace de cada vía por
+    código. En el AR 631/2025 los dos abogados y el juez no sabían que la
+    recurrente era la tercera interesada. «» si no hay ficha."""
+    b = str(ficha or "").strip()
+    return (b + "\n\n") if b else ""
+
+
 def prompt_pregunta_decisiva(pral: dict, contraste: Optional[dict], resumen_acto: str,
                              resumen_conceptos: str, texto_acto: str,
-                             tipo_asunto: str = "", es_recurso: bool = False) -> str:
+                             tipo_asunto: str = "", es_recurso: bool = False,
+                             ficha: str = "") -> str:
     q, org = _vocab(tipo_asunto, es_recurso)
     c = contraste or {}
     _c = (f"\nEl contraste previo identificó como razón toral: {c.get('razon_toral')}\n"
@@ -982,7 +994,7 @@ def prompt_pregunta_decisiva(pral: dict, contraste: Optional[dict], resumen_acto
 Eres secretario de un Tribunal Colegiado. Antes de buscar criterio y antes de
 decidir, identificas QUÉ decide el planteamiento principal. No lo resuelves.
 
-EL PLANTEAMIENTO PRINCIPAL
+{_bloque_ficha(ficha)}EL PLANTEAMIENTO PRINCIPAL
 {_pregunta(pral)}
 Lo que resolvió {org}: {pral.get('resolvio') or '(no consta)'}
 Lo que sostienen los {q}: {pral.get('combate') or '(no consta)'}
@@ -1012,6 +1024,17 @@ QUÉ DEVUELVES:
    palabra y la que no está se descarta.
 4. `hechos_que_deciden`: los hechos del expediente de los que depende la
    respuesta, como mucho cinco, uno por elemento, sin calificarlos.
+5. `busquedas`: de dos a cuatro consultas para buscar en el Semanario el
+   criterio que contesta la pregunta decisiva, escritas en el lenguaje de los
+   RUBROS: sintagmas nominales en versales, la figura primero y sus notas
+   después, sin verbos conjugados, sin hechos ni partes. Al menos una nombra
+   la figura con las notas del caso; otra, el GÉNERO al que pertenece, para
+   alcanzar por analogía si no hay criterio sobre el caso concreto.
+6. `interpretacion_conforme`: si la respuesta depende del alcance de un
+   precepto que admite más de una lectura y una de ellas es la conforme con la
+   Constitución o la más favorable a la persona, `precepto` (el artículo y su
+   ley, tal como constan arriba) y `por_que` (en un renglón, qué lecturas
+   admite y de qué depende elegir). Si no depende de eso, null.
 
 No cites tesis, registros ni preceptos que no estén arriba. No decidas.
 
@@ -1019,7 +1042,9 @@ Devuelve SÓLO un JSON, sin texto alrededor:
 {{"figura": "<la institución>",
   "pregunta_decisiva": "<la pregunta de derecho>",
   "proposicion_toral": {{"dice": "<una frase>", "cita": "<literal o vacía>"}},
-  "hechos_que_deciden": ["<un hecho>"]}}"""
+  "hechos_que_deciden": ["<un hecho>"],
+  "busquedas": ["<consulta en lenguaje de rubro>"],
+  "interpretacion_conforme": {{"precepto": "<artículo y ley>", "por_que": "<un renglón>"}} o null}}"""
 
 
 def prompt_lectura(decisiva: dict, candidatas: list) -> str:
@@ -1088,7 +1113,7 @@ def prompt_abogado(via: str, *, pral: dict, pi: int, problemas: list, decisiva: 
                    textos: dict, cat: dict, tipo_asunto: str = "", es_recurso: bool = False,
                    marco: str = "", metodo: str = "", suplencia: str = "",
                    direccion: str = "", regla_ley: str = "",
-                   hay_procesal_ad: bool = False) -> str:
+                   hay_procesal_ad: bool = False, ficha: str = "") -> str:
     q, org = _vocab(tipo_asunto, es_recurso)
     prospera = via == "A"
     nombre = "PROSPERA" if prospera else "NO PROSPERA"
@@ -1136,7 +1161,7 @@ persona argumenta la vía contraria por separado, y un tercero que no sabe quié
 escribió cada una las compara después. Tu trabajo es la mejor versión HONESTA
 de esta vía con lo que consta; no decides cuál es mejor.
 {direccion}
-EL PLANTEAMIENTO PRINCIPAL
+{_bloque_ficha(ficha)}EL PLANTEAMIENTO PRINCIPAL
 {_pregunta(pral)}
 Lo que resolvió {org}: {pral.get('resolvio') or '(no consta)'}
 Lo que sostienen los {q}: {pral.get('combate') or '(no consta)'}
@@ -1262,7 +1287,8 @@ def _bloque_via_para_juez(etq: str, v: dict, cat: dict) -> str:
 
 
 def prompt_juez(orden: tuple, vias: dict, *, decisiva: dict, cat: dict,
-                constancias_faltantes: list, suplencia: str = "", tasa_base: str = "") -> str:
+                constancias_faltantes: list, suplencia: str = "", tasa_base: str = "",
+                ficha: str = "") -> str:
     toral = decisiva.get("proposicion_toral") or {}
     faltan = "\n".join(f"  · {c.get('que')}" + (f" — para: {c.get('para_que')}" if c.get("para_que") else "")
                        for c in constancias_faltantes or [] if isinstance(c, dict) and c.get("que")) \
@@ -1292,7 +1318,7 @@ consulta sólo si el anterior no decide.
    contra. No se cuenta como voto.
 5. LA TASA BASE, sólo para desempatar y diciéndolo: {tasa_base or '(no se tiene)'}
 
-LA PREGUNTA DECISIVA: {decisiva.get('pregunta_decisiva') or '(no se formuló)'}
+{_bloque_ficha(ficha)}LA PREGUNTA DECISIVA: {decisiva.get('pregunta_decisiva') or '(no se formuló)'}
 LA FIGURA: {decisiva.get('figura') or '(no consta)'}
 LA PROPOSICIÓN TORAL DE LO RESUELTO: {toral.get('dice') or '(no consta)'}
   cita {'VERIFICADA' if toral.get('verificada') else 'NO verificada'}: {toral.get('cita') or '(sin cita)'}
@@ -1341,14 +1367,14 @@ Devuelve SÓLO un JSON:
 
 async def etapa_a(cliente, pral: dict, contraste: Optional[dict], resumen_acto: str,
                   resumen_conceptos: str, textos: _Textos, tipo_asunto: str,
-                  es_recurso: bool, uso: _Uso, avisos: list) -> dict:
+                  es_recurso: bool, uso: _Uso, avisos: list, ficha: str = "") -> dict:
     """La pregunta decisiva, con la cita de la proposición toral VERIFICADA
     contra el acto. Si la llamada falla, se sigue con la pregunta de la fase 3
     y se dice: peor búsqueda, pero búsqueda."""
     acto = textos.crudos.get("acto", "")
     d = await _pedir(cliente, prompt_pregunta_decisiva(
         pral, contraste, resumen_acto, resumen_conceptos,
-        _ventana(acto, 60000, desde_el_final=True), tipo_asunto, es_recurso),
+        _ventana(acto, 60000, desde_el_final=True), tipo_asunto, es_recurso, ficha=ficha),
         modelo=MODELO_LECTURA, esfuerzo=ESFUERZO_LECTURA, tope=TOKENS_LECTURA,
         semilla=20260928, uso=uso)
     if not d.get("pregunta_decisiva"):
@@ -1367,7 +1393,39 @@ async def etapa_a(cliente, pral: dict, contraste: Optional[dict], resumen_acto: 
                                   "cita": cita, "verificada": bool(cita)},
             "hechos_que_deciden": [" ".join(str(h).split()) for h in (d.get("hechos_que_deciden") or [])
                                    if str(h).strip()][:5],
+            # LA PREGUNTA TAL COMO LLEGÓ (SPEC E3, AR 631/2025): la recurrida
+            # la planteó como «¿alteró la cosa juzgada?» y lo que decide es la
+            # figura. Las dos viajan: la decisiva manda la búsqueda y el
+            # razonamiento; la recurrida es el marco en que se contesta.
+            "pregunta_recurrida": " ".join(_pregunta(pral).split()),
+            "busquedas": _busquedas_de(d.get("busquedas")),
+            "interpretacion_conforme": _interpretacion_de(d.get("interpretacion_conforme")),
             "formulada": bool(d.get("pregunta_decisiva"))}
+
+
+def _busquedas_de(x: Any) -> list:
+    """Las consultas en lenguaje de rubro, sin repetir y con tope: cada una es
+    un embedding y una consulta a Qdrant. Se quitan los signos de pregunta: con
+    prosa interrogativa el vector `rubro` es lo peor medido (fase6_rag)."""
+    out, vistos = [], set()
+    for q in x if isinstance(x, list) else []:
+        t = " ".join(str(q or "").replace("¿", " ").replace("?", " ").split())[:220]
+        k = t.lower()
+        if len(t) >= 8 and k not in vistos:
+            vistos.add(k)
+            out.append(t)
+    return out[:4]
+
+
+def _interpretacion_de(x: Any) -> Optional[dict]:
+    """{precepto, por_que} o None. Sin precepto no hay interpretación conforme
+    que buscar: un «por qué» suelto no dice qué norma leer."""
+    if not isinstance(x, dict):
+        return None
+    pre = " ".join(str(x.get("precepto") or "").split())[:200]
+    if not pre:
+        return None
+    return {"precepto": pre, "por_que": " ".join(str(x.get("por_que") or "").split())[:400]}
 
 
 def _tesis_de_resultado(x: Any) -> tuple:
@@ -1528,10 +1586,11 @@ def tiene_apoyo(v: dict) -> bool:
 
 async def etapa_d(cliente, orden: tuple, vias: dict, *, decisiva: dict, cat: dict,
                   constancias_faltantes: list, suplencia: str, tasa_base: str,
-                  uso: _Uso, semilla: int) -> dict:
+                  uso: _Uso, semilla: int, ficha: str = "") -> dict:
     d = await _pedir(cliente, prompt_juez(orden, vias, decisiva=decisiva, cat=cat,
                                          constancias_faltantes=constancias_faltantes,
-                                         suplencia=suplencia, tasa_base=tasa_base),
+                                         suplencia=suplencia, tasa_base=tasa_base,
+                                         ficha=ficha),
                      modelo=_modelo(), esfuerzo=ESFUERZO_DELIBERACION, tope=TOKENS_JUEZ,
                      semilla=semilla, uso=uso)
     rec = str(d.get("recomendada") or "").strip().lower()
@@ -1679,7 +1738,9 @@ async def deliberar(cliente, *, problemas: list, material=None,
                     internet: Optional[Callable[..., Awaitable[Any]]] = None,
                     filas_propias: Optional[list] = None, region: Optional[str] = None,
                     clave_propia: str = "", tasa_base: str = "", tribunal: str = "",
-                    quien_recurre: str = "", sobresee_ademas: bool = False) -> dict:
+                    quien_recurre: str = "", sobresee_ademas: bool = False,
+                    ficha: str = "",
+                    decisiva_previa: Optional[dict] = None) -> dict:
     """La deliberación del problema principal. Devuelve el documento que va a la
     marca «deliberacion» (JSON puro). Las búsquedas se inyectan:
       buscar(pregunta, figura)                     → tesis (lista, dict o Material)
@@ -1699,9 +1760,35 @@ async def deliberar(cliente, *, problemas: list, material=None,
     tx = _Textos(textos)
     c_pral = _contraste_de(contraste, pi + 1)
 
-    # A · la pregunta decisiva
-    decisiva = await etapa_a(cliente, pral, c_pral, resumen_acto, resumen_conceptos, tx,
-                             tipo_asunto, es_recurso, uso, avisos)
+    # A · la pregunta decisiva. SI YA SE FORMULÓ PARA TODOS (SPEC E3,
+    # `pregunta_decisiva.py`, marca «decisiva» del mismo adelanto) y es de este
+    # principal, se reutiliza: la misma llamada, ya pagada, y la búsqueda de la
+    # figura ya está en el material.
+    #
+    # DOS CONDICIONES MÁS (revisión adversarial de la fase E, 28-sep-2026):
+    # · la bandera: con PREGUNTA_DECISIVA_ACTIVA=0 la previa no se usa (la
+    #   que viaja en el material guardado seguía mandando aquí);
+    # · el contraste: la previa se formula en paralelo con el contraste, sin
+    #   él. Si aquí hay contraste del principal y la previa no lo llevó, se
+    #   formula otra vez con él, como antes de la fase E: la razón toral que
+    #   identificó el contraste es un dato de la ETAPA A que no se pierde
+    #   para ahorrar una llamada corta.
+    _prev = decisiva_previa if isinstance(decisiva_previa, dict) else {}
+    try:
+        import pregunta_decisiva as _pd_d
+        _prev_vale = _pd_d.util(_prev)
+    except Exception:                                   # pragma: no cover
+        _prev_vale = False
+    if (_prev_vale and _prev.get("formulada") and _prev.get("pregunta_decisiva")
+            and (_prev.get("con_contraste") or not c_pral)
+            and " ".join(str(_prev.get("pregunta_recurrida") or "").split())
+            == " ".join(_pregunta(pral).split())):
+        decisiva = {k: _prev.get(k) for k in (
+            "pregunta_decisiva", "figura", "proposicion_toral", "hechos_que_deciden",
+            "pregunta_recurrida", "busquedas", "interpretacion_conforme", "formulada")}
+    else:
+        decisiva = await etapa_a(cliente, pral, c_pral, resumen_acto, resumen_conceptos, tx,
+                                 tipo_asunto, es_recurso, uso, avisos, ficha=ficha)
 
     # B · la escalera
     cat = await etapa_b(cliente, decisiva, pral, pi, material, buscar=buscar, reforzar=reforzar,
@@ -1749,7 +1836,7 @@ async def deliberar(cliente, *, problemas: list, material=None,
                                            str(pral.get("combate") or ""),
                                            str(pral.get("resolvio") or "")),
             regla_ley=_f5._regla_de_ley(material) if material is not None else "",
-            hay_procesal_ad=hay_proc)
+            hay_procesal_ad=hay_proc, ficha=ficha)
 
     crudoA, crudoB = await asyncio.gather(
         _pedir(cliente, _pa("A"), modelo=_modelo(), esfuerzo=ESFUERZO_DELIBERACION,
@@ -1775,10 +1862,10 @@ async def deliberar(cliente, *, problemas: list, material=None,
         p1, p2 = await asyncio.gather(
             etapa_d(cliente, ("A", "B"), vias, decisiva=decisiva, cat=cat,
                     constancias_faltantes=constancias_faltantes or [], suplencia=suplencia,
-                    tasa_base=tasa_base, uso=uso, semilla=20260930),
+                    tasa_base=tasa_base, uso=uso, semilla=20260930, ficha=ficha),
             etapa_d(cliente, ("B", "A"), vias, decisiva=decisiva, cat=cat,
                     constancias_faltantes=constancias_faltantes or [], suplencia=suplencia,
-                    tasa_base=tasa_base, uso=uso, semilla=20260930))
+                    tasa_base=tasa_base, uso=uso, semilla=20260930, ficha=ficha))
     comb = combinar(p1, p2, vias, cat)
 
     # E · lo del juez, limpio. Habla la pasada que recomendó la vía en que
