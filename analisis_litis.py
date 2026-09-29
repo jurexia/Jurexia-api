@@ -323,41 +323,59 @@ def _fuente(x) -> str:
     return "acto"
 
 
+def textos(acto: str = "", escrito: str = "", autos: str = "") -> dict:
+    """Las tres fuentes listas para citar en ellas (`verificar_cita`)."""
+    import plan_estudio as _pe
+    return {"acto": _pe.Texto(acto or ""), "escrito": _pe.Texto(escrito or ""),
+            "constancias": _pe.Texto(autos or "")}
+
+
+def verificar_cita(c, T: dict, fuente: str = "acto") -> tuple:
+    """(cita, verificada, fuente donde está, lectura «literal»|«ocr»|«»).
+
+    LA MISMA REGLA PARA TODO EL TALLER (etapa 3): el análisis neutral, la
+    justificación de cada solución y su revisión citan con esta función. Se
+    busca primero en la fuente declarada y después en las demás —una fuente
+    vacía nunca deja pasar la cita de otra con su nombre—; literal, recortada
+    por los bordes (`_recorte_literal`, sólo quita) o, al final, salvo errores
+    de lectura (`casi_literal`, calibrada: ver arriba)."""
+    import plan_estudio as _pe
+    c = _txt(c, 600)
+    fuente = _fuente(fuente)
+    if not c:
+        return "", False, fuente, ""
+    orden = [fuente] + [k for k in ("acto", "escrito", "constancias") if k != fuente]
+    for k in orden:
+        t = T.get(k)
+        if not t:
+            continue
+        if t.contiene(c):
+            return c, True, k, "literal"
+        rec, _ = _pe._recorte_literal(c, [t])
+        if rec:
+            return rec, True, k, "literal"
+    for k in orden:
+        if T.get(k):
+            rec = casi_literal(c, T[k])
+            if rec:
+                return rec, True, k, "ocr"
+    return c, False, fuente, ""
+
+
 def verificar(crudo: dict, acto: str, escrito: str, autos: str, segmentos: list) -> dict:
     """El análisis limpio: citas comprobadas, referencias válidas, condiciones
     del catálogo y las razones autónomas sin combatir calculadas por código.
     Nunca lanza por la forma de lo que devolvió el modelo."""
-    import plan_estudio as _pe
-    T = {"acto": _pe.Texto(acto or ""), "escrito": _pe.Texto(escrito or ""),
-         "constancias": _pe.Texto(autos or "")}
+    T = textos(acto, escrito, autos)
     d = crudo if isinstance(crudo, dict) else {}
 
     ocr = set()
 
     def _cita(c, fuente: str) -> tuple:
-        """(cita, verificada, fuente donde está). Se busca primero en la
-        fuente declarada y después en las demás: una fuente vacía (sin
-        constancias) nunca deja pasar la cita de otra con su nombre."""
-        c = _txt(c, 600)
-        if not c:
-            return "", False, fuente
-        orden = [fuente] + [k for k in ("acto", "escrito", "constancias") if k != fuente]
-        for k in orden:
-            t = T[k]
-            if not t:
-                continue
-            if t.contiene(c):
-                return c, True, k
-            rec, _ = _pe._recorte_literal(c, [t])
-            if rec:
-                return rec, True, k
-        for k in orden:
-            if T[k]:
-                rec = casi_literal(c, T[k])
-                if rec:
-                    ocr.add(rec)
-                    return rec, True, k
-        return c, False, fuente
+        cita, ok, k, lectura = verificar_cita(c, T, fuente)
+        if lectura == "ocr":
+            ocr.add(cita)
+        return cita, ok, k
 
     razones, ids_r = [], set()
     # Los ids que el modelo SÍ puso se reservan antes: la razón sin id no
