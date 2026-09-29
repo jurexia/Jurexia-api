@@ -97,7 +97,10 @@ ok('"constancias": list(getattr(glob, "constancias"' in src, "/taller/proponer l
 ok('etiqueta: str = Form("")' in src and "_cn_r.rotular(etiqueta, junto)" in src, "/taller/contexto rotula el aporte")
 ok("_bloque_constancias(propuesta_global, contexto, criterios)" in inspect.getsource(f6.prompt_estudio), "el estudio recibe el bloque, y con él los criterios para saber si se resolvió al revés")
 ok(inspect.getsource(ra).count("_cn_a.aviso_faltantes(") == 2, "los dos redactores avisan de las que faltan")
-ok(inspect.getsource(ra).count("f6._efectos_de_reposicion(estudio, criterios, _vp)") == 2, "y comprueban los efectos")
+# Desde el 28-sep-2026 (AR 631/2025) llevan además la rama, para no pedir
+# efectos en una revisión que revoca una concesión y niega.
+ok(inspect.getsource(ra).count("f6._efectos_de_reposicion(estudio, criterios, _vp,") == 2
+   and inspect.getsource(ra).count("rama=_rama_de(r, criterios, estudio))") >= 2, "y comprueban los efectos")
 ok('"representante": _pv.separar(e.quejoso)["representante"]' in inspect.getsource(ra), "el compositor recibe parte y representante")
 ok("_pvr.por_conducto(" in inspect.getsource(dg), "y el resolutivo ampara por conducto")
 

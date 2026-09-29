@@ -137,8 +137,30 @@ Devuelve JSON y nada más:
 import tipos_asunto as _ta_f
 
 
+# EN LA REVISIÓN LA ETIQUETA DE LA CARÁTULA NO SIRVE DE DEFINICIÓN (28-sep-2026,
+# AR 631/2025). La carátula junta «{QUEJOSO_A} Y RECURRENTE» porque casi siempre
+# recurre la quejosa, y no tiene renglón de tercero interesado; pedirle al
+# modelo la «QUEJOSA Y RECURRENTE» cuando recurrió la tercera interesada lo
+# invitaba a poner a la recurrente —y el tercero salía vacío por definición—.
+# Se le dice qué es cada clave en el juicio de amparo, sin ejemplos que copiar.
+_FIGURAS_PARTES = {
+    "amparo_revision": {
+        "quejoso": ("la PARTE QUEJOSA del juicio de amparo indirecto: quien PROMOVIÓ "
+                    "el amparo y a quien el Juzgado de Distrito concedió, negó o "
+                    "sobreseyó, aunque no sea quien interpone la revisión"),
+        "tercero": ("la PARTE TERCERA INTERESADA del juicio de amparo indirecto, "
+                    "también si es ella quien interpone la revisión"),
+        "responsable": ("el ÓRGANO RECURRIDO: el Juzgado de Distrito que dictó la "
+                        "sentencia que se revisa (no la autoridad del acto reclamado)"),
+    },
+}
+
+
 def _figura(tipo: str, clave: str) -> str:
     """La etiqueta de esa figura en este tipo, o «(no existe en este tipo)»."""
+    _def = _FIGURAS_PARTES.get(_ta_f.normalizar(tipo) or "", {}).get(clave)
+    if _def:
+        return _def
     for et, cl, _ob in _ta_f.caratula_de(tipo):
         if cl == clave:
             return et

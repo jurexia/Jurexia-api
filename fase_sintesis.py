@@ -43,7 +43,7 @@ la portada, con la forma de una tesis del Semanario Judicial de la Federación.
 EL ASUNTO
 Tipo: {tipo}
 Expediente: {expediente}
-Parte promovente: {quejoso}
+{rotulo_promovente}: {quejoso}{papeles}
 Sentido que se propone: {sentido}
 
 EL PROYECTO, tal como quedó redactado:
@@ -60,7 +60,7 @@ DEVUELVE UN JSON con exactamente estas cuatro claves:
   expediente ni los nombres de las partes.
 
 "hechos": qué pasó, en pasado y en tercera persona, sin nombres propios de
-  particulares —«la parte quejosa», «la autoridad responsable»—. Es el
+  particulares: a cada quien por su figura EN ESTE ASUNTO{figuras}. Es el
   antecedente que hace comprensible el criterio, no el resumen del expediente.
   Alrededor de 800 caracteres, un solo párrafo.
 
@@ -84,6 +84,34 @@ REGLAS QUE NO SE ROMPEN
 Sólo el JSON, sin texto alrededor."""
 
 
+def prompt(*, tipo_asunto: str = "", expediente: str = "", quejoso: str = "",
+           sentido: str = "", estudio: str = "", recurrente: str = "",
+           papel_recurrente: str = "", organo: str = "") -> str:
+    """El prompt de la síntesis, con los papeles de ESTE asunto como datos."""
+    try:
+        import tipos_asunto as _ta_s
+        _t = _ta_s.normalizar(tipo_asunto or "")
+    except Exception:
+        _t = (tipo_asunto or "").strip().lower()
+    papeles = ""
+    if _t in ("amparo_revision", "queja") and (recurrente or "").strip():
+        _car = _CARACTER.get((papel_recurrente or "").strip().lower(), "")
+        papeles += (f"\nParte recurrente: {recurrente.strip()}"
+                    + (f" ({_car})" if _car else ""))
+    if _t == "amparo_revision" and (organo or "").strip():
+        papeles += f"\nÓrgano que dictó la sentencia recurrida: {organo.strip()}"
+    return _PROMPT.format(
+        tipo=tipo_asunto or "no consta",
+        expediente=expediente or "no consta",
+        quejoso=quejoso or "no consta",
+        rotulo_promovente=("Parte quejosa (promovió el amparo)" if _t == "amparo_revision"
+                           else "Parte promovente"),
+        papeles=papeles,
+        figuras=_FIGURAS.get(_t, _FIGURAS["amparo_directo"]),
+        sentido=sentido or "no consta",
+        estudio=(estudio or "")[:60000])
+
+
 def _limpio(x) -> str:
     """Una cadena de una línea, sin el rótulo repetido ni comillas sueltas."""
     t = re.sub(r"\s+", " ", str(x or "")).strip()
@@ -93,9 +121,33 @@ def _limpio(x) -> str:
     return t.strip(' "“”')
 
 
+# LAS FIGURAS DE ESTE ASUNTO (28-sep-2026, AR 631/2025). El prompt daba como
+# ejemplo las del amparo directo —«la parte quejosa», «la autoridad
+# responsable»— y la «parte promovente» era lo tecleado: en una revisión que
+# interpuso la tercera interesada, la síntesis contó que «la parte quejosa
+# adquirió el inmueble» (fue la recurrente) y que «la autoridad responsable
+# concedió el amparo» (fue el Juzgado de Distrito). Ahora se le dice quién es
+# quién, como dato, con la figura que le toca a cada uno.
+_FIGURAS = {
+    "amparo_directo": " —la parte quejosa, la autoridad responsable, la parte "
+                      "tercera interesada—",
+    "amparo_revision": " —la parte quejosa (quien promovió el amparo), la parte "
+                       "recurrente (quien interpuso la revisión, si no es la "
+                       "quejosa), el Juzgado de Distrito (quien dictó la "
+                       "sentencia recurrida) y la autoridad responsable (quien "
+                       "dictó el acto reclamado)—",
+    "queja": " —la parte recurrente y el órgano que dictó el auto recurrido—",
+    "revision_fiscal": " —la autoridad recurrente, la parte actora y la Sala "
+                       "que dictó la sentencia recurrida—",
+}
+_CARACTER = {"tercero": "parte tercera interesada", "autoridad": "autoridad responsable",
+             "quejoso": "la propia parte quejosa"}
+
+
 async def sintetizar(cliente, *, tipo_asunto: str = "", expediente: str = "",
                      quejoso: str = "", sentido: str = "",
-                     estudio: str = "") -> dict:
+                     estudio: str = "", recurrente: str = "",
+                     papel_recurrente: str = "", organo: str = "") -> dict:
     """{titulo, hechos, criterio, justificacion}; vacío si no procede.
 
     NUNCA REVIENTA EL PROYECTO. La síntesis es la última página; si el modelo
@@ -109,12 +161,10 @@ async def sintetizar(cliente, *, tipo_asunto: str = "", expediente: str = "",
         r = await _lm.crear(
             cliente, model=MODELO_SINTESIS, max_completion_tokens=6000,
             reasoning_effort="medium",
-            messages=[{"role": "user", "content": _PROMPT.format(
-                tipo=tipo_asunto or "no consta",
-                expediente=expediente or "no consta",
-                quejoso=quejoso or "no consta",
-                sentido=sentido or "no consta",
-                estudio=(estudio or "")[:60000])}])
+            messages=[{"role": "user", "content": prompt(
+                tipo_asunto=tipo_asunto, expediente=expediente, quejoso=quejoso,
+                sentido=sentido, estudio=estudio, recurrente=recurrente,
+                papel_recurrente=papel_recurrente, organo=organo)}])
         m = _RX_JSON.search((r.choices[0].message.content or "").strip())
         d = json.loads(m.group(0)) if m else {}
     except Exception:

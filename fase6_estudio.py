@@ -1557,20 +1557,41 @@ def _bloque_circuito(tipo_asunto: str, criterios: list) -> str:
     return "\n".join(lineas) + "\n"
 
 
-def _bloque_conceptos(rama: str, conceptos: str, variante: str = "v1") -> str:
+def _bloque_conceptos(rama: str, conceptos: str, variante: str = "v1",
+                      reasuncion: dict = None) -> str:
     """Los conceptos de violación, cuando hay que estudiarlos por primera vez.
 
-    Sólo aparece cuando el recurso LEVANTA UN SOBRESEIMIENTO. Entonces el
-    colegiado asume jurisdicción —artículo 93, fracción I— y tiene que resolver
-    lo que el Juzgado de Distrito no resolvió.
+    DOS SUPUESTOS (28-sep-2026):
+    · el recurso LEVANTA UN SOBRESEIMIENTO: el colegiado asume jurisdicción
+      —artículo 93, fracciones I y V (decía «fracción I»: la I manda examinar
+      los agravios contra el sobreseimiento; el estudio de fondo que sigue lo
+      manda la V)— y resuelve lo que el Juzgado de Distrito no resolvió;
+    · el recurso REVOCA UNA CONCESIÓN (fracción VI): recurre la autoridad o la
+      tercera interesada, sus agravios prosperan, y el tribunal estudia los
+      conceptos que el juzgado no estudió antes de conceder o negar. AR
+      631/2025: el proyecto negó sin estudiarlos. Ver `_bloque_reasuncion`.
+
+    `reasuncion` es lo que `redactor_adelanto` dejó en el material
+    (`material.reasuncion`): None si no se calculó —entonces manda la rama—, o
+    un dict con su «reasuncion» (vacía = no aplica, p. ej. recurre la quejosa),
+    los conceptos que ya estaban en el material y de dónde salieron.
 
     David: «en el proyecto lo que se estila es abrir un nuevo considerando de
     estudio de los conceptos de violación, y aquí puede ocurrir, tal y como
     ocurre en amparo directo, que los conceptos resulten fundados, infundados o
     inoperantes».
     """
+    _re = reasuncion if isinstance(reasuncion, dict) else None
+    if rama == "revoca_fondo_niega" and (_re is None or _re.get("reasuncion") == "concesion"):
+        return _bloque_reasuncion(conceptos or str((_re or {}).get("conceptos") or ""), _re or {})
     if not rama.startswith("revoca_sobreseimiento"):
         return ""
+    _origen_c = "tal como los aportó el secretario"
+    if not (conceptos or "").strip() and _re and str(_re.get("conceptos") or "").strip():
+        # LOS QUE YA ESTABAN EN EL MATERIAL (la demanda entre las constancias,
+        # o la recurrida que los transcribe), con su procedencia (28-sep-2026).
+        conceptos = str(_re.get("conceptos"))
+        _origen_c = _ORIGEN_CONCEPTOS.get(str(_re.get("donde") or ""), _origen_c)
     if not (conceptos or "").strip():
         return ("\n\nFALTAN LOS CONCEPTOS DE VIOLACIÓN. Este recurso levanta el "
                 "sobreseimiento, así que hay que estudiarlos, y no constan. NO "
@@ -1607,7 +1628,88 @@ TRES COSAS QUE NO SE CONFUNDEN:
   INOPERANTES, igual que en un amparo directo, y de ahí sale si se ampara o no
   se ampara. Que el agravio fuera fundado sólo probó que no debió sobreseerse.
 
-LOS CONCEPTOS DE VIOLACIÓN, tal como los aportó el secretario:
+LOS CONCEPTOS DE VIOLACIÓN, {_origen_c}:
+──────────────────────────────────────────
+{conceptos.strip()[:400000]}
+──────────────────────────────────────────
+"""
+
+
+# DE DÓNDE SALIERON LOS CONCEPTOS, dicho al estudio (28-sep-2026): los que no
+# aportó el secretario se tomaron del material, y si están incompletos el
+# estudio tiene que decirlo, no suplirlos.
+_ORIGEN_CONCEPTOS = {
+    "secretario": "tal como los aportó el secretario",
+    "constancias": ("tal como constan en la demanda de amparo que obra entre las "
+                    "constancias (si se ven incompletos, dilo en ADVERTENCIAS)"),
+    "recurrida": ("tal como los transcribe la sentencia recurrida (si se ven "
+                  "incompletos, dilo en ADVERTENCIAS)"),
+}
+
+
+def _bloque_reasuncion(conceptos: str, reas: dict) -> str:
+    """ARTÍCULO 93, FRACCIÓN VI: revocada la concesión, el tribunal reasume
+    jurisdicción y estudia los conceptos de violación que el juzgado no
+    estudió (AR 631/2025, 28-sep-2026: el proyecto pasó de «procede revocarla»
+    a «no ampara ni protege» sin estudiar ninguno).
+
+    Descripción de lo que hay que hacer, NUNCA frases para copiar (lección del
+    proyecto: los ejemplos del prompt se firman literales). La dependencia es la
+    misma del plan-6 entre argumentos: lo que descansa en la tesis ya
+    desestimada cae por las mismas razones o por derivar; lo de contenido
+    propio se contesta. El resolutivo sale de la conclusión de este considerando
+    (`fase_rama.sentido_en_plenitud`), por eso se pide que la diga."""
+    firme = ("\n- La sentencia recurrida también sobreseyó respecto de algún acto. Si "
+             "ningún agravio combate ese sobreseimiento, dilo y declara que queda firme; "
+             "por eso la revocación se acota a la materia de la revisión."
+             if reas.get("sobresee_ademas") else
+             "\n- Si la sentencia recurrida resolvió algo que ningún agravio combate —un "
+             "sobreseimiento respecto de otra autoridad, por ejemplo—, dilo y declara que "
+             "queda firme; la revocación se acota entonces a la materia de la revisión.")
+    if not (conceptos or "").strip():
+        return ("\n\nREVOCAR NO ES NEGAR (artículo 93, fracción VI, de la Ley de Amparo). "
+                "El Juzgado de Distrito concedió y el recurso lo interpone quien no pidió el "
+                "amparo: si los agravios prosperan, el tribunal reasume jurisdicción y tiene "
+                "que estudiar los conceptos de violación cuyo estudio omitió el juzgado antes "
+                "de conceder o negar." + firme + "\n"
+                "FALTAN ESOS CONCEPTOS DE VIOLACIÓN: no constan en el expediente del recurso. "
+                "NO LOS INVENTES ni los deduzcas de los agravios: son escritos distintos. "
+                "Escribe el estudio de los agravios; si prosperan, di que se revoca y que el "
+                "tribunal reasume jurisdicción, pero NO concluyas si se concede o se niega el "
+                "amparo: esa conclusión depende de unos conceptos que no tienes. Añade en "
+                "ADVERTENCIAS que el estudio de los conceptos de violación no estudiados queda "
+                "pendiente porque no obran en el expediente del recurso.\n")
+    origen = _ORIGEN_CONCEPTOS.get(str(reas.get("donde") or "secretario"),
+                                   _ORIGEN_CONCEPTOS["secretario"])
+    return f"""
+
+REVOCAR NO ES NEGAR — REASUNCIÓN DE JURISDICCIÓN (artículo 93, fracción VI,
+de la Ley de Amparo)
+
+El Juzgado de Distrito concedió el amparo y el recurso lo interpone quien no lo
+pidió. Si los agravios prosperan, eso prueba que la concesión no se sostiene
+por la razón que dio el juzgado; no dice si procede por otra. El tribunal no
+devuelve el asunto: reasume jurisdicción y estudia los conceptos de violación
+cuyo estudio omitió el juzgado —los que declaró innecesarios al conceder con
+uno—, y de ese estudio sale si concede o niega.
+
+CÓMO SE ORDENA:{firme}
+- Después del estudio de los agravios, ABRE UN CONSIDERANDO PROPIO para los
+  conceptos de violación no estudiados, con su rótulo. Son de la DEMANDA DE
+  AMPARO y van contra el ACTO RECLAMADO; no los confundas con los agravios ni
+  digas que el juzgado los consideró: no entró a ellos.
+- Resuélvelos con la misma dependencia que los agravios: los que descansan en
+  la tesis que el estudio de los agravios ya desestimó caen por las mismas
+  razones, o son inoperantes por derivar de ella, en grupo y diciendo de qué
+  tesis derivan; los de contenido propio —otra prueba, otro vicio, otra
+  consecuencia— se contestan en lo suyo, con el material.
+- Si todos caen, se niega el amparo. Si alguno prospera, se concede por una
+  razón distinta de la del juzgado, y entonces sí fijas los efectos de esa
+  concesión.
+- Cierra ese considerando diciendo, con tus palabras, si procede conceder o
+  negar el amparo: de esa conclusión sale el punto resolutivo.
+
+LOS CONCEPTOS DE VIOLACIÓN NO ESTUDIADOS, {origen}:
 ──────────────────────────────────────────
 {conceptos.strip()[:400000]}
 ──────────────────────────────────────────
@@ -1615,7 +1717,7 @@ LOS CONCEPTOS DE VIOLACIÓN, tal como los aportó el secretario:
 
 
 def _bloque_tecnica(tipo_asunto: str, rama: str = "",
-                    violacion_procesal: bool = False) -> str:
+                    violacion_procesal: bool = False, material=None) -> str:
     """Cómo se resuelve ESTE escenario, según la Ley de Amparo.
 
     Hasta ahora el prompt no decía ni una vez «levantar el sobreseimiento», ni
@@ -1646,11 +1748,19 @@ def _bloque_tecnica(tipo_asunto: str, rama: str = "",
         # No se le dan los registros a secas —eso invita a citar de memoria—:
         # se le dice que ya los tiene entre las tesis del material, con su
         # texto, y que cite desde ahí.
-        if r.get("apoyos"):
+        _apoyos = list(r.get("apoyos") or [])
+        # SÓLO LOS QUE LLEGARON (28-sep-2026). Los de la reasunción (art. 93,
+        # fr. VI) se traen al resolver, porque la rama no se sabe en el
+        # adelanto: si el acervo no los devolvió, anunciarlos sería invitar a
+        # citarlos de memoria. Las reglas de siempre no cambian.
+        if r.get("solo_si_estan"):
+            _hay = {str(t.get("registro") or "") for t in (getattr(material, "tesis", None) or [])}
+            _apoyos = [x for x in _apoyos if str(x) in _hay]
+        if _apoyos:
             partes.append(
                 "    – APOYOS PARA ESTA TÉCNICA: entre las tesis del acervo que "
                 "tienes abajo están las de registro "
-                + ", ".join(str(x) for x in r["apoyos"])
+                + ", ".join(str(x) for x in _apoyos)
                 + ". Tratan exactamente de esta cuestión —no del fondo del "
                   "asunto— y son las que hay que citar al justificarla. "
                   "Cítalas como las demás, desde el texto que se te dio.")
@@ -2533,9 +2643,9 @@ FUNDAMENTO — hay que fundar, y hay que fundar bien:
 {partes.bloque() if partes is not None else ""}
 {marco if isinstance(marco, str) else ""}
 {_bloque_arquitectura(materia or getattr(material, "materia", ""))}
-{_bloque_tecnica(getattr(material, "tipo_asunto", "") or ("amparo_revision" if es_recurso else "amparo_directo"), rama, violacion_procesal)}
+{_bloque_tecnica(getattr(material, "tipo_asunto", "") or ("amparo_revision" if es_recurso else "amparo_directo"), rama, violacion_procesal, material)}
 {_bloque_circuito(getattr(material, "tipo_asunto", "") or ("amparo_revision" if es_recurso else "amparo_directo"), criterios)}
-{_bloque_conceptos(rama, conceptos_violacion)}
+{_bloque_conceptos(rama, conceptos_violacion, reasuncion=getattr(material, "reasuncion", None))}
 {_bloque_criterio(criterios, materia or getattr(material, "materia", ""), _texto_de(material), getattr(material, "tipo_asunto", ""), _formato, getattr(material, "problemas", None) or [])}{_bloque_sin_calificar(criterios)}
 {_bloque_suplencia(material)}
 {_bloque_global(propuesta_global, criterios)}
@@ -3351,9 +3461,9 @@ FUNDAMENTO — hay que fundar, y hay que fundar bien:
 {partes.bloque() if partes is not None else ""}
 {marco if isinstance(marco, str) else ""}
 {_bloque_arquitectura(_materia_v, "v2")}
-{_bloque_tecnica(_tipo_tec, rama, violacion_procesal)}
+{_bloque_tecnica(_tipo_tec, rama, violacion_procesal, material)}
 {_bloque_circuito(_tipo_tec, criterios)}
-{_bloque_conceptos(rama, conceptos_violacion, "v2")}
+{_bloque_conceptos(rama, conceptos_violacion, "v2", reasuncion=getattr(material, "reasuncion", None))}
 {_bloque_criterio(criterios, _materia_v, _texto_de(material), getattr(material, "tipo_asunto", ""), _formato, getattr(material, "problemas", None) or [], variante="v2")}{_bloque_sin_calificar(criterios)}
 {_bloque_suplencia(material)}
 {_bloque_global(propuesta_global, criterios)}
@@ -3920,13 +4030,34 @@ _RX_NUEVA_SENTENCIA = re.compile(
     r"plenitud\s+de\s+jurisdicci[óo]n", re.I)
 
 
-def _efectos_de_reposicion(estudio: str, criterios: list, violacion_procesal: bool) -> str:
+def _concede_el_proyecto(estudio: str, criterios: list, rama: str = "") -> bool:
+    """¿Este proyecto concede —y le toca fijar efectos—?
+
+    CON LA RAMA MANDA LA RAMA (28-sep-2026, AR 631/2025). Se deducía de que
+    algún planteamiento prosperara, y en una revisión fundada que revoca una
+    concesión y NIEGA eso es falso: el 631 salió con «Se concede y los efectos
+    van en prosa» y «EFECTOS INCOMPLETOS PARA UNA VIOLACIÓN PROCESAL» en un
+    proyecto que no concede nada. La rama se corrige con lo que el estudio
+    concluyó al reasumir jurisdicción (`tipos_asunto.ejecutoria_concede`): si
+    los conceptos no estudiados prosperan, se concede por razón distinta y
+    entonces sí hay efectos. Sin rama —amparo directo—, como antes."""
+    import tipos_asunto as _ta_ce
+    if rama:
+        import fase_rama as _fr_ce
+        _c = _ta_ce.ejecutoria_concede(rama, _fr_ce.sentido_en_plenitud(estudio or ""))
+        if _c is not None:
+            return _c
+    return any(_ta_ce.prospera(str(getattr(c, "sentido", "") or c)) for c in (criterios or []))
+
+
+def _efectos_de_reposicion(estudio: str, criterios: list, violacion_procesal: bool,
+                           rama: str = "") -> str:
     """Si se concede por violación procesal, los efectos tienen que ordenar la
-    reposición paso a paso, no «dicte otra». ADC 93/2026 v5."""
+    reposición paso a paso, no «dicte otra». ADC 93/2026 v5. Con la rama de la
+    revisión, sólo si ESTE proyecto concede (`_concede_el_proyecto`)."""
     if not violacion_procesal:
         return ""
-    import tipos_asunto as _ta_er
-    if not any(_ta_er.prospera(str(getattr(c, "sentido", "") or c)) for c in (criterios or [])):
+    if not _concede_el_proyecto(estudio, criterios, rama):
         return ""
     t = str(estudio or "")
     i = t.upper().rfind("EFECTOS DE LA CONCESIÓN")
@@ -3945,7 +4076,7 @@ def _efectos_de_reposicion(estudio: str, criterios: list, violacion_procesal: bo
             "Ley de Amparo).")
 
 
-def _cierre_operativo(estudio: str, criterios: list) -> str:
+def _cierre_operativo(estudio: str, criterios: list, rama: str = "") -> str:
     """Si se concede, los efectos van como órdenes numeradas y verificables.
 
     EL SUBSTRING QUE DABA POR CONCEDIDO TODO LO NEGADO: «fundado» está dentro
@@ -3959,10 +4090,11 @@ def _cierre_operativo(estudio: str, criterios: list) -> str:
     `tipos_asunto.prospera` es el único sitio donde se decide esto, y lleva
     dentro la excepción que cuesta medir —«fundado_insuficiente» tiene
     «fundad» y NO prospera—.
+
+    Y CON LA RAMA DE LA REVISIÓN, la rama (28-sep-2026): que un agravio
+    prospere no es que el proyecto conceda (`_concede_el_proyecto`).
     """
-    import tipos_asunto as _ta_ce
-    concede = any(_ta_ce.prospera(str(getattr(c, "sentido", "") or c))
-                  for c in (criterios or []))
+    concede = _concede_el_proyecto(estudio, criterios, rama)
     if not concede or "efecto" not in (estudio or "").lower():
         return ""
     if not _RX_ORDEN_NUMERADA.search(estudio or ""):
@@ -4121,7 +4253,7 @@ def preceptos_fuera(estudio: str, material: Material) -> tuple:
 
 
 def revisar(estudio: str, criterios: list[Criterio], material: Material,
-            resumen_acto: str = "", marco: str = "") -> list[str]:
+            resumen_acto: str = "", marco: str = "", rama: str = "") -> list[str]:
     """Lo comprobable sin modelo. Ninguna de estas es opinión."""
     avisos: list[str] = []
     # CUATRO COMPROBACIONES CAMBIAN CON LA v2 (26-sep-2026): las que
@@ -4134,7 +4266,7 @@ def revisar(estudio: str, criterios: list[Criterio], material: Material,
     for comprobacion in (
             _tipo_mal_atribuido(estudio, material),
             _convencional_completo(estudio),
-            _cierre_operativo(estudio, criterios)):
+            _cierre_operativo(estudio, criterios, rama)):
         if comprobacion:
             avisos.append(comprobacion)
 
@@ -4735,7 +4867,7 @@ async def redactar_en_vivo(cliente, resumen_acto: str, resumen_conceptos: str,
     import marcas as _mc_r
     yield {"tipo": "fin", "estudio": estudio, "advertencias": advertencias,
            "avisos": revisar(_mc_r.sin_marcas(estudio), criterios, material, resumen_acto,
-                             marco if isinstance(marco, str) else ""),
+                             marco if isinstance(marco, str) else "", rama=rama),
            "meta": meta}
 
 
@@ -4779,7 +4911,7 @@ async def redactar(cliente, resumen_acto: str, resumen_conceptos: str,
     import marcas as _mc_r
     _limpio = _mc_r.sin_marcas(estudio)
     avisos = revisar(_limpio, criterios, material, resumen_acto,
-                     marco if isinstance(marco, str) else "")
+                     marco if isinstance(marco, str) else "", rama=rama)
     if partes is not None:
         import fase_partes
         avisos.extend(fase_partes.revisar_partes(_limpio, partes))

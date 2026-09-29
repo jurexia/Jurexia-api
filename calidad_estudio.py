@@ -172,6 +172,22 @@ _RX_AJENO = re.compile(
     r"(?:recurrida|impugnada|reclamada)[,\s]+en\s+(?:el|su)\s*$", re.I)
 
 
+# «EL CONSIDERANDO OCTAVO DE LA SENTENCIA RECURRIDA» (28-sep-2026, AR
+# 631/2025). El agravio segundo reproducía el primero contra el considerando
+# octavo de la sentencia de amparo; el estudio lo nombró, y esta medida lo
+# acusaba de remisión rota porque sólo miraba ANTES del ordinal. En español lo
+# normal es rotularlo DESPUÉS —«el considerando octavo de la sentencia
+# recurrida», «… de la resolución que se revisa»—: lo que va rotulado así es de
+# otra resolución y no se acusa.
+_RX_AJENO_DESPUES = re.compile(
+    r"^\s*,?\s*(?:de|del)\s+(?:la\s+|el\s+|dicha\s+|esa\s+|aquella\s+)?"
+    r"(?:sentencia|resoluci[óo]n|ejecutoria|fallo|interlocutoria)\s+"
+    r"(?:recurrida|impugnada|reclamada|revisada|que\s+se\s+revisa|de\s+amparo|"
+    r"del?\s+(?:juzgado|juez|a\s+quo)|de\s+primera\s+instancia)\b"
+    r"|^\s*,?\s*(?:de|del)\s+(?:la\s+)?(?:sentencia|resoluci[óo]n)\s+(?:dictada|emitida|pronunciada)\b"
+    r"|^\s*,?\s*del\s+(?:juzgado|juez)\s+de\s+distrito\b", re.I)
+
+
 def remisiones_rotas(texto: str) -> list:
     """Los «en términos del considerando séptimo» de ESTA ejecutoria que no existen."""
     hay = {_norm(m.group(1)).rstrip("o") for m in _RX_EXISTE.finditer(texto or "")}
@@ -179,6 +195,8 @@ def remisiones_rotas(texto: str) -> list:
     for m in _RX_REMITE.finditer(texto or ""):
         antes = (texto or "")[max(0, m.start() - 60):m.start()]
         if _RX_AJENO.search(antes):
+            continue
+        if _RX_AJENO_DESPUES.search((texto or "")[m.end():m.end() + 90]):
             continue
         o = _norm(m.group(1)).rstrip("oa")
         if o not in {x.rstrip("oa") for x in hay}:

@@ -125,7 +125,12 @@ print("\n5 · LAS PUERTAS ESTÁN CONECTADAS")
 import fase5_propuesta as f5, fase6_estudio as f6, redactor_adelanto as ra, tipos_asunto as ta
 ok("violacion_procesal" in inspect.getsource(f5._bloque_contexto), "la propuesta clasifica lo aportado")
 ok("violacion_procesal" in inspect.getsource(f6._bloque_aportado), "el estudio también")
-ok(inspect.getsource(ra).count("_vpm.hay(") == 2, "los dos redactores del estudio detectan la violación por lo que se combate")
+# Desde el 28-sep-2026 los dos gemelos la detectan por UNA función común,
+# `_rama_tecnica` (la rama con una sola fuente de verdad, AR 631/2025).
+ok("_vpm.hay(" in inspect.getsource(ra._rama_tecnica)
+   and inspect.getsource(ra.resolver).count("_rama_tecnica(r, criterios, contexto)") == 1
+   and inspect.getsource(ra.resolver_en_vivo).count("_rama_tecnica(r, criterios, contexto)") == 1,
+   "los dos redactores del estudio detectan la violación por lo que se combate")
 ok(any(x["fuente"].startswith("artículos 171, 172") for x in ta.tecnica_de("amparo_directo", "", True)),
    "la técnica de los artículos 171 y 172 entra al prompt")
 src = open("main.py", encoding="utf-8").read()

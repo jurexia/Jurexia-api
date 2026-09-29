@@ -47,6 +47,12 @@ def _mismo_nombre(a: str, b: str) -> bool:
         return " ".join(x.replace(",", " ").split())
     _a, _b = _n(a), _n(b)
     return bool(_a and _b) and (_a == _b or _a in _b or _b in _a)
+
+
+def _misma_parte(a: str, b: str) -> bool:
+    """La misma parte escrita de dos maneras (AR 631/2025, 28-sep-2026): ver
+    `promovente.misma_parte`; y, como antes, igualdad o una dentro de otra."""
+    return _mismo_nombre(a, b) or _pv.misma_parte(a, b)
 import fase6_estudio as f6
 import fase6_rag as f6rag
 import marco_juridico as mjur
@@ -499,17 +505,29 @@ async def generar(cliente, e: Encargo, texto_acto: str, texto_conceptos: str,
     # particular y recurre la responsable—, se separan los dos papeles: la
     # autoridad pasa a `recurrente` y el quejoso leído ocupa su sitio. Así el
     # resolutivo niega o concede el amparo a quien lo pidió.
+    #
+    # Y NO SÓLO CUANDO RECURRE UNA AUTORIDAD (28-sep-2026, AR 631/2025): la
+    # tercera interesada que recurrió una concesión quedó de «quejoso», y como
+    # no es autoridad, nada la separaba. Decide `_quejoso_del_amparo`, que lee
+    # además el punto resolutivo del juzgado —a quién amparó— y la ficha: si
+    # dice que la quejosa es otra, lo tecleado es la recurrente. Se hace AQUÍ,
+    # en la raíz, para que el encargo que se guarda ya lleve los dos papeles.
     if getattr(e, "es_recurso", False):
-        _q_leido = str(getattr(partes, "quejoso", "") or "").strip()
         _q_tecleado = str(getattr(e, "quejoso", "") or "").strip()
-        if (_q_leido and _q_tecleado and not _mismo_nombre(_q_leido, _q_tecleado)
-                and _parece_autoridad(_q_tecleado)
+        try:
+            _res_ad = _resolutivo_del_a_quo(None, texto_acto or "")
+        except Exception:
+            _res_ad = ""
+        _q_leido = _quejoso_del_amparo(e, partes, _res_ad) if _q_tecleado else ""
+        if (_q_leido and _q_tecleado and _q_leido != _q_tecleado
                 and not str(getattr(e, "recurrente", "") or "").strip()):
             e.recurrente = _q_tecleado
             e.quejoso = _q_leido
+            _caracter = ("la autoridad" if _parece_autoridad(_q_tecleado)
+                         else "la parte tercera interesada")
             avisos.insert(0,
                 f"SE SEPARARON LOS PAPELES: quien pidió el amparo es «{_q_leido}» "
-                f"(leído de la sentencia recurrida) y quien recurre es la autoridad "
+                f"(leído de la sentencia recurrida) y quien recurre es {_caracter} "
                 f"«{_q_tecleado[:90]}». El amparo se concede o se niega a la primera; "
                 f"el recurso se califica a la segunda. Compruébalo en la carátula.")
     if not str(getattr(e, "quejoso", "") or "").strip():
@@ -1026,6 +1044,69 @@ async def _sondear_precedente(qdrant, embed, r: Resultado, problemas: list):
 
 
 
+def _reasuncion_del_asunto(r, criterios) -> dict | None:
+    """¿Este proyecto reasume jurisdicción y estudia conceptos que nadie
+    estudió? (art. 93, frs. I, V y VI). None si no se pudo calcular —entonces el
+    estudio decide por la rama—; si se calculó, un dict con «reasuncion»
+    (vacía = no aplica), los conceptos que ya había y de dónde, quién recurre y
+    si la recurrida también sobreseyó. Sin modelo; nunca lanza.
+
+    AR 631/2025 (28-sep-2026): el juzgado concedió, recurrió la tercera
+    interesada y el proyecto negó sin estudiar los conceptos que el juzgado
+    declaró innecesarios. Antes de pedirlos se buscan en el material: la
+    demanda entre las constancias, o la recurrida si los transcribe."""
+    try:
+        import fase_rama as _fr_a
+        import tipos_asunto as _ta_a
+        e = getattr(r, "encargo", None)
+        if e is None or _ta_a.normalizar(getattr(e, "tipo_asunto", "")) != "amparo_revision":
+            return {"reasuncion": ""}
+        info = info_de_rama(r)
+        _sent = "fundado" if any(_ta_a.prospera(str(getattr(c, "sentido", "")))
+                                 for c in (criterios or [])) else "infundado"
+        co = _fr_a.conceptos_omitidos(info, _sent, getattr(r, "fases", None))
+        if not co:
+            return {"reasuncion": "", "quien_recurre": info.get("quien_recurre", "")}
+        _txt, _donde = _fr_a.conceptos_disponibles(info.get("conceptos_violacion", ""),
+                                                   getattr(r, "fases", None))
+        print(f"   ⚖️ REASUNCIÓN ({co['reasuncion']}, {co['fundamento']}): conceptos "
+              + (f"de {_donde} ({len(_txt)} caracteres)" if _donde else "NO CONSTAN")
+              + (" · la recurrida también sobreseyó" if info.get("sobresee_ademas") else ""))
+        return {**co, "conceptos": _txt, "quien_recurre": info.get("quien_recurre", ""),
+                "sobresee_ademas": bool(info.get("sobresee_ademas"))}
+    except Exception as _er:
+        print(f"   ⚠️ REASUNCIÓN: no se pudo calcular: {type(_er).__name__}")
+        return None
+
+
+async def _tesis_de_la_tecnica(qdrant, material, rama: str) -> None:
+    """Las tesis de la técnica de ESTA rama que el adelanto no pudo traer (lo
+    trae sin rama). Las de la reasunción (art. 93, fr. VI: 171925, 178784,
+    182039 y 174177, comprobadas en el acervo el 28-sep-2026) sólo aplican
+    cuando se revoca una concesión, y eso se sabe al resolver. Por registro: o
+    existen con ese número o no viene nada, y el prompt sólo nombra las que
+    llegaron (`fase6_estudio._bloque_tecnica`). Nunca lanza."""
+    if qdrant is None or not rama:
+        return
+    try:
+        import tipos_asunto as _ta_t
+        import fase6_rag as _f6r_t
+        _regs = [x for _regla in _ta_t.tecnica_de(getattr(material, "tipo_asunto", "") or "", rama)
+                 if _regla.get("solo_si_estan") for x in (_regla.get("apoyos") or [])]
+        _ya = {str(t.get("registro") or "") for t in (material.tesis or [])}
+        _faltan = [x for x in _regs if x not in _ya]
+        if not _faltan:
+            return
+        _nuevas = [t for t in await _f6r_t.tesis_por_registro(qdrant, _faltan)
+                   if t["registro"] not in _ya]
+        if _nuevas:
+            material.tesis = list(material.tesis or []) + _nuevas
+            print(f"   ⚖️ tesis de la técnica de la rama añadidas: "
+                  f"{', '.join(t['registro'] for t in _nuevas)}")
+    except Exception as _et:
+        print(f"   ⚠️ no se pudieron añadir las tesis de la rama: {type(_et).__name__}")
+
+
 def _formato_al_material(r, material, cliente=None, criterios=None) -> None:
     """La forma de la sentencia y el reparto de la fase 3, al material.
 
@@ -1042,6 +1123,12 @@ def _formato_al_material(r, material, cliente=None, criterios=None) -> None:
         # sesión de una generación a la siguiente, y la suplencia confirmada de
         # la vuelta anterior no puede colarse en ésta si el secretario la quitó.
         material.suplencia = dict(getattr(e, "suplencia", None) or {}) if e else {}
+        # LA REASUNCIÓN DE JURISDICCIÓN, POR EL MISMO CAMINO Y SIEMPRE (art. 93,
+        # frs. I, V y VI; AR 631/2025, 28-sep-2026). Se vacía primero —None = no
+        # calculada, y el estudio decide por la rama— y se calcula en cada
+        # petición: el material vive en la memoria del worker.
+        material.reasuncion = None
+        material.reasuncion = _reasuncion_del_asunto(r, criterios)
         # Y EL INVENTARIO SE VACÍA AQUÍ, antes de nada que pueda fallar: el de
         # la vuelta anterior no puede sobrevivir a una excepción de más abajo.
         material.inventario = []
@@ -1168,6 +1255,53 @@ def _litis_y_material(r, material, avisos: list, cliente=None,
         print(f"   ⚠️ LITIS: no se pudo acotar el material: {type(_el).__name__}")
         return []
 
+def _rama_de(r, criterios, estudio: str = "") -> str:
+    """La rama de la revisión con UNA fuente de verdad (28-sep-2026): lo que
+    hizo el juzgado con el orden de `fase_rama.que_hizo_el_juzgado` —su punto
+    resolutivo primero (577c700)— y el sentido de los criterios; con el
+    `estudio` ya escrito, además, lo que concluyó al reasumir jurisdicción
+    (`fase_rama.sentido_en_plenitud`), que es lo que decide el segundo punto al
+    levantar un sobreseimiento o al revocar una concesión (art. 93, frs. V y
+    VI). «» fuera de la revisión o si falla. Sin modelo."""
+    try:
+        import tipos_asunto as _ta_r, fase_rama as _fr_r
+        e = getattr(r, "encargo", None)
+        if e is None or _ta_r.normalizar(getattr(e, "tipo_asunto", "")) != "amparo_revision":
+            return ""
+        _que = _fr_r.que_hizo_el_juzgado(r.fases, getattr(e, "resolvio_declarado", "") or "")
+        _sent = "fundado" if any(_ta_r.prospera(str(getattr(c, "sentido", "")))
+                                 for c in (criterios or [])) else "infundado"
+        return _ta_r.rama_revision(
+            _que, _sent,
+            sentido_amparo=_fr_r.sentido_en_plenitud(str(estudio or "")) if estudio else "")
+    except Exception as _e:
+        print(f"   ⚠️ TALLER: no se pudo fijar la rama: {type(_e).__name__}")
+        return ""
+
+
+def _rama_tecnica(r, criterios, contexto: str = "") -> tuple:
+    """(rama, violación procesal) ANTES de redactar, para los dos gemelos.
+
+    LA RAMA TÉCNICA, ANTES DE REDACTAR. Se calculaba al COMPONER, con el
+    estudio ya escrito, así que el modelo nunca supo en qué escenario estaba.
+    Y LA PRIMERA VEZ QUE LO PUSE SE ME FUE DE ÁMBITO: quedó en la función de
+    al lado y `resolver_en_vivo` —que es por donde pasa TODA la pantalla— lo
+    usaba sin tenerlo; cada generación moría con «name '_rama' is not
+    defined». Por eso vive aquí, una vez, y los dos la llaman (28-sep-2026)."""
+    _rama, _vp = _rama_de(r, criterios), False
+    try:
+        # LA VIOLACIÓN PROCESAL SE RECONOCE POR LO QUE SE COMBATE, no por que
+        # la pregunta diga «violación procesal»: la del 93/2026 decía «¿debió
+        # admitir la ampliación de demanda…?» y esta marca no la veía, así que
+        # el estudio no recibió la técnica de los artículos 171 y 172.
+        import violacion_procesal as _vpm
+        _vp = _vpm.hay(list(getattr(r.fases, "problemas", None) or []),
+                       criterios, contexto)
+    except Exception as _e:
+        print(f"   ⚠️ TALLER: no se pudo fijar la rama técnica: {type(_e).__name__}")
+    return _rama, _vp
+
+
 async def resolver(cliente, r: Resultado, criterios: list[f6.Criterio],
                    material: f6.Material, ruta_salida: str,
                    marco: str = "", qdrant=None, contexto: str = "") -> Resultado:
@@ -1188,28 +1322,7 @@ async def resolver(cliente, r: Resultado, criterios: list[f6.Criterio],
     # usaba sin tenerlo. Cada generación moría con «name '_rama' is not
     # defined»; el servidor devolvía 200 con su evento de error y la pantalla
     # se quedaba muda. Lo vieron los registros de Render, no el guardián.
-    _rama, _vp = "", False
-    try:
-        import tipos_asunto as _ta_r, fase_rama as _fr_r
-        if _ta_r.normalizar(e.tipo_asunto) == "amparo_revision":
-            # EL MISMO ORDEN DE FUENTES QUE EL RESOLUTIVO (28-sep-2026): el
-            # punto resolutivo del juzgado, lo leído del PDF, lo declarado y
-            # los antecedentes. Ver `fase_rama.que_hizo_el_juzgado`.
-            _que = _fr_r.que_hizo_el_juzgado(
-                r.fases, getattr(e, "resolvio_declarado", "") or "")
-            _sent = "fundado" if any(
-                _ta_r.prospera(str(getattr(c, "sentido", "")))
-                for c in (criterios or [])) else "infundado"
-            _rama = _ta_r.rama_revision(_que, _sent)
-        # LA VIOLACIÓN PROCESAL SE RECONOCE POR LO QUE SE COMBATE, no por que
-        # la pregunta diga «violación procesal»: la del 93/2026 decía «¿debió
-        # admitir la ampliación de demanda…?» y esta marca no la veía, así que
-        # el estudio no recibió la técnica de los artículos 171 y 172.
-        import violacion_procesal as _vpm
-        _vp = _vpm.hay(list(getattr(r.fases, "problemas", None) or []),
-                       criterios, contexto)
-    except Exception as _e:
-        print(f"   ⚠️ TALLER: no se pudo fijar la rama técnica: {type(_e).__name__}")
+    _rama, _vp = _rama_tecnica(r, criterios, contexto)
 
 
     # EL MARCO SE ESCRIBE A LA VEZ QUE EL ESTUDIO. Son dos llamadas
@@ -1230,6 +1343,9 @@ async def resolver(cliente, r: Resultado, criterios: list[f6.Criterio],
 
 
     _litis_y_material(r, material, [], cliente, criterios)
+    # LAS TESIS DE LA TÉCNICA DE ESTA RAMA (art. 93, fr. VI), que el adelanto
+    # no podía traer porque aún no sabía la rama (28-sep-2026).
+    await _tesis_de_la_tecnica(qdrant, material, _rama)
     # LO QUE SE ANOTA DEL ESTUDIO, igual que el gemelo en vivo: la variante,
     # el `finish_reason` y los tokens. Va a la ficha por `_terminar`.
     _meta = {}
@@ -1274,7 +1390,10 @@ async def resolver(cliente, r: Resultado, criterios: list[f6.Criterio],
     # LOS EFECTOS DE UNA VIOLACIÓN PROCESAL SE ORDENAN PASO A PASO (v5 del
     # 93/2026: «dicte otra» sobre una reposición). Se comprueba aquí porque
     # aquí se sabe si la hay.
-    _av_ef = f6._efectos_de_reposicion(estudio, criterios, _vp)
+    # CON LA RAMA, que ya lee lo que el estudio concluyó (28-sep-2026): en un
+    # «revoca y niega» no hay efectos que ordenar (AR 631/2025).
+    _av_ef = f6._efectos_de_reposicion(estudio, criterios, _vp,
+                                       rama=_rama_de(r, criterios, estudio))
     if _av_ef:
         avisos.insert(0, _av_ef)
     # LAS CONSTANCIAS INDISPENSABLES QUE NO SE APORTARON, dichas arriba del
@@ -1388,28 +1507,7 @@ async def resolver_en_vivo(cliente, r: Resultado, criterios: list[f6.Criterio],
     # usaba sin tenerlo. Cada generación moría con «name '_rama' is not
     # defined»; el servidor devolvía 200 con su evento de error y la pantalla
     # se quedaba muda. Lo vieron los registros de Render, no el guardián.
-    _rama, _vp = "", False
-    try:
-        import tipos_asunto as _ta_r, fase_rama as _fr_r
-        if _ta_r.normalizar(e.tipo_asunto) == "amparo_revision":
-            # EL MISMO ORDEN DE FUENTES QUE EL RESOLUTIVO (28-sep-2026): el
-            # punto resolutivo del juzgado, lo leído del PDF, lo declarado y
-            # los antecedentes. Ver `fase_rama.que_hizo_el_juzgado`.
-            _que = _fr_r.que_hizo_el_juzgado(
-                r.fases, getattr(e, "resolvio_declarado", "") or "")
-            _sent = "fundado" if any(
-                _ta_r.prospera(str(getattr(c, "sentido", "")))
-                for c in (criterios or [])) else "infundado"
-            _rama = _ta_r.rama_revision(_que, _sent)
-        # LA VIOLACIÓN PROCESAL SE RECONOCE POR LO QUE SE COMBATE, no por que
-        # la pregunta diga «violación procesal»: la del 93/2026 decía «¿debió
-        # admitir la ampliación de demanda…?» y esta marca no la veía, así que
-        # el estudio no recibió la técnica de los artículos 171 y 172.
-        import violacion_procesal as _vpm
-        _vp = _vpm.hay(list(getattr(r.fases, "problemas", None) or []),
-                       criterios, contexto)
-    except Exception as _e:
-        print(f"   ⚠️ TALLER: no se pudo fijar la rama técnica: {type(_e).__name__}")
+    _rama, _vp = _rama_tecnica(r, criterios, contexto)
 
     avisos: list[str] = []
     # SIN APARTADO DE MARCO JURÍDICO, EN NINGUNA DE LAS DOS FORMAS. David,
@@ -1426,6 +1524,8 @@ async def resolver_en_vivo(cliente, r: Resultado, criterios: list[f6.Criterio],
     estudio = advertencias = ""
     _meta = {}
     _litis_y_material(r, material, avisos, cliente, criterios)
+    # LAS TESIS DE LA TÉCNICA DE ESTA RAMA, igual que en `resolver`.
+    await _tesis_de_la_tecnica(qdrant, material, _rama)
     t0 = _time.perf_counter()
     # LAS MARCAS NO LLEGAN A LA PANTALLA (Paso 2a): el filtro retiene desde «⟦»
     # hasta «⟧» y quita la marca, aunque llegue partida entre dos trozos. Pasa
@@ -1477,7 +1577,10 @@ async def resolver_en_vivo(cliente, r: Resultado, criterios: list[f6.Criterio],
                                                _faltan, _meta, avisos)
     # LA CALIFICACIÓN AL ABRIR (familia v2, p2-congruencia): sin modelo.
     estudio = _congruencia_apertura(r, criterios, material, estudio, _meta, avisos)
-    _av_ef = f6._efectos_de_reposicion(estudio, criterios, _vp)
+    # CON LA RAMA, que ya lee lo que el estudio concluyó (28-sep-2026): en un
+    # «revoca y niega» no hay efectos que ordenar (AR 631/2025).
+    _av_ef = f6._efectos_de_reposicion(estudio, criterios, _vp,
+                                       rama=_rama_de(r, criterios, estudio))
     if _av_ef:
         avisos.insert(0, _av_ef)
     # LAS CONSTANCIAS INDISPENSABLES QUE NO SE APORTARON, dichas arriba del
@@ -1745,6 +1848,22 @@ def _f6_con_inventario(material) -> bool:
 # antes de los efectos, las constancias y los preceptos—, con las mismas dos
 # funciones. Sólo v3/v4 (las que traen inventario y marcas); en la v1 y la v2
 # `_por_completar` devuelve [] sin mirar nada.
+def _avisos_de_rama_al_dia(todos: list, de_ahora: list) -> list:
+    """Si la composición de ahora dijo su rama, fuera los avisos de rama que no
+    son suyos —los del adelanto, compuesto sin criterio— (AR 631/2025,
+    28-sep-2026: «rama confirma_sobresee … infundado» y «NO SE PUDO LEER DEL
+    PDF» junto al correcto «rama revoca_fondo_niega»). Nunca lanza."""
+    try:
+        import documento_generado as _dg_r
+        if not any(_dg_r.es_aviso_de_rama(a) for a in (de_ahora or [])):
+            return list(todos)
+        _ahora = {str(a) for a in de_ahora}
+        return [a for a in todos if not _dg_r.es_aviso_de_rama(a) or str(a) in _ahora]
+    except Exception as _eav:
+        print(f"   ⚠️ avisos de rama: {type(_eav).__name__}")
+        return list(todos)
+
+
 def _plan_del_estudio(r):
     """El plan (v4) con que se escribió este estudio, o None (v3)."""
     _pl = (getattr(getattr(r, "encargo", None), "plan", None) or {})
@@ -2138,12 +2257,20 @@ async def _terminar(cliente, r, e, criterios, material, estudio,
                 # recibe del secretario y son los que fijan el sentido.
                 criterios=criterios,
                 partes=getattr(r, "partes", None),
-                marco_escrito=marco_escrito)
+                marco_escrito=marco_escrito,
+                # LA REASUNCIÓN (art. 93, fr. VI): si los conceptos no constaron,
+                # el resolutivo del amparo va con hueco (28-sep-2026).
+                reasuncion=getattr(material, "reasuncion", None))
         avisos.extend(av_gen)
     else:
         with cronometrar("ensamblado"):
             ruta = ens.ensamblar(e.plantilla, relleno, ruta_salida)
-    _, aviso_efectos = ens.formula_resolutivo(relleno.calificaciones)
+    # CON LA RAMA (28-sep-2026): en un «revoca y niega» no hay efectos que
+    # redactar, por fundados que sean los agravios (AR 631/2025).
+    _rama_t = _rama_de(r, criterios, estudio)
+    _, aviso_efectos = ens.formula_resolutivo(
+        relleno.calificaciones, rama=_rama_t,
+        sentido_amparo=__import__("fase_rama").sentido_en_plenitud(str(estudio or "")))
     # SALVO QUE LA EJECUTORIA NO CONCEDA NADA. Cuando el cómputo cierra por
     # extemporaneidad, el único resolutivo desecha el recurso y el estudio se
     # va al anexo: pedirle al secretario que redacte «los EFECTOS de la
@@ -2437,6 +2564,15 @@ async def _terminar(cliente, r, e, criterios, material, estudio,
         _limpios = [a for a in _limpios
                     if "RESOLUTIVO DE REVISIÓN, rama «sin_determinar»" not in str(a)
                     and not str(a).startswith("NO CONSTA QUÉ RESOLVIÓ EL JUZGADO")]
+    # Y NO SÓLO «sin_determinar» (28-sep-2026, AR 631/2025): el adelanto se
+    # compuso sin criterio y anotó su propia rama —«rama confirma_sobresee: el a
+    # quo sobresee; el recurso resultó infundado», «EL SENTIDO DE LA SENTENCIA
+    # RECURRIDA NO SE PUDO LEER DEL PDF»—, que viajó en la sesión hasta el
+    # proyecto, junto al aviso correcto «rama revoca_fondo_niega». Si esta
+    # composición dijo su rama, todos los avisos de rama del adelanto sobran:
+    # quedan los de esta composición, que leyó el resolutivo del juzgado con el
+    # estudio delante.
+    _limpios = _avisos_de_rama_al_dia(_limpios, avisos)
 
     # LA VARIANTE VA SIEMPRE, aunque el modelo no haya dicho nada más: es lo
     # que el arnés de medición usa para descartar corridas que no casan.
@@ -2464,7 +2600,18 @@ async def _terminar(cliente, r, e, criterios, material, estudio,
 # se queda con el estudio de fondo, donde el trámite ya no está—.
 
 
-def _quejoso_del_amparo(e: Encargo, partes=None) -> str:
+def _resolutivo_del_a_quo(fases=None, acto: str = "") -> str:
+    """Los puntos resolutivos del juzgado: el que se leyó del PDF en el adelanto
+    y, si no, la sección resolutiva de la sentencia recurrida («» si no hay)."""
+    import fase_rama as _fr_q
+    _r = str(getattr(fases, "resolutivo_recurrida", "") or "")
+    if _r.strip():
+        return _r
+    _t = acto or (list(getattr(fases, "fuentes", None) or []) + [""])[0]
+    return _fr_q.seccion_resolutiva(str(_t or ""))
+
+
+def _quejoso_del_amparo(e: Encargo, partes=None, resolutivo: str = "") -> str:
     """A quién se concede o niega el amparo.
 
     En un recurso el formulario guarda a «quien promueve» y eso es el
@@ -2472,38 +2619,115 @@ def _quejoso_del_amparo(e: Encargo, partes=None) -> str:
     sentencia recurrida. Si lo tecleado es una autoridad y la ficha dice otro
     nombre, manda la ficha. Se resuelve AQUÍ, al armar los datos, y no sólo al
     fichar: la regeneración desde una sesión guardada no vuelve a fichar y el
-    711/2025 tenía a la UIF de quejosa en el encargo ya persistido."""
+    711/2025 tenía a la UIF de quejosa en el encargo ya persistido.
+
+    EL RESOLUTIVO DEL JUZGADO MANDA (28-sep-2026, AR 631/2025): la tercera
+    interesada que recurrió quedó guardada como «quejoso» (venía así de la
+    admisión) y no es una autoridad, así que la regla de la UIF no la veía; el
+    proyecto salió con «QUEJOSA Y RECURRENTE: IMPULSORA…», legitimación por el
+    art. 6 y una síntesis en la que «la parte quejosa adquirió el inmueble».
+    El punto resolutivo del juzgado dice a quién amparó —o no amparó, o en qué
+    juicio sobreseyó—: si lo tecleado es otra parte, ése es el quejoso. Es la
+    misma fuente de verdad que ya decide qué hizo el juzgado (577c700). Sin
+    resolutivo legible, la ficha de partes cuando lo tecleado es una autoridad o
+    la tercera interesada según la propia ficha."""
     _tecleado = str(getattr(e, "quejoso", "") or "").strip()
     _leido = str(getattr(partes, "quejoso", "") or "").strip()
-    if (getattr(e, "es_recurso", False) and _leido and _tecleado
-            and not _mismo_nombre(_leido, _tecleado) and _parece_autoridad(_tecleado)):
+    if not getattr(e, "es_recurso", False):
+        return _tecleado
+    try:
+        import fase_rama as _fr_q
+        _del_res = _fr_q.quejoso_del_resolutivo(resolutivo) if resolutivo else ""
+    except Exception:
+        _del_res = ""
+    if _del_res and not _misma_parte(_del_res, _tecleado):
+        return _del_res
+    _tercero = str(getattr(partes, "tercero_interesado", "") or "").strip()
+    if (_leido and _tecleado and not _misma_parte(_leido, _tecleado)
+            and (_parece_autoridad(_tecleado) or _misma_parte(_tecleado, _tercero))):
         return _leido
     return _tecleado
 
 
-def _organo_recurrido(e: Encargo, partes=None) -> str:
+def _organo_recurrido(e: Encargo, partes=None, acto: str = "") -> str:
+    """El órgano cuya sentencia se revisa (la carátula y la competencia).
+
+    EN EL AMPARO EN REVISIÓN ES UN JUZGADO DE DISTRITO (28-sep-2026, AR
+    631/2025): la ficha de partes puede traer a la Sala responsable y el
+    formulario también —el 631 salió con «ÓRGANO RECURRIDO: MAGISTRADA…» y la
+    competencia «dictada … por la MAGISTRADA»—. Se toma de la ficha si es un
+    juzgado o un tribunal (nunca una Sala ni una Magistrada, que en la revisión
+    son la responsable del acto) y, si no, de la propia sentencia recurrida
+    (`fase_rama.juzgado_de_la_recurrida`). En los demás recursos, como antes."""
     if not getattr(e, "es_recurso", False):
         return ""
     _leido = str(getattr(partes, "autoridad_responsable", "") or "").strip()
     _tecleado = str(getattr(e, "responsable", "") or "").strip()
+    import tipos_asunto as _ta_o
+    if _ta_o.normalizar(getattr(e, "tipo_asunto", "")) == "amparo_revision":
+        if (_leido and re.search(r"juzgad|juez|tribunal", _leido, re.I)
+                and not re.search(r"\bsala\b|magistrad", _leido, re.I)
+                and not _mismo_nombre(_leido, _tecleado)):
+            return _leido
+        try:
+            import fase_rama as _fr_o
+            return _fr_o.juzgado_de_la_recurrida(acto or "")
+        except Exception:
+            return ""
     if _leido and re.search(r"juzgad|tribunal|sala\b|juez", _leido, re.I) \
             and not _mismo_nombre(_leido, _tecleado):
         return _leido
     return ""
 
 
-def _recurrente_de(e: Encargo, partes=None) -> str:
+def _recurrente_de(e: Encargo, partes=None, resolutivo: str = "") -> str:
     _propio = str(getattr(e, "recurrente", "") or "").strip()
     if _propio:
         return _propio
     _tecleado = str(getattr(e, "quejoso", "") or "").strip()
-    if _quejoso_del_amparo(e, partes) != _tecleado:
+    if _quejoso_del_amparo(e, partes, resolutivo) != _tecleado:
         return _tecleado
     return ""
 
 
+def papel_del_recurrente(e: Encargo, partes=None, resolutivo: str = "") -> str:
+    """«quejoso» | «autoridad» | «tercero» | «» — en qué carácter recurre quien
+    recurre (28-sep-2026). Vacío fuera de los recursos. Un recurrente que no es
+    la quejosa ni una autoridad es la parte tercera interesada: en el 631 lo
+    era la adquirente del inmueble, y con eso cambia la legitimación (art. 5o.,
+    fr. III, no el 6o.), la dirección del diálogo (si prospera, pierde la
+    quejosa) y la fracción del 93 que rige (la VI)."""
+    if not getattr(e, "es_recurso", False):
+        return ""
+    import tipos_asunto as _ta_p
+    if _ta_p.normalizar(getattr(e, "tipo_asunto", "")) == "revision_fiscal":
+        return "autoridad"
+    _rec = _recurrente_de(e, partes, resolutivo)
+    if not _rec:
+        return "quejoso"
+    return "autoridad" if _parece_autoridad(_rec) else "tercero"
+
+
+def info_de_rama(r, declarado: str = "") -> dict:
+    """Lo que la tarjeta y la pantalla necesitan para saber si hay que estudiar
+    conceptos no estudiados (`fase_rama.conceptos_omitidos`), leído de una
+    sesión: qué hizo el juzgado (su resolutivo manda), quién recurre, lo que el
+    secretario aportó y si la recurrida también sobreseyó. Sin modelo."""
+    import fase_rama as _fr_i
+    import tipos_asunto as _ta_i
+    e = getattr(r, "encargo", None)
+    f = getattr(r, "fases", None)
+    _decl = declarado or str(getattr(e, "resolvio_declarado", "") or "")
+    _res = _resolutivo_del_a_quo(f)
+    return {"tipo_asunto": _ta_i.normalizar(getattr(e, "tipo_asunto", "") or ""),
+            "que_hizo": _fr_i.que_hizo_el_juzgado(f, _decl),
+            "quien_recurre": papel_del_recurrente(e, getattr(r, "partes", None), _res) if e else "",
+            "conceptos_violacion": str(getattr(e, "conceptos_violacion", "") or ""),
+            "sobresee_ademas": _fr_i.sobreseyo_ademas(f, _decl)}
+
+
 def _datos_estructura(e: Encargo, antecedentes: str = "", acto: str = "",
-                     partes=None) -> dict:
+                     partes=None, fases=None) -> dict:
     """Lo que la estructura necesita.
 
     Decía «TODO sale del encargo» y por eso se lanzaba a ciegas. Del encargo
@@ -2511,11 +2735,24 @@ def _datos_estructura(e: Encargo, antecedentes: str = "", acto: str = "",
     —para individualizar la sentencia recurrida con su fecha y su expediente—
     y la ficha de partes —para nombrar al tercero interesado en vez de escribir
     «la persona a quien resulta tal carácter»—.
+
+    `fases` (28-sep-2026): su punto resolutivo del juzgado decide quién es el
+    quejoso cuando el formulario guardó a la recurrente (AR 631/2025).
     """
     import fase0_oportunidad as _f0
     _terceros = ""
     if partes is not None:
         _terceros = str(getattr(partes, "tercero_interesado", "") or "")
+    _res_aq = ""
+    if getattr(e, "es_recurso", False):
+        try:
+            _res_aq = _resolutivo_del_a_quo(fases, acto)
+        except Exception:
+            _res_aq = ""
+        # LA RECURRENTE QUE NO ES LA QUEJOSA NI UNA AUTORIDAD ES LA TERCERA
+        # INTERESADA: si la ficha no la trae, se nombra así en los resultandos.
+        if not _terceros.strip() and papel_del_recurrente(e, partes, _res_aq) == "tercero":
+            _terceros = _recurrente_de(e, partes, _res_aq)
     return {
         # LA CABEZA DEL ACTO, que es donde se identifica: fecha, órgano,
         # expediente y toca. No el documento entero —eso ya lo leen las fases—
@@ -2535,16 +2772,20 @@ def _datos_estructura(e: Encargo, antecedentes: str = "", acto: str = "",
         # en la legitimación y en el resolutivo (v5 del ADC 93/2026: «ampara
         # y protege a Alondra…»). La parte es la representada; la persona
         # física sólo tiene la personería (arts. 6 y 11 de la Ley de Amparo).
-        "quejoso": _pv.separar(_quejoso_del_amparo(e, partes))["parte"] or _quejoso_del_amparo(e, partes),
+        "quejoso": _pv.separar(_quejoso_del_amparo(e, partes, _res_aq))["parte"]
+                   or _quejoso_del_amparo(e, partes, _res_aq),
         # Quien recurrió, cuando no es el quejoso. Vacío = es el mismo.
-        "recurrente": _recurrente_de(e, partes),
+        "recurrente": _recurrente_de(e, partes, _res_aq),
+        # Y EN QUÉ CARÁCTER (28-sep-2026): la legitimación de la tercera
+        # interesada no es la del quejoso (AR 631/2025).
+        "papel_recurrente": papel_del_recurrente(e, partes, _res_aq),
         # EL ÓRGANO RECURRIDO ES EL JUZGADO, no la responsable del amparo. El
         # formulario guarda en `responsable` a la autoridad del acto reclamado
         # —en el 711/2025, la UIF— y la carátula de la revisión rotulaba ese
         # dato como «ÓRGANO RECURRIDO». Lo recurrido es la sentencia del juez
         # de distrito; la ficha de partes lo lee de ella. Sólo para la carátula:
         # `responsable` sigue siendo la del acto en los otros doce sitios.
-        "organo_recurrido": _organo_recurrido(e, partes),
+        "organo_recurrido": _organo_recurrido(e, partes, acto),
         "representante": _pv.separar(e.quejoso)["representante"],
         "figura_representante": _pv.separar(e.quejoso)["figura"],
         "quejoso_moral": _pv.separar(e.quejoso)["moral"],
@@ -2608,7 +2849,8 @@ def _fecha_iso(x):
 async def _componer_generado(cliente, e: Encargo, relleno, computo,
                              ruta_salida: str, estructura_previa=None,
                              marco_escrito: str = "", acto: str = "",
-                             partes=None, criterios=None, fases=None):
+                             partes=None, criterios=None, fases=None,
+                             reasuncion=None):
     """El documento escrito entero. Devuelve (ruta, avisos, estructura)."""
     import documento_generado as dg
     import fase0_oportunidad as _f0
@@ -2618,7 +2860,7 @@ async def _componer_generado(cliente, e: Encargo, relleno, computo,
     # —porque se recompone el documento sin haber pasado por el adelanto— la
     # estructura volvía a escribirse a ciegas, y con ella la perífrasis.
     datos = _datos_estructura(e, "\n".join(relleno.antecedentes or []),
-                              acto=acto, partes=partes)
+                              acto=acto, partes=partes, fases=fases)
     # LO LEÍDO DEL PAPEL VIAJA HASTA EL RESOLUTIVO. Se calculó en el adelanto
     # sobre el PDF de la recurrida y va en el estado de la sesión, así que
     # existe también cuando resuelve el otro worker.
@@ -2633,6 +2875,11 @@ async def _componer_generado(cliente, e: Encargo, relleno, computo,
     datos["resolutivo_recurrida"] = getattr(fases, "resolutivo_recurrida", "") or ""
     datos["expediente_origen"] = getattr(fases, "expediente_origen", "") or ""
     datos["fecha_origen"] = getattr(fases, "fecha_origen", "") or ""
+    # SI SE REASUME JURISDICCIÓN (art. 93, frs. I, V y VI; 28-sep-2026): quién
+    # recurre, si los conceptos constaron y si la recurrida también sobreseyó.
+    # Sin ella, el compositor decide por la rama y por el estudio.
+    if isinstance(reasuncion, dict):
+        datos["reasuncion"] = {k: v for k, v in reasuncion.items() if k != "conceptos"}
     # LA ESTRUCTURA SE ESCRIBE UNA VEZ. El resolver recompone el documento
     # entero, y volver a pedirla al modelo son treinta segundos por nada: no
     # depende del estudio ni del criterio, sólo del asunto.
@@ -2645,13 +2892,20 @@ async def _componer_generado(cliente, e: Encargo, relleno, computo,
     _sint = {}
     try:
         import fase_sintesis as _fs
+        # LOS PAPELES YA RECONCILIADOS, no lo tecleado (28-sep-2026): en el AR
+        # 631/2025 se le dijo «parte promovente: Impulsora» —la recurrente— y la
+        # síntesis contó que «la parte quejosa adquirió el inmueble» y que «la
+        # autoridad responsable concedió el amparo».
         _sint = await _fs.sintetizar(
             cliente,
             tipo_asunto=(getattr(e, "tipo_asunto", "") or ""),
             expediente=(getattr(e, "numero", "") or ""),
-            quejoso=(getattr(e, "quejoso", "") or ""),
+            quejoso=str(datos.get("quejoso") or getattr(e, "quejoso", "") or ""),
             sentido=str(getattr(relleno, "calificaciones", "") or ""),
-            estudio="\n\n".join(relleno.estudio or []))
+            estudio="\n\n".join(relleno.estudio or []),
+            recurrente=str(datos.get("recurrente") or ""),
+            papel_recurrente=str(datos.get("papel_recurrente") or ""),
+            organo=str(datos.get("organo_recurrido") or ""))
     except Exception:
         _sint = {}
 

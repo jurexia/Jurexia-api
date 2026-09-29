@@ -143,13 +143,36 @@ def impugna_la_autoridad(tipo_asunto: str = "", recurrente: str = "",
     return False
 
 
+def combate_contra_la_persona(tipo_asunto: str = "", recurrente: str = "",
+                              es_recurso: bool = False, papel: str = "") -> Optional[bool]:
+    """¿Quien combate aquí está del lado CONTRARIO a quien reclama el derecho?
+    None si no consta.
+
+    `papel` —«quejoso» | «tercero» | «autoridad»— es el carácter con que
+    recurre, leído de los papeles ya reconciliados
+    (`redactor_adelanto.papel_del_recurrente`). LA TERCERA INTERESADA
+    PARTICULAR ESTÁ DEL LADO CONTRARIO (28-sep-2026, AR 631/2025): recurrió la
+    adquirente del inmueble contra la concesión, y con sólo el nombre
+    `impugna_la_autoridad` decía «no es autoridad» → «fundado favorece a quien
+    reclama el derecho», al revés: si prospera su recurso, pierde la quejosa.
+    Sin papel, como antes (por el nombre)."""
+    p = (papel or "").strip().lower()
+    if p in ("tercero", "autoridad"):
+        return True
+    if p == "quejoso":
+        return False
+    return impugna_la_autoridad(tipo_asunto, recurrente, es_recurso)
+
+
 def favorece_a_la_persona(sentido: str, tipo_asunto: str = "", recurrente: str = "",
-                          es_recurso: bool = False) -> Optional[bool]:
+                          es_recurso: bool = False, papel: str = "") -> Optional[bool]:
     """¿Esta calificación le da la razón a quien reclama el derecho?
 
     True: le reconoce el derecho o le da mayor acceso —ahí caben el pro persona y
     la interpretación conforme—. False: valida una restricción o le niega lo que
     pide —ahí no se invocan—. None: no se puede saber, y el prompt lo pregunta.
+    Con `papel` (28-sep-2026), la tercera interesada que recurre combate contra
+    la persona igual que la autoridad (`combate_contra_la_persona`).
     """
     s = _sentido(sentido)
     if s in PROSPERA:
@@ -158,15 +181,21 @@ def favorece_a_la_persona(sentido: str, tipo_asunto: str = "", recurrente: str =
         prospera = False
     else:
         return None
-    autoridad = impugna_la_autoridad(tipo_asunto, recurrente, es_recurso)
-    if autoridad is None:
+    contra = combate_contra_la_persona(tipo_asunto, recurrente, es_recurso, papel)
+    if contra is None:
         return None
-    return prospera != autoridad
+    return prospera != contra
 
 
-def quien_combate(tipo_asunto: str = "", recurrente: str = "", es_recurso: bool = False) -> str:
+def quien_combate(tipo_asunto: str = "", recurrente: str = "", es_recurso: bool = False,
+                  papel: str = "") -> str:
     """Una línea para la propuesta: cuál de las dos vías favorece a la persona."""
-    a = impugna_la_autoridad(tipo_asunto, recurrente, es_recurso)
+    if (papel or "").strip().lower() == "tercero":
+        quien = f" ({' '.join(recurrente.split())[:90]})" if (recurrente or "").strip() else ""
+        return ("QUIEN COMBATE AQUÍ ES LA PARTE TERCERA INTERESADA" + quien + ": si su recurso "
+                "prospera, pierde la quejosa; la vía que favorece a quien reclama el derecho es "
+                "la que NO prospera —infundado, inoperante—.")
+    a = combate_contra_la_persona(tipo_asunto, recurrente, es_recurso, papel)
     if a is True:
         quien = f" ({' '.join(recurrente.split())[:90]})" if (recurrente or "").strip() else ""
         return ("QUIEN COMBATE AQUÍ ES UNA AUTORIDAD" + quien + ": la vía que favorece a quien "
