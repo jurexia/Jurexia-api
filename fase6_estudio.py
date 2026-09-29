@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import os
 import re
+import unicodedata
 from dataclasses import dataclass, field
 from typing import Awaitable, Callable, Optional
 
@@ -912,6 +913,69 @@ def _texto_de(m) -> str:
     return " ".join(partes)[:400000]
 
 
+# ═══ LOS PRECEPTOS QUE NOMBRA LA PARTE, AUNQUE LLEGARAN AL FINAL ════════════
+# Humo del AR 631/2025 (29-sep-2026): el artículo 49 del código procesal de
+# Querétaro y los 2284 y 2294 del civil —la ley que gobierna el asunto, y los
+# que invoca la recurrente— estaban en el material, pero en los lugares 43 a 47;
+# el corte de doce los dejaba fuera y el estudio escribió que «no se encuentran
+# entre las normas aportadas», mientras las doce primeras traían artículos del
+# Código Civil Federal que no venían al caso. SUMA, NO SUSTITUYE (la misma regla
+# que `fase5_propuesta._bloque_normas`): las doce de siempre se quedan y, detrás,
+# hasta seis de las que el inventario de argumentos NOMBRA por su artículo y su
+# ley, sin importar cómo llegaron al material. Bandera «normas_al_documento».
+NORMAS_NOMBRADAS_EXTRA = 6
+_GENERICAS_LEY = {"codigo", "ley", "articulo", "para", "estado", "estados", "unidos", "mexicanos", "general"}
+
+
+def _voces_ley(x) -> set:
+    import documento_generado as _dg_v
+    try:
+        t = _dg_v.canonizar_ley(str(x or ""))
+    except Exception:                                   # pragma: no cover
+        t = str(x or "")
+    t = unicodedata.normalize("NFKD", t.lower())
+    t = "".join(c for c in t if not unicodedata.combining(c))
+    out = set()
+    for w in re.findall(r"[a-z]+", t):
+        if w in _VACIAS or w in _GENERICAS_LEY or len(w) < 3:
+            continue
+        out.add(re.sub(r"(es|s)$", "", w) if len(w) > 5 else w)
+    return out
+
+
+def _normas_para_el_estudio(m) -> list:
+    """Las normas que entran al prompt del estudio (ver arriba). Nunca lanza:
+    ante cualquier sorpresa, las doce de siempre."""
+    normas = list(getattr(m, "normas", None) or [])
+    base = normas[:MAX_NORMAS_PROMPT]
+    try:
+        import contexto_taller as _ct_n
+        if not _ct_n.rediseno("normas_al_documento") or len(normas) <= MAX_NORMAS_PROMPT:
+            return base
+        texto = "\n".join(f"{s.get('texto') or ''} {s.get('cita') or ''}"
+                           for s in (getattr(m, "inventario", None) or []) if isinstance(s, dict))
+        if not texto.strip():
+            return base
+        extra, vistos = [], set()
+        for art, cola in citas_de_articulos(texto):
+            vc = _voces_ley(cola)
+            if not vc:
+                continue
+            mejor, puntos = None, 0
+            for i, n in enumerate(normas[MAX_NORMAS_PROMPT:], MAX_NORMAS_PROMPT):
+                if not isinstance(n, dict) or str(n.get("articulo") or "").strip() != str(art).strip():
+                    continue
+                pt = len(vc & _voces_ley(n.get("cuerpo_legal") or ""))
+                if pt > puntos:
+                    mejor, puntos = i, pt
+            if mejor is not None and mejor not in vistos and puntos >= min(2, len(vc)):
+                vistos.add(mejor)
+                extra.append(normas[mejor])
+        return base + extra[:NORMAS_NOMBRADAS_EXTRA]
+    except Exception:
+        return base
+
+
 def _bloque_material(m: Material) -> str:
     p = ["", "═" * 71, "MATERIAL PARA FUNDAR", "═" * 71]
     # Las obligatorias primero: ya vienen ordenadas, así que el recorte se lleva
@@ -941,7 +1005,7 @@ def _bloque_material(m: Material) -> str:
     tesis = [t for t in (m.tesis or [])
              if not t.get("tecnica") and not t.get("cupo_figura")][:MAX_TESIS_PROMPT] \
         + _fig + _tec
-    normas = (m.normas or [])[:MAX_NORMAS_PROMPT]
+    normas = _normas_para_el_estudio(m)
     if tesis:
         import fuerza_juridica as _fj
         _fj.anotar(tesis, str(getattr(m, "tribunal", "") or ""))
