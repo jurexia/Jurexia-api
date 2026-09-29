@@ -96,6 +96,24 @@ ok("TERCERA INTERESADA Y RECURRENTE (quien interpuso el recurso): Inmobiliaria E
    and "sentencia recurrida: Juzgado Séptimo" in _p,
    "la hoja del prompt: el recurrente con su carácter y el juzgado como dato, no como rótulo")
 
+print("\n4 · CON NOMBRES COMO LOS DE LA FILA DEL 631 (revisión adversarial de la fase E)")
+# Misma forma que los nombres reales de la fila 462 —sustantivo de cabeza sin
+# forma jurídica, artículo de la prosa en minúscula, «C.T.M.» al final—, con
+# datos de prueba. Con el nombre sintético («…, A.C.») el defecto no se veía.
+import tipos_asunto as _ta4
+_Q4 = ("la Unión de Trabajadores de la Construcción, Transportistas y Similares del Estado de "
+       "Ejemplo, C.T.M.")
+_R4 = "Impulsora de Desarrollos Ejemplo VV"
+_f4 = _ta4.filas_caratula("amparo_revision", {"quejoso": _Q4, "recurrente": _R4,
+                                               "papel_recurrente": "tercero"})
+ok([e for e, _c, _v in _f4 if _c in ("quejoso", "recurrente")] == ["QUEJOSA", "TERCERA INTERESADA Y RECURRENTE"],
+   f"los rótulos concuerdan con «Unión…, C.T.M.» e «Impulsora…» sin forma jurídica: {[e for e, _c, _v in _f4]}")
+ok(all(not str(_v).startswith(("la ", "el ")) for _e, _c, _v in _f4),
+   "el renglón lleva el nombre, sin el artículo de la prosa")
+ok(_ta4.genero_de("Sindicato Único de Trabajadores de Ejemplo, C.T.M.") == "o"
+   and _ta4.sin_articulo_de_prosa("La Costeña, S.A. de C.V.") == "La Costeña, S.A. de C.V.",
+   "el sindicato es masculino; el «La» de un nombre propio no se quita")
+
 print()
 if FALLOS:
     print(f"FALLAN {len(FALLOS)}: " + " · ".join(FALLOS))

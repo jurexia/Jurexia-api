@@ -1008,16 +1008,49 @@ _RX_MASCULINO = re.compile(
     r"\bconsejo\b|\bbanco\b|\btribunal\b|\bjuzgado\b", re.I)
 
 
+# EL SUSTANTIVO QUE ENCABEZA EL NOMBRE MANDA (revisión adversarial de la fase
+# E, 28-sep-2026). Con el nombre REAL de la quejosa del AR 631/2025 —«la Unión
+# de Trabajadores de la Construcción, Transportistas, Materialistas y Similares
+# y Anexos del Estado de Querétaro, C.T.M.»— la carátula salía «PARTE
+# QUEJOSA»: el arreglo de «A.C.» sólo cubría el nombre sintético de la prueba.
+# Y con «Impulsora de Desarrollos Inmobiliarios VV», sin «S.A.», el renglón
+# salía «PARTE TERCERA INTERESADA». El género de una persona moral es el de
+# su sustantivo de cabeza (la unión, la impulsora, el sindicato); si no hay
+# uno conocido, lo de siempre: la forma jurídica, y en la duda el neutro.
+_RX_CABEZA_FEM = re.compile(
+    r"^(?:(?:la|las)\s+)?(?:uni[óo]n|federaci[óo]n|confederaci[óo]n|liga|central|alianza|"
+    r"agrupaci[óo]n|c[áa]mara|coalici[óo]n|organizaci[óo]n|asociaci[óo]n|sociedad|cooperativa|"
+    r"empresa|instituci[óo]n|comisi[óo]n|secretar[íi]a|direcci[óo]n|sala|junta|unidad|"
+    r"universidad|fundaci[óo]n|inmobiliaria|\w+(?:dora|tora|sora))\b", re.I)
+_RX_CABEZA_MASC = re.compile(
+    r"^(?:(?:el|los)\s+)?(?:sindicato|instituto|ayuntamiento|municipio|organismo|consejo|banco|"
+    r"tribunal|juzgado|frente|grupo|colegio|comit[ée]|patronato|fideicomiso)\b", re.I)
+# «C.T.M.» (Confederación de Trabajadores de México) y las demás centrales
+# obreras al final del nombre: la afiliación es femenina.
+_RX_CENTRAL_OBRERA = re.compile(r"\bC\.\s*T\.\s*M\.|\bC\.\s*R\.\s*O\.\s*C\.|\bC\.\s*R\.\s*O\.\s*M\.")
+
+
 def genero_de(nombre: str) -> str:
     """«a», «o» o «" "» —neutro— para concordar la etiqueta de la carátula."""
     n = (nombre or "").strip()
     if not n:
         return ""
-    if _RX_FEMENINO.search(n):
+    if _RX_CABEZA_FEM.search(n):
+        return "a"
+    if _RX_CABEZA_MASC.search(n):
+        return "o"
+    if _RX_FEMENINO.search(n) or _RX_CENTRAL_OBRERA.search(n):
         return "a"
     if _RX_MASCULINO.search(n):
         return "o"
     return ""
+
+
+def sin_articulo_de_prosa(nombre: str) -> str:
+    """«la Unión …» → «Unión …» para un renglón de la carátula. Sólo el
+    artículo en MINÚSCULA, que es el de la prosa («la quejosa, la Unión…»);
+    el que va en mayúscula es parte del nombre («La Costeña, S.A.»)."""
+    return re.sub(r"^\s*(?:el|la|los|las)\s+(?=[A-ZÁÉÍÓÚÑ])", "", str(nombre or ""))
 
 
 def etiqueta_concordada(etiqueta: str, nombre: str) -> str:
@@ -1078,8 +1111,13 @@ def filas_caratula(tipo: str, datos: dict) -> list:
     renglón de `responsable` lleva `organo_recurrido` cuando se leyó, como
     antes. La clave del segundo renglón es «recurrente». Las filas vacías y
     no obligatorias no salen."""
-    d = datos or {}
+    d = dict(datos or {})
     _t = normalizar(tipo)
+    # SIN EL ARTÍCULO DE LA PROSA (fase E): la ficha da «la Unión …»; en el
+    # renglón de la carátula va el nombre.
+    for _k in ("quejoso", "recurrente"):
+        if isinstance(d.get(_k), str):
+            d[_k] = sin_articulo_de_prosa(d[_k])
     _rec = str(d.get("recurrente") or "").strip()
     _q = str(d.get("quejoso") or "")
     # `quejoso_moral` se calcula sobre lo TECLEADO en el formulario, que en un
@@ -2075,11 +2113,14 @@ TECNICA_RESOLUCION["recurso_revoca_o_modifica"] = {
         "SE MODIFICA cuando la ilegalidad, advertida y todo, DEJA EN PIE otras "
         "consideraciones: se corrige lo ilegal y subsiste el resto. Aquí hay "
         "que decir QUÉ SUBSISTE, porque el resolutivo lo conserva.",
-        "ESCRÍBELO EN UNA FRASE, antes de cerrar el estudio: «el vicio alcanza "
-        "a la razón toral del fallo y no permite conservar consideración "
-        "alguna, por lo que procede REVOCAR» o «la ilegalidad se limita a X y "
-        "deja intactas las consideraciones sobre Y, por lo que procede "
-        "MODIFICAR». Sin esa frase, el resolutivo queda afirmado y no razonado.",
+        # SIN LA FRASE HECHA (revisión adversarial de la fase E, 28-sep-2026):
+        # el prompt v4 del AR 631/2025 traía las dos frases enteras entre
+        # comillas y el estudio las copiaba; se describe lo que la frase dice.
+        "DILO ANTES DE CERRAR EL ESTUDIO, con tus palabras y en una frase: hasta "
+        "dónde llega el vicio (si alcanza la razón que sostiene el fallo o sólo "
+        "una parte), qué consideraciones subsisten si alguna subsiste, y por eso "
+        "si procede REVOCAR o MODIFICAR. Sin esa frase, el resolutivo queda "
+        "afirmado y no razonado.",
         "Y NO CONFUNDAS REVOCAR CON DEJAR INSUBSISTENTE: revocar es lo que hace "
         "este tribunal con la sentencia recurrida; dejar insubsistente es lo "
         "que se le ordena a la responsable en un AMPARO concedido.",

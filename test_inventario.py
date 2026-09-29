@@ -335,6 +335,10 @@ for forma in ("estandar", "moderna"):
         # (acuerdos-efectos, 27-sep-2026): los EFECTOS de tres a cinco órdenes
         # breves en infinitivo, y ninguno en la revisión fiscal, que no concede
         # amparo; el diff es sólo ese bloque.
+        # Y OTRA (revisión adversarial de la fase E, 28-sep-2026): sin frases
+        # modelo concordadas con el caso en la apertura, en «SEXTO. Estudio…»,
+        # en el verbo «compartir» y en la frase de revocar o modificar; el diff
+        # son sólo esos pasajes.
         ok(ahora == antes, f"v2 {etiq}/{forma}: idéntica, byte por byte, a su instantánea")
         con_inv = f6.prompt_estudio(ACTO, CONC, C93, mat(forma, "v2", tipo, inventario=segs),
                                     es_recurso=rec, escrito_literal=esc)

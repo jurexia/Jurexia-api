@@ -323,9 +323,12 @@ ok("REPOSICIÓN en el orden en que ha de cumplirse" in _p_conc, "los efectos, de
 # LA CALIFICACIÓN GENERAL QUE EL MODELO COPIA EN LA PRIMERA LÍNEA, concordada
 # (revisión adversarial): «innecesario» no está en el catálogo y salía en
 # singular. La v1 sigue como estaba, congelada.
-ok("en parte fundados y en parte innecesarios.»" in p_std
-   and "en parte innecesario.»" not in p_std and "en parte innecesario.»" not in p_mod,
-   "v2: la calificación general concuerda «innecesarios» (el 93 la trae)")
+# Y YA NO COMO FRASE HECHA (revisión adversarial de la fase E): la
+# calificación va como dato, sin «Los {q} son …» para copiar.
+ok("en parte fundados y en parte innecesarios;" in p_std
+   and "en parte innecesario;" not in p_std and "en parte innecesario;" not in p_mod
+   and "son en parte fundados" not in p_std and "son en parte fundados" not in p_mod,
+   "v2: la calificación general concuerda «innecesarios» (el 93 la trae), como dato y no como frase")
 ok("en parte innecesario.»" in f6.prompt_estudio(ACTO, CONC, C93, mat("estandar")),
    "v1: sin tocar (congelada)")
 _p_ad_r = f6.prompt_estudio(ACTO, CONC, C93, mat("estandar", "v2"), es_recurso=True)

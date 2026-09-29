@@ -68,6 +68,9 @@ NORMA_CARACTERES = 4000
 # la instrucción de fundar quedaba al 2% del texto, enterrada bajo 30,000 tokens
 # de jurisprudencia. Diez bien elegidas se leen; cuarenta y cuatro se hojean.
 MAX_TESIS_PROMPT = 10
+# Las de la figura que no traía ningún problema (fase E): cupo propio, fuera de
+# las diez (`_bloque_material`).
+MAX_TESIS_FIGURA_PROMPT = 3
 MAX_NORMAS_PROMPT = 12
 
 PALABRAS_ESTUDIO = 3733
@@ -917,8 +920,17 @@ def _bloque_material(m: Material) -> str:
     # No se sube el tope: las del fondo siguen siendo diez, y las de la técnica
     # van aparte porque responden a otra pregunta.
     _tec = [t for t in (m.tesis or []) if t.get("tecnica")]
+    # LAS DE LA FIGURA TAMPOCO (revisión adversarial de la fase E, 28-sep-2026):
+    # las que sólo trajo la búsqueda sobre la cuestión decisiva
+    # (`fase6_rag.sumar_figura`, marca `cupo_figura`) entraban DELANTE y se
+    # quedaban hasta con ocho de las diez plazas; las obligatorias de los
+    # demás problemas salían del prompt. Van aparte, con su tope pequeño. Las
+    # que ya traía la búsqueda de un problema siguen en su sitio.
+    _fig = [t for t in (m.tesis or [])
+            if t.get("cupo_figura") and not t.get("tecnica")][:MAX_TESIS_FIGURA_PROMPT]
     tesis = [t for t in (m.tesis or [])
-             if not t.get("tecnica")][:MAX_TESIS_PROMPT] + _tec
+             if not t.get("tecnica") and not t.get("cupo_figura")][:MAX_TESIS_PROMPT] \
+        + _fig + _tec
     normas = (m.normas or [])[:MAX_NORMAS_PROMPT]
     if tesis:
         p.append("\nTESIS Y JURISPRUDENCIA (existen: salen del acervo, no de tu memoria).")
@@ -1855,9 +1867,11 @@ def _bloque_global(g, criterios: list = None) -> str:
         partes.append(
             f"LA OBJECIÓN MÁS SERIA A ESTA SOLUCIÓN —el motor habría resuelto "
             f"{str(g.get('sentido') or '').replace('_', ' ')}, por esto—:\n{g['razon']}\n"
-            f"CONTÉSTALA EN EL ESTUDIO, con el lenguaje del oficio («No se "
-            f"pierde de vista que…», «No pasa inadvertido que…»), y a renglón "
-            f"seguido la razón del caso. Lo que el motor escribió como "
+            # Sin frases hechas (revisión adversarial de la fase E): se
+            # describe qué hace el párrafo, no cómo empieza.
+            f"CONTÉSTALA EN EL ESTUDIO: un párrafo que reconoce la objeción como "
+            f"advertida y ponderada, y a renglón seguido la razón del caso que la "
+            f"vence. Lo que el motor escribió como "
             f"«efecto» o como suerte de los demás temas en SU vía NO se usa: "
             f"es de la vía que no se tomó.")
     _alt = g.get("alternativa") if isinstance(g.get("alternativa"), dict) else {}
@@ -3080,9 +3094,10 @@ estudio de fondo de {_clase}. Escribes mejor que la media del
 oficio: con más orden, más precisión y menos relleno, pero en su mismo registro.
 
 FORMA — medida sobre 40 engroses firmados, no inventada:
-- ABRE con el encabezado ordinal y la CALIFICACIÓN: «SEXTO. Estudio. Los {q}
-  son {calif}.» Anunciar el resultado y luego demostrarlo es el orden que mejor
-  se lee, y el que sigue el 40% de los engroses reales.
+- ABRE con el encabezado ordinal del considerando y la CALIFICACIÓN general de
+  los {q} (dato: {calif}), en una frase tuya. Anunciar el resultado y luego
+  demostrarlo es el orden que mejor se lee, y el que sigue el 40% de los
+  engroses reales.
 - FRASE de unas 35 palabras, SUBORDINADA; PÁRRAFO de unas 49, es decir UNA O
   DOS FRASES POR PÁRRAFO. Es la medida real del corpus y no es un capricho: la
   prosa judicial encadena la premisa y su consecuencia dentro de la misma
@@ -3464,7 +3479,7 @@ FUNDAMENTO — hay que fundar, y hay que fundar bien:
     obligatorio conforme al artículo 217 de la Ley de Amparo y la legislación
     que interpretó resulta irrelevante. Se aplica en seco, sin «por analogía».
   · SI ES DE UN COLEGIADO DE OTRO CIRCUITO el verbo es COMPARTIR, no obedecer:
-    «Por lo anterior se comparte el criterio sustentado en la jurisprudencia…».
+    se dice que este tribunal comparte ese criterio, no que lo acata.
 - EL REGISTRO DIGITAL VA SIEMPRE, sin excepción, en la misma frase que el rubro.
   La clave —«2a./J. 58/2010»— no lo sustituye: sin el registro nadie comprueba
   la cita en el Semanario, que es para lo que sirve citarla.

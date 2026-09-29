@@ -85,7 +85,13 @@ def material_ligero(m) -> dict:
     def _dicts(xs, n):
         return [x for x in (xs or []) if isinstance(x, dict)][:n]
     return {
-        "tesis": _dicts(getattr(m, "tesis", []), 80),
+        # LAS DE LA FIGURA, FUERA DEL TOPE DE 80 (fase E): van al final
+        # (`fase6_rag.sumar_figura`) y no deben ni recortar lo de siempre ni
+        # perderse ellas en un material grande.
+        "tesis": (_dicts([t for t in (getattr(m, "tesis", None) or [])
+                          if not (isinstance(t, dict) and t.get("cupo_figura"))], 80)
+                  + _dicts([t for t in (getattr(m, "tesis", None) or [])
+                            if isinstance(t, dict) and t.get("cupo_figura")], 12)),
         "normas": _dicts(getattr(m, "normas", []), 80),
         "convencional": _dicts(getattr(m, "convencional", []), 24),
         "materia": str(getattr(m, "materia", "") or ""),

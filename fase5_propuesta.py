@@ -349,8 +349,12 @@ def _tesis_del_material(material, limite: int = MAX_TESIS_PROPUESTA) -> list:
         # problema— todo cae en el mismo cajón y esto se comporta como antes.
         for n in (t.get("para") or [0]):
             grupos.setdefault(n, []).append(t)
+    # Dentro de cada problema: las obligatorias primero y, tras ellas, las de
+    # la figura que decide (fase E, AR 631/2025). Antes éstas llegaban DELANTE
+    # de todo el material (`fase6_rag.sumar_figura`); ahora llegan al final y
+    # aquí se les da su sitio sin pasar delante de una obligatoria.
     for g in grupos.values():
-        g.sort(key=lambda t: not t.get("obligatoria"))
+        g.sort(key=lambda t: (not t.get("obligatoria"), not t.get("de_figura")))
 
     fuera, vistos = [], set()
     vuelta = 0

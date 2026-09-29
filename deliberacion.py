@@ -1753,8 +1753,23 @@ async def deliberar(cliente, *, problemas: list, material=None,
     # `pregunta_decisiva.py`, marca «decisiva» del mismo adelanto) y es de este
     # principal, se reutiliza: la misma llamada, ya pagada, y la búsqueda de la
     # figura ya está en el material.
+    #
+    # DOS CONDICIONES MÁS (revisión adversarial de la fase E, 28-sep-2026):
+    # · la bandera: con PREGUNTA_DECISIVA_ACTIVA=0 la previa no se usa (la
+    #   que viaja en el material guardado seguía mandando aquí);
+    # · el contraste: la previa se formula en paralelo con el contraste, sin
+    #   él. Si aquí hay contraste del principal y la previa no lo llevó, se
+    #   formula otra vez con él, como antes de la fase E: la razón toral que
+    #   identificó el contraste es un dato de la ETAPA A que no se pierde
+    #   para ahorrar una llamada corta.
     _prev = decisiva_previa if isinstance(decisiva_previa, dict) else {}
-    if (_prev.get("formulada") and _prev.get("pregunta_decisiva")
+    try:
+        import pregunta_decisiva as _pd_d
+        _prev_vale = _pd_d.util(_prev)
+    except Exception:                                   # pragma: no cover
+        _prev_vale = False
+    if (_prev_vale and _prev.get("formulada") and _prev.get("pregunta_decisiva")
+            and (_prev.get("con_contraste") or not c_pral)
             and " ".join(str(_prev.get("pregunta_recurrida") or "").split())
             == " ".join(_pregunta(pral).split())):
         decisiva = {k: _prev.get(k) for k in (

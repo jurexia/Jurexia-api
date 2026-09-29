@@ -2674,7 +2674,13 @@ def _organo_recurrido(e: Encargo, partes=None, acto: str = "") -> str:
     _tecleado = str(getattr(e, "responsable", "") or "").strip()
     import tipos_asunto as _ta_o
     if _ta_o.normalizar(getattr(e, "tipo_asunto", "")) == "amparo_revision":
-        if (_leido and re.search(r"juzgad|juez|tribunal", _leido, re.I)
+        # «DE DISTRITO» O UN TRIBUNAL DE AMPARO (revisión adversarial de la
+        # fase E, 28-sep-2026): bastaba «juzgad|juez|tribunal», y en el AR
+        # 631/2025 la ficha de partes podía leer al «Juzgado Quinto de Primera
+        # Instancia Civil» (responsable) o al «Tribunal Superior de Justicia
+        # del Estado» y darlo como órgano de la recurrida, «fijado por código».
+        if (_leido and re.search(r"\bde\s+distrito\b|tribunal\s+(?:colegiado|unitario)",
+                                 _leido, re.I)
                 and not re.search(r"\bsala\b|magistrad", _leido, re.I)
                 and not _mismo_nombre(_leido, _tecleado)):
             return _leido

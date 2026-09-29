@@ -96,11 +96,28 @@ _RX_CARGO = re.compile(r"^(?:(?:el|la|los|las)\s+)?(?:c\.\s+)?(?:magistrad[oa]s?
 # DEL TRIBUNAL SUPERIOR DE JUSTICIA DEL ESTADO DE QUERÉTARO» y el resolutivo del
 # juzgado, «la Primera Sala Civil del Tribunal Superior de Justicia EN EL Estado
 # de Querétaro»: la ficha salía con DOS autoridades responsables (y la tarjeta
-# también) donde hay una. Se quita todo hasta «integrante de», «titular de» o
-# «adscrita a», y «en el Estado» se lee como «del Estado».
-_RX_ADSCRIPCION = re.compile(r"^.*?\b(?:integrantes?|titular|adscrit[oa]s?)\s+(?:de|del|a|al|en)\s+"
-                             r"(?:(?:el|la|los|las)\s+)?", re.I)
+# también) donde hay una. Se quita todo hasta «integrante de» o «titular de»,
+# y «en el Estado» se lee como «del Estado».
+#
+# SÓLO DETRÁS DEL CARGO DE TITULAR (revisión adversarial, 28-sep-2026): el
+# recorte valía para cualquier cosa delante de «adscrito a» y además se
+# aceptaba que un nombre cupiera dentro de otro, así que se fundían
+# responsables DISTINTAS: la ordenadora con su ejecutora («Director de
+# Ingresos adscrito a la Secretaría de Finanzas» = «Secretaría de Finanzas»),
+# el actuario con su juzgado, la Sala con su Tribunal. En una revisión con
+# ordenadora y ejecutora la ficha perdía a la ejecutora y su acto. Ahora el
+# recorte sólo corre si lo que precede es una magistrada, un juez, una titular
+# o una presidenta, y nunca con «adscrito a».
+_RX_ADSCRIPCION = re.compile(
+    r"^(?:(?:el|la|los|las)\s+)?(?:c\.\s+)?(?:magistrad[oa]s?|jue(?:z|za|ces)|titular|"
+    r"presidente|presidenta)\b.*?\b(?:integrantes?|titular)\s+(?:de|del|en)\s+"
+    r"(?:(?:el|la|los|las)\s+)?", re.I)
 _RX_EN_EL_ESTADO = re.compile(r"\ben\s+el\s+(estado|municipio)\b", re.I)
+_RX_ARTICULO = re.compile(r"^(?:el|la|los|las)\s+", re.I)
+# El complemento que hace MÁS específico al órgano sin volverlo otro: «Sala
+# Civil Uno» y «Sala Civil Uno DEL Tribunal Superior…» son la misma; «Juzgado
+# Quinto» y «Juzgado Quinto DE Distrito», no.
+_RX_COMPLEMENTO = re.compile(r"^(?:del|de\s+la|de\s+los|de\s+las|en\s+el|en\s+la)\b", re.I)
 
 
 def _organo_de(x: str) -> str:
@@ -109,20 +126,37 @@ def _organo_de(x: str) -> str:
     if _RX_ADSCRIPCION.search(t):
         t = _RX_ADSCRIPCION.sub("", t, count=1)
     t = _RX_CARGO.sub("", t)
-    return _RX_EN_EL_ESTADO.sub(r"del \1", t)
+    t = _RX_EN_EL_ESTADO.sub(r"del \1", t)
+    return _RX_ARTICULO.sub("", t)
+
+
+def _plano(x: str) -> str:
+    import unicodedata as _u
+    t = _u.normalize("NFD", _txt(x).lower())
+    t = "".join(c for c in t if _u.category(c) != "Mn")
+    return " ".join(t.replace(",", " ").replace(".", " ").split())
 
 
 def _misma_autoridad(a: str, b: str) -> bool:
-    """¿Dos maneras de nombrar a la misma autoridad? Igualdad, una dentro de
-    otra, o lo mismo quitados el cargo y el nombre de su titular."""
-    import redactor_adelanto as _ra
-    if _ra._mismo_nombre(a, b):
+    """¿Dos maneras de nombrar a la misma autoridad? Igualdad; o el mismo
+    órgano quitados el cargo y el nombre de su titular; o uno que es el otro
+    con un complemento de lugar detrás («Sala Civil Uno» / «Sala Civil Uno
+    del Tribunal Superior…»). Nunca porque un nombre quepa en MEDIO o al
+    FINAL del otro: «Tribunal Superior de Justicia» no es su «Primera Sala»,
+    ni «Municipio de Querétaro» su director."""
+    pa, pb = _plano(a), _plano(b)
+    if not (pa and pb):
+        return False
+    if pa == pb:
         return True
-    a2, b2 = _RX_CARGO.sub("", _txt(a)), _RX_CARGO.sub("", _txt(b))
-    if len(a2.split()) >= 2 and len(b2.split()) >= 2 and _ra._mismo_nombre(a2, b2):
-        return True
-    a3, b3 = _organo_de(a), _organo_de(b)
-    return len(a3.split()) >= 2 and len(b3.split()) >= 2 and _ra._mismo_nombre(a3, b3)
+    oa, ob = _plano(_organo_de(a)), _plano(_organo_de(b))
+    if not (oa and ob):
+        return False
+    if oa == ob:
+        return len(oa.split()) >= 2
+    corto, largo = sorted((oa, ob), key=len)
+    return (len(corto.split()) >= 2 and largo.startswith(corto + " ")
+            and bool(_RX_COMPLEMENTO.match(largo[len(corto) + 1:])))
 
 
 # EL SOBRESEIMIENTO QUE SÓLO ESTÁ EN LOS CONSIDERANDOS (integración E). En el
@@ -140,12 +174,93 @@ _RX_SOBRESEIDO = re.compile(
     r"(?P<a>[^,;.]{5,140}))?", re.I)
 
 
+_RX_CONSIDERANDO = re.compile(r"\bC\s?O\s?N\s?S\s?I\s?D\s?E\s?R\s?A\s?N\s?D\s?O\b")
+
+
+def _considerandos(t: str) -> str:
+    """Lo que va del primer CONSIDERANDO a los puntos resolutivos: ni los
+    antecedentes (donde se narra lo que otros resolvieron) ni los puntos."""
+    import fase_rama as _fr
+    t = _txt(t)
+    m = _RX_CONSIDERANDO.search(t)
+    if m:
+        t = t[m.start():]
+    sec = _fr.seccion_resolutiva(t)
+    if sec:
+        i = t.rfind(sec[:80])
+        if i > 0:
+            t = t[:i]
+    return t
+
+
+def _en_cita(t: str, i: int) -> bool:
+    """¿La posición cae dentro de una transcripción «…» o de un rubro de tesis
+    (en mayúsculas)?"""
+    antes = t[:i]
+    if antes.count("«") > antes.count("»"):
+        return True
+    trozo = t[i:i + 60]
+    letras = [c for c in trozo if c.isalpha()]
+    return bool(letras) and sum(c.isupper() for c in letras) / len(letras) > 0.8
+
+
 def _sobreseido(*textos) -> tuple:
-    """(acto, autoridad) del sobreseimiento que dicen los considerandos, o («», «»)."""
-    for t in textos:
-        m = _RX_SOBRESEIDO.search(_txt(t))
-        if m:
+    """(acto, autoridad) del sobreseimiento que dicen los considerandos, o («», «»).
+
+    SÓLO EN LOS CONSIDERANDOS Y FUERA DE LAS CITAS (revisión adversarial de la
+    fase E, 28-sep-2026): se tomaba el PRIMER «sobresee… respecto de» de toda
+    la recurrida; si los antecedentes narraban otro sobreseimiento o una tesis
+    transcrita decía «se sobresee respecto del acto…», la ficha atribuía lo
+    firme a un acto equivocado y lo daba por «fijado por código». El primer
+    texto es la recurrida (se recorta a sus considerandos); los siguientes,
+    sus resúmenes, se leen enteros."""
+    for k, t in enumerate(textos):
+        tt = _considerandos(t) if k == 0 else _txt(t)
+        for m in _RX_SOBRESEIDO.finditer(tt):
+            if k == 0 and _en_cita(tt, m.start()):
+                continue
             return (_txt(m.group("o")).rstrip(" .,;"), _txt(m.group("a") or "").rstrip(" .,;"))
+    return "", ""
+
+
+# EL ACTO QUE SÓLO REPITE A LA AUTORIDAD (revisión adversarial de la fase E,
+# 28-sep-2026). En el AR 631/2025 el punto de la concesión dice «en contra del
+# acto atribuido a la Primera Sala Civil…», y la ficha daba como acto
+# reclamado «el acto atribuido a la Primera Sala Civil…»: no identifica nada, y
+# si el recurso prospera y se niega, el resolutivo tiene que decir contra qué
+# acto se niega. El dato real (la resolución de 2 de julio de 2024, toca civil
+# 2338/2024) está en los efectos de la concesión y en el resumen.
+_RX_ACTO_TAUTOLOGICO = re.compile(
+    r"^(?:(?:el|los)\s+)?actos?\s+(?:(?:atribuid|reclamad|imputad)\w*\s+(?:a|al)\s+|"
+    r"(?:del|de\s+la|de\s+los|de\s+las)\s+)", re.I)
+_RX_ACTO_EN_EFECTOS = re.compile(
+    r"\binsubsistente\s+(?P<o>(?:la|el)\s+(?:resoluci[óo]n|sentencia|auto|acuerdo|interlocutoria|"
+    r"determinaci[óo]n|ejecutoria)\b[^.;]{3,220})", re.I)
+_RX_ACTO_AMPARADO = re.compile(
+    r"\b(?:ampar\w+|concedi\w*|conced\w+)\b[^.;]{0,80}?\b(?:contra|en\s+contra\s+de|respecto\s+de)\s+"
+    r"(?P<o>(?:la|el)\s+(?:resoluci[óo]n|sentencia|auto|acuerdo|interlocutoria|determinaci[óo]n|"
+    r"ejecutoria)\b[^.;]{3,220})", re.I)
+
+
+def es_acto_tautologico(objeto: str) -> bool:
+    """¿El «acto» sólo nombra a la autoridad a la que se atribuye?"""
+    o = _txt(objeto)
+    return bool(_RX_ACTO_TAUTOLOGICO.search(o)) and not re.search(r"consistente", o, re.I)
+
+
+def acto_de_la_concesion(*fuentes) -> tuple:
+    """(acto, fuente) del acto contra el que se concedió, leído de los efectos
+    («dejar insubsistente la resolución de …») o de lo concedido, en cada
+    (nombre, texto) por orden; («», «») si no aparece."""
+    for nombre, texto in fuentes:
+        t = _txt(texto)
+        if not t:
+            continue
+        for rx, que in ((_RX_ACTO_EN_EFECTOS, "los efectos de la concesión"),
+                        (_RX_ACTO_AMPARADO, "lo concedido")):
+            m = rx.search(t)
+            if m:
+                return (_txt(m.group("o")).rstrip(" .,;"), f"{que}, en {nombre}")
     return "", ""
 
 
@@ -251,14 +366,34 @@ def _resultado_rama(rama: str, reas: str) -> str:
     }.get(rama, rama or "no calculable")
 
 
+# LA FRACCIÓN POR QUIEN RECURRE (revisión adversarial de la fase E, 28-sep-2026).
+# El catálogo de ramas (`tipos_asunto.RAMAS_REVISION`) funda la confirmación en
+# el «artículo 93, fracciones V y VI» porque no sabe quién recurre; la ficha sí
+# lo sabe, y la daba como dato «fijado por código»: en el AR 631/2025 (recurre
+# la tercera) el redactor podía fundar la confirmación en la V, que rige sólo
+# cuando recurre la quejosa. Con quien recurre conocido, se queda la que rige:
+# la V para la quejosa, la VI para la autoridad o la tercera interesada.
+_FRACCION_POR_PAPEL = {"quejoso": "artículo 93, fracción V, de la Ley de Amparo",
+                       "tercero": "artículo 93, fracción VI, de la Ley de Amparo",
+                       "autoridad": "artículo 93, fracción VI, de la Ley de Amparo"}
+_V_Y_VI = re.compile(r"art[íi]culo\s+93,\s+fracciones\s+V\s+y\s+VI\b", re.I)
+
+
+def _fundamento_por_papel(fund: str, papel: str) -> str:
+    if papel in _FRACCION_POR_PAPEL and _V_Y_VI.search(fund or ""):
+        return _FRACCION_POR_PAPEL[papel]
+    return fund
+
+
 def _desenlace_revision(que: str, papel: str, sobresee_ademas: bool, firme: list) -> dict:
     import tipos_asunto as _ta
     fuera = {}
     for clave, sentido in (("si_prospera", "fundado"), ("si_no_prospera", "infundado")):
         rama = _ta.rama_revision(que, sentido)
         reas = _ta.reasuncion(que, sentido, quien_recurre=papel)
-        fund = (_ta.FUNDAMENTO_REASUNCION.get(reas)
-                or (_ta.RAMAS_REVISION.get(rama) or {}).get("fundamento") or "")
+        fund = _fundamento_por_papel(
+            _ta.FUNDAMENTO_REASUNCION.get(reas)
+            or (_ta.RAMAS_REVISION.get(rama) or {}).get("fundamento") or "", papel)
         d = {"rama": rama, "reasuncion": reas, "fundamento": fund,
              "resultado": _resultado_rama(rama, reas)}
         if clave == "si_prospera" and firme and rama.startswith("revoca"):
@@ -323,6 +458,12 @@ def armar(encargo, fases=None, partes=None, *, acto: str = "", declarado: str = 
         # La recurrente que no es la quejosa ni una autoridad es la tercera
         # interesada (art. 5o., fr. III): el 631.
         terceros.append({"nombre": aparte, "fuente": "recurrente que no es quejosa ni autoridad"})
+        # PUEDE HABER OTROS (revisión adversarial de la fase E): en el 631 la
+        # demandada del juicio natural (la inquilina) también pudo ser
+        # tercera y no figura. La lista sale de la recurrente, no del
+        # expediente: se dice.
+        avisos.append("No consta si hay más terceros interesados que la recurrente: la ficha de "
+                      "partes no los trae.")
 
     # ── EL ÓRGANO DE LA RESOLUCIÓN RECURRIDA (en la revisión, el Juzgado) ──
     organo = {}
@@ -371,14 +512,36 @@ def armar(encargo, fases=None, partes=None, *, acto: str = "", declarado: str = 
             avisos.append("No se pudieron leer los puntos resolutivos uno por uno: lo resuelto "
                           "sale de " + (f_que or "otra fuente") + ".")
         for p in puntos:
+            _acto_p, _f_acto = p["objeto"], ""
+            if es_acto_tautologico(_acto_p):
+                _acto_p = ""
+                if p["que"] == "concede":
+                    # Sólo para la concesión: sus efectos nombran el acto; en
+                    # un sobreseimiento hablarían de otro.
+                    _acto_p, _f_acto = acto_de_la_concesion(
+                        (f"el punto {p['ordinal'] or 'resolutivo'}", p.get("texto")),
+                        ("la sentencia recurrida", _considerandos(acto)),
+                        ("el resumen de la recurrida",
+                         getattr(fases, "resumen_acto", "") if fases is not None else ""))
+                elif p["que"] == "sobresee":
+                    _so, _sa = _sobreseido(
+                        acto, getattr(fases, "resumen_acto", "") if fases is not None else "")
+                    if _so and (not _sa or not p["autoridad"]
+                                or _misma_autoridad(_sa, p["autoridad"])):
+                        _acto_p, _f_acto = _so, "los considerandos del juzgado"
+                if not _acto_p:
+                    avisos.append(f"No consta cuál es el acto reclamado a "
+                                  f"{p['autoridad'] or 'la autoridad responsable'}: el punto "
+                                  f"{p['ordinal'] or 'resolutivo'} sólo nombra a la autoridad.")
             if p["autoridad"]:
                 if not any(_misma_autoridad(p["autoridad"], r["autoridad"]) for r in responsables):
-                    responsables.append({"autoridad": p["autoridad"], "acto": p["objeto"],
+                    responsables.append({"autoridad": p["autoridad"], "acto": _acto_p,
                                          "resolvio": p["que"],
-                                         "fuente": f"punto {p['ordinal'] or 'resolutivo'} del juzgado"})
+                                         "fuente": f"punto {p['ordinal'] or 'resolutivo'} del juzgado"
+                                         + (f"; el acto, de {_f_acto}" if _f_acto else "")})
             et = f"{_ETIQUETA_QUE.get(p['que'], p['que'])}" + (
                 f" (punto {p['ordinal']})" if p["ordinal"] else "") + (
-                f": {p['objeto']}" if p["objeto"] else "")
+                f": {_acto_p}" if _acto_p else "")
             dano = _perjudica(p["que"], papel)
             if dano is True:
                 materia.append(et)
@@ -445,6 +608,15 @@ def armar(encargo, fases=None, partes=None, *, acto: str = "", declarado: str = 
         rige = _rige_93(que, papel, resolvio.get("sobresee_ademas", False))
         des = _desenlace_revision(que, papel, resolvio.get("sobresee_ademas", False), firme)
         art_93 = {"rige": rige, **des}
+        # ANTES DEL FONDO, LA II Y LA III (revisión adversarial de la fase E):
+        # cuando recurre la autoridad o la tercera interesada, los agravios
+        # contra la omisión o negativa de sobreseer se estudian primero (fr.
+        # II) y las causales de improcedencia desestimadas pueden examinarse
+        # de oficio (fr. III). Es orden de estudio, como dato.
+        if papel in ("tercero", "autoridad"):
+            art_93["previo"] = ("artículo 93, fracciones II y III, de la Ley de Amparo: primero los "
+                                "agravios contra la omisión o negativa de sobreseer y, de oficio, las "
+                                "causales de improcedencia desestimadas")
         desenlace = des
         if not rige:
             avisos.append("No se pudo fijar la fracción del artículo 93 que rige: falta lo que "
@@ -539,6 +711,7 @@ def bloque(ficha: dict) -> str:
     a = f.get("art_93") or {}
     if a:
         L.append(_renglon("Artículo 93 de la Ley de Amparo que rige", a.get("rige") or "no consta"))
+        L.append(_renglon("Orden de estudio antes del fondo", a.get("previo") or ""))
     d = f.get("desenlace") or {}
     for clave, rot in (("si_prospera", "Si el recurso prospera" if f.get("es_recurso")
                         else "Si algún concepto prospera"),
@@ -581,15 +754,26 @@ def para_tarjeta(ficha: dict):
     recurrente = ({"quien": rc.get("nombre") or "",
                    "caracter": _CARACTER_TARJETA.get(rc.get("papel") or "", "")}
                   if f.get("es_recurso") and (rc.get("nombre") or rc.get("papel")) else None)
+    # LO FIRME, APARTE (revisión adversarial de la fase E, 28-sep-2026): iba
+    # dentro de `materia` y el front lo pintaba bajo «Materia de la revisión»,
+    # que es justo la confusión que la ficha venía a evitar (en el AR
+    # 631/2025, el sobreseimiento del Juzgado Quinto como si se revisara).
     materia = "; ".join(f.get("materia_revision") or [])
-    if f.get("firme"):
-        materia = (materia + " · " if materia else "") + "firme: " + "; ".join(f["firme"])
+    firme = "; ".join(f.get("firme") or [])
+    a = f.get("art_93") or {}
+    _m93 = re.search(r"fracci(?:ón|ones)\s+([IVX]+(?:\s+y\s+[IVX]+)?)", a.get("rige") or "")
+    art_93 = ({"fraccion": _m93.group(1) if _m93 else "", "rige": a.get("rige") or "",
+               "previo": a.get("previo") or "",
+               "si_prospera": ((a.get("si_prospera") or {}).get("resultado") or ""),
+               "si_no_prospera": ((a.get("si_no_prospera") or {}).get("resultado") or "")}
+              if a else None)
     return {"tipo": f["tipo_asunto"],
             "quejosa": (f.get("quejosa") or {}).get("nombre") or "",
             "responsables": [{"autoridad": r.get("autoridad") or "", "acto": r.get("acto") or ""}
                              for r in f.get("responsables") or []],
             "terceros": [t.get("nombre") for t in f.get("terceros") or [] if t.get("nombre")],
             "recurrida": recurrida, "recurrente": recurrente, "materia": materia,
+            "firme": firme, "art_93": art_93,
             "avisos": list(f.get("avisos") or []), "linea": linea(f)}
 
 

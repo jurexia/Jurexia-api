@@ -244,7 +244,11 @@ _nuevas = [x for x in m.tesis if x["registro"] in _regs and x["registro"] != "16
 ok(res["nuevas"] == len(tesis_fig) - 1 and len(_nuevas) == res["nuevas"]
    and all(x["para"] == [1] and x["de_figura"] for x in _nuevas),
    "las de la figura entran marcadas `para` el principal (problema 1)")
-ok(m.tesis[0]["registro"] == "2015688", "delante: el reparto de la propuesta las pone primero en el principal")
+# AL FINAL, CON CUPO PROPIO (revisión adversarial de la fase E): delante
+# desplazaban del estudio a las obligatorias de los demás problemas.
+ok([x["registro"] for x in m.tesis[:2]] == ["168958", "2000002"]
+   and all(x.get("cupo_figura") for x in m.tesis[2:]),
+   "suman al final, con `cupo_figura`: lo que ya venía ordenado no se mueve")
 _cosa = next(x for x in m.tesis if x["registro"] == "168958")
 ok(res["marcadas"] == 1 and _cosa["para"] == [1] and _cosa.get("de_figura")
    and sum(1 for x in m.tesis if x["registro"] == "168958") == 1,
@@ -256,26 +260,80 @@ ok(_rep[0]["registro"] in _regs and any(t["registro"] == "2015688" for t in _rep
    "la propuesta recibe las de la figura en su reparto por turnos")
 
 
-# material_del_caso: con la figura ya formulada, en el mismo tiro (botón/rescate)
+# material_del_caso ya no busca la figura (sus parámetros no los pasaba nadie):
+# la suman después `_taller_figura_al_material` y `sumar_figura`.
 async def _mp_falso(qdrant, ej, el, problema, *a, **k):
     x = f6.Material()
     x.tesis = [dict(T_COSA)] if "cosa juzgada" in problema else [dict(T_OTRO)]
     return x
 
+import inspect as _insp
+ok("figura" not in _insp.signature(rag.material_del_caso).parameters,
+   "material_del_caso sin los parámetros muertos de la figura")
 _orig_mp = rag.material_para
 rag.material_para = _mp_falso
 try:
     _textos.clear()
-    mc = asyncio.run(rag.material_del_caso(QdrantFalso(_textos), embed_juris, None,
-                                           PROBLEMAS, figura=_cr, principal=1))
+    mc = asyncio.run(rag.material_del_caso(QdrantFalso(_textos), embed_juris, None, PROBLEMAS))
 finally:
     rag.material_para = _orig_mp
-_mc_regs = {x["registro"]: x for x in mc.tesis}
-ok("2015688" in _mc_regs and _mc_regs["2015688"]["para"] == [1] and "2000002" in _mc_regs,
-   "material_del_caso suma la figura (para el principal) sin quitar lo de cada problema")
+ok(_textos == [] and not any(x.get("de_figura") for x in mc.tesis),
+   "material_del_caso no busca nada de la figura por su cuenta")
+
+
+# ── LA REVISIÓN ADVERSARIAL DE LA FASE E: PERTINENCIA Y CUPO ──
+# (a) lo de improcedencia o cesación de efectos no entra como «de la figura»
+# aunque comparta palabras (el homónimo del 631).
+class _QdrantHomonimo(QdrantFalso):
+    def query_points(self, collection_name, query, using, limit, query_filter=None, with_payload=True):
+        r = QdrantFalso.query_points(self, collection_name, query, using, limit, query_filter, with_payload)
+        r.points.insert(0, types.SimpleNamespace(payload=_t(
+            "2031384", "IMPROCEDENCIA DEL JUICIO DE AMPARO. CESACIÓN DE EFECTOS CUANDO LA RESOLUCIÓN "
+                       "RECLAMADA SE SUSTITUYE PROCESALMENTE.")))
+        return r
+
 _textos.clear()
-mc0 = asyncio.run(rag.material_del_caso(QdrantFalso(_textos), embed_juris, None, [], figura=None))
-ok(_textos == [], "sin figura, material_del_caso no busca nada más")
+_hom = asyncio.run(rag.tesis_de_la_figura(_QdrantHomonimo(_textos), embed_juris, _cr,
+                                          figura=doc["figura"], pregunta=DECISIVA))
+ok("2031384" not in [t["registro"] for t in _hom] and "2015688" in [t["registro"] for t in _hom],
+   "la tesis de cesación de efectos («se sustituye procesalmente») no entra como de la figura")
+# (b) el rerank con la PREGUNTA DECISIVA: sólo entra lo que el modelo elige.
+def _elige(p, kw):
+    _l = [x for x in p.splitlines() if re.match(r"^\d+\. ", x)]
+    _i = [i + 1 for i, x in enumerate(_l) if "CAUSAHABIENTE PROCESAL" in x]
+    return json.dumps({"orden": _i})
+_cr_f = Falso(_elige)
+_textos.clear()
+_rr = asyncio.run(rag.tesis_de_la_figura(QdrantFalso(_textos), embed_juris, _cr, cliente=_cr_f,
+                                         pregunta=DECISIVA, figura=doc["figura"]))
+ok([t["registro"] for t in _rr] == ["2015688"] and len(_cr_f.llamadas) == 1
+   and DECISIVA[:40] in _cr_f.llamadas[0][1],
+   "con cliente: el rerank lleva la pregunta decisiva y sólo entra lo que elige")
+# (c) EL CUPO DEL ESTUDIO: 8 jurisprudencias de los problemas 1-3 y 4 aisladas;
+# 8 de la figura no desplazan a ninguna obligatoria.
+_mc2 = f6.Material()
+_mc2.tipo_asunto, _mc2.materia = "amparo_revision", "civil"
+_mc2.tesis = ([dict(_t(f"J{i}", f"JURISPRUDENCIA {i}."), obligatoria=True, para=[1 + i % 3])
+               for i in range(8)]
+              + [dict(_t(f"A{i}", f"AISLADA {i}.", "Tribunales Colegiados de Circuito", "TESIS AISLADA",
+                         False), obligatoria=False, para=[1]) for i in range(4)])
+rag.sumar_figura(_mc2, [dict(_t(f"F{i}", f"FIGURA {i}.", "Tribunales Colegiados de Circuito",
+                                "TESIS AISLADA", False), de_figura=True) for i in range(8)], 1)
+_bm = f6._bloque_material(_mc2)
+ok(all(f"Registro J{i} " in _bm for i in range(8)),
+   "el estudio conserva las 8 obligatorias de los tres problemas")
+ok(sum(f"Registro F{i} " in _bm for i in range(8)) == f6.MAX_TESIS_FIGURA_PROMPT,
+   f"las de la figura, con su cupo aparte ({f6.MAX_TESIS_FIGURA_PROMPT})")
+_idx = pe.indice_material(_mc2)
+ok({t["registro"] for t in _idx["tesis"]} >= {f"J{i}" for i in range(8)}
+   and sum(t["registro"].startswith("F") for t in _idx["tesis"]) == f6.MAX_TESIS_FIGURA_PROMPT,
+   "el índice del plan hace el mismo recorte que el estudio")
+_big = f6.Material()
+_big.tesis = [dict(_t(f"B{i}", f"B {i}."), obligatoria=False) for i in range(80)]
+rag.sumar_figura(_big, [dict(_t(f"G{i}", f"G {i}.")) for i in range(3)], 1)
+_lig = te.material_ligero(_big)
+ok(len(_lig["tesis"]) == 83 and _lig["tesis"][79]["registro"] == "B79",
+   "la fila guarda las 80 de siempre y además las de la figura")
 
 
 # ═══ 3 · INTERNET ═══════════════════════════════════════════════════════════
@@ -330,8 +388,9 @@ _i1 = _bc.index("[PRINCIPAL]")
 _i2 = _bc.index("[ACCESORIO]")
 ok(f"LA CUESTIÓN DECISIVA: {DECISIVA}" in _bc and _i1 < _bc.index("LA CUESTIÓN DECISIVA") < _i2,
    "el criterio del principal lleva LA CUESTIÓN DECISIVA, bajo el principal")
-ok(f"ASÍ LO PLANTEÓ LA RECURRIDA: {P1['pregunta']}" in _bc and "SE ORGANIZA EN TORNO A LA CUESTIÓN DECISIVA" in _bc,
-   "y la de la recurrida como marco; el estudio se organiza en torno a la decisiva")
+ok(f"ASÍ LO PLANTEÓ LA RECURRIDA: {P1['pregunta']}" in _bc and "CONTESTA LA CUESTIÓN DECISIVA" in _bc
+   and "se siguen el orden, los apartados y las calificaciones del guion" in _bc,
+   "y la de la recurrida como marco; y qué hacer si el guion no la nombra, sin contradecir que manda")
 _bc2 = f6._bloque_criterio(crit, "civil", "", "amparo_revision", "moderna", [], variante="v2",
                            decisiva=doc)
 ok("LA CUESTIÓN DECISIVA" in _bc2, "también en la v2 y en la moderna")
@@ -373,10 +432,27 @@ tj2 = td.armar(_resp, _mt, [dict(P1, jerarquia="accesorio"), dict(P2, jerarquia=
                rama_info={"tipo_asunto": "amparo_revision"})
 ok(tj2["principal"]["pregunta"] == P2["pregunta"] and tj2["principal"]["pregunta_recurrida"] is None,
    "si el principal cambió, la pregunta de otro problema no se enseña")
-_P1r = dict(P1, pregunta="¿Pudo el adquirente sustituirse?", pregunta_original=P1["pregunta"])
+# EL SECRETARIO REESCRIBIÓ EL PRINCIPAL (revisión adversarial de la fase E):
+# la decisiva formulada sobre la pregunta que él reemplazó ya no vale en
+# NINGUNA pieza (antes `pregunta_original` la dejaba pasar).
+_P1r = dict(P1, pregunta="¿Pudo el adquirente sustituirse?", pregunta_original=P1["pregunta"],
+            editado_por_secretario=True)
 tj3 = td.armar(_resp, _mt, [_P1r, P2], rama_info={"tipo_asunto": "amparo_revision"})
-ok(tj3["principal"]["pregunta"] == DECISIVA,
-   "si el secretario sólo reescribió la pregunta (pregunta_original), sigue valiendo")
+ok(tj3["principal"]["pregunta"] == _P1r["pregunta"] and tj3["principal"]["pregunta_recurrida"] is None,
+   "principal editado: la tarjeta enseña SU pregunta, no la decisiva vieja ni la que él quitó")
+ok(pd.vigente(doc, [_P1r, P2]) is None and pd.de_material({"decisiva": doc}, [_P1r, P2]) is None,
+   "principal editado: ni `vigente` ni `de_material` la devuelven (guion, internet, propuesta)")
+_cp_e = Falso(lambda p, kw: json.dumps({"global": {"alcanza": False}, "propuestas": []}))
+_m_e = f6.Material()
+_m_e.tesis, _m_e.decisiva = [], doc
+asyncio.run(f5.proponer(_cp_e, [_P1r, P2], _m_e, "Concedió.", "Causahabiencia.", True,
+                        contraste_previo=[]))
+ok("LA CUESTIÓN DECISIVA" not in _cp_e.llamadas[-1][1], "principal editado: la propuesta no la lleva")
+_cd_e = Falso(lambda p, kw: "{}")
+asyncio.run(dl.deliberar(_cd_e, problemas=[_P1r, P2], material=_m_e, textos={"acto": ACTO},
+                         tipo_asunto="amparo_revision", es_recurso=True, decisiva_previa=doc))
+ok(len(_cd_e.de("LA PREGUNTA DECISIVA")) == 1,
+   "principal editado: la deliberación formula la suya sobre la pregunta del secretario")
 
 
 # ═══ 7 · VIAJA CON EL MATERIAL, ENTRE WORKERS ═══════════════════════════════
@@ -405,6 +481,21 @@ cd2 = Falso(lambda p, kw: "{}")
 asyncio.run(dl.deliberar(cd2, problemas=_otro, material=m, textos={"acto": ACTO},
                          tipo_asunto="amparo_revision", es_recurso=True, decisiva_previa=doc))
 ok(len(cd2.de("LA PREGUNTA DECISIVA")) == 1, "si el principal es otro, la formula")
+# CON CONTRASTE (revisión adversarial de la fase E): la previa se formuló sin
+# él; si la deliberación lo tiene, formula la suya con él.
+ok(doc.get("con_contraste") is False, "la de la preconsulta consta formulada sin contraste")
+cd3 = Falso(lambda p, kw: "{}")
+asyncio.run(dl.deliberar(cd3, problemas=PROBLEMAS, material=m, textos={"acto": ACTO},
+                         tipo_asunto="amparo_revision", es_recurso=True, decisiva_previa=doc,
+                         contraste=[{"numero": 1, "razon_toral": "RT", "combate": "sí"}]))
+ok(len(cd3.de("LA PREGUNTA DECISIVA")) == 1,
+   "con el contraste del principal y una previa sin él, la deliberación la formula con él")
+cd4 = Falso(lambda p, kw: "{}")
+asyncio.run(dl.deliberar(cd4, problemas=PROBLEMAS, material=m, textos={"acto": ACTO},
+                         tipo_asunto="amparo_revision", es_recurso=True,
+                         decisiva_previa=dict(doc, con_contraste=True),
+                         contraste=[{"numero": 1, "razon_toral": "RT", "combate": "sí"}]))
+ok(not cd4.de("LA PREGUNTA DECISIVA"), "si la previa ya llevó contraste, se reutiliza")
 
 
 # ═══ 9 · LA BANDERA Y EL CABLEADO EN main.py ════════════════════════════════
@@ -420,7 +511,7 @@ ok("_pd.activa()" in _dec_src and _dec_src.index("_pd.activa()") < _dec_src.inde
    "con la bandera apagada no se formula nada")
 ok("CLAVE_MARCA" in _dec_src and "huella" in _dec_src, "se guarda como marca con huella")
 _pc = ast.get_source_segment(_main, _fn["_taller_preconsultar"])
-ok(_pc.index("_taller_decisiva(") < _pc.index("_ra.consultar(") < _pc.index("await _tarea_dec")
+ok(_pc.index("_taller_decisiva(") < _pc.index("_ra.consultar(") < _pc.index("_taller_decisiva_esperar(_tarea_dec")
    < _pc.index("_taller_figura_al_material(") < _pc.index("_bd.reforzar(")
    < _pc.index("_taller_preproponer("),
    "en paralelo con la consulta; la figura entra antes del refuerzo y de la propuesta")
@@ -435,6 +526,73 @@ ok(_main.count("_taller_decisiva_guardada(user_email, numero,") == 4,
    "los cuatro rescates de la consulta suman la figura de la marca")
 _nu = ast.get_source_segment(_main, _fn["_taller_deliberar_nucleo"])
 ok("decisiva_previa=" in _nu, "la deliberación recibe la pregunta ya formulada")
+# LA ESPERA CON TOPE (revisión adversarial de la fase E): ni la consulta ni el
+# botón esperan a la decisiva sin límite, y la marca va con el material.
+_esp = ast.get_source_segment(_main, _fn["_taller_decisiva_esperar"])
+ok("asyncio.wait_for(asyncio.shield(tarea), timeout=DECISIVA_ESPERA_S)" in _esp
+   and "add_done_callback" in _esp and "_TALLER_EN_MARCHA.add(tarea)" in _esp,
+   "la decisiva se espera con tope; si no llega, sigue sola y deja su marca al terminar")
+ok("await _tarea_dec" not in _pc and "await _tarea_dec_c" not in _tc
+   and "_taller_decisiva_esperar(_tarea_dec_c" in _tc,
+   "ninguna espera sin tope: ni la consulta automática ni el botón")
+ok('otras={"decisiva": _taller_marca_decisiva(_dec, r)}' in _pc
+   and 'otras={"decisiva": _taller_marca_decisiva(_dec_c, r)}' in _tc
+   and "guardar=False" in _pc and "guardar=False" in _tc,
+   "la marca «decisiva» se escribe en la misma escritura que el material")
+ok("_pd.huella(r)" in _dec_src, "la huella de la marca lleva la de la ficha procesal")
+# LA BANDERA APAGADA APAGA TAMBIÉN LO GUARDADO (revisión adversarial de la fase E).
+os.environ["PREGUNTA_DECISIVA_ACTIVA"] = "0"
+try:
+    _mg = te.material_rehidratado(json.loads(json.dumps(te.material_ligero(m), ensure_ascii=False)))
+    _off_p = Falso(lambda p, kw: json.dumps({"global": {"alcanza": False}, "propuestas": []}))
+    asyncio.run(f5.proponer(_off_p, PROBLEMAS, _mg, "Concedió.", "Causahabiencia.", True,
+                            contraste_previo=[]))
+    _tj_off = td.armar(_resp, {"tesis": [], "espejo": [], "decisiva": _mg.decisiva}, PROBLEMAS,
+                       rama_info={"tipo_asunto": "amparo_revision"})
+    _cd_off = Falso(lambda p, kw: "{}")
+    asyncio.run(dl.deliberar(_cd_off, problemas=PROBLEMAS, material=_mg, textos={"acto": ACTO},
+                             tipo_asunto="amparo_revision", es_recurso=True,
+                             decisiva_previa=_mg.decisiva))
+    ok(_mg.decisiva and "LA CUESTIÓN DECISIVA" not in _off_p.llamadas[-1][1]
+       and _tj_off["principal"]["pregunta"] == P1["pregunta"]
+       and pd.de_material(_mg, PROBLEMAS) is None and not pd.lineas_guion(_mg.decisiva)
+       and pd.pregunta_internet(_mg.decisiva, "R") == "R"
+       and "LA CUESTIÓN DECISIVA" not in f6._bloque_criterio(crit, "civil", "", "amparo_revision",
+                                                            "estandar", [], decisiva=_mg.decisiva),
+       "bandera apagada con un material que ya trae decisiva: ni propuesta, ni tarjeta, ni guion, "
+       "ni criterio, ni internet la usan")
+finally:
+    os.environ.pop("PREGUNTA_DECISIVA_ACTIVA", None)
+# EL PLANIFICADOR LA RECIBE Y LA CLAVE CAMBIA SÓLO CON ELLA (revisión adversarial de la fase E).
+_pp_plan = pe.prompt_plan(tipo_asunto="amparo_revision", probs=[], segs=[], resumen_acto="",
+                          tramos=[], indice={"tesis": [], "normas": []}, decisiva=doc,
+                          ficha="LA FICHA PROCESAL DEL ASUNTO (datos):\n  Tipo de asunto: amparo en revisión")
+ok(f"LA CUESTIÓN QUE DECIDE: {DECISIVA}" in _pp_plan and "la premisa (M) del segmento que decide" in _pp_plan
+   and "LA FICHA PROCESAL DEL ASUNTO" in _pp_plan,
+   "el planificador del guion recibe la cuestión decisiva y la ficha como datos")
+ok("LA CUESTIÓN QUE DECIDE" not in pe.prompt_plan(tipo_asunto="amparo_revision", probs=[], segs=[],
+                                                  resumen_acto="", tramos=[],
+                                                  indice={"tesis": [], "normas": []}),
+   "sin decisiva, el prompt del planificador de siempre")
+ok(pe.clave([], "h", "", {}) == pe.clave([], "h", "", {}, decisiva=None)
+   and pe.clave([], "h", "", {}) != pe.clave([], "h", "", {}, decisiva=doc),
+   "la clave del plan sólo cambia si hay decisiva (los planes de siempre no se rehacen)")
+ok('decisiva=ent.get("decisiva")' in _main and "decisiva=_dec_e" in _main,
+   "main pasa la decisiva vigente al planificador y a la clave")
+# EL PRINCIPAL CORREGIDO: antes de proponer se quita lo de la figura vieja y
+# se formula sobre la pregunta del secretario (sólo si él la corrigió).
+_rd = ast.get_source_segment(_main, _fn["_taller_redecidir_si_corrigio"])
+_tp = ast.get_source_segment(_main, _fn["taller_proponer"])
+ok("_taller_redecidir_si_corrigio(user_email, numero, ses)" in _tp
+   and "editado_por_secretario" in _rd and "quitar_figura(" in _rd
+   and "_taller_decisiva_esperar(" in _rd and "otras={\"decisiva\"" in _rd,
+   "principal corregido: /taller/proponer rehace la decisiva sobre su pregunta, con tope y en la misma escritura")
+_mq = f6.Material()
+_mq.tesis = [{"registro": "1", "de_figura": True}, {"registro": "2", "cupo_figura": True, "de_figura": True},
+             {"registro": "3"}]
+ok(rag.quitar_figura(_mq) == 1 and [t["registro"] for t in _mq.tesis] == ["1", "3"]
+   and not any(t.get("de_figura") for t in _mq.tesis),
+   "quitar_figura: fuera lo que sólo trajo la figura vieja y las marcas")
 
 
 # ═══ 10 · SIN FRASES MODELO NI CASOS EN LAS PLANTILLAS ══════════════════════

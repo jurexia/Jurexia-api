@@ -136,7 +136,20 @@ ok(a93["si_prospera"]["rama"] == "revoca_fondo_niega" and a93["si_prospera"]["re
    "si prospera: revoca la concesión, reasume jurisdicción y sólo en la materia de la revisión")
 ok(a93["si_no_prospera"]["rama"] == "confirma_concede", "si no prospera: confirma, subsiste la concesión")
 ok(fi["adhesivo"]["consta"] is False, "la revisión adhesiva no consta")
-ok(fi["avisos"] == [], f"nada falta en el 631 sintético ({fi['avisos']})")
+# Lo que falta, dicho (revisión adversarial de la fase E): el acto del
+# Juzgado Quinto (el punto sólo lo nombra) y si hay más terceros que la
+# recurrente. Nada más.
+ok(len(fi["avisos"]) == 2
+   and any("acto reclamado a Juzgado Quinto Civil" in a for a in fi["avisos"])
+   and any("más terceros interesados" in a for a in fi["avisos"]),
+   f"en el 631 sintético sólo faltan el acto del Juzgado Quinto y los demás terceros ({fi['avisos']})")
+_sala = next(r for r in fi["responsables"] if "Sala Civil Uno" in r["autoridad"])
+ok(_sala["acto"] == "la resolución de la Sala" and "resumen de la recurrida" in _sala["fuente"],
+   "el acto de la Sala no es «el acto atribuido a la Sala»: sale de lo concedido, con su fuente")
+ok(a93["si_no_prospera"]["fundamento"] == "artículo 93, fracción VI, de la Ley de Amparo",
+   "si no prospera, la confirmación se funda en la fr. VI (recurre la tercera), no en «V y VI»")
+ok("fracciones II y III" in (a93.get("previo") or ""),
+   "recurre la tercera: la II y la III, como orden de estudio antes del fondo")
 
 b = fp.bloque(fi)
 ok(b.startswith("LA FICHA PROCESAL DEL ASUNTO") and "[fuente: resolutivo del juzgado]" in b,
@@ -162,8 +175,9 @@ ok(set(pt) >= {"tipo", "quejosa", "responsables", "terceros", "recurrida", "recu
    and pt["recurrente"] == {"quien": RECURRENTE, "caracter": "tercera interesada"}
    and pt["recurrida"]["organo"].startswith("Juzgado Séptimo")
    and [x["sentido"] for x in pt["recurrida"]["resolvio"]] == ["sobresee", "concede"]
-   and "firme:" in pt["materia"],
-   "para la tarjeta, con la forma FICHA del contrato")
+   and "firme" not in pt["materia"] and pt["firme"].startswith("sobreseimiento")
+   and (pt.get("art_93") or {}).get("fraccion") == "VI",
+   "para la tarjeta, con la forma FICHA del contrato (lo firme, aparte; la fracción que rige)")
 ok(json.loads(json.dumps(fi, ensure_ascii=False)) == fi, "la ficha es JSON puro")
 
 # Con la ficha de partes leída de la sentencia (el tercero con nombre propio).
@@ -437,6 +451,79 @@ ok("ficha=_taller_ficha_bloque(" in _cuerpo("_taller_deliberar_nucleo"), "main: 
 ok('rama_info["ficha"] = _fp_tj.para_tarjeta(' in _src, "main: la tarjeta recibe la ficha")
 _ra_src = open(os.path.join(AQUI, "redactor_adelanto.py"), encoding="utf-8").read()
 ok('ficha=str(datos.get("ficha_bloque") or "")' in _ra_src, "la síntesis recibe el bloque de la ficha")
+
+print("\n6 · REVISIÓN ADVERSARIAL DE LA FASE E: LO QUE LA FICHA DABA POR FIJADO SIN SERLO")
+# (a) responsables distintas que se fundían.
+for _a, _b, _esp in (
+        ("Director de Ingresos adscrito a la Secretaría de Finanzas del Estado de Ejemplo",
+         "Secretaría de Finanzas del Estado de Ejemplo", False),
+        ("Juez Quinto de lo Civil de Ejemplo", "Actuario adscrito al Juzgado Quinto de lo Civil de Ejemplo", False),
+        ("Juzgado Quinto de lo Civil", "Secretario de Acuerdos del Juzgado Quinto de lo Civil", False),
+        ("Director de Desarrollo Urbano del Municipio de Ejemplo", "Municipio de Ejemplo", False),
+        ("Primera Sala Civil del Tribunal Superior de Justicia", "Tribunal Superior de Justicia", False),
+        ("MAGISTRADA NOMBRE DE PRUEBA, INTEGRANTE DE LA PRIMERA SALA CIVIL DEL TRIBUNAL SUPERIOR DE "
+         "JUSTICIA DEL ESTADO DE EJEMPLO",
+         "la Primera Sala Civil del Tribunal Superior de Justicia en el Estado de Ejemplo", True),
+        ("Magistrada de la Sala Civil Uno", "Sala Civil Uno del Tribunal Superior de Justicia", True)):
+    ok(fp._misma_autoridad(_a, _b) is _esp,
+       f"¿misma autoridad? «{_a[:45]}» / «{_b[:45]}» → {_esp}")
+# (b) ordenadora y ejecutora: dos responsables, cada una con su acto.
+_RES_OE = ("Por lo expuesto, se R E S U E L V E: PRIMERO. Se sobresee en el juicio respecto de la "
+           "ejecución atribuida al Director de Ingresos adscrito a la Secretaría de Finanzas del Estado "
+           "de Ejemplo. SEGUNDO. La Justicia de la Unión ampara y protege a Comercial Ejemplo, S.A. de "
+           "C.V., en contra de la resolución atribuida a la Secretaría de Finanzas del Estado de Ejemplo, "
+           "para los efectos precisados en el último considerando. Notifíquese.")
+_f_oe = fases_631(fuentes=["JUZGADO PRIMERO DE DISTRITO EN EL ESTADO DE EJEMPLO\n" + _RES_OE, "AGRAVIOS."],
+                  resolutivo_recurrida=_RES_OE)
+_e_oe = encargo_631(quejoso="Comercial Ejemplo, S.A. de C.V.", responsable="Secretaría de Finanzas del Estado de Ejemplo")
+_e_oe.recurrente = "Secretaría de Finanzas del Estado de Ejemplo"
+_fi_oe = fp.de_resultado(resultado(_e_oe, _f_oe))
+ok(len(_fi_oe["responsables"]) == 2
+   and any("Director de Ingresos" in r["autoridad"] for r in _fi_oe["responsables"]),
+   f"ordenadora y ejecutora: dos responsables ({[r['autoridad'][:30] for r in _fi_oe['responsables']]})")
+# (c) el acto de la concesión, de sus efectos, cuando el punto sólo nombra a la autoridad.
+_RES_EF = ("Por lo expuesto, se R E S U E L V E: ÚNICO. La Justicia de la Unión ampara y protege a Unión "
+           "Ejemplo, A.C., en contra del acto atribuido a la Sala Civil Uno del Tribunal Superior de "
+           "Justicia, para los efectos precisados en el último considerando. Notifíquese.")
+_REC_EF = ("JUZGADO SÉPTIMO DE DISTRITO EN EL ESTADO DE EJEMPLO\nCONSIDERANDO OCTAVO. Efectos. Se concede "
+           "para que la Sala responsable deje insubsistente la resolución de dos de julio de dos mil "
+           "veinticuatro, dictada en el toca civil 000/2024, y emita otra. " + _RES_EF)
+_fi_ef = fp.de_resultado(resultado(f=fases_631(fuentes=[_REC_EF, "AGRAVIOS."], resolutivo_recurrida=_RES_EF,
+                                               resumen_acto="")))
+_r_ef = (_fi_ef["responsables"] or [{}])[0]
+ok(_r_ef.get("acto", "").startswith("la resolución de dos de julio") and "efectos" in _r_ef.get("fuente", ""),
+   f"el acto de la Sala sale de los efectos de la concesión ({_r_ef.get('acto', '')[:50]})")
+_RES_NO = _RES_EF
+_fi_no = fp.de_resultado(resultado(f=fases_631(
+    fuentes=["JUZGADO SÉPTIMO DE DISTRITO EN EL ESTADO DE EJEMPLO\n" + _RES_NO, "AGRAVIOS."],
+    resolutivo_recurrida=_RES_NO, resumen_acto="")))
+ok(any("No consta cuál es el acto reclamado a Sala Civil Uno" in a for a in _fi_no["avisos"])
+   and not any("atribuido" in (r.get("acto") or "") for r in _fi_no["responsables"]),
+   "sin efectos ni resumen, no se da «el acto atribuido a…» como acto: se avisa que no consta")
+# (d) el sobreseimiento de una tesis transcrita no es el del juzgado.
+_REC_TS = ("JUZGADO SÉPTIMO DE DISTRITO\nRESULTANDO PRIMERO. En otro juicio se sobreseyó respecto de la "
+           "orden de visita, dictada por la Dirección Ejemplo. CONSIDERANDO CUARTO. Sirve de apoyo la "
+           "tesis: «SE SOBRESEE RESPECTO DEL ACTO DE EJECUCIÓN CUANDO…». CONSIDERANDO QUINTO. Procede "
+           "sobreseer respecto de la resolución interlocutoria de tres de mayo, dictada por el Juzgado "
+           "Quinto Civil. R E S U E L V E: ÚNICO. Se concede. Notifíquese.")
+ok(fp._sobreseido(_REC_TS)[0].startswith("la resolución interlocutoria de tres de mayo"),
+   f"lo sobreseído sale de los considerandos, no de los antecedentes ni de una tesis ({fp._sobreseido(_REC_TS)[0][:40]})")
+# (d2) el órgano de la recurrida es de Distrito: la responsable leída en la
+# ficha de partes no se cuela como órgano recurrido.
+for _leida in ("Juzgado Quinto de Primera Instancia Civil", "Tribunal Superior de Justicia del Estado de Ejemplo"):
+    _o = ra._organo_recurrido(encargo_631(), types.SimpleNamespace(autoridad_responsable=_leida), RECURRIDA)
+    ok(_o.startswith("Juzgado Séptimo de Distrito"), f"órgano recurrido con «{_leida[:30]}» leída: {_o[:40]}")
+# (e) la quejosa que recurre: fracción V, sin II ni III.
+_fi_q = fp.armar(types.SimpleNamespace(tipo_asunto="amparo_revision", es_recurso=True, quejoso="Unión Ejemplo, A.C.",
+                                       recurrente="", responsable="Sala Civil Uno"),
+                 fases_631(resolutivo_recurrida="Por lo expuesto, se R E S U E L V E: ÚNICO. La Justicia de la "
+                           "Unión no ampara ni protege a Unión Ejemplo, A.C. Notifíquese.",
+                           resolvio_a_quo="niega",
+                           fuentes=["R E S U E L V E: ÚNICO. La Justicia de la Unión no ampara ni protege a "
+                                    "Unión Ejemplo, A.C. Notifíquese.", "AGRAVIOS."]))
+ok((_fi_q.get("art_93") or {}).get("si_no_prospera", {}).get("fundamento") ==
+   "artículo 93, fracción V, de la Ley de Amparo" and not (_fi_q.get("art_93") or {}).get("previo"),
+   "recurre la quejosa: la confirmación se funda en la fr. V y no hay II ni III")
 
 print()
 if FALLOS:

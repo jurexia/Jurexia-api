@@ -32676,7 +32676,8 @@ def _material_ligero(m) -> dict:
 
 def _taller_guardar_material(email: str, numero: str, m, huella: str = "",
                              marca: dict | None = None,
-                             avisos: list | None = None) -> bool:
+                             avisos: list | None = None,
+                             otras: dict | None = None) -> bool:
     """Deja el acervo en la fila, para el worker que atienda la siguiente.
 
     `huella`: si se da, sólo se escribe cuando la fila sigue siendo de ese
@@ -32701,6 +32702,11 @@ def _taller_guardar_material(email: str, numero: str, m, huella: str = "",
         est["material"] = _material_ligero(m)
         if marca is not None:
             est["consulta"] = marca
+        # OTRAS MARCAS EN LA MISMA ESCRITURA (la «decisiva», fase E): una
+        # escritora menos compitiendo por el `estado` entero.
+        for _k, _v in (otras or {}).items():
+            if _v is not None:
+                est[_k] = _v
         if avisos is not None:
             est["avisos"] = list(avisos)
         supabase_admin.table("taller_sesiones").update({"estado": est}) \
@@ -32778,21 +32784,33 @@ async def _taller_con_latido(email: str, numero: str, clave: str, huella: str,
 # consulta del acervo: ver el porqué y la medida en la cabecera del módulo.
 # Bandera: PREGUNTA_DECISIVA_ACTIVA (encendida; «0» la apaga).
 
-async def _taller_decisiva(email: str, numero: str, r, huella: str):
+async def _taller_decisiva(email: str, numero: str, r, huella: str, guardar: bool = True):
     """La pregunta decisiva de ESTE adelanto: la de la marca «decisiva» si ya
-    está (la formuló el otro worker o una consulta anterior), o una nueva, que
-    se deja en la marca con la huella (gunicorn -w 2). None si la bandera está
-    apagada o algo falla: se sigue como antes. Nunca lanza."""
+    está (la formuló el otro worker o una consulta anterior), o una nueva.
+    None si la bandera está apagada o algo falla: se sigue como antes. Nunca
+    lanza.
+
+    `huella`: la del ADELANTO, que guarda la escritura (sólo si la fila sigue
+    siendo de ese adelanto). La marca lleva además la de la ficha procesal
+    (`pregunta_decisiva.huella`), para no reutilizar una decisiva formulada
+    con otra ficha. `guardar=False`: no escribe la marca; la escribe quien la
+    espera EN LA MISMA escritura que el material (`_taller_guardar_material`).
+    Revisión adversarial de la fase E (28-sep-2026): la marca se escribía
+    leyendo y reescribiendo el `estado` entero, a la vez que el precontraste
+    y el latido de la consulta; si caía entre la lectura y la escritura de
+    otra, una de las dos se perdía (y perder el «listo» del contraste hacía
+    esperar 150 s y pagarlo de nuevo)."""
     try:
         import pregunta_decisiva as _pd
         if not _pd.activa():
             return None
-        prev = _pd.doc_de_marca(_taller_leer_marca(email, numero, _pd.CLAVE_MARCA), huella)
+        _hu_d = _pd.huella(r)
+        prev = _pd.doc_de_marca(_taller_leer_marca(email, numero, _pd.CLAVE_MARCA), _hu_d)
         if prev is not None:
             return prev
         doc = await _pd.formular(chat_client, **_pd.entradas_de(r))
-        if _pd.util(doc) and huella:
-            _taller_guardar_marca(email, numero, _pd.CLAVE_MARCA, _pd.marca(doc, huella), huella)
+        if guardar and _pd.util(doc) and huella:
+            _taller_guardar_marca(email, numero, _pd.CLAVE_MARCA, _pd.marca(doc, _hu_d), huella)
         return doc
     except Exception as ex:
         print(f"   ⚠️ la pregunta decisiva de {numero} falló: {err(ex)}")
@@ -32807,7 +32825,57 @@ def _taller_decisiva_guardada(email: str, numero: str, r):
         if not _pd.activa():
             return None
         return _pd.doc_de_marca(_taller_leer_marca(email, numero, _pd.CLAVE_MARCA),
-                                _te.huella_contraste(r))
+                                _pd.huella(r))
+    except Exception:
+        return None
+
+
+# CUÁNTO SE ESPERA A LA PREGUNTA DECISIVA (revisión adversarial de la fase E,
+# 28-sep-2026). Se esperaba sin tope y FUERA del latido de la consulta: con el
+# proveedor lento (la llamada lleva hasta 60 000 caracteres del acto, el
+# respaldo no salta hasta los 240 s y `_pedir` repite con el doble de tokens si
+# llega vacía), la marca «consulta» dejaba de latir; a los 150 s el botón la
+# daba por abandonada y rehacía la consulta ENTERA —traducción conceptual,
+# rerank y otra decisiva— mientras la primera seguía viva y luego escribía
+# encima. Pasado este tope se sigue SIN la figura; la pregunta sigue sola y,
+# cuando llega, deja su marca para los rescates (`_taller_decisiva_guardada`).
+DECISIVA_ESPERA_S = float(os.getenv("DECISIVA_ESPERA_S", "25"))
+
+
+async def _taller_decisiva_esperar(tarea, email: str, numero: str, r, huella: str):
+    """La decisiva si llega dentro de DECISIVA_ESPERA_S; si no, None, y la
+    tarea sigue retenida y escribe su marca al terminar. Nunca lanza."""
+    try:
+        return await asyncio.wait_for(asyncio.shield(tarea), timeout=DECISIVA_ESPERA_S)
+    except asyncio.TimeoutError:
+        print(f"   ⏱️ la pregunta decisiva de {numero} no llegó en {DECISIVA_ESPERA_S:.0f} s: "
+              f"se sigue sin la figura; su marca se deja cuando llegue")
+        _TALLER_EN_MARCHA.add(tarea)
+
+        def _tarde(t):
+            _TALLER_EN_MARCHA.discard(t)
+            if t.cancelled():
+                return
+            try:
+                import pregunta_decisiva as _pd
+                doc = t.result()
+                if _pd.util(doc) and huella:
+                    _taller_guardar_marca(email, numero, _pd.CLAVE_MARCA,
+                                          _pd.marca(doc, _pd.huella(r)), huella)
+            except Exception as _ex:
+                print(f"   ⚠️ la marca tardía de la decisiva de {numero}: {err(_ex)}")
+        tarea.add_done_callback(_tarde)
+        return None
+    except Exception as ex:
+        print(f"   ⚠️ la pregunta decisiva de {numero} falló: {err(ex)}")
+        return None
+
+
+def _taller_marca_decisiva(doc, r):
+    """La marca «decisiva» para escribirla con el material, o None."""
+    try:
+        import pregunta_decisiva as _pd
+        return _pd.marca(doc, _pd.huella(r)) if _pd.util(doc) else None
     except Exception:
         return None
 
@@ -32824,8 +32892,15 @@ async def _taller_figura_al_material(r, material, doc) -> dict:
         if material is None or doc is None:
             return {}
         _t0 = time.perf_counter()
-        tesis = await _f6r.tesis_de_la_figura(qdrant_client, _embedding_juris,
-                                              _pd.consultas_rag(doc))
+        # CON EL MISMO FILTRO DE PERTINENCIA QUE LA CONSULTA (revisión
+        # adversarial de la fase E): el rerank con la pregunta decisiva y sus
+        # hechos, y fuera lo de improcedencia o cesación de efectos, que en el
+        # AR 631/2025 comparte palabras con la «sustitución procesal».
+        tesis = await _f6r.tesis_de_la_figura(
+            qdrant_client, _embedding_juris, _pd.consultas_rag(doc), cliente=chat_client,
+            pregunta=str(doc.get("pregunta_decisiva") or ""),
+            figura=str(doc.get("figura") or ""),
+            hecho=" ".join(str(h) for h in (doc.get("hechos_que_deciden") or []) if h))
         res = _f6r.sumar_figura(material, tesis, _pd.numero(doc))
         material.decisiva = doc
         res["segundos"] = round(time.perf_counter() - _t0, 1)
@@ -32833,6 +32908,45 @@ async def _taller_figura_al_material(r, material, doc) -> dict:
     except Exception as ex:
         print(f"   ⚠️ la búsqueda de la figura falló: {err(ex)}")
         return {}
+
+
+async def _taller_redecidir_si_corrigio(email: str, numero: str, ses: dict) -> None:
+    """EL PRINCIPAL CORREGIDO POR EL SECRETARIO (revisión adversarial de la
+    fase E, 28-sep-2026, AR 631/2025). Si en /taller/problema reescribió la
+    pregunta del principal o nombró otro, la decisiva del material ya no es
+    de ese problema (`pregunta_decisiva.vigente` la rechaza) y lo buscado
+    para su figura tampoco sirve. Antes de proponer, se quita lo viejo y se
+    formula sobre SU pregunta —con el tope de espera de siempre—, y el
+    material se guarda con la marca en la misma escritura. Sólo en ese caso:
+    ninguna llamada nueva para quien no corrigió nada. Nunca lanza."""
+    try:
+        import pregunta_decisiva as _pd
+        import fase6_rag as _f6r
+        m = ses.get("material")
+        r = ses.get("resultado")
+        if m is None or r is None or not _pd.activa():
+            return
+        probs = _te.problemas_de(r)
+        _, pral = _pd._principal(probs)
+        vieja = getattr(m, "decisiva", None)
+        if not (pral and (pral.get("editado_por_secretario") or pral.get("jerarquia_por_secretario"))
+                and isinstance(vieja, dict) and vieja.get("formulada")
+                and _pd.de_material(m, probs) is None):
+            return
+        _quitadas = _f6r.quitar_figura(m)
+        m.decisiva = None
+        hu = _te.huella_contraste(r)
+        tarea = asyncio.ensure_future(_taller_decisiva(email, numero, r, hu, guardar=False))
+        doc = await _taller_decisiva_esperar(tarea, email, numero, r, hu)
+        if doc is not None:
+            await _taller_figura_al_material(r, m, doc)
+        _taller_guardar_material(email, numero, m, huella=hu,
+                                 otras={"decisiva": _taller_marca_decisiva(doc, r)})
+        print(f"   🎯 PREGUNTA DECISIVA de {numero} rehecha sobre el principal corregido: "
+              f"{'formulada' if _pd.util(doc) else 'sin ella'} · {_quitadas} tesis de la figura "
+              f"vieja fuera")
+    except Exception as ex:
+        print(f"   ⚠️ no se pudo rehacer la pregunta decisiva de {numero}: {err(ex)}")
 
 
 async def _taller_preconsultar(email: str, numero: str, r) -> None:
@@ -32855,7 +32969,8 @@ async def _taller_preconsultar(email: str, numero: str, r) -> None:
             return
         _t0 = time.perf_counter()
         # LA PREGUNTA DECISIVA, EN PARALELO CON LA CONSULTA (SPEC E3).
-        _tarea_dec = asyncio.ensure_future(_taller_decisiva(email, numero, r, huella))
+        _tarea_dec = asyncio.ensure_future(_taller_decisiva(email, numero, r, huella,
+                                                            guardar=False))
         material = await _taller_con_latido(email, numero, "consulta", huella, _desde,
             _ra.consultar(
                 qdrant_client, _embedding_juris,
@@ -32867,7 +32982,7 @@ async def _taller_preconsultar(email: str, numero: str, r) -> None:
         # pregunta tarde MÁS que la consulta, más la búsqueda de la figura
         # (embeddings y Qdrant, sin modelo). Se imprime para verlo en Render.
         _t1 = time.perf_counter()
-        _dec = await _tarea_dec
+        _dec = await _taller_decisiva_esperar(_tarea_dec, email, numero, r, huella)
         _espera = time.perf_counter() - _t1
         if _dec is not None:
             _fig = await _taller_figura_al_material(r, material, _dec)
@@ -32899,7 +33014,8 @@ async def _taller_preconsultar(email: str, numero: str, r) -> None:
         if _taller_guardar_material(email, numero, material, huella=huella,
                                     marca={"huella": huella, "estado": "listo",
                                            "segundos": round(_seg, 1)},
-                                    avisos=list(r.avisos or [])):
+                                    avisos=list(r.avisos or []),
+                                    otras={"decisiva": _taller_marca_decisiva(_dec, r)}):
             _taller_marcar_consultado(email, numero)
             _taller_sesion_en_memoria(email, numero, huella, material=material,
                                       consultado=True)
@@ -34145,9 +34261,19 @@ def _taller_plan_entradas(r, ses, crit, *, contexto: str = "", suplencia=None,
     else:
         _cv = str(conceptos_violacion or "").strip()
     huella_f = _pe.huella_entradas(r, material, _cv, segs)
+    # LA CUESTIÓN DECISIVA AL PLANIFICADOR (revisión adversarial de la fase E,
+    # AR 631/2025): el guion manda la organización del estudio y se armaba sin
+    # ella. Va como dato y en la clave (sólo si la hay: los planes sin
+    # decisiva conservan su clave).
+    try:
+        import pregunta_decisiva as _pd_e
+        _dec_e = _pd_e.de_material(material, _te.problemas_de(r))
+    except Exception:
+        _dec_e = None
     return {"segs": segs, "material": material, "conceptos_violacion": _cv,
-            "huella": _te.huella_contraste(r),
-            "clave": _pe.clave(crit, huella_f, contexto, suplencia or {}, formato, "v4")}
+            "huella": _te.huella_contraste(r), "decisiva": _dec_e,
+            "clave": _pe.clave(crit, huella_f, contexto, suplencia or {}, formato, "v4",
+                               decisiva=_dec_e)}
 
 
 async def _taller_plan_correr(email: str, numero: str, r, crit, ent: dict, *,
@@ -34165,7 +34291,7 @@ async def _taller_plan_correr(email: str, numero: str, r, crit, ent: dict, *,
         chat_client, r, crit, ent["material"], contexto, suplencia or {},
         segs=ent["segs"], contraste=_taller_plan_contraste(email, numero, r),
         tocados=tocados, conceptos_violacion=ent["conceptos_violacion"],
-        checklist=checklist))
+        checklist=checklist, decisiva=ent.get("decisiva")))
     while True:
         # El latido del plan (`plan_estudio.LATIDO_S`): su umbral de abandono
         # es menor que la espera del resolver.
@@ -36565,16 +36691,21 @@ async def taller_consultar(
     if material is None:
         # LA PREGUNTA DECISIVA (SPEC E3): la de este adelanto si ya está; si
         # no, se formula en paralelo con la consulta y no alarga la espera.
+        _hu_c = _te.huella_contraste(r)
         _tarea_dec_c = asyncio.ensure_future(
-            _taller_decisiva(user_email, numero, r, _te.huella_contraste(r)))
+            _taller_decisiva(user_email, numero, r, _hu_c, guardar=False))
         material = await _ra.consultar(
             qdrant_client, _embedding_juris,
             lambda t: get_dense_embedding(t, modelo=EMBEDDING_MODEL), r,
             chat_client, _ctx)
-        await _taller_figura_al_material(r, material, await _tarea_dec_c)
+        # CON TOPE: la petición del secretario no espera a la decisiva sin
+        # límite (revisión adversarial de la fase E).
+        _dec_c = await _taller_decisiva_esperar(_tarea_dec_c, user_email, numero, r, _hu_c)
+        await _taller_figura_al_material(r, material, _dec_c)
         # Y con la sesión, para el worker que atienda la siguiente petición.
         _taller_guardar_material(user_email, numero, material,
-                                 avisos=list(r.avisos or []))
+                                 avisos=list(r.avisos or []),
+                                 otras={"decisiva": _taller_marca_decisiva(_dec_c, r)})
     ses["material"] = material
     ses["consultado"] = True
     _taller_marcar_consultado(user_email, numero)
@@ -37786,6 +37917,7 @@ async def taller_proponer(
         # Y LA FIGURA DE LA PREGUNTA DECISIVA, de la marca (SPEC E3).
         await _taller_figura_al_material(ses["resultado"], ses["material"],
                                          _taller_decisiva_guardada(user_email, numero, ses["resultado"]))
+    await _taller_redecidir_si_corrigio(user_email, numero, ses)
 
     # LA PROPUESTA YA CORRIÓ SOLA —`_taller_preproponer`, encadenada a la
     # consulta automática— y vale tal cual si el secretario no aporta
