@@ -3285,7 +3285,7 @@ def _linea_seg(s: dict, trat: str, extra: str = "", sentidos: dict = None) -> st
         partes.append(_RX_SIN_PREMISA)
     if s.get("dato"):
         d = s["dato"]
-        partes.append(f"dato ({d.get('fuente')}): «{d.get('cita')}»")
+        partes.append(f"dato ({d.get('fuente')}): «{d.get('cita')}»" + _remision_ajena(d.get("cita")))
     if s.get("razon_secretario"):
         partes.append(f"razón del secretario para este argumento: «{s['razon_secretario']}»")
     if extra:
@@ -3299,8 +3299,38 @@ def _dato_breve(s: dict) -> str:
     partes = [s["id"] + (f" ({s['ataca']})" if s.get("ataca") else "")]
     if s.get("dato"):
         d = s["dato"]
-        partes.append(f"dato ({d.get('fuente')}): «{d.get('cita')}»")
+        partes.append(f"dato ({d.get('fuente')}): «{d.get('cita')}»" + _remision_ajena(d.get("cita")))
     return " · ".join(partes)
+
+
+# «EL CONSIDERANDO OCTAVO» ES DE LA RESOLUCIÓN QUE SE COMBATE (28-sep-2026, AR
+# 631/2025). El agravio segundo reproducía el primero «para controvertir el
+# considerando OCTAVO de esta resolución que aquí se combate» —el octavo de la
+# sentencia de amparo—; el estudio escribió «la queja dirigida contra el
+# considerando octavo» sin decir de cuál, y el control de remisiones lo leyó
+# como remisión a un apartado inexistente de ESTA ejecutoria. Lo que la parte
+# (o la resolución combatida) llama «considerando …» es siempre de la
+# resolución combatida: el guion lo rotula así, como dato.
+_RX_REMISION_AJENA = "considerando de la resolución combatida"
+_RX_CONSIDERANDO_CITADO = re.compile(
+    r"\bconsiderandos?\s+(primer[oa]?|segundo|tercer[oa]?|cuart[oa]|quint[oa]|sext[oa]|"
+    r"s[ée]ptim[oa]|octav[oa]|noven[oa]|d[ée]cim[oa](?:\s+\w+)?|[úu]ltimo|\d{1,2})\b", re.I)
+_REMISION_AJENA_DESC = """
+- «considerando de la resolución combatida»: el dato nombra un considerando de
+  la sentencia que se revisa (o de la resolución reclamada), no de esta
+  ejecutoria. Cuando lo nombres, di de qué resolución es; los considerandos de
+  esta ejecutoria llevan su propia numeración."""
+
+
+def _remision_ajena(cita) -> str:
+    """« · considerando de la resolución combatida: octavo» si la cita nombra un
+    considerando; «» si no."""
+    ords = []
+    for m in _RX_CONSIDERANDO_CITADO.finditer(str(cita or "")):
+        o = m.group(1).lower()
+        if o not in ords:
+            ords.append(o)
+    return f" · {_RX_REMISION_AJENA}: {', '.join(ords)}" if ords else ""
 
 
 def _linea_jerarquia(j: dict, por_id: dict) -> str:
@@ -3349,9 +3379,12 @@ def concede_de(r, crit) -> bool | None:
             que = _fr.que_hizo_el_juzgado(getattr(r, "fases", None),
                                           str(getattr(e, "resolvio_declarado", "") or ""))
             rama = _ta.rama_revision(que, "fundado" if prospera else "infundado")
-            if rama in ("", "sin_determinar"):
-                return None
-            return rama in ("revoca_fondo_concede", "revoca_sobreseimiento_concede", "modifica_efectos")
+            # UN SOLO PREDICADO (28-sep-2026): `tipos_asunto.ejecutoria_concede`,
+            # el mismo que ahora leen los avisos de efectos. Antes de escribir,
+            # revocar una concesión no concede: si el estudio de los conceptos no
+            # estudiados concede por razón distinta (art. 93, fr. VI), sus efectos
+            # salen de ese considerando, no de las unidades de los agravios.
+            return _ta.ejecutoria_concede(rama)
     except Exception:
         return None
     return None
@@ -3883,7 +3916,7 @@ grupos, manda el guion.
   ningún otro.
 - «razón del secretario para este argumento»: es la razón que decide ese
   argumento; se desarrolla a partir de ella.
-- SIN SENTIDO FIJADO: no lo califiques; dilo en ADVERTENCIAS.{_JERARQUIA_DESC if _RX_JERARQUIA in guion else ""}{_A_EFECTOS_DESC if _RX_A_EFECTOS in guion else ""}{_SIN_CALIFICAR_DESC if _RX_SIN_CALIFICAR in guion else ""}{_SIN_PREMISA_DESC if _RX_SIN_PREMISA in guion else ""}
+- SIN SENTIDO FIJADO: no lo califiques; dilo en ADVERTENCIAS.{_JERARQUIA_DESC if _RX_JERARQUIA in guion else ""}{_A_EFECTOS_DESC if _RX_A_EFECTOS in guion else ""}{_SIN_CALIFICAR_DESC if _RX_SIN_CALIFICAR in guion else ""}{_SIN_PREMISA_DESC if _RX_SIN_PREMISA in guion else ""}{_REMISION_AJENA_DESC if _RX_REMISION_AJENA in guion else ""}
 {_extension}
 {_marcas}
 - Los rótulos y los identificadores del guion (APARTADO, EXPONE, APLICA, C1.a,

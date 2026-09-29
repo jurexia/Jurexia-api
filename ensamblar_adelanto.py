@@ -723,16 +723,32 @@ _AMPARA = "ampara y protege"
 _NO_AMPARA = "no ampara ni protege"
 
 
-def formula_resolutivo(calificaciones: list[str]) -> tuple[str, str]:
+def formula_resolutivo(calificaciones: list[str], rama: str = "",
+                       sentido_amparo: str = "") -> tuple[str, str]:
     """(fórmula, aviso). Basta un concepto fundado para que se conceda.
 
     Con calificaciones mixtas la fórmula es la de concesión, pero el resolutivo
     real lleva además los EFECTOS, y esos no los escribe una tabla: se avisa
     para que los ponga quien firma.
+
+    SALVO QUE LA RAMA DIGA OTRA COSA (28-sep-2026, AR 631/2025). En una revisión
+    fundada que revoca una concesión y niega, «hay un fundado» no es «se
+    concede»: el proyecto salió con «El resolutivo concede porque hay conceptos
+    fundados…» encima de un resolutivo que NO AMPARA. Con la rama —y lo que el
+    estudio concluyó al reasumir jurisdicción— decide
+    `tipos_asunto.ejecutoria_concede`; sin rama, como siempre.
     """
     cs = [str(c or "").strip().lower() for c in calificaciones if str(c or "").strip()]
     if not cs:
         return "", ""
+    if rama:
+        _c = __import__("tipos_asunto").ejecutoria_concede(rama, sentido_amparo)
+        if _c is False:
+            return _NO_AMPARA, ""
+        if _c is True:
+            return _AMPARA, ("El resolutivo concede, pero la calificación es mixta: los "
+                             "EFECTOS de la concesión los tienes que redactar tú."
+                             if len(set(cs)) > 1 else "")
     hay_fundado = any(__import__("tipos_asunto").prospera(c) for c in cs)
     if not hay_fundado:
         return _NO_AMPARA, ""
