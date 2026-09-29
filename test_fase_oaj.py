@@ -1343,6 +1343,53 @@ ok(re.search(r'"espejo":\s*\[x for x in \(getattr\(material, "espejo", \[\]\) or
              r'\s*if isinstance\(x, dict\)\]', src) is not None,
    "main.py manda cada grupo del espejo entero, sin proyectar campos")
 
+print("\n13b · EN EL REDACTOR NUEVO: SESIÓN → TARJETA DEL PRINCIPAL → DELIBERACIÓN")
+# El camino completo con filas que produce fase_oaj de verdad (no escritas a
+# mano): los dos niveles, una cota y una por tema; guardadas en la sesión,
+# rehidratadas, y leídas por la tarjeta y por el catálogo de la deliberación.
+import tarjeta_decision as td
+import deliberacion as de
+import taller_estado as te
+_pl = pl(7001)
+_mismo = fo._fila(0.86, 7001, _pl, 0.95, "planteamiento", fo.NIVEL_MISMO, True)
+_cota = fo._fila(0.84, 7002, pl(7002), 0.66, "planteamiento", fo.NIVEL_POSIBLE, False)
+_tema = fo._fila(0.80, 7003, pl(7003, clase="asunto"), 0.87, "tema", fo.NIVEL_MISMO, True)
+_PPAL = "¿La constancia de notificación electrónica debía llevar firma electrónica avanzada?"
+_esp = [{"problema": _PPAL, "tribunal": "3TCC", "filas": [_mismo, _tema, _cota],
+         "resumen": "", "cobertura": fo.NOTA_COBERTURA},
+        {"problema": "¿Otro planteamiento?", "tribunal": "3TCC",
+         "filas": [fo._fila(0.9, 7009, pl(7009), 0.95, "planteamiento", fo.NIVEL_MISMO, True)],
+         "resumen": "", "cobertura": fo.NOTA_COBERTURA}]
+_m = types.SimpleNamespace(tesis=[{"registro": "1", "rubro": "R"}], normas=[], espejo=_esp)
+try:
+    _lig = json.loads(json.dumps(te.material_ligero(_m)))
+    _m2 = te.material_rehidratado(_lig)
+    _esp2 = getattr(_m2, "espejo", None) if _m2 is not None else _lig.get("espejo")
+except Exception as _e:
+    _esp2 = None
+    print(f"   (sin taller_estado utilizable aquí: {_e})")
+if _esp2 is not None:
+    ok(_esp2 == _esp, "las filas OAJ vuelven enteras de la sesión (JSON de ida y vuelta)")
+_tt = td._tu_tribunal(_esp2 or _esp, [_PPAL])
+ok([f["neun"] for f in _tt] == ["7001", "7003", "7002"],
+   f"la tarjeta toma SÓLO el grupo del principal, en su orden (salió {[f['neun'] for f in _tt]})")
+_f = {f["neun"]: f for f in _tt}
+ok(_f["7002"]["cota_inferior"] is True and _f["7002"]["nivel"] == "posible"
+   and _f["7002"]["similitud"] == 0.66,
+   "la cota llega a la tarjeta: «66% o más» no se lee como 66 exacto")
+ok(_f["7003"]["fuente"] == "tema" and _f["7001"]["fuente"] == "planteamiento",
+   "la tarjeta dice si coincidió por el planteamiento o sólo por el tema")
+ok(_f["7001"]["pregunta"] and _f["7001"]["enlace_oaj"] == fo.ENLACE_OAJ
+   and _f["7001"]["tipo_asunto"] == "Amparo Directo",
+   "y trae la pregunta del precedente, su tipo y el enlace al Buscador de la OAJ")
+_cat, _av = de.construir_catalogo([], [], _esp[0]["filas"] + [
+    {"expediente": "12/2020", "fecha": "2020-01-01", "sentido": "niega", "score": 0.7}])
+_os = [v for v in _cat.values() if v.get("clase") == "propio"]
+ok([str(v.get("neun") or v.get("expediente")) for v in _os] == ["7001", "12/2020"],
+   f"a la deliberación sólo entra el «mismo problema» por planteamiento (y el espejo "
+   f"viejo): ni el posible ni el de tema (salió {[v.get('neun') or v.get('expediente') for v in _os]})")
+
+
 print("\n14 · LA TABLA VIAJA CON EL REPO")
 # El .gitignore se come los *.json. Si la tabla no se versiona, en Render la
 # fuente OAJ calla siempre y nadie lo nota.

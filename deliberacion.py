@@ -401,7 +401,19 @@ def construir_catalogo(candidatas: list, normas: list = None, filas_propias: lis
                 "a_favor": lec.get("a_favor") or None,
             }
     j = 0
-    for fila in (filas_propias or [])[:CUPO_PROPIO]:
+    # SÓLO EL MISMO PROBLEMA ENTRA AL CATÁLOGO (29-sep-2026). De la OAJ llegan
+    # dos niveles: «mismo_problema» (85% o más) y «posible» (50-84%). Un posible
+    # NO es el mismo problema: con la fuerza «apartarse pide razón» los abogados
+    # lo seguirían o distinguirían como si lo fuera, y rellenaba el cupo justo
+    # cuando había pocos del nivel de arriba. Tampoco la que coincidió sólo por
+    # el TEMA del asunto: no trae calificación de un planteamiento, sólo el
+    # resolutivo de la sentencia entera (la mezcla de escalas de fase_espejo).
+    # Las del espejo viejo (sin `nivel`) entran como siempre. El filtro va ANTES
+    # del cupo, para que el hueco lo ocupe la siguiente del nivel de arriba.
+    filas_propias = [f for f in (filas_propias or []) if isinstance(f, dict)
+                     and str(f.get("nivel") or "") != "posible"
+                     and str(f.get("fuente") or "") != "tema"]
+    for fila in filas_propias[:CUPO_PROPIO]:
         if not isinstance(fila, dict) or not str(fila.get("expediente") or "").strip():
             continue
         j += 1

@@ -1417,7 +1417,18 @@ def _tu_tribunal(espejo: list, propias: list, ajenas: list = ()) -> list:
                     "neun": _txt(f.get("neun")) or None,
                     "tipo_asunto": _txt(f.get("tipo_asunto")) or None,
                     "tema": _txt(f.get("tema")) or None,
-                    "pdf_url": _txt(f.get("pdf_url")) or None})
+                    "pdf_url": _txt(f.get("pdf_url")) or None,
+                    # LO QUE LA FILA DE LA OAJ TRAE Y AQUÍ SE TIRABA (29-sep-2026):
+                    # sin la cota, «57% o más» se leía como 57 exacto; sin la
+                    # fuente, una coincidencia por el TEMA del asunto pasaba por
+                    # una del planteamiento; sin la pregunta no hay qué comparar;
+                    # sin el enlace no hay cómo abrirla. Las del espejo viejo no
+                    # los traen y salen en blanco.
+                    "cota_inferior": bool(f.get("cota_inferior")),
+                    "fuente": _txt(f.get("fuente")) or None,
+                    "pregunta": _txt(f.get("pregunta")) or None,
+                    "autoridad": _txt(f.get("autoridad")) or None,
+                    "enlace_oaj": _txt(f.get("enlace_oaj")) or None})
     return out
 
 

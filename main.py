@@ -33261,7 +33261,10 @@ async def _taller_deliberar_nucleo(r, ses: dict, resp: dict, contexto: str = "")
 
     _espejo = []
     for x in (getattr(material, "espejo", None) or []):
-        if isinstance(x, dict) and _delib._pregunta({"pregunta": x.get("problema")}) == _pral:
+        # Con strip: el grupo de la OAJ guarda la pregunta recortada
+        # (redactor_adelanto._espejo_oaj) y la de la fase 3 puede traer
+        # espacios; por igualdad literal la deliberación se quedaba sin filas.
+        if isinstance(x, dict) and _delib._pregunta({"pregunta": x.get("problema")}).strip() == _pral.strip():
             _espejo = [f for f in (x.get("filas") or []) if isinstance(f, dict)]
             break
     _tasa = ""
