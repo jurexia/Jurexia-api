@@ -303,6 +303,14 @@ BANDERAS_REDISENO = {
 }
 
 
+# LAS QUE NACEN APAGADAS TAMBIÉN PARA CASA. `soluciones_por_desenlace` no pasó
+# sus compuertas en el banco de deliberación (29-sep-2026: exactitud 0.38 y
+# «claro» acertado 1 de 4, compuerta 0.80): encendida para las cuentas de casa,
+# la tarjeta recomendaría con una certeza que no tiene. Sigue medible: la
+# sesión de evaluación la pide por su nombre, o su variable de entorno la abre.
+OMISION_REDISENO = {"soluciones_por_desenlace": "0"}
+
+
 def rediseno(nombre: str) -> bool:
     """¿Rige este cambio del rediseño en esta petición? (ver BANDERAS_REDISENO)."""
-    return bandera(nombre, BANDERAS_REDISENO.get(nombre, ""), "casa")
+    return bandera(nombre, BANDERAS_REDISENO.get(nombre, ""), OMISION_REDISENO.get(nombre, "casa"))

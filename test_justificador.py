@@ -16,6 +16,8 @@ exec(compile(_prep, "test_deliberacion.py", "exec"), _ns)
 dl, correr, respuestas, Falso = _ns["dl"], _ns["correr"], _ns["respuestas"], _ns["Falso"]
 import contexto_taller as ct
 import justificador as jz
+# Nace apagada también para casa (no pasó su banco): la prueba la pide por su nombre.
+_SOL = {"banderas": {"soluciones_por_desenlace": True}}
 
 FALLOS = []
 
@@ -42,7 +44,7 @@ ok(not any("TU SOLUCIÓN" in x[1] for x in cli.de("ABOGADO")),
 _clave_sin = dl.clave_de("H", "", ["1"])
 
 print("\n2 · CON LA BANDERA: UNO POR SOLUCIÓN")
-ct.poner(True, {}, pruebas=True)
+ct.poner(True, _SOL, pruebas=True)
 ok(dl.clave_de("H", "", ["1"]) != _clave_sin, "la clave de la marca cambia: no se reutiliza la binaria")
 ok(dl.activa_para("prueba@iurexia.com"), "la deliberación corre para la cuenta de prueba aunque el entorno esté apagado")
 
@@ -108,7 +110,7 @@ def _con_falla(p, kw):
     return r
 
 
-ct.poner(True, {}, pruebas=True)
+ct.poner(True, _SOL, pruebas=True)
 cli2 = Falso(_con_falla)
 d2 = correr(cli2, analisis=ANALISIS, demostracion=DEMOS)
 _rec = d2.get("recomendada")
@@ -135,7 +137,7 @@ ok(_td._soluciones_para_tarjeta({"vias": {}}, None, None) == [],
    "una deliberación sin soluciones (sin la bandera) no añade nada a la tarjeta")
 
 print("\n3 · SIN UNA SOLUCIÓN DE CADA LADO, LA DE SIEMPRE")
-ct.poner(True, {}, pruebas=True)
+ct.poner(True, _SOL, pruebas=True)
 cli = Falso(respuestas())
 d = correr(cli, tipo_asunto="reclamacion", analisis=ANALISIS)
 ok("soluciones" not in d and len(cli.de("ABOGADO")) == 2,

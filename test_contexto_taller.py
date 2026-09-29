@@ -96,7 +96,10 @@ ok(0 < i_val < i_gen, "el adelanto valida la evaluación antes de generar")
 ct.poner(False, {})
 ok(not any(ct.rediseno(k) for k in ct.BANDERAS_REDISENO), "todas las banderas del rediseño, apagadas para los de fuera")
 ct.poner(True, {})
-ok(all(ct.rediseno(k) for k in ct.BANDERAS_REDISENO), "y encendidas para la casa")
+_NACEN = {k for k, v in ct.OMISION_REDISENO.items() if v == "0"}
+ok(all(ct.rediseno(k) for k in ct.BANDERAS_REDISENO if k not in _NACEN), "y encendidas para la casa")
+ok(_NACEN == {"soluciones_por_desenlace"} and not any(ct.rediseno(k) for k in _NACEN),
+   "salvo las que nacen apagadas también para casa (soluciones_por_desenlace: no pasó su banco)")
 import banco_kingston as _bk0, banco_deliberacion as _bd0
 ok(set(_bk0.BANDERAS_BASE) == set(ct.BANDERAS_REDISENO) and not any(_bk0.BANDERAS_BASE.values())
    and set(_bd0.BANDERAS_OAJ) == set(ct.BANDERAS_REDISENO),
@@ -107,7 +110,10 @@ ct.poner(True, {}, pruebas=False)          # jdm.juridico: de casa, NO de prueba
 ok(not any(ct.rediseno(k) for k in ct.BANDERAS_REDISENO),
    "su cuenta personal queda como la de cualquier secretario: todas las banderas apagadas")
 ct.poner(True, {}, pruebas=True)           # una @iurexia.com
-ok(all(ct.rediseno(k) for k in ct.BANDERAS_REDISENO), "en las cuentas de prueba, encendidas")
+ok(all(ct.rediseno(k) for k in ct.BANDERAS_REDISENO if k not in _NACEN), "en las cuentas de prueba, encendidas")
+ct.poner(True, {"banderas": {"soluciones_por_desenlace": True}}, pruebas=True)
+ok(ct.rediseno("soluciones_por_desenlace"), "la que nace apagada se enciende si la evaluación la pide por su nombre")
+ct.poner(True, {}, pruebas=True)
 ct.poner(True, {"exclusion": {"neuns": [5]}}, pruebas=False)
 ok(ct.exclusion() is not None, "la evaluación sigue siendo cosa de casa (no depende de ser de pruebas)")
 src_m = open("main.py", encoding="utf-8").read()
