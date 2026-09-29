@@ -1186,7 +1186,7 @@ def vacia(estado_calculo: str, huella: str = "") -> dict:
             "recomendada": None, "estado": None, "estado_por_que": [], "secundarios": [],
             "independientes": [], "que_la_cambiaria": None, "tu_tribunal": [],
             "linea_corte": {"confirmadas": [], "pistas": []}, "deliberacion": None,
-            "conceptos_omitidos": None, "avisos": []}
+            "conceptos_omitidos": None, "ficha": None, "avisos": []}
 
 
 def armar(propuesta_guardada, material, problemas_fase3, contraste=None, espejo=None,
@@ -1202,7 +1202,8 @@ def armar(propuesta_guardada, material, problemas_fase3, contraste=None, espejo=
       {pistas, resumen, …}. `rama_info`: lo de `redactor_adelanto.info_de_rama`
       —tipo_asunto, que_hizo, quien_recurre, conceptos_violacion (el TEXTO que
       aportó el secretario), sobresee_ademas— más tribunal, circuito?,
-      resolvio_a_quo?, resolutivo_recurrida?, huella?, necesita_conceptos?.
+      resolvio_a_quo?, resolutivo_recurrida?, huella?, necesita_conceptos?,
+      ficha? (FICHA del contrato, de `ficha_procesal.para_tarjeta`).
       `deliberacion`: la marca «deliberacion» (SPEC C2) o None.
       `propuestas_motor`: las propuestas con `sentido_propio`/`razon_propia`
       (lo que el motor propuso antes del árbol; viajan en la columna
@@ -1442,6 +1443,13 @@ def armar(propuesta_guardada, material, problemas_fase3, contraste=None, espejo=
         "linea_corte": _linea_corte(material, internet, tribunal, circuito),
         "deliberacion": delib_ctx if delib else None,
         "conceptos_omitidos": omitidos,
+        # LA FICHA PROCESAL (SPEC_E2, 28-sep-2026; contrato FICHA): quién
+        # promovió, quién recurre y con qué carácter, qué resolvió el juzgado
+        # por acto, qué es materia y qué quedó firme. La arma quien llama con
+        # `ficha_procesal.para_tarjeta` y viaja en `rama_info`; la pantalla la
+        # enseña en una línea. None si no llegó.
+        "ficha": rama_info.get("ficha") if isinstance(rama_info.get("ficha"), dict)
+                 and rama_info.get("ficha") else None,
         "avisos": list(dict.fromkeys(a for a in avisos if a)),
     }
     return _limpio(tarjeta)

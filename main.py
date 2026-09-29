@@ -32869,7 +32869,8 @@ async def _taller_precontrastar(email: str, numero: str, r) -> None:
             return
         _t0 = time.perf_counter()
         items = await _taller_con_latido(email, numero, "contraste", huella, _desde,
-            _f5.contrastar(chat_client, problemas, acto, conceptos, es_recurso))
+            _f5.contrastar(chat_client, problemas, acto, conceptos, es_recurso,
+                           ficha=_taller_ficha_bloque(r)))
         _seg = time.perf_counter() - _t0
         _taller_guardar_contraste(email, numero, {
             "huella": huella, "estado": "listo", "items": list(items or []),
@@ -33118,6 +33119,12 @@ async def _taller_deliberar_nucleo(r, ses: dict, resp: dict, contexto: str = "")
         tribunal=str(getattr(e, "tribunal", "") or "") if e else "",
         quien_recurre=str(_info_d.get("quien_recurre") or ""),
         sobresee_ademas=bool(_info_d.get("sobresee_ademas")),
+        # LA FICHA PROCESAL COMO DATOS (SPEC_E2) para la pregunta decisiva, los
+        # dos abogados y el juez: el 631 lo deliberaron sin saber que recurría
+        # la tercera interesada contra una concesión.
+        ficha=_taller_ficha_bloque(
+            r, declarado=str((glob.get("contexto") or {}).get("resolvio") or "")
+            if isinstance(glob.get("contexto"), dict) else ""),
         region=(os.getenv("DELIBERACION_REGION", "") or None),
         clave_propia=os.getenv("DELIBERACION_CLAVE_PROPIA", ""))
 
@@ -37047,11 +37054,38 @@ async def taller_razonar(
     return {"razon": razon, "palabras": len(razon.split())}
 
 
+def _taller_ficha(r, declarado: str = "") -> dict:
+    """LA FICHA PROCESAL DEL ASUNTO (SPEC_E2, 28-sep-2026): quién es quién y
+    qué se revisa, armada por código con `ficha_procesal.de_resultado`. Es
+    pura y barata (sólo expresiones regulares sobre lo ya leído), así que se
+    arma en cada pieza desde la misma sesión y sale igual en los dos workers;
+    no se guarda. {} si no hay encargo."""
+    try:
+        import ficha_procesal as _fp_t
+        return _fp_t.de_resultado(r, declarado=declarado) if getattr(r, "encargo", None) else {}
+    except Exception as _ex_fp:
+        print(f"   ⚠️ FICHA PROCESAL: {err(_ex_fp)}")
+        return {}
+
+
+def _taller_ficha_bloque(r, declarado: str = "") -> str:
+    """La ficha como bloque de DATOS para un prompt («» si no hay)."""
+    try:
+        import ficha_procesal as _fp_b
+        return _fp_b.bloque(_taller_ficha(r, declarado))
+    except Exception:
+        return ""
+
+
 def _taller_recurrente(r) -> str:
     """Quién recurrió, con la misma reconciliación de papeles que el documento
     —también el resolutivo del juzgado, que dice a quién amparó (AR 631/2025,
     28-sep-2026: la tercera interesada guardada como «quejoso» dejaba esto
-    vacío y el diálogo sin dirección)—."""
+    vacío y el diálogo sin dirección)—. Lo lee de la FICHA PROCESAL (SPEC_E2):
+    vacío = recurre la propia quejosa."""
+    _fi = _taller_ficha(r)
+    if _fi:
+        return str((_fi.get("recurrente") or {}).get("aparte") or "")
     try:
         from redactor_adelanto import _recurrente_de, _resolutivo_del_a_quo
         return (_recurrente_de(r.encargo, getattr(r, "partes", None),
@@ -37065,7 +37099,11 @@ def _taller_papel_recurrente(r) -> str:
     """«quejoso» | «tercero» | «autoridad» | «»: el carácter con que recurre
     quien recurre (`redactor_adelanto.papel_del_recurrente`). La tercera
     interesada particular combate contra quien reclama el derecho igual que
-    la autoridad (AR 631/2025, 28-sep-2026)."""
+    la autoridad (AR 631/2025, 28-sep-2026). Lo lee de la FICHA PROCESAL
+    (SPEC_E2)."""
+    _fi = _taller_ficha(r)
+    if _fi:
+        return str((_fi.get("recurrente") or {}).get("papel") or "")
     try:
         from redactor_adelanto import papel_del_recurrente, _resolutivo_del_a_quo
         return (papel_del_recurrente(r.encargo, getattr(r, "partes", None),
@@ -37325,7 +37363,10 @@ async def _taller_proponer_nucleo(user_email: str, numero: str, ses: dict,
         "\n".join(r.fases.parrafos_conceptos() or []),
         bool(r.encargo and r.encargo.es_recurso),
         contexto, contraste_previo=_contraste_previo, marco=_param_p,
-        quien=_quien_p)
+        quien=_quien_p,
+        # LA FICHA PROCESAL COMO DATOS (SPEC_E2): la misma que vio el contraste
+        # adelantado, armada de la misma sesión.
+        ficha=_taller_ficha_bloque(r))
 
     # LA PROPUESTA VIAJA DE VUELTA, no se queda aquí. Render corre gunicorn con
     # DOS workers: lo que guarde este proceso puede no existir en el que atienda
@@ -37749,6 +37790,16 @@ async def taller_tarjeta(numero: str, user_email: str):
                      tribunal=str(getattr(_enc, "tribunal", "") or ""),
                      necesita_conceptos=bool(resp.get("necesita_conceptos")),
                      huella=hu)
+    # LA FICHA PROCESAL PARA LA TARJETA (SPEC_E2, contrato FICHA): quién
+    # promovió, quién recurre, qué resolvió el juzgado, qué es materia y qué
+    # quedó firme; la pantalla la enseña en una línea.
+    try:
+        import ficha_procesal as _fp_tj
+        rama_info["ficha"] = _fp_tj.para_tarjeta(_taller_ficha(
+            r, declarado=str(((g.get("contexto") or {}) if isinstance(g.get("contexto"), dict)
+                              else {}).get("resolvio") or "")))
+    except Exception:
+        rama_info["ficha"] = None
     tarjeta = _td.armar(resp, ses.get("material"), _te.problemas_de(r), sel["contraste"], None,
                         resp.get("internet") or ses.get("internet"), rama_info,
                         sel["deliberacion"], propuestas_motor=_pm or None, fases=r.fases)
