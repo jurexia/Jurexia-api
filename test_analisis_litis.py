@@ -185,6 +185,40 @@ ok(_v["razones"][0]["verificada"] and _v["razones"][0].get("lectura") == "ocr"
    and "errores de lectura" in al.bloque_propuesta(_v),
    "y queda rotulada: la propuesta sabe que se cotejó con un escaneo")
 
+print("\n7 · EL ACTO Y EL ESCRITO, ENTEROS (diagnóstico del sesgo a conceder)")
+_largo = "ANTECEDENTES " + "x" * 90000 + " CONSIDERANDO ESTUDIO " + "y" * 30000 + " RESOLUTIVOS: se niega. Conste."
+ok(al.recorte(_largo, al.MAX_ACTO) == (_largo, 0) and al.MAX_ACTO >= 193385 and al.MAX_ESCRITO >= 125897,
+   "un acto de 120 mil (y el más largo del banco, 193 mil) va entero: antes se cortaba en 60 mil por el principio")
+_r, _om = al.recorte(_largo, 40000)
+ok(_om == len(_largo) - 40000 and _r.startswith("ANTECEDENTES") and _r.endswith("se niega. Conste.")
+   and f"SE OMITEN {_om} CARACTERES" in _r,
+   "si pasa el tope, van el principio y el FINAL (estudio y resolutivos) con la omisión marcada")
+_p = al.prompt(_largo, "concepto único", "", [], [], "", False)
+ok("RESOLUTIVOS: se niega. Conste." in _p and "ÍNTEGRO: " in _p and "no pidas su «texto completo»" in _p,
+   "el prompt lleva el acto hasta sus resolutivos, dice que va íntegro y prohíbe pedirlo")
+ok(al.VERSION == "analisis-3", "la versión cambia: las marcas del análisis anterior se recalculan")
+_F = [{"que": "El texto completo de la sentencia reclamada, incluidos los puntos resolutivos."},
+      {"que": "Los resolutivos y el texto íntegro de la sentencia reclamada."},
+      {"que": "La parte de la sentencia reclamada posterior al fragmento entregado."},
+      {"que": "La continuación íntegra de la resolución reclamada."},
+      {"que": "La sentencia completa de primera instancia, más allá de sus puntos resolutivos reproducidos en "
+              "la resolución reclamada."},
+      {"que": "La totalidad del expediente de primera instancia, pues sólo se entregó el acto reclamado."},
+      {"que": "La parte restante de la resolución reclamada y las constancias completas del expediente agrario."},
+      {"que": "El texto completo del artículo 40 de la Ley de Servicios Auxiliares."},
+      {"que": "El texto completo de la demanda de amparo."}]
+_q, _fuera = al.depurar_faltantes(_F, "acto entregado", "escrito entregado")
+ok(len(_fuera) == 5 and [x["que"][:14] for x in _q] == ["La sentencia c", "La totalidad d", "La parte resta",
+                                                         "El texto compl"],
+   "con el acto y el escrito íntegros se quitan los faltantes que los piden a ellos (calibrado: 18 de 128 en el "
+   "banco, ningún otro); se quedan la sentencia de primera instancia, el expediente y lo que pide algo más")
+_q2, _fuera2 = al.depurar_faltantes(_F, "a" * (al.MAX_ACTO + 1), "")
+ok(not _fuera2 and len(_q2) == len(_F), "recortado o sin entregar, el faltante puede ser cierto y se queda")
+_v7 = al.verificar({"faltantes": _F[:2]}, "acto entregado", "", "", [])
+ok(_v7["faltantes"] == [] and len(_v7["faltantes_depurados"]) == 2
+   and "texto completo de la sentencia" not in al.bloque_propuesta(_v7),
+   "verificar los depura y la propuesta ya no los lee como una omisión de la Sala")
+
 print()
 if FALLOS:
     print("FALLAS:\n  " + "\n  ".join(FALLOS))
