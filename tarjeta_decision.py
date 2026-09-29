@@ -1056,8 +1056,36 @@ def _soluciones_para_tarjeta(delib: dict, id_propuesta, id_contraria) -> list:
             "sostenible": s.get("sostenible", True) is not False,
             "papel": ("propuesta" if s.get("id") == id_propuesta
                       else "contraria" if s.get("id") == id_contraria else None),
+            "razon": _razon_de_la_solucion(s),
         })
     return out
+
+
+def _razon_de_la_solucion(s: dict) -> str:
+    """LO QUE VIAJA SI EL SECRETARIO ELIGE ESTA SOLUCIÓN (etapa 3). Hoy sólo
+    se podían elegir las dos columnas; con N soluciones, cada una tiene que
+    poder resolverse con SU justificación —la regla, los hechos acreditados
+    que la activan y sus efectos—, no con la de la columna de al lado (la
+    lección 1 del 631: la razón de otra vía nunca viaja con ésta). Sólo lo
+    verificado: un hecho sin cita verificada no entra aquí."""
+    partes = []
+    c = _txt((s.get("conclusion") or {}).get("texto"))
+    if c:
+        partes.append(c)
+    r = _txt((s.get("regla") or {}).get("enunciado"))
+    if r:
+        partes.append(f"La regla: {r}")
+    for a in (s.get("aplicacion") or [])[:4]:
+        hs = [h for h in (a.get("hechos") or []) if h.get("verificada") and _txt(h.get("afirma"))]
+        if hs:
+            partes.append(f"{_txt(a.get('requisito'))}: " + "; ".join(
+                f"{_txt(h.get('afirma'))}" + (f" («{_txt(h.get('cita'))[:200]}»)" if _txt(h.get("cita")) else "")
+                for h in hs[:3]))
+    efs = [e for e in (s.get("efectos") or []) if _txt(e.get("efecto"))]
+    if s.get("prospera") and efs:
+        partes.append("Efectos: " + "; ".join(
+            " — ".join(x for x in (_txt(e.get("acto")), _txt(e.get("efecto"))) if x) for e in efs[:4]))
+    return " ".join(partes)[:2500]
 
 
 def _via_de_deliberacion(v: dict, glob: dict, catalogo: dict, rama_info: dict,

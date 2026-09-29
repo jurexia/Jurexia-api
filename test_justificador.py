@@ -126,8 +126,11 @@ import tarjeta_decision as _td
 _ls = _td._soluciones_para_tarjeta(d, d["vias"]["A"].get("solucion"), d["vias"]["B"].get("solucion"))
 ok(len(_ls) == len(sols) and {x["papel"] for x in _ls} >= {"propuesta", "contraria"},
    "cada solución con su papel (la propuesta y la contraria son las columnas A y B)")
-ok(all({"prospera", "tipo_efecto", "resumen", "revision", "falla"} <= set(x) for x in _ls),
-   "con lado, tipo de efecto, resumen, revisión y la falla que vio el juez")
+ok(all({"prospera", "tipo_efecto", "resumen", "revision", "falla", "razon"} <= set(x) for x in _ls),
+   "con lado, tipo de efecto, resumen, revisión, la falla que vio el juez y su razón para resolver")
+_la_a = next(x for x in _ls if x["papel"] == "propuesta")
+ok("La regla:" in _la_a["razon"] and "Efectos:" in _la_a["razon"] and "se subroga" in _la_a["razon"].lower(),
+   "la razón que viaja al elegirla: su regla, sus hechos verificados con cita y sus efectos")
 ok(_td._soluciones_para_tarjeta({"vias": {}}, None, None) == [],
    "una deliberación sin soluciones (sin la bandera) no añade nada a la tarjeta")
 
