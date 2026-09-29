@@ -3800,9 +3800,10 @@ _TECNICA_PARTE_NUEVA = (
     "  Si la parte invoca criterios genéricos —exhaustividad, fundamentación,\n"
     "  igualdad—, se formula la regla que su argumento necesitaría y se dice que\n"
     "  ninguno la sostiene y qué supuestos sí cubren.\n"
-    "  Tú escribes el arranque que ata la cita a tu razonamiento; de\n"
-    "  identificarla —el tipo, el órgano, el registro, el rubro— se encarga el\n"
-    "  documento. La regla que atribuyes a un criterio nunca va dentro de la\n"
+    "  Tú escribes el arranque que ata la cita a tu razonamiento, y en la misma\n"
+    "  oración su registro digital y su rubro entre comillas, copiados del\n"
+    "  material: con esas dos llaves el documento la reconoce, pone el tipo y el\n"
+    "  órgano y baja el texto. La regla que atribuyes a un criterio nunca va dentro de la\n"
     "  oración que anuncia su cita: esa oración termina en el rubro, ahí se\n"
     "  corta el párrafo y el texto baja a la nota; la regla va antes del anuncio\n"
     "  o en el párrafo que sigue.")
@@ -3859,8 +3860,21 @@ _TECNICA_DESPUES_NUEVA = (
     "  pongas dos anuncios seguidos sin prosa tuya entre ellos, salvo que los dos\n"
     "  sostengan la misma proposición y la digas una vez; tres o más seguidos son\n"
     "  una fila de rubros sin regla.")
+# EL EJEMPLO SIN RUBRO (AR 631/2025, 28-sep-2026). La v2 enseña el anuncio con
+# el registro solo y, veinte renglones abajo, exige el registro «en la misma
+# frase que el rubro» y el rubro entre comillas en el cuerpo. Mientras «LA
+# INSTANCIA VA SIEMPRE» empujaba a escribir el anuncio entero, el modelo ponía
+# el rubro; al retirarla, copió el ejemplo y el compositor no reconoció ni una
+# cita. Se dice lo que va detrás del registro, sin frase entre comillas.
+_TECNICA_EJEMPLO_VIEJO = (
+    "  Y ahí se detiene el párrafo. NO ESCRIBAS TÚ NI EL TIPO NI EL ÓRGANO: no digas\n")
+_TECNICA_EJEMPLO_NUEVO = (
+    "  Detrás del registro, en la misma oración, el rubro entre comillas tal como\n"
+    "  viene en el material; y ahí se detiene el párrafo.\n"
+    "  NO ESCRIBAS TÚ NI EL TIPO NI EL ÓRGANO: no digas\n")
 _REEMPLAZOS_TECNICA = (
     (_TECNICA_MEDIDA_VIEJA, _TECNICA_MEDIDA_NUEVA),
+    (_TECNICA_EJEMPLO_VIEJO, _TECNICA_EJEMPLO_NUEVO),
     (_TECNICA_PARTE_VIEJA, _TECNICA_PARTE_NUEVA),
     (_TECNICA_DESPUES_VIEJA, _TECNICA_DESPUES_NUEVA),
     # «2. EXPONER LA PREMISA»: si la premisa sale de un criterio, su regla,
@@ -4054,28 +4068,42 @@ _RX_ARTICULO = re.compile(r"art[íi]culos?\s+(\d{1,4})\s*(?:bis|ter)?\.?\s*([^.;
 # Ley Federal de Procedimiento Contencioso Administrativo» son dos leyes. El
 # regex de arriba veía UNA cita en cada caso (61/2025: el 134, el 6 y el 42
 # se quedaban sin traer ni transcribir).
+# LA COLA EN UN LOOKAHEAD Y CORTADA EN EL ARTÍCULO SIGUIENTE (AR 631/2025).
+# Consumida, se tragaba la lista que venía detrás: en el agravio «los artículos
+# 14 y 16 de la Constitución…, así como los artículos 49, 57 y 279 del Código
+# Procesal Civil… y 2284 y 2294 del Código Civil local» sólo se leían el 14 y
+# el 16, y los cinco preceptos que deciden el asunto no se traían al material
+# antes de proponer ni de redactar.
 _RX_ARTICULOS_LISTA = re.compile(
     r"art[íi]culos?\s+(?P<lista>\d{1,4}(?:\s*(?:º|°|o\.|bis|ter))?"
-    r"(?:\s*(?:,|y|e)\s*\d{1,4}(?:\s*(?:º|°|o\.|bis|ter))?)*)\.?\s*(?P<cola>[^.;:]{0,110})", re.I)
+    r"(?:\s*(?:,|y|e)\s*\d{1,4}(?:\s*(?:º|°|o\.|bis|ter))?)*)\.?\s*(?=(?P<cola>[^.;:]{0,110}))", re.I)
+# «y 2284 y 2294 del Código Civil local»: también una LISTA tras la «y».
 _RX_Y_OTRO_DE_LEY = re.compile(
-    r"\b(?:y|e)\s+(?:el\s+)?(\d{1,4})(?:\s*(?:º|°|o\.))?\s+((?:de|del)\s+(?:la|el|los|las)?\s*"
+    r"\b(?:y|e)\s+(?:el\s+|los\s+)?(\d{1,4}(?:\s*(?:º|°|o\.))?"
+    r"(?:\s*(?:,|y|e)\s*\d{1,4}(?:\s*(?:º|°|o\.))?)*)\s+((?:de|del)\s+(?:la|el|los|las)?\s*"
     r"(?:constituci[óo]n|c[óo]digo|ley|reglamento|convenci[óo]n|pacto|tratado)[^,;:()]{4,90})", re.I)
+_RX_OTRO_ARTICULO = re.compile(r"\bart[íi]culos?\s+\d", re.I)
 
 
 def citas_de_articulos(texto: str) -> list:
     """[(número, cola)] de cada artículo citado, con la cola —lo que sigue— que
-    nombra la ley. Reparte las listas y las continuaciones «y N de la Ley»."""
+    nombra la ley. Reparte las listas y las continuaciones «y N de la Ley».
+    Las perífrasis —«legislación procesal civil»— se leen como el código
+    (`documento_generado.canonizar_ley`)."""
+    import documento_generado as _dg_cl
     fuera = []
-    for m in _RX_ARTICULOS_LISTA.finditer(texto or ""):
+    for m in _RX_ARTICULOS_LISTA.finditer(_dg_cl.canonizar_ley(texto or "")):
         nums = re.findall(r"\d{1,4}", m.group("lista"))
         cola = " ".join(m.group("cola").split())
+        cola = _RX_OTRO_ARTICULO.split(cola, 1)[0]
         # la primera ley acaba donde empieza «y 42 de la Ley…»
         cont = _RX_Y_OTRO_DE_LEY.search(cola)
         cola_1 = cola[:cont.start()] if cont else cola
         for nu in nums:
             fuera.append((nu, cola_1))
         if cont:
-            fuera.append((cont.group(1), cont.group(2)))
+            for nu in re.findall(r"\d{1,4}", cont.group(1)):
+                fuera.append((nu, cont.group(2)))
     return fuera
 
 _VACIAS = {"de", "del", "la", "el", "los", "las", "y", "en", "que", "propio",

@@ -244,6 +244,10 @@ def _run_llamada(parrafo, ident: int):
     parrafo._p.append(r)
 
 
+# Separa, dentro de UNA nota, los párrafos que van en renglón propio.
+SEP_NOTA = "\u2029"
+
+
 def _xml_notas(notas: list) -> bytes:
     """`word/footnotes.xml` con las dos notas de sistema y las nuestras."""
     def _esc(x):
@@ -258,17 +262,26 @@ def _xml_notas(notas: list) -> bytes:
             f'<w:spacing w:after="0" w:line="240" w:lineRule="auto"/></w:pPr>'
             f'<w:r><w:{marca}/></w:r></w:p></w:footnote>')
     for i, texto in enumerate(notas, start=1):
-        piezas.append(
-            f'<w:footnote w:id="{i}"><w:p><w:pPr>'
-            f'<w:spacing w:after="0" w:line="240" w:lineRule="auto"/>'
-            f'<w:jc w:val="both"/></w:pPr>'
-            f'<w:r><w:rPr><w:rStyle w:val="FootnoteReference"/>'
-            f'<w:vertAlign w:val="superscript"/></w:rPr>'
-            f'<w:footnoteRef/></w:r>'
-            f'<w:r><w:rPr><w:rFonts w:ascii="{FUENTE}" w:hAnsi="{FUENTE}"/>'
-            f'<w:sz w:val="18"/></w:rPr>'
-            f'<w:t xml:space="preserve"> {_esc(texto)}</w:t></w:r>'
-            f'</w:p></w:footnote>')
+        # UNA NOTA, VARIOS PÁRRAFOS: los artículos de un mismo párrafo del
+        # estudio van en una sola nota (una llamada por párrafo), cada uno en
+        # su renglón, separados por `SEP_NOTA` —no por «\n», que ya traen los
+        # textos de las tesis de la Undécima Época y se leían como espacio—.
+        # La llamada volada, sólo en el primero.
+        ps = []
+        for j, trozo in enumerate(str(texto).split(SEP_NOTA)):
+            llamada = (f'<w:r><w:rPr><w:rStyle w:val="FootnoteReference"/>'
+                       f'<w:vertAlign w:val="superscript"/></w:rPr>'
+                       f'<w:footnoteRef/></w:r>') if j == 0 else ""
+            ps.append(
+                f'<w:p><w:pPr>'
+                f'<w:spacing w:after="0" w:line="240" w:lineRule="auto"/>'
+                f'<w:jc w:val="both"/></w:pPr>'
+                f'{llamada}'
+                f'<w:r><w:rPr><w:rFonts w:ascii="{FUENTE}" w:hAnsi="{FUENTE}"/>'
+                f'<w:sz w:val="18"/></w:rPr>'
+                f'<w:t xml:space="preserve"> {_esc(trozo)}</w:t></w:r>'
+                f'</w:p>')
+        piezas.append(f'<w:footnote w:id="{i}">' + "".join(ps) + '</w:footnote>')
     piezas.append("</w:footnotes>")
     return "".join(piezas).encode("utf8")
 
@@ -358,10 +371,12 @@ def tesis_del_rubro(texto: str, tesis: list):
     si el rubro viene recortado o parafraseado, por su registro."""
     m = _RX_RUBRO.search(texto or "")
     if not m:
-        return None, None
+        # SIN RUBRO ENTRE COMILLAS: el anuncio por su registro, que es la forma
+        # que enseña el propio prompt (ver `anuncio_por_registro`).
+        return anuncio_por_registro(texto, tesis)
     citado = _normaliza_rubro(m.group(1))
     if len(citado) < 25:
-        return None, None
+        return anuncio_por_registro(texto, tesis)
     for t in (tesis or []):
         real = _normaliza_rubro(t.get("rubro", ""))
         if real and (real.startswith(citado[:70]) or citado.startswith(real[:70])):
@@ -372,6 +387,11 @@ def tesis_del_rubro(texto: str, tesis: list):
         for t in (tesis or []):
             if str(t.get("registro") or "") == mr.group(1):
                 return t, m
+    # Lo entrecomillado no era un rubro del material (una constancia citada
+    # con mayúscula inicial): el anuncio aún puede venir por su registro.
+    h, tramo = anuncio_por_registro(texto, tesis)
+    if h is not None:
+        return h, tramo
     return None, m
 
 
@@ -405,7 +425,7 @@ def tesis_del_rubro(texto: str, tesis: list):
 
 _RX_VERBO = re.compile(
     r"^(.{0,90}?)\s*(?:,\s*)?(?:resulta[n]?\s+)?(?:la|el|las|los)?\s*"
-    r"(?:jurisprudencia|tesis|criterio)\b", re.I | re.S)
+    r"(?:jurisprudencias?|tesis|criterios?|precedentes?)\b", re.I | re.S)
 
 # Los verbos de enlace que sabemos leer. Si el modelo escribe otra cosa, se usa
 # el suyo tal cual mientras no nombre instancia ni tipo; y si no hay nada
@@ -509,7 +529,10 @@ def _verbo_de_enlace(anuncio: str) -> str:
         # por la de siempre.
         if not _RX_FORMULA_ENLACE.match(v):
             return _POR_DEFECTO
-        return v or _POR_DEFECTO
+        # EN SINGULAR: cada cita se anuncia sola —«Sirven de apoyo los criterios
+        # de registros 2026918 y 168958» da dos bloques, y el primero no puede
+        # decir «Sirven de apoyo la jurisprudencia…» (AR 631/2025)—.
+        return _lead_que_contesta(v) or _POR_DEFECTO
     # Sin sustantivo reconocible: se conserva sólo si es corto y no nombra
     # órgano ni tipo, que es lo que no puede venir de él.
     if len(a) <= 60 and not re.search(
@@ -598,6 +621,121 @@ def anuncio_de(t: dict, anuncio_del_modelo: str = "") -> str:
     if _cuerpo and len(_cuerpo.split()) <= MAX_PALABRAS_TESIS_CUERPO:
         return frase + ", de rubro y texto siguientes:"
     return frase + ", de rubro siguiente:"
+
+
+# ═══ EL ANUNCIO SIN RUBRO SE RECONOCE POR SU REGISTRO (AR 631/2025) ════════
+# El prompt enseña, como la forma de citar, «Sirve de apoyo el criterio de
+# registro 2022074:» —sin tipo, sin órgano y sin rubro: «el documento los pone
+# solo»—, y `tesis_del_rubro` sólo reconocía una cita si traía el rubro entre
+# comillas: el registro era un respaldo DENTRO de ese camino, nunca una puerta
+# propia. En la rama de coherencia (f4f88b7, 28-sep-2026) el prompt dejó de
+# empujar al modelo a escribir el anuncio entero («LA INSTANCIA VA SIEMPRE»
+# pasó a «LA INSTANCIA, FUERA DEL ANUNCIO»), el modelo obedeció el ejemplo al
+# pie de la letra y las tres citas del estudio salieron como prosa: «Sirve de
+# apoyo el criterio de registro 2026918:» y, debajo, nada —ni rubro, ni texto,
+# ni nota—.
+#
+# Se reconoce el anuncio por su FORMA, no por la cifra: el registro es de una
+# tesis del material y la oración que lo contiene ARRANCA con un verbo de
+# enlace (`_RX_FORMULA_ENLACE`) o con un arranque que contesta
+# (`es_anuncio_que_contesta`), con el sustantivo —criterio, tesis,
+# jurisprudencia, precedente— delante del registro. Una mención en mitad de un
+# razonamiento —«El criterio con registro 188480, invocado…, tampoco conduce…»,
+# «…y los criterios con registros 187528, 2015679…»— no arranca así y sigue
+# siendo prosa.
+_RX_REGISTRO_ANUNCIO = re.compile(
+    r"\bregistros?(?:\s+digital(?:es)?)?\s*(?:n[úu]mero\s+)?:?\s*(\d{6,7})\b", re.I)
+# Los demás de la misma lista: «registros 2026918 y 168958», «2026918, 168958».
+_RX_LISTA_REGISTROS = re.compile(
+    r"(?:\s*(?:,|y|e)\s*(?:(?:el|la)\s+(?:de\s+)?)?(?:registro\s+(?:digital\s+)?)?\d{6,7}\b)*", re.I)
+# Una oración acaba en punto seguido de mayúscula. «1a./J. 74/2005», «S.J.F. y»
+# o «Pág. 590» no la acaban. Los dos puntos tampoco: «de rubro y texto
+# siguientes: «RUBRO»» es la misma oración.
+_RX_FRONTERA_ORACION = re.compile(r"\.\s+(?=[«\"“¿(]?[A-ZÁÉÍÓÚÑ])")
+MAX_ARRANQUE_ANUNCIO = 220
+_RX_NIEGA = re.compile(r"\b(?:no|tampoco|ni|sin\s+que)\b|inaplicable", re.I)
+_RX_FIN_DE_ANUNCIO = re.compile(
+    r"\s*(?:[:.]|$|,?\s*(?:porque|pues|ya\s+que|toda\s+vez\s+que|dado\s+que|"
+    r"puesto\s+que|en\s+virtud\s+de\s+que)\b)", re.I)
+
+
+class _Tramo:
+    """Lo que `_escribir_estudio` usa de un `re.Match`: dónde empieza y dónde
+    acaba lo que el bloque de la cita sustituye."""
+
+    def __init__(self, a: int, b: int):
+        self._a, self._b = a, b
+
+    def start(self) -> int:
+        return self._a
+
+    def end(self) -> int:
+        return self._b
+
+
+def _inicio_de_oracion(texto: str, pos: int) -> int:
+    ini = 0
+    for m in _RX_FRONTERA_ORACION.finditer(texto or "", 0, pos):
+        ini = m.end()
+    return ini
+
+
+def _arranque_de_cita(trozo: str) -> str:
+    """El arranque que ata una cita —«Sirve de apoyo», «No resulta aplicable»,
+    «La recurrente invoca»—, si el trozo que precede al registro o al rubro lo
+    es; si no, cadena vacía."""
+    v = " ".join((trozo or "").split())
+    mc = _RX_VERBO_CONTESTA.match(v)
+    if not mc:
+        return ""
+    a = mc.group(1).strip(" ,;:")
+    if a and (_RX_FORMULA_ENLACE.match(a) or es_anuncio_que_contesta(a)):
+        return a
+    return ""
+
+
+def anuncio_por_registro(texto: str, tesis: list):
+    """(tesis, tramo) del anuncio que cita por su registro y sin rubro; o
+    (None, None). El tramo va del registro al último de su lista."""
+    t = texto or ""
+    por_reg = {str(x.get("registro") or "").strip(): x for x in (tesis or [])
+               if str(x.get("registro") or "").strip()}
+    if not por_reg:
+        return None, None
+    for mr in _RX_REGISTRO_ANUNCIO.finditer(t):
+        h = por_reg.get(mr.group(1))
+        if h is None:
+            continue
+        ini = _inicio_de_oracion(t, mr.start())
+        lead = t[ini:mr.start()]
+        a = _arranque_de_cita(lead) if len(lead) <= MAX_ARRANQUE_ANUNCIO else ""
+        if not a:
+            continue
+        fin = _RX_LISTA_REGISTROS.match(t, mr.end()).end()
+        # EL ARRANQUE QUE SÓLO ATRIBUYE —«La recurrente invoca el criterio de
+        # registro N para sostener que…», «Respecto del criterio de registro N,
+        # invocado por…»— es un anuncio sólo si la oración acaba ahí o sigue
+        # con su razón («, porque…»). Si continúa contando qué pretendía la
+        # parte, es prosa del estudio y así se queda.
+        if not (_RX_FORMULA_ENLACE.match(a) or _RX_NIEGA.search(a)) \
+                and not _RX_FIN_DE_ANUNCIO.match(t[fin:]):
+            continue
+        return h, _Tramo(mr.start(), fin)
+    return None, None
+
+
+def registros_de_la_lista(texto: str, tramo, tesis: list, fuera: str = "") -> list:
+    """Los OTROS registros del material en la lista de un mismo anuncio
+    («Sirven de apoyo los criterios de registros 2026918 y 168958:»)."""
+    if tramo is None or isinstance(tramo, re.Match):
+        return []
+    tengo = {str(x.get("registro") or "").strip() for x in (tesis or [])}
+    vistos, otros = {fuera}, []
+    for r in re.findall(r"\d{6,7}", (texto or "")[tramo.start():tramo.end()]):
+        if r in tengo and r not in vistos:
+            vistos.add(r)
+            otros.append(r)
+    return otros
 
 
 def escribir_cita(doc, t: dict, anuncio: str, notas: list) -> None:
@@ -2444,18 +2582,66 @@ def escribir_precepto(doc, texto_articulo: str, ley: str, num: str,
     return q
 
 
+# LA COLA DE LA LEY VA EN UN LOOKAHEAD: consumida, se tragaba la cita que
+# viniera detrás dentro de sus 150 caracteres.
 _RX_ARTICULOS_CITADOS_LISTA = re.compile(
     r"art[íi]culos?\s+(\d{1,4}(?:\s*(?:º|°|o\.|bis|ter|qu[áa]ter))?"
     r"(?:\s*(?:,|y|e)\s*\d{1,4}(?:\s*(?:º|°|o\.|bis|ter))?)*)"
-    r"(?:[^.;]{0,90}?(c[óo]digo|ley|constituci[óo]n|reglamento)[^.;,]{0,60})?", re.I)
+    r"(?=([^.;]{0,90}?(c[óo]digo|ley|constituci[óo]n|reglamento)[^.;,]{0,60})?)", re.I)
+
+# ═══ LA LEY NOMBRADA CON OTRAS PALABRAS (AR 631/2025, 28-sep-2026) ═════════
+# «La regla que la recurrente identifica como artículo 49 de la legislación
+# procesal civil del Estado de Querétaro…»: sin «código» ni «ley» en la cola,
+# el artículo no tenía ley, `_norma_del_texto` no lo casaba y no bajaba al pie;
+# y `preceptos_fuera`, por voces sueltas, lo mandaba a traer del CÓDIGO CIVIL
+# si éste ya estaba en el material. Las perífrasis se llevan al nombre del
+# código ANTES de casar, aquí y en `fase6_estudio.citas_de_articulos`. Sólo se
+# lee: el texto del proyecto no se toca.
+_PERIFRASIS_LEY = (
+    (re.compile(r"\b(?:legislaci[óo]n|ley|c[óo]digo|ordenamiento|norma)\s+"
+                r"(?:adjetiva|procesal)\s+civil(?:es)?\b", re.I),
+     "Código de Procedimientos Civiles"),
+    (re.compile(r"\b(?:legislaci[óo]n|ley|ordenamiento|norma|c[óo]digo)\s+sustantiva\s+civil\b"
+                r"|\blegislaci[óo]n\s+civil\b", re.I),
+     "Código Civil"),
+    # «del Código Civil local»: el fuero sin el nombre del estado. Sin esto
+    # `fase6_rag.fuero_de` no lo ve estatal y el precepto se buscaba primero
+    # en el silo federal de la materia.
+    (re.compile(r"(?<=[A-Za-zÁÉÍÓÚáéíóúñÑ])\s+(?:local|de\s+(?:la|esta)\s+entidad(?:\s+federativa)?)\b", re.I),
+     " del Estado"),
+)
+# «el artículo 2294 del mismo ordenamiento», «del citado código», «de dicha ley».
+_RX_ANAFORA_LEY = re.compile(
+    r"^\s*,?\s*(?:de\s+la|del|de)\s+(?:mism[oa]|propi[oa]|citad[oa]|dich[oa]|es[ea]|"
+    r"aludid[oa]|referid[oa]|invocad[oa])\s+(?:ordenamiento|c[óo]digo|ley|cuerpo\s+"
+    r"(?:legal|normativo)|constituci[óo]n|legislaci[óo]n)\b"
+    r"|^\s*,?\s*del\s+(?:ordenamiento|c[óo]digo)\s+(?:citado|en\s+cita|invocado|mencionado)\b",
+    re.I)
+
+
+def canonizar_ley(texto: str) -> str:
+    """El texto con las perífrasis de ley llevadas al nombre del código."""
+    t = texto or ""
+    for rx, nombre in _PERIFRASIS_LEY:
+        t = rx.sub(nombre, t)
+    return t
 
 
 def _iter_articulos(texto: str):
     """(número, fragmento) por cada artículo citado; «artículos 134 y 137 del
-    Código Fiscal de la Federación» rinde dos, los dos con la ley."""
-    for m in _RX_ARTICULOS_CITADOS_LISTA.finditer(texto or ""):
+    Código Fiscal de la Federación» rinde dos, los dos con la ley. «Del mismo
+    ordenamiento» hereda la ley de la cita anterior del mismo párrafo."""
+    t = canonizar_ley(texto or "")
+    ley_previa = ""
+    for m in _RX_ARTICULOS_CITADOS_LISTA.finditer(t):
+        cola = m.group(2) or ""
+        frag = m.group(0) + cola
+        if _RX_ANAFORA_LEY.match(t[m.end():]):
+            frag = m.group(0) + (" " + ley_previa if ley_previa else "")
+        elif m.group(3):
+            ley_previa = cola[cola.lower().find(m.group(3).lower()):]
         for num in re.findall(r"\d{1,4}", m.group(1)):
-            yield num, m.group(0)
+            yield num, frag
 
 
 def _preceptos_del_parrafo(texto: str, normas: list) -> list:
@@ -2530,6 +2716,13 @@ def limpiar_texto_web(t: str) -> str:
 
 MAX_ARTICULOS_POR_PARRAFO = 1
 MAX_NOTAS_DE_ARTICULOS = 8
+# UNA LLAMADA POR PÁRRAFO NO ES UN ARTÍCULO POR PÁRRAFO (AR 631/2025). La
+# regla de la llamada única (661f4bd: las notas 3 y 4 se leían «34») se
+# cumplía cortando la lista a su primer artículo: «los artículos 2284 y 2294
+# del Código Civil…» bajaba el 2284 y el 2294 —el que decide— no aparecía en
+# ninguna parte; igual el 17 de «artículos 14 y 17 de la Constitución». Los
+# artículos de un párrafo van JUNTOS en una sola nota, uno por renglón.
+MAX_ARTICULOS_POR_NOTA = 4
 
 
 def parrafo_con_citas(doc, texto: str, notas: list):
@@ -3519,10 +3712,31 @@ def _escribir_estudio(doc, estudio, tesis, notas, normas=None) -> int:
         elif re.match(r"^(?:y|e)\s+[a-záéíóúñ]", t):
             t = "Asimismo, " + t[2:].lstrip()
         hallada, m_r = tesis_del_rubro(t, tesis or [])
+        # LA PROSA QUE VA DELANTE DEL ANUNCIO NO SE PIERDE (AR 631/2025). El
+        # prompt pide que la cita cierre su párrafo, y todo lo que había antes
+        # de la oración del anuncio se iba con él: `escribir_cita` sólo
+        # conserva el verbo de enlace. Se parte en dos y se escriben por orden.
+        if hallada and m_r:
+            _ini = _inicio_de_oracion(t, m_r.start())
+            if _ini > 0 and _arranque_de_cita(t[_ini:m_r.start()]) \
+                    and len(t[:_ini].split()) >= 6:
+                _pendientes[0:0] = [t[:_ini].strip(), t[_ini:].strip()]
+                continue
         # Y UNA TESIS TAMBIÉN. La 169606 se transcribió dos veces en el mismo
         # considerando —una en el marco y otra al contestar el concepto—: el
         # texto íntegro repetido no aporta y alarga la sentencia sin decir nada.
         if hallada and str(hallada.get("registro") or "") in transcritas_tesis:
+            # POR REGISTRO Y YA TRANSCRITA (AR 631/2025): el anuncio pelado
+            # quedaría colgando con sus dos puntos y nada debajo. Se nombra
+            # como ya citada, que es lo que pide el prompt para la segunda vez.
+            if m_r is not None and not isinstance(m_r, re.Match) \
+                    and not t[m_r.end():].strip(" ,;:.") \
+                    and _inicio_de_oracion(t, m_r.start()) == 0:
+                _ya = re.sub(r",\s*de rubro(?:\s+y\s+texto)?\s+siguientes?:$", "",
+                             anuncio_de(hallada, t[:m_r.start()].rstrip(" ,;:")))
+                parrafo_con_citas(doc, _ya + (", ya citado." if re.search(r"\bel criterio\b", _ya)
+                                              else ", ya citada."), notas)
+                continue
             hallada = None
         if hallada and m_r and citadas < MAX_CITAS_DOCUMENTO:
             transcritas_tesis.add(str(hallada.get("registro") or ""))
@@ -3534,6 +3748,17 @@ def _escribir_estudio(doc, estudio, tesis, notas, normas=None) -> int:
             # y la media frase de detrás se anuncian como lo que son.
             _v_ant = _verbo_de_enlace(antes.rstrip(" ,;:"))
             _contesta = _v_ant if es_anuncio_que_contesta(_v_ant) else ""
+            # LA LISTA DE REGISTROS DE UN MISMO ANUNCIO —«Sirven de apoyo los
+            # criterios de registros 2026918 y 168958:»—: cada uno, su bloque.
+            _lista = [_desencadenar(f"y el criterio de registro {_r}:", tesis, _contesta)
+                      for _r in registros_de_la_lista(
+                          t, m_r, tesis, str(hallada.get("registro") or ""))]
+            _lista = [x for x in _lista if x]
+            if _lista:
+                _pendientes[0:0] = _lista + ([cola] if len(cola.split()) > 6 else [])
+                ultima_tesis = hallada
+                ultima_al_pie = _texto_al_pie(hallada)
+                continue
             # LA SEGUNDA TESIS DE LA MISMA FRASE se anuncia por su cuenta.
             _otra = _desencadenar(cola, tesis, _contesta)
             if _otra:
@@ -3544,7 +3769,7 @@ def _escribir_estudio(doc, estudio, tesis, notas, normas=None) -> int:
             cola = _sin_eco(cola, hallada.get("texto") or "",
                             al_pie=_texto_al_pie(hallada))
             cola = _con_sujeto_tras_cita(cola, hallada)
-            if _contesta:
+            if _contesta or not isinstance(m_r, re.Match):
                 cola = _cola_tras_contestar(cola)
             if len(cola.split()) > 6 or _es_pregunta(cola):
                 parrafo_con_citas(doc, cola, notas)
@@ -3558,7 +3783,7 @@ def _escribir_estudio(doc, estudio, tesis, notas, normas=None) -> int:
                 continue
         # Se decide ANTES de escribir qué artículos van a transcribirse, para
         # poder quitar del párrafo el extracto que quedaría repetido debajo.
-        _del_parrafo = _preceptos_del_parrafo(t, normas)[:MAX_ARTICULOS_POR_PARRAFO]
+        _del_parrafo = _preceptos_del_parrafo(t, normas)[:MAX_ARTICULOS_POR_NOTA]
         _preceptos = [(n_, x) for n_, x in _del_parrafo if n_ not in transcritos]
         # EL ECO SOBREVIVÍA CUANDO EL ARTÍCULO YA ESTABA TRANSCRITO. La poda
         # miraba sólo los preceptos que este párrafo va a transcribir DEBAJO;
@@ -3595,6 +3820,7 @@ def _escribir_estudio(doc, estudio, tesis, notas, normas=None) -> int:
         # recorte a la fracción que el estudio discute, que en el pie sigue
         # importando —el 107 constitucional entero no cabe en una nota—.
         if p_ is not None:
+            _pies_p = []
             for num, n_ in _preceptos:
                 # UN ARTÍCULO SE TRANSCRIBE UNA VEZ. La clave era (número,
                 # ley) y el 48 salió DOS veces porque llegó por dos caminos con
@@ -3639,9 +3865,12 @@ def _escribir_estudio(doc, estudio, tesis, notas, normas=None) -> int:
                 _cuerpo = _en_lo_conducente(_cuerpo, _fr)
                 _pie = (f"«Artículo {num}. {limpiar_texto_web(_cuerpo)}» — {_ley}".strip()
                         + marca_de_origen(n_))
-                if _pie in notas:
+                if any(_pie in x.split(SEP_NOTA) for x in notas) or _pie in _pies_p:
                     continue
-                notas.append(_pie)
+                _pies_p.append(_pie)
+            # TODOS LOS DEL PÁRRAFO EN UNA NOTA: una sola llamada, como antes.
+            if _pies_p:
+                notas.append(SEP_NOTA.join(_pies_p))
                 _run_llamada(p_, len(notas))
     return citadas
 

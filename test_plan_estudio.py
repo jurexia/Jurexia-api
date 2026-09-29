@@ -855,7 +855,7 @@ for forma in ("estandar", "moderna"):
     # OCHO desde la integración del 28-sep-2026: los seis de SPEC D más la
     # medida de la regla en «NO VIVAS DE LA CITA» y la instancia fuera del
     # anuncio, que chocaban con la técnica (AR 631/2025).
-    ok(len(_tec) == 8 and "Antes este ejemplo" not in _v4 and "bórralo" not in _v4
+    ok(len(_tec) == 9 and "Antes este ejemplo" not in _v4 and "bórralo" not in _v4
        and "LA CITA, SU REGLA Y SU APLICACIÓN" in _v4 and "SALVO EL CRITERIO QUE INVOCÓ OTRO" in _v4
        and f6._TECNICA_PARTE_GRUPO.strip() in _v4 and "LA INSTANCIA VA SIEMPRE" not in _v4
        and "trae la REGLA en una o\n  dos frases" not in _v4,
