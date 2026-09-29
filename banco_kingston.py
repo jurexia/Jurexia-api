@@ -74,7 +74,8 @@ BANDERAS_BASE = {"fuerza_unificada": False, "fuente_tardia_aviso": False, "norma
                  "analisis_neutral": False, "recuperacion_requisitos": False,
                  "propuesta_unica": False,
                  "plan_con_analisis": False, "exclusiones_con_prueba": False, "estados_sesion": False,
-                 "soluciones_por_desenlace": False}
+                 "soluciones_por_desenlace": False,
+                 "revision_semantica": False}
 AQUI.mkdir(parents=True, exist_ok=True)
 PDFS = AQUI / "pdf"; PDFS.mkdir(exist_ok=True)
 RESULTADOS = AQUI / "resultados.jsonl"

@@ -38154,6 +38154,11 @@ async def _taller_proponer_nucleo(user_email: str, numero: str, ses: dict,
                 _p.sentido = _c["sentido"]
                 _p.razon = _c.get("razonamiento") or _p.razon
         avisos.extend(_av_ad)
+        # LA REVISIÓN POR CÓDIGO DE LA PROPUESTA (rediseño, etapa 3; bandera
+        # «revision_semantica»): sólo avisa.
+        import contexto_taller as _ctx_rs
+        if _ctx_rs.rediseno("revision_semantica"):
+            avisos.extend(_f5.revisar_semantica(glob, propuestas, _jer_por_problema, _analisis_p))
     except Exception as _ead:
         print(f"   ⚠️ ÁRBOL: no se pudo aplicar en la propuesta: {err(_ead)}")
 

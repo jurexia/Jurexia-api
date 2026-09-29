@@ -466,6 +466,50 @@ def _bloques_rediseno(analisis, requisitos, material) -> str:
     return out
 
 
+def revisar_semantica(glob, propuestas: list, jerarquia: dict, analisis: dict | None = None) -> list:
+    """LA REVISIÓN POR CÓDIGO DE LA PROPUESTA (rediseño, etapa 3; bandera
+    «revision_semantica»). SÓLO AVISA: no cambia el sentido de nadie (decisión
+    2 de David: nada bloquea hasta calibrar). Dos comprobaciones, medidas en el
+    diagnóstico del sesgo a conceder de Kingston (29-sep-2026):
+
+    · LA AGREGACIÓN (3 de 9 fallos reales: 274 monto, 526 accesorio procesal,
+      722 costas): el principal no prospera y el asunto CONCEDE por un
+      accesorio. Se dice cuál, y si ese accesorio no alcanza o es de confianza
+      baja (la condición 1 del remedio R1, la única comprobable por código).
+    · LAS RAZONES AUTÓNOMAS: el asunto concede y el análisis neutral encontró
+      razones autónomas de lo resuelto que ningún argumento combate.
+    Nunca lanza."""
+    avisos: list = []
+    try:
+        import tipos_asunto as _ta
+        g_sent = str(getattr(glob, "sentido", "") or "").strip().lower()
+        if not g_sent or not _ta.prospera(g_sent):
+            return avisos
+        ps = [p for p in (propuestas or []) if getattr(p, "sentido", "")]
+        pral = next((p for p in ps if str((jerarquia or {}).get(p.problema, "")).lower() == "principal"), None)
+        if pral is not None and not _ta.prospera(str(pral.sentido).lower()):
+            voltean = [p for p in ps if p is not pral and _ta.prospera(str(p.sentido).lower())]
+            for p in voltean[:3]:
+                debil = (not p.alcanza) or str(p.confianza or "").lower() == "baja"
+                avisos.append(
+                    f"EL ASUNTO CONCEDE POR UN ACCESORIO: el principal sale {pral.sentido} y lo que "
+                    f"concede es «{p.problema[:90]}» ({p.sentido}"
+                    + (", sin alcanzar o con confianza baja" if debil else "")
+                    + "). Comprueba que ese accesorio cambie de verdad lo resuelto —el monto, las costas, "
+                      "la prestación— y no sólo cómo se motivó.")
+            if not voltean:
+                avisos.append(f"EL ASUNTO CONCEDE aunque el principal sale {pral.sentido} y ningún "
+                              f"accesorio prospera: revisa el sentido global.")
+        sin = list((analisis or {}).get("autonomas_sin_combatir") or [])
+        if sin:
+            avisos.append(f"EL ASUNTO CONCEDE y el análisis neutral encontró razón(es) autónoma(s) de lo "
+                          f"resuelto que ningún argumento combate ({', '.join(sin[:4])}): si alguna basta "
+                          f"sola para sostenerlo, derrotar las demás no cambia el resultado.")
+    except Exception:
+        return avisos
+    return avisos
+
+
 def _bloque_normas(material, limite: int = 10) -> str:
     fuera = []
     normas = list(getattr(material, "normas", []) or [])

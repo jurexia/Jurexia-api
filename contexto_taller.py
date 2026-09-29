@@ -299,6 +299,7 @@ BANDERAS_REDISENO = {
     "exclusiones_con_prueba": "EXCLUSIONES_CON_PRUEBA",  # etapa 4: registro común de exclusión con su prueba
     "estados_sesion": "ESTADOS_SESION",              # etapa 4: manifiesto «consume» y estado de la sesión
     "soluciones_por_desenlace": "SOLUCIONES_POR_DESENLACE",  # etapa 3: N justificadores, uno por solución
+    "revision_semantica": "REVISION_SEMANTICA",      # etapa 3: la propuesta revisada por código (sólo avisa)
 }
 
 
