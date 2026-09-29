@@ -33260,11 +33260,15 @@ async def _taller_deliberar_nucleo(r, ses: dict, resp: dict, contexto: str = "")
             return list(_w.get("tesis") or [])
 
     _espejo = []
+    # EL GRUPO DEL PRINCIPAL, CON LA REGLA DE LA TARJETA: la pregunta vigente o
+    # la que el secretario corrigió (`pregunta_original`), sin depender de
+    # espacios. El espejo guarda la pregunta tal como estaba al consultar; por
+    # igualdad literal, si él la corrigió, la tarjeta enseñaba precedentes que
+    # la deliberación nunca veía.
+    _pral_orig = str(((problemas[_pi] if problemas else {}) or {}).get("pregunta_original") or "")
+    _pral_claves = {s.strip() for s in (_pral, _pral_orig) if s and s.strip()}
     for x in (getattr(material, "espejo", None) or []):
-        # Con strip: el grupo de la OAJ guarda la pregunta recortada
-        # (redactor_adelanto._espejo_oaj) y la de la fase 3 puede traer
-        # espacios; por igualdad literal la deliberación se quedaba sin filas.
-        if isinstance(x, dict) and _delib._pregunta({"pregunta": x.get("problema")}).strip() == _pral.strip():
+        if isinstance(x, dict) and _delib._pregunta({"pregunta": x.get("problema")}).strip() in _pral_claves:
             _espejo = [f for f in (x.get("filas") or []) if isinstance(f, dict)]
             break
     _tasa = ""
