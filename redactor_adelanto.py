@@ -1560,6 +1560,119 @@ def _rama_tecnica(r, criterios, contexto: str = "") -> tuple:
     return _rama, _vp
 
 
+async def _fuentes_tardias(r, e, material, estudio: str, avisos: list, qdrant,
+                          meta: dict = None) -> list:
+    """Lo que entra DESPUÉS de redactar el estudio, y qué toca.
+
+    Era un bloque copiado igual en `resolver` y en `resolver_en_vivo` (medido
+    el 29-sep-2026): trae del acervo las tesis citadas por registro y los
+    preceptos citados sin tenerlos, y ajusta los avisos. Ahora, además
+    (rediseño, punto 7), CLASIFICA lo traído con `fuente_tardia`: si una fuente
+    tardía se usa en una unidad que contesta un argumento, expone una premisa o
+    fija un efecto, la unidad se escribió sin su texto a la vista y el proyecto
+    sale como «justificacion_pendiente», con las unidades nombradas, en vez de
+    pasar por verificado. Devuelve los avisos (la lista se reasigna dentro).
+    """
+    _t0 = {str(t.get("registro") or "") for t in (material.tesis or []) if isinstance(t, dict)}
+    _n0 = {(str(n.get("articulo")), str(n.get("cuerpo_legal") or n.get("fuente") or ""))
+           for n in (material.normas or []) if isinstance(n, dict)}
+    # LOS PRECEPTOS QUE EL ESTUDIO CITÓ SIN TENERLOS. Si están en el acervo se
+    # traen y se transcriben; el aviso se queda sólo para los que no existen.
+    try:
+        import fase6_rag as _f6r
+        # LAS TESIS QUE EL ESTUDIO NOMBRA POR REGISTRO Y LAS QUE LA PARTE
+        # INVOCÓ, si no están en el material, se traen del acervo por su
+        # registro o su clave: así el compositor las anuncia con su rubro y
+        # baja su ficha al pie en vez de dejarlas en prosa (61/2025: cuatro
+        # criterios de la Segunda Sala «de rubro «…», registro N» sin ficha).
+        if qdrant is not None:
+            try:
+                import fases123_pipeline as _f123c
+                _esc = (list(getattr(r.fases, "fuentes", []) or []) + ["", ""])[1]
+                _citas = _f123c.citas_invocadas(_esc) | _f123c.citas_invocadas(str(estudio or ""))
+                _nuevas = await _f6r.completar_tesis_citadas(
+                    qdrant, material, sorted(_citas),
+                    tipo_asunto=getattr(e, "tipo_asunto", "") or "")
+                if _nuevas:
+                    avisos.append(f"{len(_nuevas)} tesis citadas se trajeron del acervo "
+                                  f"para verificarlas y anunciarlas con su ficha: "
+                                  f"{', '.join(_nuevas[:6])}{'…' if len(_nuevas) > 6 else ''}.")
+                    # Y SE RETIRA EL AVISO QUE ACABA DE QUEDAR FALSO. `revisar`
+                    # corrió ANTES que esto y denunció esos registros como «no
+                    # están en el material: no se citan hasta comprobarlos»; y
+                    # aquí se acaban de traer, verificar y fichar. El proyecto
+                    # salía con los dos avisos, uno contra el otro, y el
+                    # secretario no tiene con qué saber cuál vale. Medido en la
+                    # revisión fiscal 2/2026 con el registro 167062, que el
+                    # documento final SÍ cita, con su ficha completa al pie.
+                    avisos[:] = [_a for _a in avisos
+                                 if not (_a.startswith("REGISTROS QUE NO ESTÁN EN EL MATERIAL")
+                                         and _registros_ya_estan(_a, material))]
+            except Exception as _ex2:
+                print(f"   ⚠️ no se pudieron completar las tesis citadas: {_ex2}")
+        _pares = sorted(f6.preceptos_fuera(estudio, material)[1])
+        if _pares and qdrant is not None:
+            _traidos = await _f6r.completar_preceptos(
+                qdrant, material, _pares, getattr(e, "coleccion_estatal", "") or None,
+                materia=str(getattr(e, "materia", "") or ""),
+                tipo_asunto=getattr(e, "tipo_asunto", "") or "")
+            if _traidos:
+                # SE LE PREGUNTA OTRA VEZ AL MATERIAL, NO SE COMPARAN CADENAS.
+                # Esto decía `f"art. {x[1]} — {x[0]}" not in _traidos`, y
+                # comparaba el nombre CITADO por el estudio —«ley del seguro
+                # social», en minúsculas— contra el nombre OFICIAL del acervo
+                # —«Ley del Seguro Social»—, que no coinciden nunca. Medido en
+                # la revisión fiscal 2/2026: los artículos 17 y 251 SÍ se
+                # trajeron, y el aviso los siguió acusando como ausentes junto
+                # al que de verdad faltaba. Un aviso que acusa a los inocentes
+                # enseña a no leer los avisos. El material ya completado es la
+                # única fuente de verdad sobre qué sigue faltando.
+                _quedan = sorted(f6.preceptos_fuera(estudio, material)[1])
+                # Y LO QUE VINO DE INTERNET SE DICE APARTE. Al recalcular el
+                # aviso desaparecía el de «preceptos que no están en el
+                # material» —correcto, porque ya están— pero nadie decía que
+                # algunos se habían transcrito de un sitio web. El hueco
+                # tapado en silencio es peor que el hueco declarado.
+                _web_p = list(getattr(material, "preceptos_de_internet", []) or [])
+                if _web_p:
+                    avisos.append(
+                        f"{len(_web_p)} PRECEPTO(S) NO ESTÁN EN EL ACERVO y se "
+                        f"transcribieron de su fuente oficial en línea: "
+                        f"{', '.join(_web_p[:4])}"
+                        f"{'…' if len(_web_p) > 4 else ''}. La nota al pie dice "
+                        f"de dónde salió cada uno. COTÉJALOS antes de firmar: "
+                        f"no pasaron por la verificación del acervo.")
+                avisos = [a for a in avisos
+                          if not str(a).startswith("PRECEPTOS CITADOS QUE NO ESTÁN")]
+                if _quedan:
+                    avisos.append("PRECEPTOS CITADOS QUE NO ESTÁN EN EL MATERIAL: "
+                                  + str(sorted(f"art. {a} — {c}" for c, a in _quedan))
+                                  + ". Compruébalos antes de firmar.")
+    except Exception as _ex:
+        print(f"   ⚠️ no se pudieron completar los preceptos citados: {_ex}")
+    # ═══ ¿TOCA UNA PREMISA? (rediseño, punto 7) ═══
+    try:
+        import fuente_tardia as _ft
+        _tn = [t for t in (material.tesis or []) if isinstance(t, dict)
+               and str(t.get("registro") or "") not in _t0]
+        _nn = [n for n in (material.normas or []) if isinstance(n, dict)
+               and (str(n.get("articulo")), str(n.get("cuerpo_legal") or n.get("fuente") or "")) not in _n0]
+        if _tn or _nn:
+            _cl = _ft.clasificar(estudio, _tn, _nn)
+            _av_ft, _estado_ft = _ft.informe_y_aviso(_cl)
+            if isinstance(meta, dict):
+                meta["fuentes_tardias"] = list(meta.get("fuentes_tardias") or []) + _cl
+                if _estado_ft:
+                    meta["estado_salida"] = _estado_ft
+            if _av_ft:
+                avisos.insert(0, _av_ft)
+            print(f"   🕰️ fuentes tardías: {len(_cl)} "
+                  f"({sum(1 for c in _cl if c['sustantiva'])} en unidades que deciden)")
+    except Exception as _eft:
+        print(f"   ⚠️ fuentes tardías sin clasificar: {type(_eft).__name__}")
+    return avisos
+
+
 async def resolver(cliente, r: Resultado, criterios: list[f6.Criterio],
                    material: f6.Material, ruta_salida: str,
                    marco: str = "", qdrant=None, contexto: str = "") -> Resultado:
@@ -1673,80 +1786,7 @@ async def resolver(cliente, r: Resultado, criterios: list[f6.Criterio],
     except Exception as _exc_cn:
         print(f"   ⚠️ constancias: {type(_exc_cn).__name__}")
 
-    # LOS PRECEPTOS QUE EL ESTUDIO CITÓ SIN TENERLOS. Si están en el acervo se
-    # traen y se transcriben; el aviso se queda sólo para los que no existen.
-    try:
-        import fase6_rag as _f6r
-        # LAS TESIS QUE EL ESTUDIO NOMBRA POR REGISTRO Y LAS QUE LA PARTE
-        # INVOCÓ, si no están en el material, se traen del acervo por su
-        # registro o su clave: así el compositor las anuncia con su rubro y
-        # baja su ficha al pie en vez de dejarlas en prosa (61/2025: cuatro
-        # criterios de la Segunda Sala «de rubro «…», registro N» sin ficha).
-        if qdrant is not None:
-            try:
-                import fases123_pipeline as _f123c
-                _esc = (list(getattr(r.fases, "fuentes", []) or []) + ["", ""])[1]
-                _citas = _f123c.citas_invocadas(_esc) | _f123c.citas_invocadas(str(estudio or ""))
-                _nuevas = await _f6r.completar_tesis_citadas(
-                    qdrant, material, sorted(_citas),
-                    tipo_asunto=getattr(e, "tipo_asunto", "") or "")
-                if _nuevas:
-                    avisos.append(f"{len(_nuevas)} tesis citadas se trajeron del acervo "
-                                  f"para verificarlas y anunciarlas con su ficha: "
-                                  f"{', '.join(_nuevas[:6])}{'…' if len(_nuevas) > 6 else ''}.")
-                    # Y SE RETIRA EL AVISO QUE ACABA DE QUEDAR FALSO. `revisar`
-                    # corrió ANTES que esto y denunció esos registros como «no
-                    # están en el material: no se citan hasta comprobarlos»; y
-                    # aquí se acaban de traer, verificar y fichar. El proyecto
-                    # salía con los dos avisos, uno contra el otro, y el
-                    # secretario no tiene con qué saber cuál vale. Medido en la
-                    # revisión fiscal 2/2026 con el registro 167062, que el
-                    # documento final SÍ cita, con su ficha completa al pie.
-                    avisos[:] = [_a for _a in avisos
-                                 if not (_a.startswith("REGISTROS QUE NO ESTÁN EN EL MATERIAL")
-                                         and _registros_ya_estan(_a, material))]
-            except Exception as _ex2:
-                print(f"   ⚠️ no se pudieron completar las tesis citadas: {_ex2}")
-        _pares = sorted(f6.preceptos_fuera(estudio, material)[1])
-        if _pares and qdrant is not None:
-            _traidos = await _f6r.completar_preceptos(
-                qdrant, material, _pares, getattr(e, "coleccion_estatal", "") or None,
-                materia=str(getattr(e, "materia", "") or ""),
-                tipo_asunto=getattr(e, "tipo_asunto", "") or "")
-            if _traidos:
-                # SE LE PREGUNTA OTRA VEZ AL MATERIAL, NO SE COMPARAN CADENAS.
-                # Esto decía `f"art. {x[1]} — {x[0]}" not in _traidos`, y
-                # comparaba el nombre CITADO por el estudio —«ley del seguro
-                # social», en minúsculas— contra el nombre OFICIAL del acervo
-                # —«Ley del Seguro Social»—, que no coinciden nunca. Medido en
-                # la revisión fiscal 2/2026: los artículos 17 y 251 SÍ se
-                # trajeron, y el aviso los siguió acusando como ausentes junto
-                # al que de verdad faltaba. Un aviso que acusa a los inocentes
-                # enseña a no leer los avisos. El material ya completado es la
-                # única fuente de verdad sobre qué sigue faltando.
-                _quedan = sorted(f6.preceptos_fuera(estudio, material)[1])
-                # Y LO QUE VINO DE INTERNET SE DICE APARTE. Al recalcular el
-                # aviso desaparecía el de «preceptos que no están en el
-                # material» —correcto, porque ya están— pero nadie decía que
-                # algunos se habían transcrito de un sitio web. El hueco
-                # tapado en silencio es peor que el hueco declarado.
-                _web_p = list(getattr(material, "preceptos_de_internet", []) or [])
-                if _web_p:
-                    avisos.append(
-                        f"{len(_web_p)} PRECEPTO(S) NO ESTÁN EN EL ACERVO y se "
-                        f"transcribieron de su fuente oficial en línea: "
-                        f"{', '.join(_web_p[:4])}"
-                        f"{'…' if len(_web_p) > 4 else ''}. La nota al pie dice "
-                        f"de dónde salió cada uno. COTÉJALOS antes de firmar: "
-                        f"no pasaron por la verificación del acervo.")
-                avisos = [a for a in avisos
-                          if not str(a).startswith("PRECEPTOS CITADOS QUE NO ESTÁN")]
-                if _quedan:
-                    avisos.append("PRECEPTOS CITADOS QUE NO ESTÁN EN EL MATERIAL: "
-                                  + str(sorted(f"art. {a} — {c}" for c, a in _quedan))
-                                  + ". Compruébalos antes de firmar.")
-    except Exception as _ex:
-        print(f"   ⚠️ no se pudieron completar los preceptos citados: {_ex}")
+    avisos = await _fuentes_tardias(r, e, material, estudio, avisos, qdrant, _meta)
     return await _terminar(cliente, r, e, criterios, material, estudio,
                            advertencias, avisos, tarea_marco, ruta_salida, qdrant, marco,
                            contexto, meta_estudio=_meta)
@@ -1861,80 +1901,7 @@ async def resolver_en_vivo(cliente, r: Resultado, criterios: list[f6.Criterio],
         print(f"   ⚠️ constancias: {type(_exc_cn).__name__}")
 
     yield {"tipo": "componiendo"}
-    # LOS PRECEPTOS QUE EL ESTUDIO CITÓ SIN TENERLOS. Si están en el acervo se
-    # traen y se transcriben; el aviso se queda sólo para los que no existen.
-    try:
-        import fase6_rag as _f6r
-        # LAS TESIS QUE EL ESTUDIO NOMBRA POR REGISTRO Y LAS QUE LA PARTE
-        # INVOCÓ, si no están en el material, se traen del acervo por su
-        # registro o su clave: así el compositor las anuncia con su rubro y
-        # baja su ficha al pie en vez de dejarlas en prosa (61/2025: cuatro
-        # criterios de la Segunda Sala «de rubro «…», registro N» sin ficha).
-        if qdrant is not None:
-            try:
-                import fases123_pipeline as _f123c
-                _esc = (list(getattr(r.fases, "fuentes", []) or []) + ["", ""])[1]
-                _citas = _f123c.citas_invocadas(_esc) | _f123c.citas_invocadas(str(estudio or ""))
-                _nuevas = await _f6r.completar_tesis_citadas(
-                    qdrant, material, sorted(_citas),
-                    tipo_asunto=getattr(e, "tipo_asunto", "") or "")
-                if _nuevas:
-                    avisos.append(f"{len(_nuevas)} tesis citadas se trajeron del acervo "
-                                  f"para verificarlas y anunciarlas con su ficha: "
-                                  f"{', '.join(_nuevas[:6])}{'…' if len(_nuevas) > 6 else ''}.")
-                    # Y SE RETIRA EL AVISO QUE ACABA DE QUEDAR FALSO. `revisar`
-                    # corrió ANTES que esto y denunció esos registros como «no
-                    # están en el material: no se citan hasta comprobarlos»; y
-                    # aquí se acaban de traer, verificar y fichar. El proyecto
-                    # salía con los dos avisos, uno contra el otro, y el
-                    # secretario no tiene con qué saber cuál vale. Medido en la
-                    # revisión fiscal 2/2026 con el registro 167062, que el
-                    # documento final SÍ cita, con su ficha completa al pie.
-                    avisos[:] = [_a for _a in avisos
-                                 if not (_a.startswith("REGISTROS QUE NO ESTÁN EN EL MATERIAL")
-                                         and _registros_ya_estan(_a, material))]
-            except Exception as _ex2:
-                print(f"   ⚠️ no se pudieron completar las tesis citadas: {_ex2}")
-        _pares = sorted(f6.preceptos_fuera(estudio, material)[1])
-        if _pares and qdrant is not None:
-            _traidos = await _f6r.completar_preceptos(
-                qdrant, material, _pares, getattr(e, "coleccion_estatal", "") or None,
-                materia=str(getattr(e, "materia", "") or ""),
-                tipo_asunto=getattr(e, "tipo_asunto", "") or "")
-            if _traidos:
-                # SE LE PREGUNTA OTRA VEZ AL MATERIAL, NO SE COMPARAN CADENAS.
-                # Esto decía `f"art. {x[1]} — {x[0]}" not in _traidos`, y
-                # comparaba el nombre CITADO por el estudio —«ley del seguro
-                # social», en minúsculas— contra el nombre OFICIAL del acervo
-                # —«Ley del Seguro Social»—, que no coinciden nunca. Medido en
-                # la revisión fiscal 2/2026: los artículos 17 y 251 SÍ se
-                # trajeron, y el aviso los siguió acusando como ausentes junto
-                # al que de verdad faltaba. Un aviso que acusa a los inocentes
-                # enseña a no leer los avisos. El material ya completado es la
-                # única fuente de verdad sobre qué sigue faltando.
-                _quedan = sorted(f6.preceptos_fuera(estudio, material)[1])
-                # Y LO QUE VINO DE INTERNET SE DICE APARTE. Al recalcular el
-                # aviso desaparecía el de «preceptos que no están en el
-                # material» —correcto, porque ya están— pero nadie decía que
-                # algunos se habían transcrito de un sitio web. El hueco
-                # tapado en silencio es peor que el hueco declarado.
-                _web_p = list(getattr(material, "preceptos_de_internet", []) or [])
-                if _web_p:
-                    avisos.append(
-                        f"{len(_web_p)} PRECEPTO(S) NO ESTÁN EN EL ACERVO y se "
-                        f"transcribieron de su fuente oficial en línea: "
-                        f"{', '.join(_web_p[:4])}"
-                        f"{'…' if len(_web_p) > 4 else ''}. La nota al pie dice "
-                        f"de dónde salió cada uno. COTÉJALOS antes de firmar: "
-                        f"no pasaron por la verificación del acervo.")
-                avisos = [a for a in avisos
-                          if not str(a).startswith("PRECEPTOS CITADOS QUE NO ESTÁN")]
-                if _quedan:
-                    avisos.append("PRECEPTOS CITADOS QUE NO ESTÁN EN EL MATERIAL: "
-                                  + str(sorted(f"art. {a} — {c}" for c, a in _quedan))
-                                  + ". Compruébalos antes de firmar.")
-    except Exception as _ex:
-        print(f"   ⚠️ no se pudieron completar los preceptos citados: {_ex}")
+    avisos = await _fuentes_tardias(r, e, material, estudio, avisos, qdrant, _meta)
     res = await _terminar(cliente, r, e, criterios, material, estudio,
                           advertencias, avisos, tarea_marco, ruta_salida, qdrant, marco,
                           contexto, meta_estudio=_meta)
@@ -2476,8 +2443,27 @@ async def _terminar(cliente, r, e, criterios, material, estudio,
             nuevos = [x for x in _extra
                       if (x["articulo"], x["cuerpo_legal"]) not in _ya]
             material.normas = list(material.normas or []) + nuevos
+            # AL DOCUMENTO TAMBIÉN (29-sep-2026). El relleno se armó arriba con
+            # la lista anterior y aquí se reasignaba otra: los artículos
+            # recuperados nunca llegaban a `_componer_generado`.
+            relleno.normas = material.normas
             print(f"   ⚖️ artículos citados recuperados: {len(nuevos)} nuevos "
                   f"de {len(_extra)} hallados")
+            # Y SON FUENTE TARDÍA: el estudio los citó sin su texto (punto 7).
+            try:
+                import fuente_tardia as _ft
+                _cl = _ft.clasificar(estudio, (), nuevos,
+                                     mapa=(meta_estudio or {}).get("mapa"),
+                                     parrafos=f6.parrafos(estudio))
+                _av_ft, _estado_ft = _ft.informe_y_aviso(_cl)
+                if isinstance(meta_estudio, dict):
+                    meta_estudio["fuentes_tardias"] = list(meta_estudio.get("fuentes_tardias") or []) + _cl
+                    if _estado_ft:
+                        meta_estudio["estado_salida"] = _estado_ft
+                if _av_ft:
+                    avisos.insert(0, _av_ft)
+            except Exception as _eft:
+                print(f"   ⚠️ artículos tardíos sin clasificar: {type(_eft).__name__}")
     except Exception as _ea:
         avisos.append(f"No se pudieron recuperar los artículos citados: {_ea}")
 

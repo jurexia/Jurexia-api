@@ -34956,6 +34956,13 @@ def _taller_meta_listo(res) -> dict:
     # Sólo la familia v2 la trae: la v1 no cambia ni un campo.
     if isinstance(_m.get("congruencia"), dict):
         fuera["congruencia"] = dict(_m["congruencia"])
+    # LAS FUENTES QUE ENTRARON DESPUÉS DE REDACTAR y el ESTADO DE SALIDA
+    # (rediseño, puntos 7 y 8, 29-sep-2026): si alguna toca una unidad que
+    # decide, el proyecto es «justificacion_pendiente», no verificado.
+    if isinstance(_m.get("fuentes_tardias"), list):
+        fuera["fuentes_tardias"] = [dict(x) for x in _m["fuentes_tardias"][:20] if isinstance(x, dict)]
+    if _m.get("estado_salida"):
+        fuera["estado_salida"] = str(_m["estado_salida"])
     return fuera
 
 
