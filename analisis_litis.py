@@ -735,7 +735,16 @@ def bloque_propuesta(doc: dict | None) -> str:
     if doc.get("faltantes"):
         L.append("  FALTA EN LOS INSUMOS: " + "; ".join(f"{x.get('que')} ({x.get('por_que_importa')})"
                                                      for x in doc["faltantes"][:12]))
+    # LO QUE FALTA NO ES «NO ALCANZA» (humo del AR 631/2025, 29-sep): con los
+    # faltantes delante, el motor decidió infundado en los dos problemas y aun
+    # así puso alcanza=false —«faltan constancias esenciales»—, y la pantalla
+    # se quedó sin propuesta que ofrecer. «No alcanza» es para cuando el ACERVO
+    # no sostiene un sentido; un expediente incompleto se dice y baja la
+    # confianza, pero el tribunal decide con lo que consta, y el secretario
+    # siempre puede pedirle al motor una propuesta (regla de David).
     L.append("  REGLA: distingue siempre «no consta en los insumos» de «no acreditado» y de «tenido por "
              "acreditado»; una razón autónoma no combatida sostiene lo resuelto; si falta un insumo "
-             "indispensable, dilo en tu razón en vez de suplirlo.")
+             "indispensable, dilo en tu razón en vez de suplirlo. Lo que falta en los insumos baja tu "
+             "confianza, pero no te impide proponer: decide con lo que consta (alcanza=false queda sólo "
+             "para cuando el acervo no da para sostener ningún sentido).")
     return "\n".join(L) + "\n"

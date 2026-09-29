@@ -238,6 +238,9 @@ _v7 = al.verificar({"faltantes": _F[:2]}, _ACTO, "", "", [], es_recurso=False)
 ok(_v7["faltantes"] == [] and len(_v7["faltantes_depurados"]) == 2
    and "texto completo de la sentencia" not in al.bloque_propuesta(_v7),
    "verificar los depura y la propuesta ya no los lee como una omisión de la Sala")
+ok("no te impide proponer" in al.bloque_propuesta(_v7 | {"razones": [{"id": "R1", "relacion": "autonoma", "afirma": "a",
+                                                                       "conclusion": "b", "verificada": True}]}),
+   "lo que falta en los insumos baja la confianza pero no impide proponer (humo del AR 631: «alcanza» en falso)")
 _pc = al.prompt("a", "b", "x" * 30000 + "FIN", [], [], "", False)
 ok("FIN" in _pc and "SE OMITEN" in _pc.split("CONSTANCIAS")[-1],
    "las constancias tampoco se cortan por el final sin decirlo: principio y final, con la omisión marcada")
