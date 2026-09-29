@@ -1016,6 +1016,13 @@ QUÉ DEVUELVES:
    distinguen (calidad de quien actúa, etapa del procedimiento, acto de que se
    trata) y sin nombres propios. No repite la pregunta tal como la planteó la
    parte o la resolución: es la que contestaría un criterio del Semanario.
+   Cuando la resolución plantea el problema por la CONSECUENCIA que atribuye
+   (que se altera lo ya decidido, que se viola un derecho, que se deja
+   sin defensa), la pregunta decisiva no es si esa consecuencia se produce: es la
+   cuestión de derecho de la que depende, es decir, si la figura es
+   jurídicamente posible para quien está en esa posición, en esa etapa y
+   respecto de ese acto, y con qué requisitos. La consecuencia es sólo el
+   marco en que la resolución la planteó.
 3. `proposicion_toral`: la consideración de la resolución que sostiene el
    fallo en ese punto. `dice`: en una frase tuya. `cita`: las palabras
    LITERALES de la resolución, copiadas del texto de arriba, seguidas, sin

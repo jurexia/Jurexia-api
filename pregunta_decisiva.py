@@ -74,7 +74,13 @@ import unicodedata
 from typing import Any, Optional
 
 FORMATO = 1
-VERSION = "decisiva-1"
+# decisiva-2 (28-sep-2026, AR 631/2025): la pregunta no es la CONSECUENCIA que
+# atribuye la resolución («¿altera la cosa juzgada?»), sino la cuestión de
+# derecho de la que depende («¿puede el adquirente sustituirse válidamente en la
+# ejecución, y con qué requisitos?»). David: «el debate no va en torno a si se
+# infringe la cosa juzgada, sino a la posibilidad jurídica de que un tercero
+# adquirente […] pueda válidamente sustituirse en ejecución».
+VERSION = "decisiva-2"
 CLAVE_MARCA = "decisiva"
 
 
@@ -190,6 +196,9 @@ def doc_de_marca(m: Any, huella: str = "") -> Optional[dict]:
     if huella and m.get("huella") != huella:
         return None
     d = m.get("doc")
+    # Una decisiva de otra versión del prompt no se reutiliza (decisiva-2).
+    if isinstance(d, dict) and d.get("version") not in (None, VERSION):
+        return None
     return d if util(d) else None
 
 
@@ -207,6 +216,7 @@ def util(doc: Any) -> bool:
     extravía la propuesta, la fila del 631 tiene que volver a lo de antes sin
     rehacer el adelanto. Todos los consumidores pasan por aquí."""
     return (activa() and isinstance(doc, dict) and bool(doc.get("formulada"))
+            and doc.get("version") in (None, VERSION)
             and bool(_txt(doc.get("pregunta_decisiva"))))
 
 
