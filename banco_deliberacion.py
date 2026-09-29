@@ -375,7 +375,20 @@ def anotar(fila: dict) -> None:
 # Leen la base; no escriben en ella.
 
 def _main():
+    """`main` SIN el arranque y con sus clientes puestos a mano. Los crea el
+    lifespan (que aquí no corre): sin esto `chat_client` es None, cada llamada
+    del modelo vuelve vacía y la deliberación sale «no respondió» en todo sin
+    que nada falle (visto al probar la etapa 2 el 29-sep)."""
     import main as _m                                   # noqa: WPS433
+    from openai import AsyncOpenAI
+    if getattr(_m, "chat_client", None) is None:
+        _m.chat_client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+    if getattr(_m, "openai_client", None) is None:
+        _m.openai_client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+    if getattr(_m, "qdrant_client", None) is None:
+        from qdrant_client import AsyncQdrantClient
+        _m.qdrant_client = AsyncQdrantClient(url=os.getenv("QDRANT_URL"), api_key=os.getenv("QDRANT_API_KEY"),
+                                             timeout=60)
     return _m
 
 
@@ -393,10 +406,15 @@ async def correr_kingston(solo: int = 0) -> list:
     import banco_kingston as bk
     m = _main()
     filas = []
+    # EL ORO AUDITADO (29-sep): el de `sentido_del_oro` estaba mal en 8 de 24.
+    _aud = bk.oro_auditado() if hasattr(bk, "oro_auditado") else {}
     for caso in bk.banco()[: (solo or None)]:
         numero = bk.numero_de(caso["asunto"])
+        _oro = _aud.get(caso["asunto"]) or bk.sentido_del_oro(caso["oro"])
+        if _oro == "excluir":
+            continue
         fila = {"banco": "kingston", "asunto": caso["asunto"], "numero": numero,
-                "oro": bk.sentido_del_oro(caso["oro"]) == "concede",
+                "oro": _oro == "concede", "oro_auditado": bool(_aud.get(caso["asunto"])),
                 "t0": time.strftime("%Y-%m-%d %H:%M:%S")}
         try:
             d = await _deliberar_sesion(m, bk.CORREO, numero)
