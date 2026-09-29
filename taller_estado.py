@@ -91,8 +91,15 @@ def material_ligero(m) -> dict:
         "tesis": (_dicts([t for t in (getattr(m, "tesis", None) or [])
                           if not (isinstance(t, dict) and t.get("cupo_figura"))], 80)
                   + _dicts([t for t in (getattr(m, "tesis", None) or [])
-                            if isinstance(t, dict) and t.get("cupo_figura")], 12)),
-        "normas": _dicts(getattr(m, "normas", []), 80),
+                            if isinstance(t, dict) and t.get("cupo_figura") and not t.get("para_requisito")], 12)
+                  # LAS DE UN REQUISITO (rediseño, etapa 2), con cupo propio: van
+                  # al final y el de la figura las tiraba al guardar.
+                  + _dicts([t for t in (getattr(m, "tesis", None) or [])
+                            if isinstance(t, dict) and t.get("para_requisito")], 12)),
+        "normas": (_dicts([n for n in (getattr(m, "normas", None) or [])
+                           if not (isinstance(n, dict) and n.get("para_requisito"))], 80)
+                   + _dicts([n for n in (getattr(m, "normas", None) or [])
+                             if isinstance(n, dict) and n.get("para_requisito")], 16)),
         "convencional": _dicts(getattr(m, "convencional", []), 24),
         "materia": str(getattr(m, "materia", "") or ""),
         "tipo_asunto": str(getattr(m, "tipo_asunto", "") or ""),

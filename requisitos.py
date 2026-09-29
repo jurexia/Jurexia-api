@@ -44,6 +44,7 @@ VERSION = "requisitos-1"
 MAX_REQUISITOS = 4
 CUPO_TESIS = 3
 CUPO_NORMAS = 3
+PRECEPTOS_TOPE_S = float(os.getenv("REQUISITOS_PRECEPTOS_TOPE_S", "45"))
 MAX_TOKENS = int(os.getenv("REQUISITOS_MAX_TOKENS", "6000"))
 _RX_JSON = re.compile(r"\{.*\}", re.S)
 _CATALOGO = os.path.join(os.path.dirname(os.path.abspath(__file__)), "scripts",
@@ -151,6 +152,11 @@ _LOCALES_SIN_ENTIDAD = ("codigo civil", "codigo de procedimientos civiles", "cod
                         "codigo de procedimientos familiares", "codigo urbano")
 
 
+# Leyes FEDERALES cuyo nombre dice «del Estado» (el Estado mexicano, no una
+# entidad): la del ISSSTE y la burocrática.
+_FEDERALES_DEL_ESTADO = ("trabajadores del estado", "servicio del estado", "servicios sociales de los trabajadores")
+
+
 def rige_ley_local(dem: dict | None) -> bool:
     """¿Nombra la demostración alguna ley LOCAL? Por el fuero que dice su
     nombre, o por ser uno de los códigos que sin entidad son del estado."""
@@ -159,6 +165,8 @@ def rige_ley_local(dem: dict | None) -> bool:
         for p in q.get("preceptos") or []:
             ley = str((p or {}).get("ley") or "")
             f = _f6r.fuero_de(ley)
+            if any(k in _plano(ley) for k in _FEDERALES_DEL_ESTADO):
+                continue
             if f == "estatal" or (not f and _plano(ley).startswith(_LOCALES_SIN_ENTIDAD)):
                 return True
     return False
@@ -186,29 +194,30 @@ async def recuperar(qdrant, embed_juris, embed_leyes, material, dem: dict, *,
     tengo_t = {str(t.get("registro") or "") for t in (material.tesis or []) if isinstance(t, dict)}
     tengo_n = {(_plano(n.get("cuerpo_legal")), str(n.get("articulo"))) for n in (material.normas or [])
                if isinstance(n, dict)}
+    reqs = [q for q in (dem.get("requisitos") or []) if isinstance(q, dict)]
+
+    # LA LEY DEL ESTADO SÓLO SI RIGE, Y POR REQUISITO. `material_para` abre la
+    # «cesta del acto» con la colección de la entidad y la pone PRIMERO;
+    # medido en el 103/2025 (sucesión agraria, ley federal): los tres cupos de
+    # cada requisito se los llevaron la Ley de Catastro, la de Adolescentes y
+    # el procesal civil de Querétaro. Cada requisito nombra las leyes en que
+    # descansa: la cesta sólo se abre para el que nombra una local (un precepto
+    # local en Q1 no la abre para Q2-Q4).
+    def _col(q) -> str | None:
+        return (coleccion_estatal or None) if rige_ley_local({"requisitos": [q]}) else None
 
     async def _uno(q):
         try:
-            m = await _f6r.material_para(qdrant, embed_juris, embed_leyes, q["consulta_rubro"],
-                                         coleccion_estatal or None, materia=materia, cliente=cliente,
-                                         hecho=q.get("concepto_norma") or "", sede_acto=sede_acto,
-                                         cuaderno=cuaderno)
-            return m
+            return await _f6r.material_para(qdrant, embed_juris, embed_leyes, q["consulta_rubro"],
+                                            _col(q), materia=materia, cliente=cliente,
+                                            hecho=q.get("concepto_norma") or "", sede_acto=sede_acto,
+                                            cuaderno=cuaderno)
         except Exception as ex:
-            print(f"   🧩 REQUISITOS: {q['id']} sin búsqueda ({type(ex).__name__})")
+            print(f"   🧩 REQUISITOS: {q.get('id')} sin búsqueda ({type(ex).__name__})")
             return None
 
-    reqs = dem.get("requisitos") or []
-    # LA LEY DEL ESTADO SÓLO SI RIGE. `material_para` abre la «cesta del acto»
-    # con la colección de la entidad y la pone PRIMERO; medido en el 103/2025
-    # (sucesión agraria, ley federal): los tres cupos de cada requisito se los
-    # llevaron la Ley de Catastro, la de Adolescentes y el procesal civil de
-    # Querétaro. La demostración ya nombró las leyes en que descansa cada
-    # requisito: si ninguna es local, la cesta no se abre.
-    col_estatal = (coleccion_estatal or "") if rige_ley_local(dem) else ""
-    if coleccion_estatal and not col_estatal:
-        print("   🧩 REQUISITOS: la demostración no nombra ley local; se busca sin la del estado")
-    coleccion_estatal = col_estatal
+    if coleccion_estatal and not any(_col(q) for q in reqs):
+        print("   🧩 REQUISITOS: ningún requisito nombra ley local; se busca sin la del estado")
     mats = await asyncio.gather(*[_uno(q) for q in reqs])
     nuevas_t, nuevas_n = [], []
     for q, m in zip(reqs, mats):
@@ -226,13 +235,37 @@ async def recuperar(qdrant, embed_juris, embed_leyes, material, dem: dict, *,
                 if k not in tengo_n:
                     tengo_n.add(k)
                     nuevas_n.append(dict(n, para_requisito=q["id"], origen="requisito"))
-    # LOS PRECEPTOS NOMBRADOS, POR FUERO (el resolvedor de siempre).
-    pares = sorted({(p["ley"], p["articulo"]) for q in reqs for p in q.get("preceptos") or []})
-    antes_n = len(material.normas or [])
-    if pares and qdrant is not None:
+    # Lo hallado entra ANTES de traer los preceptos nombrados: así el
+    # resolvedor ve lo que ya está y no trae dos veces el mismo artículo.
+    material.tesis = list(material.tesis or []) + nuevas_t
+    material.normas = list(material.normas or []) + nuevas_n
+    antes_n = len(material.normas)
+
+    # LOS PRECEPTOS NOMBRADOS, CON LAS MISMAS GUARDAS QUE LOS CITADOS
+    # (`preceptos_fuera`): las leyes notorias no se traen, los artículos de
+    # la suspensión del amparo no entran cuando el acto es de sede ordinaria
+    # (322/2025) y lo que ya está en el material no se repite. El fuero lo
+    # decide el nombre: la colección del estado sólo si alguno es local.
+    import fase6_estudio as _f6e
+    texto = "; ".join(f"artículo {p['articulo']} de la {p['ley']}"
+                      for q in reqs for p in q.get("preceptos") or [] if isinstance(p, dict))
+    pares = []
+    if texto:
         try:
-            await _f6r.completar_preceptos(qdrant, material, pares, coleccion_estatal or None,
-                                           materia=materia, tipo_asunto=tipo_asunto)
+            pares = sorted(_f6e.preceptos_fuera(texto, material)[1])
+        except Exception as ex:
+            print(f"   🧩 REQUISITOS: preceptos nombrados sin filtrar ({type(ex).__name__})")
+    if pares and qdrant is not None:
+        col_nombrados = coleccion_estatal if any(_col(q) for q in reqs) else None
+        try:
+            # Tope propio: el resolvedor puede ir a internet (≈27 s por
+            # artículo) y lo hallado arriba no debe perderse por eso.
+            await asyncio.wait_for(
+                _f6r.completar_preceptos(qdrant, material, pares, col_nombrados,
+                                         materia=materia, tipo_asunto=tipo_asunto),
+                timeout=PRECEPTOS_TOPE_S)
+        except asyncio.TimeoutError:
+            print(f"   🧩 REQUISITOS: los preceptos nombrados no llegaron en {PRECEPTOS_TOPE_S:.0f} s")
         except Exception as ex:
             print(f"   🧩 REQUISITOS: preceptos nombrados sin traer ({type(ex).__name__})")
     nombradas = []
@@ -242,7 +275,8 @@ async def recuperar(qdrant, embed_juris, embed_leyes, material, dem: dict, *,
         if i >= antes_n:
             n.setdefault("origen", "requisito")
         for q in reqs:
-            if any(str(p["articulo"]) == str(n.get("articulo")) and _f6r.misma_ley(p["ley"], n.get("cuerpo_legal") or "")
+            if any(isinstance(p, dict) and str(p.get("articulo")) == str(n.get("articulo"))
+                   and _f6r.misma_ley(str(p.get("ley") or ""), n.get("cuerpo_legal") or "")
                    for p in q.get("preceptos") or []):
                 # El precepto NOMBRADO que ya estaba en el material (de la
                 # consulta) también sostiene el requisito: se rotula, y va
@@ -250,14 +284,13 @@ async def recuperar(qdrant, embed_juris, embed_leyes, material, dem: dict, *,
                 if i >= antes_n:
                     n.setdefault("para_requisito", q["id"])
                 et = f"art. {n.get('articulo')} — {n.get('cuerpo_legal')}"
-                if et not in q["normas"]:
-                    q["normas"].insert(sum(1 for x in q["normas"] if x in q.get("_nombradas", [])), et)
-                    q.setdefault("_nombradas", []).append(et)
+                if et in q["normas"]:
+                    q["normas"].remove(et)
+                q["normas"].insert(len(q.setdefault("_nombradas", [])), et)
+                q["_nombradas"].append(et)
                 nombradas.append((n, q["id"]))
     for q in reqs:
         q.pop("_nombradas", None)
-    material.tesis = list(material.tesis or []) + nuevas_t
-    material.normas = list(material.normas or []) + nuevas_n
     dem["huecos"] = [q["id"] for q in reqs if not (q.get("tesis") or q.get("normas"))]
     vistas, fichas = set(), []
     for n, qid in nombradas + [(n, n.get("para_requisito")) for n in nuevas_n]:
@@ -267,7 +300,7 @@ async def recuperar(qdrant, embed_juris, embed_leyes, material, dem: dict, *,
             fichas.append(ficha_de_regla(dict(n, para_requisito=qid), dem))
     dem["fichas"] = fichas[:12]
     print(f"   🧩 REQUISITOS: {len(reqs)} requisito(s) · {len(nuevas_t)} tesis y "
-          f"{len(material.normas) - antes_n} normas sumadas · {len(dem['huecos'])} hueco(s)")
+          f"{len(nuevas_n) + len(material.normas) - antes_n} normas sumadas · {len(dem['huecos'])} hueco(s)")
     return dem
 
 
@@ -302,6 +335,20 @@ def version_de(cuerpo_legal: str) -> str:
     return "versión sin fecha"
 
 
+def _entidad_por_nombre(cuerpo_legal) -> str:
+    """Sin `entidad` en la norma (las traídas de internet no la llevan): lo
+    que dice su nombre. Nunca «FEDERAL» para un código del estado."""
+    import fase6_rag as _f6r
+    nombre = str(cuerpo_legal or "")
+    if any(k in _plano(nombre) for k in _FEDERALES_DEL_ESTADO):
+        return "FEDERAL"
+    f = _f6r.fuero_de(nombre)
+    if f == "estatal":
+        m = re.search(r"(?i)\bdel estado de ([\wáéíóúñ ]+?)(?:$|[,.;(])", nombre)
+        return (m.group(1).strip().upper() if m else "ESTATAL")
+    return "FEDERAL" if f == "federal" else "SIN FUERO EN EL NOMBRE"
+
+
 def ficha_de_regla(n: dict, dem: dict | None = None) -> dict:
     """texto + fuente + versión + ámbito + requisitos + excepciones + consecuencia."""
     q = next((x for x in (dem or {}).get("requisitos") or [] if x.get("id") == n.get("para_requisito")), {})
@@ -309,30 +356,45 @@ def ficha_de_regla(n: dict, dem: dict | None = None) -> dict:
             "texto": _txt(n.get("texto"), 1500),
             "fuente": _txt(n.get("url_pdf")) or ("fuente oficial en línea" if n.get("de_internet") else "acervo"),
             "version": version_de(n.get("cuerpo_legal") or ""),
-            "ambito": {"entidad": _txt(n.get("entidad")) or "FEDERAL", "ubicacion": _txt(n.get("jerarquia") or n.get("capitulo"))},
+            "ambito": {"entidad": _txt(n.get("entidad")) or _entidad_por_nombre(n.get("cuerpo_legal")),
+                       "ubicacion": _txt(n.get("jerarquia") or n.get("capitulo"))},
             "requisito": q.get("id") or "", "enunciado": q.get("enunciado") or "",
             "excepciones": list((dem or {}).get("excepciones") or [])[:3],
             "consecuencias": list((dem or {}).get("consecuencias") or [])[:3]}
 
 
-def bloque_propuesta(dem: dict | None) -> str:
-    """La demostración como DATOS para la propuesta. «» sin ella."""
+def bloque_propuesta(dem: dict | None, material=None) -> str:
+    """La demostración como DATOS para la propuesta. «» sin ella. Con el
+    `material`, sólo se nombran las fuentes que de verdad están en él (al
+    guardar hay topes, y en el otro worker puede faltar lo que aquí se sumó)."""
     if not isinstance(dem, dict) or not dem.get("requisitos"):
         return ""
-    L = ["", "LA DEMOSTRACIÓN QUE HAY QUE COMPLETAR (por requisitos; las fuentes ya están en el material):"]
+    presentes_t = presentes_n = None
+    if material is not None:
+        presentes_t = {str(t.get("registro") or "") for t in (getattr(material, "tesis", None) or [])
+                       if isinstance(t, dict)}
+        presentes_n = {f"art. {n.get('articulo')} — {n.get('cuerpo_legal')}"
+                       for n in (getattr(material, "normas", None) or []) if isinstance(n, dict)}
+    L = ["", "LA DEMOSTRACIÓN QUE HAY QUE COMPLETAR (por requisitos; las fuentes nombradas están en el material):"]
     for k, e in (("FIGURA", "figura"), ("MECANISMO", "mecanismo"), ("MOMENTO", "momento")):
         if dem.get(e):
-            L.append(f"  {k}: {dem[e]}")
+            L.append(f"  {k}: {_txt(dem[e])}")
     for q in dem["requisitos"]:
-        fuentes = ", ".join((q.get("tesis") or [])[:3] + (q.get("normas") or [])[:3])
-        L.append(f"  {q['id']}. {q['enunciado']} — "
+        if not isinstance(q, dict):
+            continue
+        ts = [x for x in (q.get("tesis") or []) if presentes_t is None or str(x) in presentes_t]
+        ns = [x for x in (q.get("normas") or []) if presentes_n is None or x in presentes_n]
+        fuentes = ", ".join([str(x) for x in ts[:3]] + [str(x) for x in ns[:3]])
+        L.append(f"  {q.get('id', '')}. {_txt(q.get('enunciado'))} — "
                  + (f"fuentes: {fuentes}" if fuentes else "SIN FUENTE EN EL ACERVO: dilo, no lo supla"))
     if dem.get("excepciones"):
-        L.append("  EXCEPCIONES: " + "; ".join(dem["excepciones"]))
+        L.append("  EXCEPCIONES: " + "; ".join(_txt(x) for x in dem["excepciones"]))
     if dem.get("consecuencias"):
-        L.append("  CONSECUENCIAS: " + "; ".join(dem["consecuencias"]))
+        L.append("  CONSECUENCIAS: " + "; ".join(_txt(x) for x in dem["consecuencias"]))
     for f in (dem.get("fichas") or [])[:6]:
-        L.append(f"  · {f['norma']} ({f['version']}; {f['ambito']['entidad']})")
+        if not isinstance(f, dict) or (presentes_n is not None and f.get("norma") not in presentes_n):
+            continue
+        L.append(f"  · {f.get('norma')} ({f.get('version')}; {(f.get('ambito') or {}).get('entidad', '')})")
     L.append("  REGLA: la solución tiene que cubrir cada requisito con su fuente o decir que falta; un "
              "requisito sin fuente no se da por cumplido ni por incumplido de memoria.")
     return "\n".join(L) + "\n"

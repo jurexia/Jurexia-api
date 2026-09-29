@@ -121,6 +121,47 @@ ok(_dd["requisitos"][0]["normas"][:1] == ["art. 189 — Ley Agraria"] and _dd["h
    and _dd["fichas"] and _dd["fichas"][0]["norma"] == "art. 189 — Ley Agraria",
    "el precepto nombrado que YA estaba en el material sostiene el requisito y tiene ficha")
 
+ok(not rq.rige_ley_local(_d("Ley del Instituto de Seguridad y Servicios Sociales de los Trabajadores del Estado"))
+   and not rq.rige_ley_local(_d("Ley Federal de los Trabajadores al Servicio del Estado")),
+   "la Ley del ISSSTE dice «del Estado» y es federal: no abre la ley de la entidad")
+ok(rq._entidad_por_nombre("Código Civil del Estado de Querétaro") == "QUERÉTARO"
+   and rq._entidad_por_nombre("Ley Agraria") == "SIN FUERO EN EL NOMBRE"
+   and rq._entidad_por_nombre("Código Fiscal de la Federación") == "FEDERAL",
+   "la ficha no llama federal a un código del estado traído de internet (sin `entidad`)")
+
+
+async def _prueba_por_requisito():
+    import fase6_rag as f6r
+    orig_mp, orig_cp = f6r.material_para, f6r.completar_preceptos
+    vistas = {}
+
+    async def falso_mp(q, ej, el, problema, col, materia="", cliente=None, hecho="", sede_acto="", cuaderno=""):
+        vistas[problema] = col
+        return types.SimpleNamespace(tesis=[], normas=[])
+
+    async def falso_cp(q, material, pares, col=None, materia="", tipo_asunto=""):
+        vistas["pares"] = sorted(pares)
+        return []
+    f6r.material_para, f6r.completar_preceptos = falso_mp, falso_cp
+    try:
+        m = Mat()
+        m.sede_del_acto, m.cuaderno = "ordinaria", "principal"
+        d = rq._normalizar({"requisitos": [
+            {"id": "Q1", "enunciado": "a", "consulta_rubro": "LOCAL",
+             "preceptos": [{"ley": "Código Civil del Estado de Querétaro", "articulo": "1480"}]},
+            {"id": "Q2", "enunciado": "b", "consulta_rubro": "FEDERAL",
+             "preceptos": [{"ley": "Ley de Amparo", "articulo": "128"}, {"ley": "Código Civil Federal", "articulo": "1"}]}]})
+        await rq.recuperar(object(), None, None, m, d, coleccion_estatal="leyes_queretaro")
+        return vistas
+    finally:
+        f6r.material_para, f6r.completar_preceptos = orig_mp, orig_cp
+
+_vp = asyncio.run(_prueba_por_requisito())
+ok(_vp.get("LOCAL") == "leyes_queretaro" and _vp.get("FEDERAL") is None,
+   "la ley del estado se abre SÓLO para el requisito que nombra una ley local")
+ok(_vp.get("pares") == [("código civil del estado de querétaro", "1480")],
+   "los preceptos nombrados pasan las guardas de siempre: ni la suspensión del amparo en sede ordinaria ni lo ya presente")
+
 print("\n3 · LA FICHA Y LA VERSIÓN")
 import json as _j
 _una = _j.load(open("scripts/leyes_federales_catalogo.json", encoding="utf-8"))[0]["ley"]
@@ -141,7 +182,20 @@ mat = types.SimpleNamespace(normas=[{"cuerpo_legal": f"Ley {i}", "articulo": str
 ct.poner(True, {}, pruebas=False)
 ok("Ley CITADA" not in f5._bloque_normas(mat), "sin la bandera, como hoy: la citada al final se queda fuera del corte de 10")
 ct.poner(True, {}, pruebas=True)
-ok(f5._bloque_normas(mat).startswith("· Ley CITADA"), "con la bandera, lo citado primero")
+_bn = f5._bloque_normas(mat)
+ok(_bn.startswith("· Ley 0") and "Ley 9 —" in _bn and "Ley CITADA" in _bn and "Ley 10 —" not in _bn,
+   "con la bandera, las diez de la consulta se quedan y lo traído se SUMA detrás (no las desplaza)")
+_mat2 = types.SimpleNamespace(normas=[{"cuerpo_legal": f"Ley {i}", "articulo": str(i), "texto": "t"} for i in range(10)]
+                                     + [{"cuerpo_legal": f"Ley R{i}", "articulo": str(i), "texto": "t", "origen": "requisito"}
+                                        for i in range(10)])
+_bn2 = f5._bloque_normas(_mat2)
+ok(_bn2.count("· Ley R") == f5.NORMAS_TRAIDAS_EXTRA and "· Ley 9 —" in _bn2,
+   "con diez de requisitos, la ley de la consulta sigue en el prompt (revisión adversarial) y el extra tiene tope")
+b_sin = __import__("requisitos").bloque_propuesta(
+    {"requisitos": [{"id": "Q1", "enunciado": "e", "tesis": ["123"], "normas": ["art. 1 — Ley X"]}]},
+    types.SimpleNamespace(tesis=[], normas=[]))
+ok("SIN FUENTE EN EL ACERVO" in b_sin and "123" not in b_sin,
+   "la fuente que no llegó al material (tope al guardar, otro worker) no se nombra como presente")
 
 print("\n6 · EL CABLEADO")
 src = open("main.py", encoding="utf-8").read()

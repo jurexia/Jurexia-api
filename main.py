@@ -33561,7 +33561,8 @@ async def _taller_preanalizar(email: str, numero: str, r) -> None:
                 "huella": huella, "huella_analisis": _ha, "estado": "en_curso", "desde": _desde}, huella):
             return
         _fuentes = list(getattr(r.fases, "fuentes", []) or []) + ["", ""]
-        _segs = _inv_a.segmentos(r.fases, str(_fuentes[1] or ""), bool(r.encargo and r.encargo.es_recurso))
+        _segs = _inv_a.segmentos(r.fases, str(_fuentes[1] or ""), bool(r.encargo and r.encargo.es_recurso),
+                                 extraidos=list(getattr(r.encargo, "inventario_escrito", None) or []))
         _t0 = time.perf_counter()
         doc = await _taller_con_latido(email, numero, _al.CLAVE_MARCA, huella, _desde,
                                        _al.analizar(chat_client, r, _segs, ficha=_taller_ficha_bloque(r)))
@@ -33591,12 +33592,24 @@ async def _taller_esperar_analisis(email: str, numero: str, r):
             "el análisis neutral", tope=ANALISIS_ESPERA_S, abandonado=_te.LATIDO_ABANDONADO_S)
         if doc and doc.get("huella_analisis") == _al.huella(r) and isinstance(doc.get("doc"), dict):
             return doc["doc"]
-        # NO LO HAY (sesión anterior a la bandera, worker caído, adelanto
-        # cambiado): se calcula AQUÍ, con el mismo tope. Si no llega a tiempo,
-        # se propone sin él —nunca se bloquea— y queda la marca para después.
+        # SÓLO SE CALCULA AQUÍ SI NADIE LO ESTÁ HACIENDO (revisión adversarial:
+        # antes, tras esperar 180 s al de fondo, se lanzaba otro de 180 s y se
+        # pagaba dos veces). Si el de fondo sigue vivo, o ya falló con ESTE
+        # adelanto y esta versión, se propone sin él. Se calcula aquí cuando no
+        # hay marca (sesión anterior a la bandera), cuando el de fondo murió o
+        # cuando la marca es de otra versión del análisis.
+        _m = _taller_leer_marca(email, numero, _al.CLAVE_MARCA)
+        if isinstance(_m, dict) and _m.get("huella") == _h and _m.get("huella_analisis") == _al.huella(r):
+            if _m.get("estado") == "fallo" or (
+                    _m.get("estado") == "en_curso"
+                    and not _te.abandonada(_m, time.time, _te.LATIDO_ABANDONADO_S)):
+                print(f"   🔎 el análisis neutral de {numero} "
+                      f"{'falló' if _m.get('estado') == 'fallo' else 'sigue en curso'}: se propone sin él")
+                return None
         import inventario as _inv_e
         _fu = list(getattr(r.fases, "fuentes", []) or []) + ["", ""]
-        _segs = _inv_e.segmentos(r.fases, str(_fu[1] or ""), bool(r.encargo and r.encargo.es_recurso))
+        _segs = _inv_e.segmentos(r.fases, str(_fu[1] or ""), bool(r.encargo and r.encargo.es_recurso),
+                                 extraidos=list(getattr(r.encargo, "inventario_escrito", None) or []))
         _t0 = time.perf_counter()
         try:
             nuevo = await asyncio.wait_for(
@@ -33613,7 +33626,7 @@ async def _taller_esperar_analisis(email: str, numero: str, r):
         return None
 
 
-REQUISITOS_ESPERA_S = float(os.getenv("REQUISITOS_ESPERA_S", "120"))
+REQUISITOS_ESPERA_S = float(os.getenv("REQUISITOS_ESPERA_S", "90"))
 
 
 async def _taller_requisitos(email: str, numero: str, r, ses: dict, analisis=None):
@@ -33627,10 +33640,28 @@ async def _taller_requisitos(email: str, numero: str, r, ses: dict, analisis=Non
     m = ses.get("material")
     if m is None:
         return None
-    _h = _te.huella_contraste(r)
+    # LA CLAVE LLEVA LO QUE LA DEMOSTRACIÓN LEE: el adelanto, y si ya estaban
+    # el análisis y la pregunta decisiva. Una hecha sin ellos (vencieron sus
+    # topes) no se reutiliza cuando ya llegaron.
+    _h = (f"{_te.huella_contraste(r)}|a{1 if analisis else 0}"
+          f"|d{1 if getattr(m, 'decisiva', None) else 0}")
     ya = getattr(m, "requisitos", None) or {}
-    if isinstance(ya, dict) and ya.get("huella") == _h and ya.get("requisitos"):
-        return ya
+    if isinstance(ya, dict) and ya.get("huella") == _h:
+        if ya.get("requisitos"):
+            return ya
+        if ya.get("estado") in ("tiempo", "fallo"):
+            return None       # un intento por adelanto: no se paga en cada propuesta
+    _antes_t, _antes_n = list(m.tesis or []), list(m.normas or [])
+
+    def _deshacer(estado: str):
+        # Lo que se alcanzó a sumar antes del tope se quita: el material queda
+        # como estaba y la marca evita volver a pagar la espera.
+        m.tesis, m.normas = _antes_t, _antes_n
+        m.requisitos = {"huella": _h, "estado": estado}
+        try:
+            _taller_guardar_material(email, numero, m, huella=_te.huella_contraste(r))
+        except Exception:
+            pass
     try:
         import requisitos as _rq
         probs = _te.problemas_de(r)
@@ -33653,17 +33684,39 @@ async def _taller_requisitos(email: str, numero: str, r, ses: dict, analisis=Non
                 sede_acto=getattr(m, "sede_del_acto", "") or "", cuaderno=getattr(m, "cuaderno", "") or "")
         dem = await asyncio.wait_for(_todo(), timeout=REQUISITOS_ESPERA_S)
         if not dem:
+            _deshacer("fallo")
             return None
+        # EL CANDADO DE LA LITIS, TAMBIÉN SOBRE LO QUE TRAJERON LOS REQUISITOS
+        # (revisión adversarial: se aplicaba antes y la ley local que quitaba
+        # volvía por aquí, y además delante).
+        try:
+            import litis_normativa as _ln_r
+            _litis_r = _ln_r.leyes_de_la_litis(getattr(r, "fases", None))
+            if _litis_r:
+                _bn_r, _fn_r = _ln_r.filtrar_normas(m.normas, _litis_r)
+                if _fn_r:
+                    m.normas = _bn_r
+                    _quedan = {f"art. {n.get('articulo')} — {n.get('cuerpo_legal')}" for n in _bn_r if isinstance(n, dict)}
+                    for q in dem.get("requisitos") or []:
+                        q["normas"] = [x for x in q.get("normas") or [] if x in _quedan]
+                    dem["fichas"] = [f for f in dem.get("fichas") or [] if f.get("norma") in _quedan]
+                    dem["huecos"] = [q["id"] for q in dem.get("requisitos") or []
+                                     if not (q.get("tesis") or q.get("normas"))]
+                    print(f"   ⚖️ LITIS sobre los requisitos: {len(_fn_r)} norma(s) fuera")
+        except Exception as _exc_lr:
+            print(f"   ⚠️ litis sobre los requisitos: {type(_exc_lr).__name__}")
         dem["huella"] = _h
         m.requisitos = dem
-        _taller_guardar_material(email, numero, m, huella=_h)
+        _taller_guardar_material(email, numero, m, huella=_te.huella_contraste(r))
         return dem
     except asyncio.TimeoutError:
         print(f"   🧩 la demostración por requisitos de {numero} no llegó en {REQUISITOS_ESPERA_S:.0f} s: "
               f"se propone con el material de siempre")
+        _deshacer("tiempo")
         return None
     except Exception as ex:
         print(f"   ⚠️ recuperación por requisitos de {numero}: {err(ex)}")
+        _deshacer("fallo")
         return None
 
 

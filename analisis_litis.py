@@ -57,7 +57,7 @@ import json
 import os
 import re
 
-VERSION = "analisis-1"
+VERSION = "analisis-2"
 MAX_ACTO = 60000
 MAX_ESCRITO = 60000
 MAX_AUTOS = 20000
@@ -179,23 +179,81 @@ Responde SÓLO con el JSON."""
 # lectura («se derivan lidselementos constitutivos desus pretensiones»,
 # «la senora pilar felipaz huefta») y el modelo citó el texto limpio. Con la
 # comprobación literal, ese hecho bajaba a «sin_verificar» aunque el expediente
-# lo dijera. La tolerancia es de CARACTERES, no de ideas: la cita tiene que
-# caer, en orden y en un solo tramo del texto, con al menos el 85% de sus
-# letras. Una paráfrasis no llega; una frase con dos palabras mal leídas, sí.
-UMBRAL_OCR = 0.85
+# lo dijera.
+#
+# LA TOLERANCIA ES DE LECTURA, NO DE SENTIDO, y se mide PALABRA POR PALABRA
+# contra el tramo alineado (revisión adversarial: la primera versión medía
+# letras y aceptaba «probó» donde el acto dice «no probó», «fundado» por
+# «infundado» y «2025» por «2024»). Entre la cita y el tramo sólo se admite
+# que un grupo corto de palabras se lea distinto con casi las mismas letras
+# («los elementos» ↔ «lidselementos», «informado que la» ↔ «informad
+# quezla»). Nunca: una palabra de más o de menos, una negación distinta, una
+# cifra distinta, un prefijo o una palabra corta cambiada («y» ↔ «o»).
 MIN_PALABRAS_OCR = 8
+_CORTAS_CON_SENTIDO = frozenset(("y", "e", "o", "u", "si", "con", "mas", "menos", "ante", "sobre", "entre"))
+_NEGACIONES = frozenset(("no", "ni", "sin", "nunca", "jamas", "tampoco", "nadie", "ninguno", "ninguna", "nada"))
 
 
-def casi_literal(cita: str, texto, umbral: float = UMBRAL_OCR) -> bool:
-    """¿Está la cita en `texto` (un `plan_estudio.Texto`) salvo errores de
-    lectura? Anclas de tres palabras votan el arranque del tramo; en el tramo
-    se mide qué parte de la cita aparece en orden."""
+def _lectura_distinta(qs: list, ss: list) -> bool:
+    """¿Es `ss` (el texto) una mala lectura de `qs` (la cita)?"""
     import difflib
-    import plan_estudio as _pe
-    qw = _pe._palabras(cita)
-    if len(qw) < MIN_PALABRAS_OCR or not texto:
+    if len(qs) > 3 or len(ss) > 3 or not qs or not ss:
         return False
-    q = " ".join(qw)
+    if any(w in _NEGACIONES for w in qs + ss):
+        return False
+    # «escritos o l as pruebas» contra «escritos y l as pruebas»: dentro de un
+    # grupo pegado, la palabra corta que cambia el sentido tiene que ser la misma.
+    if any(qs.count(w) != ss.count(w) for w in set(qs + ss) if w in _CORTAS_CON_SENTIDO):
+        return False
+    if any(ch.isdigit() for w in qs + ss for ch in w):
+        return False
+    a, b = "".join(qs), "".join(ss)
+    if abs(len(a) - len(b)) > 2:
+        return False
+    if len(qs) == 1 and len(ss) == 1 and min(len(a), len(b)) <= 3:
+        return False
+    # Un prefijo puesto o quitado cambia el sentido («legal»/«ilegal»,
+    # «procedente»/«improcedente»); una letra final perdida es lectura.
+    if a != b and (a.endswith(b) or b.endswith(a)):
+        return False
+    return difflib.SequenceMatcher(None, a, b, autojunk=False).ratio() >= 0.75
+
+
+def _alinea(qw: list, win: list) -> bool:
+    import difflib
+    # a = la cita, b = el texto: «insert» es texto que la cita no trae (sólo
+    # se tolera antes de su arranque y después de su final) y «delete» es
+    # cita que el texto no trae (nunca).
+    ops = difflib.SequenceMatcher(None, qw, win, autojunk=False).get_opcodes()
+    while ops and ops[0][0] == "insert":
+        ops.pop(0)
+    while ops and ops[-1][0] == "insert":
+        ops.pop()
+    if not ops:
+        return False
+    iguales = sum(i2 - i1 for op, i1, i2, _, _ in ops if op == "equal")
+    if iguales < 0.7 * len(qw):
+        return False
+    for op, i1, i2, j1, j2 in ops:
+        if op == "equal":
+            continue
+        if op != "replace" or not _lectura_distinta(qw[i1:i2], win[j1:j2]):
+            return False
+    return True
+
+
+def casi_literal(cita: str, texto) -> str:
+    """La cita, si está en `texto` (un `plan_estudio.Texto`) salvo errores de
+    lectura; si sobra alguna palabra en sus bordes, sin ellas (como
+    `_recorte_literal`: sólo QUITA). «» si no está. Anclas de tres palabras
+    votan el arranque del tramo."""
+    import plan_estudio as _pe
+    toks = str(cita or "").split()
+    if len(_pe._palabras(cita)) < MIN_PALABRAS_OCR or not texto:
+        return ""
+    n = len(toks)
+    minimo = max(MIN_PALABRAS_OCR, -(-3 * n // 4))
+    candidatas = [toks] + [toks[a:n - (f - a)] for f in (1, 2, 3) for a in range(f + 1)]
     for plano in texto.planos:
         tw = plano.split()
         idx = getattr(texto, "_tejas", {}).get(id(plano))
@@ -206,82 +264,69 @@ def casi_literal(cita: str, texto, umbral: float = UMBRAL_OCR) -> bool:
             if not hasattr(texto, "_tejas"):
                 texto._tejas = {}
             texto._tejas[id(plano)] = idx
-        votos = {}
-        for j in range(len(qw) - 2):
-            for p in idx.get((qw[j], qw[j + 1], qw[j + 2]), [])[:50]:
-                s = (p - j) // 3
-                votos[s] = votos.get(s, 0) + 1
-        for s, v in sorted(votos.items(), key=lambda kv: -kv[1])[:3]:
-            if v < 2:
-                break
-            a = max(0, s * 3 - 6)
-            w = " ".join(tw[a:a + len(qw) + 12])
-            sm = difflib.SequenceMatcher(None, q, w, autojunk=False)
-            if sum(b.size for b in sm.get_matching_blocks()) < umbral * len(q):
+        for c in candidatas:
+            if len(c) < minimo:
                 continue
-            casadas = [False] * len(q)
-            for b in sm.get_matching_blocks():
-                casadas[b.a:b.a + b.size] = [True] * b.size
-            if _palabras_explicadas(qw, tw[a:a + len(qw) + 12], casadas):
-                return True
-    return False
+            qw = _pe._palabras(" ".join(c))
+            votos = {}
+            for j in range(len(qw) - 2):
+                for p in idx.get((qw[j], qw[j + 1], qw[j + 2]), [])[:50]:
+                    votos[p - j] = votos.get(p - j, 0) + 1
+            # los arranques cercanos (±3) son el mismo tramo: se suman
+            juntos = {}
+            for s, v in votos.items():
+                juntos[s // 4] = juntos.get(s // 4, 0) + v
+            for g, v in sorted(juntos.items(), key=lambda kv: -kv[1])[:3]:
+                if v < 2:
+                    break
+                a = max(0, g * 4 - 6)
+                if _alinea(qw, tw[a:a + len(qw) + 12]):
+                    return " ".join(c)
+    return ""
 
 
-# Las palabras que invierten una frase: si la cita las trae, el tramo también.
-_NEGACIONES = ("no", "ni", "sin", "nunca", "jamas", "tampoco", "nadie", "ninguno", "ninguna", "nada")
+def _lista(x) -> list:
+    """Una lista aunque el modelo mande un valor suelto: «R1», «R1, R2», 2."""
+    if x is None:
+        return []
+    if isinstance(x, (list, tuple)):
+        return list(x)
+    if isinstance(x, str):
+        return [s for s in re.split(r"[,;\s]+", x) if s]
+    return [x]
 
 
-def _palabras_explicadas(qw: list, ventana: list, casadas: list | None = None) -> bool:
-    """LO QUE LA CITA AÑADE. El escaneo estropea letras y pega o parte
-    palabras; no inventa palabras enteras ni les pone prefijos. Cada palabra
-    de la cita tiene que estar en el tramo, o parecerse a una de su mismo
-    largo (±1 letra), o ser la mitad de dos palabras pegadas («desus» por
-    «de sus»). Si trae una negación, el tramo la trae tantas veces o más."""
-    import difflib
-    ws = set(ventana)
+def _relacion(x) -> str:
+    """autonoma | conjunta | dependiente. Lo que no se entiende NO se da por
+    autónomo: una razón autónoma sin atacar empuja a negar, y esa alarma sólo
+    se da cuando el modelo lo dijo."""
+    s = _plano_al(x)
+    if s.startswith("autonom"):
+        return "autonoma"
+    if s.startswith("dependient"):
+        return "dependiente"
+    return "conjunta"
 
-    def _parecida(x: str) -> bool:
-        if x in ws:
-            return True
-        if len(x) <= 3:
-            return False
-        return any(abs(len(x) - len(y)) <= 1 and difflib.SequenceMatcher(None, x, y).ratio() >= 0.75
-                   for y in ws)
 
-    for neg in _NEGACIONES:
-        if qw.count(neg) > ventana.count(neg):
-            return False
-    # Y EN SU SITIO: un «no» del tramo que está tres palabras más allá no
-    # respalda el «no» que la cita puso aquí. Cada negación de la cita tiene
-    # que caer, letra por letra, dentro de lo que la alineación casó.
-    # Lo mismo, más flojo, para toda palabra: una palabra que está en el tramo
-    # pero en OTRO sitio («improcedente» traída de dos renglones abajo) no
-    # casa en la alineación. Al menos el 60% de sus letras, en su lugar.
-    if casadas is not None:
-        pos = 0
-        for x in qw:
-            tramo = casadas[pos:pos + len(x)]
-            if x in _NEGACIONES and not all(tramo):
-                return False
-            if len(x) >= 3 and sum(tramo) < 0.6 * len(x):
-                return False
-            pos += len(x) + 1
-    for k, x in enumerate(qw):
-        if _parecida(x):
-            continue
-        if k + 1 < len(qw) and _parecida(x + qw[k + 1]):
-            continue
-        if k > 0 and _parecida(qw[k - 1] + x):
-            continue
-        if any(x[:i] in ws and x[i:] in ws for i in range(1, len(x))):
-            continue
-        return False
-    return True
+def _plano_al(x) -> str:
+    import unicodedata
+    s = unicodedata.normalize("NFD", str(x or "").lower())
+    return " ".join("".join(ch for ch in s if unicodedata.category(ch) != "Mn").split())
+
+
+def _fuente(x) -> str:
+    s = _plano_al(x)
+    if any(k in s for k in ("escrito", "agravio", "demanda", "concepto", "recurso")):
+        return "escrito"
+    if any(k in s for k in ("constancia", "autos", "prueba", "expediente")):
+        return "constancias"
+    return "acto"
 
 
 def verificar(crudo: dict, acto: str, escrito: str, autos: str, segmentos: list) -> dict:
     """El análisis limpio: citas comprobadas, referencias válidas, condiciones
-    del catálogo y las razones autónomas sin combatir calculadas por código."""
+    del catálogo y las razones autónomas sin combatir calculadas por código.
+    Nunca lanza por la forma de lo que devolvió el modelo."""
     import plan_estudio as _pe
     T = {"acto": _pe.Texto(acto or ""), "escrito": _pe.Texto(escrito or ""),
          "constancias": _pe.Texto(autos or "")}
@@ -289,78 +334,119 @@ def verificar(crudo: dict, acto: str, escrito: str, autos: str, segmentos: list)
 
     ocr = set()
 
-    def _cita(c: str, fuente: str) -> tuple:
+    def _cita(c, fuente: str) -> tuple:
+        """(cita, verificada, fuente donde está). Se busca primero en la
+        fuente declarada y después en las demás: una fuente vacía (sin
+        constancias) nunca deja pasar la cita de otra con su nombre."""
         c = _txt(c, 600)
         if not c:
-            return "", False
-        t = T.get(fuente) or T["acto"]
-        if t.contiene(c):
-            return c, True
-        rec, _ = _pe._recorte_literal(c, [t])
-        if rec:
-            return rec, True
-        if casi_literal(c, t):
-            ocr.add(c)
-            return c, True
-        return c, False
+            return "", False, fuente
+        orden = [fuente] + [k for k in ("acto", "escrito", "constancias") if k != fuente]
+        for k in orden:
+            t = T[k]
+            if not t:
+                continue
+            if t.contiene(c):
+                return c, True, k
+            rec, _ = _pe._recorte_literal(c, [t])
+            if rec:
+                return rec, True, k
+        for k in orden:
+            if T[k]:
+                rec = casi_literal(c, T[k])
+                if rec:
+                    ocr.add(rec)
+                    return rec, True, k
+        return c, False, fuente
 
     razones, ids_r = [], set()
-    for i, x in enumerate(d.get("razones") or [], 1):
+    # Los ids que el modelo SÍ puso se reservan antes: la razón sin id no
+    # puede quedarse con el de una que viene después (y borrarla).
+    _explicitos = {_txt(x.get("id")).upper() for x in _lista(d.get("razones"))
+                   if isinstance(x, dict) and _txt(x.get("id"))}
+    for i, x in enumerate(_lista(d.get("razones")), 1):
         if not isinstance(x, dict):
             continue
-        rid = _txt(x.get("id")) or f"R{i}"
-        if rid in ids_r:
+        rid = _txt(x.get("id")).upper()
+        if rid and rid in ids_r:
             continue
+        if not rid:
+            k = i
+            while f"R{k}" in ids_r or f"R{k}" in _explicitos:
+                k += 1
+            rid = f"R{k}"
         ids_r.add(rid)
-        rel = _txt(x.get("relacion")).lower()
-        cita, ok = _cita(x.get("cita"), "acto")
+        cita, ok, _ = _cita(x.get("cita"), "acto")
+        _probs = []
+        for p in _lista(x.get("problemas")):
+            try:
+                _probs.append(int(str(p).strip()))
+            except (TypeError, ValueError):
+                pass
         razones.append({"id": rid, "afirma": _txt(x.get("afirma"), 800),
                         "conclusion": _txt(x.get("conclusion"), 600),
-                        "relacion": rel if rel in RELACIONES else "autonoma",
-                        "con": [_txt(c) for c in (x.get("con") or []) if _txt(c)],
-                        "problemas": [int(p) for p in (x.get("problemas") or [])
-                                      if str(p).strip().isdigit()],
+                        "relacion": _relacion(x.get("relacion")),
+                        "con": [_txt(c).upper() for c in _lista(x.get("con")) if _txt(c)],
+                        "problemas": _probs,
                         "cita": cita, "verificada": ok, **({"lectura": "ocr"} if cita in ocr else {})})
     for r_ in razones:
         r_["con"] = [c for c in r_["con"] if c in ids_r and c != r_["id"]]
 
-    ids_seg = {str(s.get("id")) for s in (segmentos or []) if isinstance(s, dict) and s.get("id")}
-    argumentos, vistos = [], set()
-    for x in (d.get("argumentos") or []):
+    # LOS SEGMENTOS, POR SU ID SIN MAYÚSCULAS NI ESPACIOS; el mismo segmento
+    # dos veces SUMA sus ataques (antes el segundo se perdía, y con él una
+    # razón quedaba «sin combatir»).
+    ids_seg = {_txt(s.get("id")).upper(): str(s.get("id")) for s in (segmentos or [])
+               if isinstance(s, dict) and s.get("id")}
+    argumentos, por_seg = [], {}
+    for x in _lista(d.get("argumentos")):
         if not isinstance(x, dict):
             continue
-        sid = _txt(x.get("segmento"))
-        if ids_seg and sid not in ids_seg:
+        sid = _txt(x.get("segmento")).upper()
+        if ids_seg:
+            if sid not in ids_seg:
+                continue
+            sid = ids_seg[sid]
+        combate = [c for c in (_txt(y).upper() for y in _lista(x.get("combate"))) if c in ids_r]
+        if sid in por_seg:
+            a = por_seg[sid]
+            a["combate"] += [c for c in combate if c not in a["combate"]]
             continue
-        if sid in vistos:
-            continue
-        vistos.add(sid)
-        argumentos.append({"segmento": sid, "pide": _txt(x.get("pide"), 500),
-                           "por_que": _txt(x.get("por_que"), 600),
-                           "combate": [c for c in (_txt(y) for y in (x.get("combate") or [])) if c in ids_r]})
+        por_seg[sid] = {"segmento": sid, "pide": _txt(x.get("pide"), 500),
+                        "por_que": _txt(x.get("por_que"), 600), "combate": combate}
+        argumentos.append(por_seg[sid])
 
-    hechos = []
-    for i, x in enumerate(d.get("hechos") or [], 1):
+    hechos, ids_h = [], set()
+    for i, x in enumerate(_lista(d.get("hechos")), 1):
         if not isinstance(x, dict):
             continue
-        fuente = _txt(x.get("fuente")).lower()
-        fuente = fuente if fuente in T else "acto"
+        fuente = _fuente(x.get("fuente"))
         cond = _txt(x.get("condicion")).lower()
         cond = cond if cond in CONDICIONES else "sin_verificar"
-        cita, ok = _cita(x.get("cita"), fuente)
-        # LA CONDICIÓN SE SOSTIENE CON SU FUENTE: «falta en insumos» no lleva cita;
-        # cualquier otra condición sin cita verificada no se da por buena.
+        cita, ok, fuente = _cita(x.get("cita"), fuente)
+        # LA CONDICIÓN SE SOSTIENE CON SU FUENTE: «falta en insumos» no lleva
+        # cita; si trae una que SÍ está en los insumos, la condición se
+        # contradice y queda «sin_verificar» (el secretario la corrige).
+        # Cualquier otra condición sin cita verificada no se da por buena.
         if cond == "falta_en_insumos":
-            cita, ok = "", True
+            if cita and ok:
+                cond = "sin_verificar"
+            else:
+                cita, ok = "", True
         elif not ok:
             cond = "sin_verificar"
-        hechos.append({"id": _txt(x.get("id")) or f"H{i}", "que": _txt(x.get("que"), 600),
+        hid = _txt(x.get("id")).upper() or f"H{i}"
+        if hid in ids_h:
+            hid = f"H{i}"
+            while hid in ids_h:
+                hid += "b"
+        ids_h.add(hid)
+        hechos.append({"id": hid, "que": _txt(x.get("que"), 600),
                        "afirma": _txt(x.get("afirma"), 60), "fuente": fuente,
                        "cita": cita, "verificada": ok, "condicion": cond,
                        **({"lectura": "ocr"} if cita and cita in ocr else {})})
 
     faltantes = [{"que": _txt(x.get("que"), 300), "por_que_importa": _txt(x.get("por_que_importa"), 400)}
-                 for x in (d.get("faltantes") or []) if isinstance(x, dict) and _txt(x.get("que"))]
+                 for x in _lista(d.get("faltantes")) if isinstance(x, dict) and _txt(x.get("que"))]
 
     combatidas = {c for a in argumentos for c in a["combate"]}
     autonomas_sin = [r_["id"] for r_ in razones if r_["relacion"] == "autonoma" and r_["id"] not in combatidas]
@@ -421,6 +507,10 @@ _TXT_COND = {"falta_en_insumos": "NO CONSTA en los insumos (no es lo mismo que n
              "sin_verificar": "condición SIN VERIFICAR (su cita no se halló)"}
 
 
+MAX_RAZONES_BLOQUE = 20
+MAX_HECHOS_BLOQUE = 30
+
+
 def bloque_propuesta(doc: dict | None) -> str:
     """El análisis como DATOS para la propuesta, con su regla. «» si no hay."""
     if not isinstance(doc, dict) or not (doc.get("razones") or doc.get("hechos")):
@@ -430,31 +520,34 @@ def bloque_propuesta(doc: dict | None) -> str:
         L.append(f"  CUESTIÓN CENTRAL: {doc['cuestion_central']}")
     if doc.get("razones"):
         L.append("  RAZONES DE LO RESUELTO:")
-        for r_ in doc["razones"]:
-            rel = {"autonoma": "AUTÓNOMA (basta sola)", "conjunta": "CONJUNTA", "dependiente": "DEPENDIENTE"}[r_["relacion"]]
+        for r_ in doc["razones"][:MAX_RAZONES_BLOQUE]:
+            rel = {"autonoma": "AUTÓNOMA (basta sola)", "conjunta": "CONJUNTA",
+                   "dependiente": "DEPENDIENTE"}.get(r_.get("relacion"), "CONJUNTA")
             con = f" con {', '.join(r_['con'])}" if r_.get("con") else ""
             L.append(f"   {r_['id']} [{rel}{con}] {r_['afirma']} → {r_['conclusion']}"
                      + (f"\n       cita{'' if r_['verificada'] else ' NO verificada'}"
-                        f"{' (cotejada con el expediente escaneado, que tiene errores de lectura)' if r_.get('lectura') == 'ocr' else ''}"
+                        f"{' (cotejada salvo errores de lectura del texto: no es copia letra por letra)' if r_.get('lectura') == 'ocr' else ''}"
                         f": «{r_['cita']}»" if r_.get("cita") else ""))
     comb = {}
     for a in doc.get("argumentos") or []:
-        for c in a["combate"]:
+        for c in a.get("combate") or []:
             comb.setdefault(c, []).append(a["segmento"])
     if doc.get("razones"):
         L.append("  QUÉ ARGUMENTO ATACA CADA RAZÓN: " + "; ".join(
-            f"{r_['id']} ← {', '.join(comb.get(r_['id'], [])) or 'NINGUNO'}" for r_ in doc["razones"]))
+            f"{r_['id']} ← {', '.join(comb.get(r_['id'], [])) or 'NINGUNO'}" for r_ in doc["razones"][:MAX_RAZONES_BLOQUE]))
     if doc.get("autonomas_sin_combatir"):
         L.append(f"  ⚠ RAZONES AUTÓNOMAS QUE NINGÚN ARGUMENTO COMBATE: {', '.join(doc['autonomas_sin_combatir'])}. "
                  f"Si una basta sola para sostener lo resuelto y nadie la ataca, derrotar las demás no "
                  f"cambia el resultado: la solución que prospere tiene que decir por qué no se sostiene.")
     if doc.get("hechos"):
         L.append("  HECHOS, CON SU CONDICIÓN:")
-        for h in doc["hechos"]:
-            L.append(f"   {h['id']} {h['que']} — {_TXT_COND.get(h['condicion'], h['condicion'])}"
-                     + (f" ({h['fuente']}: «{h['cita'][:220]}»)" if h.get("cita") else ""))
+        for h in doc["hechos"][:MAX_HECHOS_BLOQUE]:
+            L.append(f"   {h['id']} {h['que']} — {_TXT_COND.get(h.get('condicion'), h.get('condicion'))}"
+                     + (f" ({h.get('fuente')}{', salvo errores de lectura' if h.get('lectura') == 'ocr' else ''}"
+                        f": «{str(h['cita'])[:220]}»)" if h.get("cita") else ""))
     if doc.get("faltantes"):
-        L.append("  FALTA EN LOS INSUMOS: " + "; ".join(f"{x['que']} ({x['por_que_importa']})" for x in doc["faltantes"]))
+        L.append("  FALTA EN LOS INSUMOS: " + "; ".join(f"{x.get('que')} ({x.get('por_que_importa')})"
+                                                     for x in doc["faltantes"][:12]))
     L.append("  REGLA: distingue siempre «no consta en los insumos» de «no acreditado» y de «tenido por "
              "acreditado»; una razón autónoma no combatida sostiene lo resuelto; si falta un insumo "
              "indispensable, dilo en tu razón en vez de suplirlo.")

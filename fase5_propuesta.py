@@ -446,7 +446,24 @@ def _bloque_tesis(tesis: list) -> str:
 NORMA_CARACTERES = 4000
 
 
-_PRIORIDAD_ORIGEN = {"requisito": 0, "citada": 1, "figura": 2, "acto": 3}
+_PRIORIDAD_ORIGEN = {"requisito": 0, "citada": 1}
+NORMAS_TRAIDAS_EXTRA = 6
+
+
+def _bloques_rediseno(analisis, requisitos, material) -> str:
+    """El análisis neutral y la demostración por requisitos como DATOS; «» si
+    no hay o si algo guardado no tiene la forma esperada: nunca impiden
+    proponer (regla de David)."""
+    out = ""
+    try:
+        out += __import__("analisis_litis").bloque_propuesta(analisis)
+    except Exception as ex:
+        print(f"   ⚠️ el análisis neutral no entró en la propuesta: {type(ex).__name__}")
+    try:
+        out += __import__("requisitos").bloque_propuesta(requisitos, material)
+    except Exception as ex:
+        print(f"   ⚠️ la demostración por requisitos no entró en la propuesta: {type(ex).__name__}")
+    return out
 
 
 def _bloque_normas(material, limite: int = 10) -> str:
@@ -458,14 +475,22 @@ def _bloque_normas(material, limite: int = 10) -> str:
     # modelo proponía sin el precepto que se le había traído. Con la bandera,
     # primero lo que un requisito pidió, lo citado, la figura y la ley del acto;
     # después lo semántico, y un cupo de 4 más.
+    #
+    # SUMA, NO SUSTITUYE (revisión adversarial): ordenar todo por procedencia
+    # dejaba fuera las normas de la consulta —la ley del acto incluida— en
+    # cuanto había diez de requisitos y citadas. Las diez de siempre se
+    # quedan como estaban y, detrás, hasta seis de las traídas que el corte
+    # dejaba fuera, primero las de un requisito.
+    elegidas = normas[:limite]
     try:
         import contexto_taller as _ct5
         if _ct5.rediseno("recuperacion_requisitos"):
-            normas = sorted(normas, key=lambda n: _PRIORIDAD_ORIGEN.get(str(n.get("origen") or ""), 9))
-            limite += 4
+            extra = sorted([n for n in normas[limite:] if isinstance(n, dict) and n.get("origen") in _PRIORIDAD_ORIGEN],
+                           key=lambda n: _PRIORIDAD_ORIGEN.get(str(n.get("origen") or ""), 9))
+            elegidas = elegidas + extra[:NORMAS_TRAIDAS_EXTRA]
     except Exception:
         pass
-    for n in normas[:limite]:
+    for n in elegidas:
         ley = n.get("cuerpo_legal") or n.get("fuente") or ""
         fuera.append(f"· {ley} — artículo {n.get('articulo','')}: "
                      f"{(n.get('texto','') or '')[:NORMA_CARACTERES]}")
@@ -1473,8 +1498,7 @@ async def proponer(cliente, problemas: list, material, resumen_acto: str = "",
                   # EL ANÁLISIS NEUTRAL, como DATOS junto al contraste (rediseño,
                   # etapa 2): las razones que la solución tiene que superar, los
                   # hechos con su condición y lo que falta. «» sin él.
-                  bloque_contraste(contraste) + __import__("analisis_litis").bloque_propuesta(analisis)
-                  + __import__("requisitos").bloque_propuesta(requisitos),
+                  bloque_contraste(contraste) + _bloques_rediseno(analisis, requisitos, material),
                   marco=marco, quien=quien, ficha=ficha,
                   decisiva=_bloque_decisiva)}])
     if ESFUERZO_PROPUESTA:

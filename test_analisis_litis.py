@@ -52,8 +52,8 @@ d = al.verificar(CRUDO, ACTO, ESCRITO, "", SEGS)
 R = {r["id"]: r for r in d["razones"]}
 ok(R["R1"]["verificada"] and R["R2"]["verificada"] and not R["R3"]["verificada"],
    "las citas de la recurrida se comprueban palabra por palabra; la inventada no pasa")
-ok(R["R1"]["con"] == ["R2"] and R["R3"]["relacion"] == "autonoma",
-   "las referencias a razones que no existen se quitan; una relación fuera del catálogo vale autónoma")
+ok(R["R1"]["con"] == ["R2"] and R["R3"]["relacion"] == "conjunta",
+   "las referencias a razones que no existen se quitan; una relación fuera del catálogo NO se da por autónoma")
 ok([a["segmento"] for a in d["argumentos"]] == ["A1.a"] and d["argumentos"][0]["combate"] == ["R1"],
    "sólo segmentos del inventario, y sólo razones que existen")
 H = {h["id"]: h for h in d["hechos"]}
@@ -63,14 +63,51 @@ ok(H["H2"]["condicion"] == "falta_en_insumos" and H["H2"]["cita"] == "",
    "«falta en los insumos» no lleva cita (no es lo mismo que «no acreditado»)")
 ok(H["H3"]["condicion"] == "sin_verificar",
    "una condición sin cita verificada no se da por buena: baja a «sin_verificar»")
-ok(d["autonomas_sin_combatir"] == ["R2", "R3"],
+ok(d["autonomas_sin_combatir"] == ["R2"],
    "las razones AUTÓNOMAS que ningún argumento combate, calculadas por código (punto 5)")
 ok(d["citas_sin_verificar"] == 2, "y se cuentan las citas que no se hallaron")
+
+print("\n1b · LO QUE EL MODELO MANDA MAL FORMADO (revisión adversarial)")
+_raro = {"razones": [
+            {"id": "r1", "afirma": "a", "relacion": "Autónoma", "problemas": 1, "con": "R2",
+             "cita": "el tercero adquirente del inmueble se sustituyó válidamente en la ejecución porque adquirió el bien"},
+            {"id": "R2", "afirma": "b", "relacion": "dependiente de R1", "problemas": ["²", "2"], "con": 7},
+            {"afirma": "sin id", "relacion": "conjunta con R1"},
+            {"id": "R3", "afirma": "autónoma atacada sólo en la segunda mención del segmento", "relacion": "autonoma"}],
+         "argumentos": [{"segmento": "a1.A", "combate": "R1"},
+                        {"segmento": "A1.a", "combate": ["R3"]}],
+         "hechos": [{"id": "H1", "que": "x", "fuente": "escrito de agravios", "condicion": "tenido_por_acreditado",
+                     "cita": "el adquirente no acreditó la cesión del derecho contractual concreto que se ejecuta"},
+                    {"id": "H2", "que": "y", "fuente": "acto", "condicion": "falta_en_insumos",
+                     "cita": "las prestaciones a ejecutar no cambiaron con la sustitución de la parte actora"},
+                    {"id": "H3", "que": "z", "fuente": "constancias", "condicion": "tenido_por_acreditado",
+                     "cita": "las prestaciones a ejecutar no cambiaron con la sustitución de la parte actora"}]}
+try:
+    _dr = al.verificar(_raro, ACTO, ESCRITO, "", SEGS)
+    _crash = None
+except Exception as _e:
+    _dr, _crash = None, _e
+ok(_crash is None, f"valores sueltos en vez de listas no rompen el análisis ({_crash!r})")
+_R = {r["id"]: r for r in (_dr or {}).get("razones", [])}
+ok(_R.get("R1", {}).get("relacion") == "autonoma" and _R.get("R2", {}).get("relacion") == "dependiente"
+   and _R.get("R4", {}).get("relacion") == "conjunta" and _R.get("R1", {}).get("problemas") == [1]
+   and _R.get("R2", {}).get("problemas") == [2] and _R.get("R1", {}).get("con") == ["R2"],
+   "«Autónoma», «dependiente de R1», problemas sueltos y «con» como texto se leen bien; la razón sin id no choca")
+ok((_dr or {}).get("autonomas_sin_combatir") == [] and len((_dr or {}).get("argumentos", [])) == 1
+   and sorted(_dr["argumentos"][0]["combate"]) == ["R1", "R3"],
+   "el segmento en otra caja y repetido SUMA sus ataques: ninguna autónoma queda falsamente sin combatir")
+_H = {h["id"]: h for h in (_dr or {}).get("hechos", [])}
+ok(_H.get("H1", {}).get("fuente") == "escrito" and _H.get("H1", {}).get("verificada"),
+   "«escrito de agravios» es el escrito: la cita se comprueba ahí")
+ok(_H.get("H2", {}).get("condicion") == "sin_verificar",
+   "«falta en insumos» con una cita que SÍ está en los insumos se contradice: queda sin verificar")
+ok(_H.get("H3", {}).get("fuente") == "acto",
+   "sin constancias, la cita hallada en el acto dice que está en el acto, no en las constancias")
 
 print("\n2 · LO QUE RECIBE LA PROPUESTA")
 b = al.bloque_propuesta(d)
 ok("CUESTIÓN CENTRAL" in b and "derecho contractual concreto" in b, "la cuestión central, concreta")
-ok("R2 ← NINGUNO" in b and "RAZONES AUTÓNOMAS QUE NINGÚN ARGUMENTO COMBATE: R2, R3" in b,
+ok("R2 ← NINGUNO" in b and "RAZONES AUTÓNOMAS QUE NINGÚN ARGUMENTO COMBATE: R2." in b,
    "qué argumento ataca cada razón y el aviso de la autónoma sin combatir")
 ok("NO CONSTA en los insumos" in b and "TUVO POR ACREDITADO" in b and "SIN VERIFICAR" in b,
    "cada hecho con su condición, dicha en palabras")
@@ -104,7 +141,9 @@ nuc = ast.get_source_segment(src, FN["_taller_proponer_nucleo"])
 ok("analisis=_analisis_p" in nuc, "y lo pasa a la propuesta")
 import fase5_propuesta as f5
 ok("analisis" in inspect.signature(f5.proponer).parameters
-   and "bloque_propuesta(analisis)" in inspect.getsource(f5.proponer),
+   and "_bloques_rediseno(analisis, requisitos, material)" in inspect.getsource(f5.proponer)
+   and "bloque_propuesta(analisis)" in inspect.getsource(f5._bloques_rediseno)
+   and f5._bloques_rediseno({"razones": [{"id": "R1", "relacion": 5}]}, {"requisitos": [7]}, None) is not None,
    "la propuesta lo recibe como datos junto al contraste")
 import contexto_taller as ct
 ct.poner(False, {})
@@ -127,6 +166,18 @@ ok(not al.casi_literal("El tribunal considera que la testimonial no es eficaz pa
    and not al.casi_literal("los preceptos legales citados no son aplicables al caso y no se derivan los elementos "
                            "constitutivos de la pretensión", _T),
    "la que añade una negación, un prefijo o palabras enteras, no")
+_src2 = ("Por lo expuesto el demandado no probó sus excepciones y el agravio resulta infundado porque el acto es "
+         "legal y la conducta es atípica conforme al artículo 150000 del año 2024, y se condena al pago de cuando "
+         "menos dos pensiones a la parte actora o a su representante legal en el juicio")
+_T2 = _pe.Texto(_src2)
+ok(not any(al.casi_literal(q, _T2) for q in (
+       "Por lo expuesto el demandado probó sus excepciones y el agravio resulta infundado porque el acto es legal",
+       "el demandado no probó sus excepciones y el agravio resulta fundado porque el acto es legal y la conducta",
+       "el agravio resulta infundado porque el acto es ilegal y la conducta es atípica conforme al artículo",
+       "la conducta es atípica conforme al artículo 150000 del año 2025 y se condena al pago",
+       "se condena al pago de cuando más dos pensiones a la parte actora o a su representante",
+       "se condena al pago de cuando menos dos pensiones a la parte actora y a su representante")),
+   "ni la que QUITA una negación, un prefijo o cambia una cifra o una palabra corta (revisión adversarial)")
 _v = al.verificar({"razones": [{"id": "R1", "afirma": "x", "relacion": "autonoma",
                                 "cita": "Sacramento Olvera Corral le había informado que la señora Pilar Felipa "
                                         "Huerta Venancio era su dependiente económica"}]}, _src, "", "", [])
