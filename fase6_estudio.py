@@ -306,6 +306,11 @@ class Material:
     # preceptos. Ver `fase_rama.sede_del_acto` y `fase_rama.cuaderno_recurrido`.
     sede_del_acto: str = ""
     cuaderno: str = ""
+    # LA PREGUNTA DECISIVA DEL PRINCIPAL (SPEC E3, AR 631/2025): el documento
+    # de `pregunta_decisiva.formular`, o None. Viaja con el material por la
+    # misma razón que la materia: llega a la propuesta, al estudio y a la
+    # tarjeta sin un parámetro nuevo en cada sitio.
+    decisiva: object = None
     # LA MATERIA VIAJA CON EL MATERIAL, no como parámetro. Hay cuatro sitios que
     # arman el prompt y cada parámetro nuevo es un sitio donde olvidarlo; el
     # Material ya llega a todos. Y aquí importa de veras: entregar la
@@ -524,7 +529,7 @@ def _misma_direccion(a: str, b: str) -> bool:
 def _bloque_criterio(criterios: list[Criterio], materia: str = "",
                      material_texto: str = "", tipo_asunto: str = "",
                      formato: str = "", problemas: list = None,
-                     variante: str = "v1") -> str:
+                     variante: str = "v1", decisiva: dict = None) -> str:
     if not criterios:
         return ""
     import formato_sentencia as _fs_c
@@ -565,10 +570,28 @@ def _bloque_criterio(criterios: list[Criterio], materia: str = "",
     _ord = sorted(enumerate(criterios),
                   key=lambda x: (0 if (x[1].jerarquia or "").lower() == "principal"
                                  else 1, x[0]))
+    # LA CUESTIÓN DECISIVA DEL PRINCIPAL (SPEC E3, AR 631/2025): la recurrida
+    # planteó «¿alteró la cosa juzgada?» y lo que decide es si el adquirente
+    # puede sustituirse en la ejecución; el estudio se escribía sobre la
+    # primera. Va como DATO bajo el problema cuya pregunta es la que se
+    # formuló, y sólo bajo ése: si el secretario cambió de principal o
+    # reescribió su pregunta, ya no es la cuestión de ese problema.
+    _dec_lineas, _dec_en = [], None
+    try:
+        import pregunta_decisiva as _pd_c
+        if _pd_c.util(decisiva):
+            _rec = _pd_c._plano(decisiva.get("pregunta_recurrida"))
+            _dec_en = next((id(c) for _, c in _ord if _rec and _pd_c._plano(c.problema) == _rec),
+                           None)
+            _dec_lineas = _pd_c.lineas_criterio(decisiva) if _dec_en is not None else []
+    except Exception:
+        _dec_lineas, _dec_en = [], None
     for i, (_, c) in enumerate(_ord, 1):
         _g = str(getattr(c, "grupo", "") or "").strip()
         lineas.append(f"{i}. [{(c.jerarquia or 'accesorio').upper()}]"
                       f"{f' [GRUPO {_g}]' if _g else ''} {c.problema}")
+        if _dec_lineas and id(c) == _dec_en:
+            lineas.extend(_dec_lineas)
         # SIN CALIFICAR TRAS EL CAMBIO DE SENTIDO (26-sep-2026): lo dice el
         # bloque de datos que sigue (`_bloque_sin_calificar`). Sólo desde la
         # v2; la v1 está congelada. Conserva el puente con su concepto (CUBRE),
@@ -2646,7 +2669,7 @@ FUNDAMENTO — hay que fundar, y hay que fundar bien:
 {_bloque_tecnica(getattr(material, "tipo_asunto", "") or ("amparo_revision" if es_recurso else "amparo_directo"), rama, violacion_procesal, material)}
 {_bloque_circuito(getattr(material, "tipo_asunto", "") or ("amparo_revision" if es_recurso else "amparo_directo"), criterios)}
 {_bloque_conceptos(rama, conceptos_violacion, reasuncion=getattr(material, "reasuncion", None))}
-{_bloque_criterio(criterios, materia or getattr(material, "materia", ""), _texto_de(material), getattr(material, "tipo_asunto", ""), _formato, getattr(material, "problemas", None) or [])}{_bloque_sin_calificar(criterios)}
+{_bloque_criterio(criterios, materia or getattr(material, "materia", ""), _texto_de(material), getattr(material, "tipo_asunto", ""), _formato, getattr(material, "problemas", None) or [], decisiva=getattr(material, "decisiva", None))}{_bloque_sin_calificar(criterios)}
 {_bloque_suplencia(material)}
 {_bloque_global(propuesta_global, criterios)}
 {_bloque_precedente(material, criterios)}
@@ -3464,7 +3487,7 @@ FUNDAMENTO — hay que fundar, y hay que fundar bien:
 {_bloque_tecnica(_tipo_tec, rama, violacion_procesal, material)}
 {_bloque_circuito(_tipo_tec, criterios)}
 {_bloque_conceptos(rama, conceptos_violacion, "v2", reasuncion=getattr(material, "reasuncion", None))}
-{_bloque_criterio(criterios, _materia_v, _texto_de(material), getattr(material, "tipo_asunto", ""), _formato, getattr(material, "problemas", None) or [], variante="v2")}{_bloque_sin_calificar(criterios)}
+{_bloque_criterio(criterios, _materia_v, _texto_de(material), getattr(material, "tipo_asunto", ""), _formato, getattr(material, "problemas", None) or [], variante="v2", decisiva=getattr(material, "decisiva", None))}{_bloque_sin_calificar(criterios)}
 {_bloque_suplencia(material)}
 {_bloque_global(propuesta_global, criterios)}
 {_bloque_precedente(material, criterios)}

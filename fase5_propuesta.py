@@ -408,6 +408,9 @@ def _bloque_tesis(tesis: list) -> str:
             + (f" · responde al problema "
                + ", ".join(str(x) for x in t["para"])
                if t.get("para") else "")
+            # BUSCADA PARA LA CUESTIÓN DECISIVA (SPEC E3, AR 631/2025): la
+            # trajo la consulta sobre la figura, no la pregunta del agravio.
+            + (" · de la figura" if t.get("de_figura") else "")
             + "\n"
             f"  {t.get('rubro','')}\n"
             f"  {(t.get('texto','') or '')[:TESIS_CARACTERES]}")
@@ -858,7 +861,7 @@ def bloque_contraste(contraste: list) -> str:
 def prompt_propuesta(problemas: list, material, resumen_acto: str,
                      resumen_conceptos: str, es_recurso: bool = False,
                      contexto: str = "", contraste: str = "",
-                     marco: str = "", quien: str = "") -> str:
+                     marco: str = "", quien: str = "", decisiva: str = "") -> str:
     # EL TIPO VIAJA CON EL MATERIAL, igual que en el estudio: son dos módulos
     # que reciben el mismo objeto y así no hay un parámetro que se olvide.
     import tipos_asunto as _ta_p
@@ -963,7 +966,7 @@ lo corrija o lo sustituya por su criterio.
 
 LOS PROBLEMAS JURÍDICOS DEL ASUNTO
 {lista}
-
+{decisiva}
 LO QUE RESOLVIÓ {_org5}
 {resumen_acto[:40000]}
 
@@ -1357,7 +1360,8 @@ async def proponer(cliente, problemas: list, material, resumen_acto: str = "",
                    resumen_conceptos: str = "", es_recurso: bool = False,
                    contexto: str = "",
                    contraste_previo: list | None = None,
-                   marco: str = "", quien: str = "") -> tuple[list, object, list]:
+                   marco: str = "", quien: str = "",
+                   decisiva: dict | None = None) -> tuple[list, object, list]:
     """Devuelve (propuestas, global, avisos). No decide nada: propone.
 
     El GLOBAL es la propuesta del asunto entero y sale de la MISMA llamada: es
@@ -1408,13 +1412,25 @@ async def proponer(cliente, problemas: list, material, resumen_acto: str = "",
         contraste = await contrastar(cliente, problemas, resumen_acto,
                                      resumen_conceptos, es_recurso,
                                      contexto if _con_resolucion else "")
+    # LA CUESTIÓN DECISIVA DEL PRINCIPAL (SPEC E3, AR 631/2025), como DATO:
+    # la del argumento de la recurrida no es la que decide. Sólo si se
+    # formuló para el principal de hoy; si no, el prompt queda como ayer. El
+    # `formato` de la respuesta NO cambia: subirlo recalcularía todas.
+    _bloque_decisiva = ""
+    try:
+        import pregunta_decisiva as _pd5
+        _dec5 = _pd5.vigente(decisiva if decisiva is not None
+                             else getattr(material, "decisiva", None), problemas)
+        _bloque_decisiva = _pd5.bloque_propuesta(_dec5)
+    except Exception:
+        _bloque_decisiva = ""
     kw = dict(model=MODELO_PROPUESTA,
               temperature=0, seed=20260831,
               max_completion_tokens=MAX_TOKENS_PROPUESTA,
               messages=[{"role": "user", "content": prompt_propuesta(
                   problemas, material, resumen_acto, resumen_conceptos,
                   es_recurso, contexto, bloque_contraste(contraste),
-                  marco=marco, quien=quien)}])
+                  marco=marco, quien=quien, decisiva=_bloque_decisiva)}])
     if ESFUERZO_PROPUESTA:
         kw["reasoning_effort"] = ESFUERZO_PROPUESTA
     import llamada_modelo as _lm

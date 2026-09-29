@@ -3402,7 +3402,8 @@ def _linea_premisa(m: dict, props: dict, uid: str = "") -> str:
             + (f" · anclas: {' | '.join(m.get('anclas') or [])}" if m.get("anclas") else ""))
 
 
-def vista(plan: dict, formato: str = "estandar", concede: bool | None = None) -> str:
+def vista(plan: dict, formato: str = "estandar", concede: bool | None = None,
+          decisiva: dict | None = None) -> str:
     """EL GUION. Datos, no prosa: identificadores, etiquetas, razones
     tipificadas, fuentes, anclas y citas verificadas. Nada que el estudio
     pueda copiar como frase hecha (lección del ejemplo que se firma literal).
@@ -3456,6 +3457,15 @@ def vista(plan: dict, formato: str = "estandar", concede: bool | None = None) ->
     if _sent:
         L.append("SENTIDO DE CADA PROBLEMA (del secretario; no se toca): problema "
                  + " · problema ".join(_sent))
+    # LA CUESTIÓN DECISIVA DEL PRINCIPAL (SPEC E3, AR 631/2025): dato, no
+    # prosa. El apartado del principal se organiza en torno a ella; la pregunta
+    # como llegó planteada es el marco. `decisiva` ya viene comprobada contra
+    # el principal de hoy (`pregunta_decisiva.de_material`).
+    try:
+        import pregunta_decisiva as _pd_v
+        L += _pd_v.lineas_guion(decisiva)
+    except Exception:
+        pass
     if props:
         # LO QUE DICE CADA PROPOSICIÓN ES LA PARÁFRASIS DEL PLANIFICADOR, no
         # palabras del acto: sin comillas angulares, que en una sentencia dicen

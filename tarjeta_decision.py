@@ -1191,7 +1191,7 @@ def vacia(estado_calculo: str, huella: str = "") -> dict:
 
 def armar(propuesta_guardada, material, problemas_fase3, contraste=None, espejo=None,
           internet=None, rama_info=None, deliberacion=None, *, propuestas_motor=None,
-          fases=None) -> dict:
+          fases=None, decisiva=None) -> dict:
     """La tarjeta (formato 1 de contrato_tarjeta.md), sin modelo.
 
     `propuesta_guardada`: la respuesta de /taller/proponer (formato 2):
@@ -1209,6 +1209,9 @@ def armar(propuesta_guardada, material, problemas_fase3, contraste=None, espejo=
       `propuestas` de la fila); si None, las de la respuesta.
       `fases`: las del adelanto, donde `fase_rama.conceptos_omitidos` busca
       la demanda entre las constancias o la recurrida que los transcribe.
+      `decisiva`: el documento de `pregunta_decisiva` (SPEC E3); si None, el
+      que viaja con el material. `principal.pregunta` es la cuestión decisiva
+      y `principal.pregunta_recurrida`, la de la fase 3, aparte.
     """
     resp = propuesta_guardada if isinstance(propuesta_guardada, dict) else {}
     rama_info = dict(rama_info or {})
@@ -1254,7 +1257,21 @@ def armar(propuesta_guardada, material, problemas_fase3, contraste=None, espejo=
                              f"como principal. La tarjeta sigue la jerarquía; el porqué del "
                              f"principal que escribió el motor puede hablar del otro.")}
     pred = pm_pral.get("prediccion") if isinstance(pm_pral.get("prediccion"), dict) else {}
-    principal = {"numero": p_num, "pregunta": p_preg, "clase": _txt(pral.get("clase")) or None,
+    # LA PREGUNTA DEL ENCABEZADO ES LA QUE DECIDE (SPEC E3, AR 631/2025): la
+    # recurrida preguntó por la cosa juzgada y lo que decide es si el
+    # adquirente puede sustituirse en la ejecución. La de la fase 3 va aparte
+    # («así lo planteó la recurrida»); `p_preg` sigue emparejando propuesta,
+    # espejo y secundarios, que se guardaron con ella.
+    try:
+        import pregunta_decisiva as _pd_t
+        _dec_t = _pd_t.vigente(decisiva if decisiva is not None else _get(material, "decisiva"),
+                               problemas)
+        _enc = _pd_t.para_tarjeta(_dec_t, p_preg)
+    except Exception:
+        _enc = {"pregunta": p_preg, "pregunta_recurrida": None, "figura": None}
+    principal = {"numero": p_num, "pregunta": _enc["pregunta"],
+                 "pregunta_recurrida": _enc["pregunta_recurrida"], "figura": _enc["figura"],
+                 "clase": _txt(pral.get("clase")) or None,
                  "jerarquia_de": jer_de,
                  "por_que_principal": _txt(ctx.get("tema_principal")) or None,
                  "discrepa_motor": discrepa,

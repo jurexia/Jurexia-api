@@ -1527,12 +1527,96 @@ async def material_para(qdrant, embed_juris, embed_leyes,
                          principios=list(getattr(tesis_cocitadas, 'ultimos_principios', []) or []))
 
 
+# ═══ LA FIGURA QUE DECIDE (SPEC E3, 28-sep-2026) ══════════════════════════
+# AR 631/2025: la búsqueda fue detrás de la pregunta como la planteó la
+# recurrida —«¿la sustitución alteró la cosa juzgada?»— y el motor se apoyó en
+# dos jurisprudencias genéricas de cosa juzgada. Lo que decide es otra cosa: si
+# el tercero adquirente del inmueble objeto de un juicio sobre una acción
+# personal puede sustituirse válidamente en la ejecución. Esa pregunta llega a
+# otro anaquel del acervo (causahabiencia, sustitución procesal). Las consultas
+# sobre la figura las formula `pregunta_decisiva.py` en lenguaje de rubro, que
+# es la configuración medida arriba (rubro conceptual: 50 % en primera
+# posición; prosa: 3 %). SE SUMAN con cupo propio y marcadas `para` el
+# principal; lo que ya traía la búsqueda de cada problema no se toca.
+CUPO_FIGURA = int(os.getenv("CUPO_FIGURA", "8"))
+FIGURA_POR_CONSULTA = 10
+
+
+async def tesis_de_la_figura(qdrant, embed_juris, consultas: list,
+                             cupo: int = CUPO_FIGURA) -> list:
+    """Las tesis que contestan las consultas sobre la figura: una búsqueda por
+    consulta contra el vector `rubro`, fundidas por rango recíproco. Sin
+    modelo: sólo embeddings y Qdrant. Lo que perdió vigencia no entra por esta
+    puerta (no se va a proponer lo abandonado como lo que decide)."""
+    qs = [" ".join(str(q or "").split()) for q in (consultas or [])]
+    qs = [q for q in qs if q]
+    if not qs or qdrant is None or embed_juris is None:
+        return []
+    vs = await asyncio.gather(*[embed_juris(q) for q in qs])
+    listas = await asyncio.gather(*[_buscar(qdrant, COLECCION_JURIS, VECTOR_RUBRO, v,
+                                            FIGURA_POR_CONSULTA) for v in vs])
+    orden = _rrf_registros([[str(p.get("registro") or "") for p in L] for L in listas])
+    por_reg = {}
+    for L in listas:
+        for p in L:
+            reg = str(p.get("registro") or "")
+            if reg and reg not in por_reg:
+                por_reg[reg] = _tesis_de(p)
+    try:
+        import deliberacion as _dl
+        _pierde = _dl.pierde_vigencia
+    except Exception:                                   # pragma: no cover
+        _pierde = lambda v: False                       # noqa: E731
+    out = []
+    for reg in orden:
+        t = por_reg.get(reg)
+        if t is None or _pierde(t.get("vigencia")):
+            continue
+        t["de_figura"] = True
+        out.append(t)
+        if len(out) >= max(0, int(cupo)):
+            break
+    return out
+
+
+def sumar_figura(material, tesis: list, numero_principal: int) -> dict:
+    """Suma al material las tesis de la figura, marcadas `para` el principal.
+
+    La que ya estaba se queda donde estaba y gana la marca (`de_figura` y el
+    número del principal en `para`); la nueva entra DELANTE, como la línea de
+    internet: es la que contesta la pregunta que decide, y el reparto por
+    turnos de la propuesta la pone primero dentro del principal. Devuelve
+    {nuevas, marcadas} para el registro."""
+    n = int(numero_principal or 1)
+    ya = {str(t.get("registro") or ""): t for t in (getattr(material, "tesis", None) or [])
+          if isinstance(t, dict)}
+    nuevas, marcadas = [], 0
+    for t in tesis or []:
+        reg = str(t.get("registro") or "")
+        if not reg:
+            continue
+        if reg in ya:
+            y = ya[reg]
+            y["de_figura"] = True
+            if y.get("para") and n not in y["para"]:
+                y["para"] = sorted(set(list(y["para"]) + [n]))
+            marcadas += 1
+            continue
+        x = dict(t, de_figura=True, para=[n])
+        ya[reg] = x
+        nuevas.append(x)
+    if nuevas:
+        material.tesis = nuevas + list(getattr(material, "tesis", None) or [])
+    return {"nuevas": len(nuevas), "marcadas": marcadas}
+
+
 async def material_del_caso(qdrant, embed_juris, embed_leyes,
                             problemas: list[str],
                             coleccion_estatal: Optional[str] = None,
                             materia: str = "", cliente=None,
                             contexto: str = "", sede_acto: str = "",
-                            cuaderno: str = "") -> f6.Material:
+                            cuaderno: str = "", figura: Optional[list] = None,
+                            principal: int = 0) -> f6.Material:
     """Un solo Material con lo de TODOS los problemas, sin repetir tesis.
 
     El estudio se escribe de una vez —es una sola pieza de prosa— así que el
@@ -1560,6 +1644,11 @@ async def material_del_caso(qdrant, embed_juris, embed_leyes,
         else:
             hechos.append("")
 
+    # LAS CONSULTAS SOBRE LA FIGURA, EN EL MISMO TIRO (SPEC E3): cuando la
+    # pregunta decisiva ya está formulada —la consulta del botón, el rescate—,
+    # corren en paralelo con las de cada problema y no alargan nada.
+    _tarea_fig = (asyncio.ensure_future(tesis_de_la_figura(qdrant, embed_juris, figura))
+                  if figura and principal else None)
     partes = await asyncio.gather(*[
         material_para(qdrant, embed_juris, embed_leyes, p, coleccion_estatal,
                       materia, cliente, contexto, h, sede_acto, cuaderno)
@@ -1612,7 +1701,14 @@ async def material_del_caso(qdrant, embed_juris, embed_leyes,
             if x not in _vis:
                 _vis.add(x)
                 _pr.append(x)
-    return f6.Material(tesis=tesis, normas=normas, principios=_pr[:8])
+    m = f6.Material(tesis=tesis, normas=normas, principios=_pr[:8])
+    if _tarea_fig is not None:
+        try:
+            sumar_figura(m, await _tarea_fig, principal)
+        except Exception as e:
+            # SE SIGUE SIN ELLA: peor búsqueda, pero la de siempre.
+            print(f"   ⚠️ RAG: la búsqueda de la figura falló ({type(e).__name__})")
+    return m
 
 
 # ═══════════════════════════════════════════════════════════════════════════

@@ -104,6 +104,11 @@ def material_ligero(m) -> dict:
         "entidad": str(getattr(m, "entidad", "") or ""),
         "preceptos_de_internet": _lista(getattr(m, "preceptos_de_internet", []), 24),
         "sondeo": sondeo_ligero(getattr(m, "sondeo", None)),
+        # LA PREGUNTA DECISIVA VIAJA CON EL MATERIAL (SPEC E3, AR 631/2025):
+        # la propuesta, el estudio y la tarjeta la leen de aquí, en el worker
+        # que sea. Un dict pequeño; si no es un dict, no va.
+        "decisiva": (getattr(m, "decisiva", None)
+                     if isinstance(getattr(m, "decisiva", None), dict) else None),
         "completo": True,
     }
 
@@ -126,6 +131,7 @@ def material_rehidratado(d: dict):
     m.entidad = str(d.get("entidad") or "")
     m.preceptos_de_internet = list(d.get("preceptos_de_internet") or [])
     m.sondeo = sondeo_rehidratado(d.get("sondeo"))
+    m.decisiva = d.get("decisiva") if isinstance(d.get("decisiva"), dict) else None
     return m
 
 
