@@ -189,9 +189,13 @@ ok(len(vistos) == ap.MOSTRADOS_POR_GRUPO and vistos[:k] == g[:k] and vistos[-1] 
    and mas == 20 - ap.MOSTRADOS_POR_GRUPO, "a lo más ocho por grupo: los más antiguos y los más recientes")
 ok(ap._muestra([1, 2]) == ([1, 2], 0), "un grupo corto se enseña entero")
 for cob, frase in (("sin_tribunal", "no consta en el proyecto qué tribunal"),
-                   ("sin_lectura", "todavía no cuenta con las sentencias leídas"), ("error", "no se pudieron consultar")):
+                   ("sin_lectura", "aún no están incorporadas a Iurexia"), ("error", "no se pudieron consultar")):
     b = ap.bloque([], PRIMERO_22, "completo", cob)
-    ok(frase in b and "no afirmes" in b, f"cobertura «{cob}»: lo dice y prohíbe afirmar la línea")
+    ok(frase in b and "no afirmes" in b.lower(), f"cobertura «{cob}»: lo dice y prohíbe afirmar la línea")
+for cob in ("sin_lectura", "error"):
+    # Sin consulta no se dictamina «Sin precedentes»: eso diría que no existen.
+    ok("no uses «Sin precedentes del Tribunal»" in ap.bloque([], PRIMERO_22, "completo", cob),
+       f"cobertura «{cob}»: se dictamina con la ley, no con «Sin precedentes»")
 
 
 def prec(neun, rel, fecha, tema="t"):
@@ -213,6 +217,28 @@ ok("ENFOQUE" not in b, "sin enfoque pedido, no hay instrucción de callar")
 bf = ap.bloque(puntos, TERCERO, "favorables", "leida")
 ok("ENFOQUE PEDIDO POR EL MAGISTRADO" in bf and "1/2020" in bf and "3/2020" not in bf and "2/2020" not in bf
    and ap._TITULOS["contradice"] not in bf, "favorables: sólo los que sostienen el proyecto llegan al prompt")
+ok("ADVERTENCIA" not in bf, "favorables con respaldo en cada punto: sin advertencia")
+# La prueba de punta a punta del 29-sep: con «favorables», el punto del 211 sin
+# un solo precedente a favor salió como «No existen precedentes del Tribunal
+# sobre el punto», cuando hay una línea reiterada en contra.
+solo_contra = [{"punto": LECTURA["planteamientos"][0],
+                "precedentes": [prec(5, "contradice", "01-01-2021"), prec(6, "contradice", "01-01-2023")]},
+               {"punto": {"pregunta": "¿Distinguible?"}, "precedentes": [prec(7, "distingue", "01-01-2022")]},
+               {"punto": {"pregunta": "¿Nuevo?"}, "precedentes": []}]
+bc = ap.bloque(solo_contra, TERCERO, "favorables", "leida")
+ok("no hay precedentes del Tribunal que respalden este punto" in bc and "NUNCA que no los hay" in bc
+   and "5/2020" not in bc and "6/2020" not in bc and "7/2020" not in bc,
+   "favorables sin respaldo: «no hay que lo respalden», nunca «no los hay», y sin citar a los contrarios")
+ok("ADVERTENCIA OBLIGATORIA: en el punto 1 el tribunal ha resuelto en sentido distinto" in bc
+   and "los puntos" not in bc.split("ADVERTENCIA", 1)[1][:40], "la advertencia nombra sólo el punto con contrarios")
+ok(bc.count("Ningún precedente del tribunal sostiene") == 2 and "Sin precedentes del tribunal sobre este punto" in bc,
+   "el distinguible tampoco respalda (sin advertencia); el punto sin nada, «sin precedentes»")
+ok("«Sin precedentes del Tribunal que lo respalden»" in bc and "no hables ahí de apartarse" in bc,
+   "el dictamen del cuerpo no revela la línea contraria: eso queda sólo en la advertencia final")
+ok("UNA vez y sin subtítulos por punto" in ap.bloque([], AJENO, "completo", "sin_lectura"),
+   "sin lectura: la frase va una sola vez (en la prueba salió repetida bajo cada punto)")
+ok("ADVERTENCIA" not in ap.bloque(solo_contra, TERCERO, "completo", "leida"),
+   "la nota completa no necesita advertencia: expone los contrarios")
 muchos = [{"punto": LECTURA["planteamientos"][0],
            "precedentes": [prec(100 + i, "coincide", f"01-01-{2000 + i}") for i in range(12)]}]
 bm = ap.bloque(muchos, TERCERO, "completo", "leida")
@@ -238,7 +264,7 @@ for nombre, trib in (("otro tribunal del circuito", PRIMERO_22), ("otro circuito
     lect = dict(LECTURA, tribunal=trib)
     qv, mv = Qdrant([]), Modelo(lambda p, kw, l=lect: json.dumps(l))
     o = asyncio.run(ap.preparar(mv, qv, embed, mensaje(PROYECTO.replace(TERCERO.upper(), trib.upper()))))
-    ok(o["cobertura"] == "sin_lectura" and "todavía no cuenta" in o["bloque"] and qv.consultas == []
+    ok(o["cobertura"] == "sin_lectura" and "aún no están incorporadas" in o["bloque"] and qv.consultas == []
        and mv.llamadas == [] and o["tribunal"].lower() == trib.lower(),
        f"{nombre}: lo dice sin leer el proyecto ni buscar")
 
@@ -314,6 +340,10 @@ ok(not ap.activo(), "AUDITOR_PRECEDENTES=0 vuelve al auditor anterior sin desple
 os.environ.pop("AUDITOR_PRECEDENTES")
 ok("Nada de porcentajes" in ap.SYSTEM_PROMPT_AUDITOR and "Se aparta de la línea" in ap.SYSTEM_PROMPT_AUDITOR
    and "# NOTA DE AUDITORÍA DEL PROYECTO" in ap.SYSTEM_PROMPT_AUDITOR, "el prompt: encabezados, dictamen y la regla 8")
+# En la prueba de punta a punta del 29-sep la nota decía «No tengo indexados los
+# artículos 199, 200, 211 y 212…»: hablaba del sistema en primera persona.
+ok("la nota es impersonal" in ap.SYSTEM_PROMPT_AUDITOR and "no se tuvo a la vista" in ap.SYSTEM_PROMPT_AUDITOR,
+   "lo que falta se dice sin hablar del sistema ni en primera persona")
 
 print("\n8 · DÓNDE SE ENGANCHA EN /chat")
 F = Path("main.py").read_text(encoding="utf-8")

@@ -512,19 +512,30 @@ def bloque(puntos: list, tribunal: str, enfoque: str, cobertura: str) -> str:
         return (f"{cab}: no consta en el proyecto qué tribunal lo resuelve, así que no se consultaron "
                 f"sus precedentes. Dilo en la nota, en la sección de precedentes, y no afirmes cuál es la "
                 f"línea del tribunal.")
+    # Sin consulta, «Sin precedentes del Tribunal» diría que el tribunal no ha
+    # resuelto nada; lo que falta es la consulta. En la prueba del 29-sep, con
+    # un tribunal ajeno, la nota escribió «No se cuenta con sentencias de este
+    # Tribunal sobre los puntos» y tres dictámenes «Sin precedentes».
+    sin_consulta = ("En la sección III dictamina con la ley y la jurisprudencia («Se sostiene», «Se sostiene "
+                    "con matices» o «No se sostiene»); no uses «Sin precedentes del Tribunal», porque no se "
+                    "consultaron.")
     if cobertura == "sin_lectura":
-        return (f"{cab}: Iurexia todavía no cuenta con las sentencias leídas de {tribunal or 'este tribunal'}. "
-                f"Dilo en la nota, en la sección de precedentes, y no afirmes cuál es su línea.")
+        return (f"{cab}: las sentencias de {tribunal or 'este tribunal'} todavía no están incorporadas a "
+                f"Iurexia. La sección II es sólo esta frase, UNA vez y sin subtítulos por punto: «Las sentencias "
+                f"de este Tribunal aún no están incorporadas a Iurexia; por ello, esta nota no expone su línea "
+                f"sobre los puntos que decide el proyecto.» No afirmes cuál es su línea. {sin_consulta}")
     if cobertura not in ("leida",):
-        return (f"{cab}: no se pudieron consultar en esta ocasión. Dilo en la nota y no afirmes cuál es "
-                f"la línea del tribunal.")
+        return (f"{cab}: no se pudieron consultar en esta ocasión. La sección II es sólo esta frase, UNA vez y "
+                f"sin subtítulos por punto: «En esta ocasión no se pudieron consultar los precedentes del "
+                f"Tribunal; conviene repetir la auditoría.» No afirmes cuál es su línea. {sin_consulta}")
     L = [f"{cab} ({tribunal}).",
          "CATÁLOGO CERRADO: son las sentencias del propio tribunal que resolvieron los mismos puntos, "
          "leídas de sus versiones públicas. Sólo éstas se pueden citar, por su tipo, número y fecha; la "
          "«razón» es una síntesis (no la entrecomilles); el «tema» sí es textual del tribunal."]
     if enfoque == "favorables":
         L.append("ENFOQUE PEDIDO POR EL MAGISTRADO: invocar SÓLO los precedentes que sostienen el criterio "
-                 "del proyecto. No menciones precedentes en sentido contrario ni digas que existen.")
+                 "del proyecto. No cites ni describas precedentes en sentido contrario.")
+    advertir = []
     for k, x in enumerate(puntos, 1):
         p = x["punto"]
         L.append("")
@@ -532,7 +543,23 @@ def bloque(puntos: list, tribunal: str, enfoque: str, cobertura: str) -> str:
         L.append(f"   Lo que propone el proyecto: {p.get('calificacion') or 'no consta'} — {p.get('razon') or ''}")
         precs = sorted(x.get("precedentes") or [], key=lambda c: _clave_fecha(c.get("fecha")))
         if enfoque == "favorables":
+            contrarios = sum(1 for c in precs if c.get("relacion") == "contradice")
+            otros = len(precs)
             precs = [c for c in precs if c.get("relacion") == "coincide"]
+            if not precs and otros:
+                # NO es «sin precedentes»: el tribunal sí resolvió el punto, en
+                # otro sentido. Callarlo del todo dejaría al magistrado ir a la
+                # sesión sin saberlo (la nota completa, 29-sep: una línea de 8
+                # asuntos en contra). Se dice sin citarlos, y la nota es
+                # editable: la advertencia se borra si estorba.
+                L.append("   Ningún precedente del tribunal sostiene el criterio del proyecto en este punto. "
+                         "Escribe que no hay precedentes del Tribunal que respalden este punto; NUNCA que no "
+                         "los hay sobre el punto ni que el Tribunal no se ha pronunciado. En la sección III su "
+                         "dictamen es «Sin precedentes del Tribunal que lo respalden», justificado con la ley y "
+                         "la jurisprudencia; no hables ahí de apartarse de la línea del Tribunal.")
+                if contrarios:
+                    advertir.append(k)
+                continue
         if not precs:
             L.append("   Sin precedentes del tribunal sobre este punto en las sentencias leídas.")
             continue
@@ -545,6 +572,13 @@ def bloque(puntos: list, tribunal: str, enfoque: str, cobertura: str) -> str:
                 if mas:
                     L.append(f"   Además, {mas} asunto(s) más resueltos en el mismo sentido entre esas fechas "
                              f"(sin datos individuales: menciónalos sólo como número).")
+    if advertir:
+        cuales = ", ".join(str(k) for k in advertir)
+        L.append("")
+        L.append(f"ADVERTENCIA OBLIGATORIA: en {'el punto' if len(advertir) == 1 else 'los puntos'} {cuales} el "
+                 f"tribunal ha resuelto en sentido distinto al que propone el proyecto. Cierra la sección V con un "
+                 f"párrafo aparte que empiece «Advertencia:» y diga eso en una frase, sin citar ni describir esos "
+                 f"asuntos, y que la nota completa los expone.")
     return "\n".join(L)
 
 
@@ -666,9 +700,11 @@ para cada sección):
    · Si el Tribunal no tiene precedentes sobre el punto, dilo en una línea.
 ## III. ¿Se sostiene el criterio del proyecto?
    Por cada punto, un dictamen explícito —«Se sostiene», «Se sostiene con matices», «Se aparta de la línea
-   del Tribunal» o «Sin precedentes del Tribunal»— y su justificación: por qué coincide o por qué no; si se
-   aparta, qué tendría que justificar el proyecto para hacerlo (las razones del cambio de criterio, la
-   diferencia relevante del caso) y qué precedentes tendría que distinguir expresamente.
+   del Tribunal», «No se sostiene» (cuando la falla es de derecho y no de precedentes), «Sin precedentes
+   del Tribunal» (sólo si se consultaron y ninguno resolvió el punto) o, con el enfoque de sólo los
+   favorables, «Sin precedentes del Tribunal que lo respalden»— y su justificación: por qué coincide
+   o por qué no; si se aparta, qué tendría que justificar el proyecto para hacerlo (las razones del cambio
+   de criterio, la diferencia relevante del caso) y qué precedentes tendría que distinguir expresamente.
 ## IV. Otras observaciones
    Fundamentación y motivación, congruencia (lo que se estudia frente a lo que se resuelve), jurisprudencia
    obligatoria aplicable y, si las hay, fallas de forma que importen. Sólo lo relevante; no inventes defectos.
@@ -684,16 +720,20 @@ REGLAS QUE NO SE ROMPEN
 3. Las citas textuales (en párrafo aparte que empiece con «>») sólo pueden ser del proyecto o de un
    documento del CONTEXTO JURÍDICO RECUPERADO, copiadas palabra por palabra.
 4. La legislación y la jurisprudencia que invoques deben venir del CONTEXTO JURÍDICO RECUPERADO, con su
-   [Doc ID: uuid] tal como aparece. Si algo que necesitas no está, dilo; no cites de memoria.
+   [Doc ID: uuid] tal como aparece. Si algo que necesitas no está, dilo sin hablar de ti ni del sistema
+   («no se tuvo a la vista el texto vigente del artículo 211 del Código…»); no cites de memoria.
 5. Si el catálogo dice que no se consultaron o no hay precedentes del tribunal, dilo con claridad en la
-   sección II y no afirmes cuál es su línea.
+   sección II, con las palabras que indique, y no afirmes cuál es su línea. No confundas «no se
+   consultaron» con «no existen».
 6. Si el catálogo trae el ENFOQUE «sólo los que sostienen el proyecto», escribe la nota con ese enfoque: la
    sección II expone la línea que sostiene el criterio del proyecto y la III justifica por qué debe
-   mantenerse; no menciones precedentes en sentido contrario ni insinúes que existen.
+   mantenerse; no cites ni describas precedentes en sentido contrario. Si en un punto ninguno lo respalda,
+   di eso —no que el Tribunal no se ha pronunciado— y deja la ADVERTENCIA que el catálogo ordene.
 7. Distingue siempre entre que un precedente resolvió el MISMO punto y que sólo es análogo; nunca presentes
    como línea del Tribunal lo que sólo se parece.
 8. Nada de porcentajes de similitud, ni de menciones al sistema, a índices, a un «catálogo» o a cómo se
-   obtuvieron los precedentes: para el lector son, simplemente, los precedentes del Tribunal.
+   obtuvieron los precedentes: para el lector son, simplemente, los precedentes del Tribunal. Tampoco
+   escribas en primera persona («no tengo», «no cuento con», «no encontré»): la nota es impersonal.
 
 ESTILO: español jurídico mexicano, claro y sobrio; párrafos completos y ordenados; fechas y números exactos;
 sin frases de cortesía al inicio ni al final."""
