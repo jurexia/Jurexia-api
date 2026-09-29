@@ -397,6 +397,23 @@ def fuerza_para_colegiado(tesis: dict, tribunal: str = "", circuito: int = 0, *,
 _RX_EPOCA = re.compile(r"\b(\d{1,2})a\.?\s*[ÉE]poca", re.I)
 
 
+def activa() -> bool:
+    """¿Rige la fuerza unificada en ESTA petición? (bandera «fuerza_unificada»,
+    variable FUERZA_UNIFICADA = todos | casa | 0; por omisión «casa»).
+
+    POR QUÉ UNA BANDERA (David, punto 8: «mediría cada cambio por separado»).
+    Cambia lo que leen los prompts de la propuesta y del estudio para todos; se
+    enciende primero en las cuentas de casa, se mide con el banco encendida y
+    apagada sobre las mismas sesiones, y sólo entonces se suelta. Apagada, los
+    prompts y el documento leen `obligatoria` como antes (= es jurisprudencia);
+    la tarjeta y la deliberación siguen con la regla de siempre, que es ésta."""
+    try:
+        import contexto_taller as _ct
+        return _ct.bandera("fuerza_unificada", "FUERZA_UNIFICADA", "casa")
+    except Exception:                                   # pragma: no cover
+        return False
+
+
 def epoca_de(t: dict) -> int:
     """La época del Semanario leída de la localización («11a. Época»); 0 si no
     consta. Es el régimen temporal que la tesis dice de sí misma."""
@@ -437,7 +454,8 @@ def anotar(tesis, tribunal: str = "", circuito: int = 0, *,
     propia y la región sólo se conocen con él). `aplicabilidad` —la segunda
     pregunta— se crea «no_evaluada» y nunca se pisa si alguien ya la midió.
     """
-    para = _txt(tribunal) or _txt(clave_propia)
+    _on = activa()
+    para = f"{_txt(tribunal) or _txt(clave_propia)}|{int(_on)}"
     for t in (tesis or []):
         if not isinstance(t, dict):
             continue
@@ -452,7 +470,9 @@ def anotar(tesis, tribunal: str = "", circuito: int = 0, *,
         t["fuerza_texto"] = f["fuerza_texto"]
         t["por_confirmar"] = bool(f.get("por_confirmar"))
         t["vincula_al_tribunal"] = f["vincula"]
-        t["obligatoria"] = f["vincula"] is True
+        # Con la bandera apagada, `obligatoria` conserva su significado viejo
+        # (es jurisprudencia) para los prompts y el documento.
+        t["obligatoria"] = (f["vincula"] is True) if _on else bool(t.get("vincula_origen"))
         t["_fuerza_para"] = para
         if not isinstance(t.get("aplicabilidad"), dict):
             t["aplicabilidad"] = {"estado": "no_evaluada"}
@@ -470,8 +490,13 @@ def _leida(t: dict) -> tuple:
 
 
 def vincula(t: dict):
-    """True | False | None: ¿vincula al tribunal? Sin modificar la tesis."""
-    return _leida(t)[0] if isinstance(t, dict) else False
+    """True | False | None: ¿vincula al tribunal? Sin modificar la tesis. Con
+    la bandera apagada, la lectura vieja (`obligatoria`)."""
+    if not isinstance(t, dict):
+        return False
+    if not activa():
+        return bool(t.get("obligatoria"))
+    return _leida(t)[0]
 
 
 def rotulo(t: dict) -> str:
@@ -479,6 +504,8 @@ def rotulo(t: dict) -> str:
     anotó, se calcula sin tribunal (nunca se lee `vincula` a pelo)."""
     if not isinstance(t, dict):
         return "orientadora"
+    if not activa():
+        return "OBLIGATORIA" if t.get("obligatoria") else "orientadora"
     v, txt = _leida(t)
     if v is True:
         return f"OBLIGATORIA para este tribunal — {txt}"
@@ -491,6 +518,8 @@ def orden(t: dict) -> int:
     """0 si vincula, 1 si está por confirmar, 2 si orienta."""
     if not isinstance(t, dict):
         return 2
+    if not activa():
+        return 0 if t.get("obligatoria") else 2
     v = _leida(t)[0]
     return 0 if v is True else (1 if v is None else 2)
 

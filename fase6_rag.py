@@ -1155,11 +1155,17 @@ async def _sembrar(qdrant, silo: str, vector, materia: str) -> list:
             collection_name="sentencias_holdings", query=vector, using="dense",
             query_filter=Filter(must=[FieldCondition(key="materia",
                                                      match=MatchAny(any=grafias))]),
-            limit=HOLDINGS_A_SEMBRAR, with_payload=["circuito"])
+            limit=HOLDINGS_A_SEMBRAR,
+            with_payload=["circuito", "expediente", "fecha_sentencia", "holding_id"])
         if inspect.isawaitable(r):
             r = await r
+        import contexto_taller as _ct
+        _exc = _ct.exclusion()
         hold = [(str(p.id), str((p.payload or {}).get("circuito") or ""))
-                for p in (getattr(r, "points", None) or [])]
+                for p in (getattr(r, "points", None) or [])
+                # EN UNA EVALUACIÓN, el holding del fallo objetivo no siembra.
+                if not (_exc is not None and (_exc.excluye_holding(p.payload or {})
+                                              or str(p.id) in _exc.holding_ids))]
     except Exception as e:
         log.error("sembrado: no se pudo sondear holdings: %s", e)
         return []
@@ -1980,10 +1986,18 @@ async def tesis_cocitadas(qdrant, embed_leyes, problema: str,
             # de los títulos de crédito», «interpretación restrictiva de la
             # prescripción»— y decirle al modelo cuáles usa el tribunal es
             # decirle por dónde va el razonamiento, no sólo qué citar.
-            with_payload=["tesis_registros", "principios_juridicos"])
+            with_payload=["tesis_registros", "principios_juridicos", "expediente",
+                          "fecha_sentencia", "holding_id"])
         if inspect.isawaitable(r):
             r = await r
         pts = getattr(r, "points", r)
+        # EN UNA EVALUACIÓN, las citas del fallo objetivo no se cuentan: le
+        # darían al motor SUS tesis.
+        import contexto_taller as _ct
+        _exc = _ct.exclusion()
+        if _exc is not None:
+            pts = [p for p in pts if not (_exc.excluye_holding(p.payload or {})
+                                          or str(getattr(p, "id", "")) in _exc.holding_ids)]
     except Exception as e:
         print(f"   ⚠️ co-citación: no se pudo consultar el acervo: {e}")
         return []

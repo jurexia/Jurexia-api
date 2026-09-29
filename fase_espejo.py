@@ -334,6 +334,14 @@ async def espejo(qdrant, embed, problema: str, tribunal_key: str,
             "pdf_url": str(pl.get("pdf_url") or h.get("pdf_url") or "").strip(),
         })
     filas = [f for f in filas if f["expediente"]]
+    # EN UNA EVALUACIÓN, SIN EL FALLO OBJETIVO NI LO POSTERIOR (contexto_taller).
+    try:
+        import contexto_taller as _ct
+        _exc = _ct.exclusion()
+    except Exception:                                   # pragma: no cover
+        _exc = None
+    if _exc is not None:
+        filas = [f for f in filas if not _exc.excluye_fila(f)]
     if len(filas) < PISO_FILAS:
         return []
     return filas

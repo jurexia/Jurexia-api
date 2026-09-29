@@ -333,6 +333,15 @@ async def precedentes_verificados(qdrant, problema: str, hechos: str = "",
       resumen    → el texto de sonar, para orientar al modelo (NO para citar)
       fuentes    → URLs oficiales
     """
+    # EN UNA EVALUACIÓN LA WEB CALLA (contexto_taller): no hay forma de cortarla
+    # por fecha y puede traer la propia sentencia o lo que se decidió después.
+    try:
+        import contexto_taller as _ct
+        _exc = _ct.exclusion()
+        if _exc is not None and not _exc.web:
+            return {"tesis": [], "pistas": [], "resumen": "", "fuentes": [], "buscado": False}
+    except Exception:                                   # pragma: no cover
+        pass
     linea = await buscar_linea(problema, hechos, tipo_asunto)
     if not linea["texto"]:
         return {"tesis": [], "pistas": [], "resumen": "", "fuentes": [], "buscado": False}

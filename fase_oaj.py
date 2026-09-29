@@ -799,9 +799,20 @@ def _sin_el_propio(mejores, expediente_propio) -> list:
     si el propio asunto fuera el primero, el segundo se leería con la tabla de
     las demás y perdería el nivel que la del primero le da."""
     propio = numero_expediente(expediente_propio)
-    if not propio:
+    # Y, EN UNA EVALUACIÓN, EL FALLO OBJETIVO Y LO POSTERIOR (contexto_taller):
+    # su NEUN, su serie y todo lo fechado desde la sentencia que se mide.
+    try:
+        import contexto_taller as _ct
+        exc = _ct.exclusion()
+    except Exception:                                   # pragma: no cover
+        exc = None
+    if not propio and exc is None:
         return list(mejores)
-    return [m for m in mejores if numero_expediente((m[2] or {}).get("alias")) != propio]
+    return [m for m in mejores
+            if not (propio and numero_expediente((m[2] or {}).get("alias")) == propio)
+            # El NEUN de la tupla es el que ya se validó en `_mejores`: se usa
+            # ése, aunque el payload lo guarde de otra forma.
+            and not (exc is not None and exc.excluye_fila(dict(m[2] or {}, neun=m[1])))]
 
 
 async def precedentes_oaj(qdrant, embed, problema, tipo_taller: str,

@@ -50,7 +50,10 @@ print("1 · LA PROPUESTA GLOBAL, EN LA FILA Y LEÍDA IGUAL POR LAS CINCO PUERTAS
 _src_rep = ast.get_source_segment(SRC_MAIN, FN["taller_reparto"])
 ok("_taller_glob(global_json, ses)" in _src_rep,
    "/taller/reparto lee la global como las demás puertas (la del cliente o la guardada)")
-_src_rec = ast.get_source_segment(SRC_MAIN, FN["_taller_recuperar_sesion"])
+# Desde el rediseño (29-sep) la reconstrucción vive en `_taller_recuperar_sesion_crudo`
+# y `_taller_recuperar_sesion` la envuelve para poner el contexto de la petición.
+_src_rec = ast.get_source_segment(SRC_MAIN, FN.get("_taller_recuperar_sesion_crudo")
+                                  or FN["_taller_recuperar_sesion"])
 ok("_taller_global_de_fila(est, resultado)" in _src_rec,
    "la sesión rehidratada de la base trae la global")
 _src_prop = ast.get_source_segment(SRC_MAIN, FN["taller_proponer"])

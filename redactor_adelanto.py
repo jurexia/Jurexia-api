@@ -853,6 +853,15 @@ async def consultar(qdrant, embed_juris, embed_leyes,
     # LA FUERZA RESPECTO DE ESTE TRIBUNAL (rediseño, punto 3): su circuito, su
     # región y su designación deciden si una tesis lo vincula.
     material.tribunal = str(getattr(r.encargo, "tribunal", "") or "")
+    # EN UNA EVALUACIÓN, NADA PUBLICADO DESDE LA SENTENCIA QUE SE MIDE
+    # (contexto_taller; `fecha_publicacion` la guarda _tesis_de desde el 29-sep).
+    import contexto_taller as _ct
+    _exc = _ct.exclusion()
+    if _exc is not None:
+        _antes = len(material.tesis or [])
+        material.tesis = [t for t in (material.tesis or []) if not _exc.excluye_tesis(t)]
+        if len(material.tesis) != _antes:
+            print(f"   🧪 evaluación: {_antes - len(material.tesis)} tesis posteriores al corte fuera")
     import fuerza_juridica as _fj
     _fj.anotar(material.tesis, material.tribunal)
     material.entidad = _entidad_de(coleccion)
@@ -1560,6 +1569,15 @@ def _rama_tecnica(r, criterios, contexto: str = "") -> tuple:
     return _rama, _vp
 
 
+def _aviso_tardio_visible() -> bool:
+    """El aviso de «justificación pendiente» se ENSEÑA sólo con la bandera
+    «fuente_tardia_aviso» (FUENTE_TARDIA_AVISO = todos | casa | 0; por omisión
+    casa): David, decisión 2 del 29-sep, nada se activa para todos antes de
+    calibrarlo contra engroses buenos. El meta lo registra siempre."""
+    import contexto_taller as _ct
+    return _ct.bandera("fuente_tardia_aviso", "FUENTE_TARDIA_AVISO", "casa")
+
+
 async def _fuentes_tardias(r, e, material, estudio: str, avisos: list, qdrant,
                           meta: dict = None) -> list:
     """Lo que entra DESPUÉS de redactar el estudio, y qué toca.
@@ -1664,7 +1682,7 @@ async def _fuentes_tardias(r, e, material, estudio: str, avisos: list, qdrant,
                 meta["fuentes_tardias"] = list(meta.get("fuentes_tardias") or []) + _cl
                 if _estado_ft:
                     meta["estado_salida"] = _estado_ft
-            if _av_ft:
+            if _av_ft and _aviso_tardio_visible():
                 avisos.insert(0, _av_ft)
             print(f"   🕰️ fuentes tardías: {len(_cl)} "
                   f"({sum(1 for c in _cl if c['sustantiva'])} en unidades que deciden)")
@@ -2460,7 +2478,7 @@ async def _terminar(cliente, r, e, criterios, material, estudio,
                     meta_estudio["fuentes_tardias"] = list(meta_estudio.get("fuentes_tardias") or []) + _cl
                     if _estado_ft:
                         meta_estudio["estado_salida"] = _estado_ft
-                if _av_ft:
+                if _av_ft and _aviso_tardio_visible():
                     avisos.insert(0, _av_ft)
             except Exception as _eft:
                 print(f"   ⚠️ artículos tardíos sin clasificar: {type(_eft).__name__}")

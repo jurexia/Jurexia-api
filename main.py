@@ -32305,6 +32305,10 @@ async def taller_adelanto(
     # ningún acervo público y no pueden estarlo: son del expediente. Si no
     # entran por aquí, no entran.
     constancias: Optional[UploadFile] = File(None),
+    # LA EVALUACIÓN (rediseño, punto 8, 29-sep-2026): JSON {"exclusion":
+    # {neuns, expedientes, holding_ids, fecha_corte, serie}, "banderas": {…}}.
+    # Sólo lo toma una cuenta de casa; viaja con la sesión (ver contexto_taller).
+    evaluacion: str = Form(""),
 ):
     """Genera el adelanto y lo devuelve como .docx.
 
@@ -32537,6 +32541,20 @@ async def taller_adelanto(
                           salida, texto_autos)
 
     _taller_registrar_uso(user_email, numero, "adelanto")
+    # LA EVALUACIÓN SE PEGA AL RESULTADO ANTES DE GUARDAR LA SESIÓN, y se pone
+    # en el contexto ANTES de lanzar las tareas sueltas (consulta, contraste):
+    # heredan el contexto de esta petición.
+    if (evaluacion or "").strip() and _taller_es_casa(user_email):
+        try:
+            _ev = json.loads(evaluacion)
+            if isinstance(_ev, dict):
+                r.evaluacion = _ev
+                print(f"   🧪 TALLER: {numero} en EVALUACIÓN · exclusión "
+                      f"{sorted((_ev.get('exclusion') or {}).keys())} · banderas {_ev.get('banderas') or {}}")
+        except Exception as _eev:
+            print(f"   ⚠️ evaluación ilegible, se ignora: {type(_eev).__name__}")
+    import contexto_taller as _ctx_t
+    _ctx_t.poner(_taller_es_casa(user_email), getattr(r, "evaluacion", None))
     _taller_guardar_sesion(user_email, numero, r, tmp)
     # EL CONTRASTE DE LA PROPUESTA EMPIEZA AQUÍ, no en /taller/proponer. Sólo
     # lee lo que este adelanto acaba de producir, cuesta una llamada con
@@ -35337,6 +35355,8 @@ def _taller_guardar_sesion(email: str, numero: str, r, tmp: str) -> None:
         # siendo la suya: si el secretario rehizo el adelanto mientras
         # corrían, lo que traen es de otro asunto y se tira.
         "huella": _te.huella_contraste(r),
+        # LA EVALUACIÓN VIAJA CON LA SESIÓN (con -w 2 no puede vivir en memoria).
+        "evaluacion": getattr(r, "evaluacion", None) or None,
     }
     # LA PLANTILLA VIAJA CON LA SESIÓN. Vive en el /tmp del worker que atendió el
     # adelanto y el que resuelve no lo ve: `PackageNotFoundError` al reensamblar.
@@ -35368,6 +35388,21 @@ def _taller_guardar_sesion(email: str, numero: str, r, tmp: str) -> None:
 
 
 def _taller_recuperar_sesion(email: str, numero: str):
+    """La sesión (ver `_taller_recuperar_sesion_crudo`) y, de paso, el CONTEXTO
+    de esta petición: si la cuenta es de casa y la sesión es de una evaluación,
+    su exclusión y sus banderas rigen todo lo que esta petición haga y lance
+    (contexto_taller; rediseño, punto 8)."""
+    ses = _taller_recuperar_sesion_crudo(email, numero)
+    try:
+        import contexto_taller as _ctx_t
+        _ctx_t.poner(_taller_es_casa(email),
+                     getattr((ses or {}).get("resultado"), "evaluacion", None))
+    except Exception as _ec:
+        print(f"   ⚠️ contexto del taller sin poner: {type(_ec).__name__}")
+    return ses
+
+
+def _taller_recuperar_sesion_crudo(email: str, numero: str):
     """El adelanto, del proceso o de la base. None si no existe.
 
     LA MEMORIA GANABA SOBRE LA BASE, Y LA MEMORIA SE QUEDA RANCIA. Éste es el
@@ -35508,6 +35543,8 @@ def _taller_recuperar_sesion(email: str, numero: str):
                                getattr(encargo, "excepcion_plazo", "") or ""))
     resultado = _ra.Resultado(ruta="", computo=computo, fases=f, encargo=encargo,
                               partes=partes, avisos=list(est.get("avisos") or []))
+    if isinstance(est.get("evaluacion"), dict):
+        resultado.evaluacion = est["evaluacion"]
     tmp = est.get("tmp") or ""
     if not os.path.isdir(tmp):
         tmp = _tmpmod.mkdtemp(prefix="taller_")
@@ -37918,6 +37955,12 @@ async def taller_proponer(
     numero: str = Form(...),
     user_email: str = Form(...),
     contexto: str = Form(""),
+    # PARA MEDIR (rediseño, punto 8; sólo cuentas de casa): «recalcular=1» no
+    # sirve la propuesta guardada —el banco Kingston medía la guardada y
+    # llamaba a eso «después»—; «banderas» (JSON) enciende o apaga un cambio
+    # sólo en esta petición, sobre la misma sesión.
+    recalcular: str = Form(""),
+    banderas: str = Form(""),
 ):
     """LA PROPUESTA DE SOLUCIÓN. Propone, no decide.
 
@@ -37948,13 +37991,26 @@ async def taller_proponer(
         await _taller_figura_al_material(ses["resultado"], ses["material"],
                                          _taller_decisiva_guardada(user_email, numero, ses["resultado"]))
     await _taller_redecidir_si_corrigio(user_email, numero, ses)
+    _casa_p = _taller_es_casa(user_email)
+    if _casa_p and (banderas or "").strip():
+        try:
+            _ban = json.loads(banderas)
+            if isinstance(_ban, dict):
+                import contexto_taller as _ctx_t
+                _ev = dict(getattr(ses["resultado"], "evaluacion", None) or {})
+                _ev["banderas"] = {**(_ev.get("banderas") or {}), **_ban}
+                _ctx_t.poner(True, _ev)
+                print(f"   🧪 TALLER: {numero} propone con banderas {_ban}")
+        except Exception as _eb:
+            print(f"   ⚠️ banderas ilegibles, se ignoran: {type(_eb).__name__}")
+    _forzar = _casa_p and (recalcular or "").strip() in ("1", "true", "si", "sí")
 
     # LA PROPUESTA YA CORRIÓ SOLA —`_taller_preproponer`, encadenada a la
     # consulta automática— y vale tal cual si el secretario no aporta
     # contexto: se sirve la guardada, o se espera si aún corre. Con contexto,
     # se calcula con él. Sin marca (sesión anterior, worker caído), se calcula.
     _previa = None
-    if not (contexto or "").strip():
+    if not (contexto or "").strip() and not _forzar:
         try:
             _hu = _te.huella_contraste(ses["resultado"])
             _doc = await _te.esperar_marca(

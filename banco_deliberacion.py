@@ -63,7 +63,21 @@ from pathlib import Path
 AQUI = Path(__file__).parent / "bancos" / "deliberacion"
 RESULTADOS = AQUI / "resultados.jsonl"
 OAJ_DIR = "/Users/josedavidalcantarmendoza/Documents/IUREXIA-MAC/redactor-sentencias/oaj/lectura_json"
-KINGSTON_RESULTADOS = Path(__file__).parent / "bancos" / "kingston" / "resultados.jsonl"
+# En el checkout principal (29-sep-2026): desde un worktree la ruta relativa no
+# existía y el brazo «hoy» salía vacío sin avisar.
+KINGSTON_RESULTADOS = Path("/Users/josedavidalcantarmendoza/Documents/IUREXIA-MAC/jurexia-api-git/bancos/kingston/resultados.jsonl")
+INDICE_OAJ = "/Users/josedavidalcantarmendoza/Documents/IUREXIA-MAC/redactor-sentencias/oaj/indice_oaj_v2.sqlite"
+
+
+def _fecha_de_neun(neun) -> str:
+    """La fecha de la sentencia (dd-mm-aaaa) según el índice OAJ; «» si no."""
+    try:
+        import sqlite3
+        db = sqlite3.connect(f"file:{INDICE_OAJ}?mode=ro&immutable=1", uri=True)
+        r = db.execute("SELECT fecha_sentencia FROM asuntos WHERE neun = ? LIMIT 1", (int(neun),)).fetchone()
+        return str(r[0]) if r and r[0] else ""
+    except Exception:
+        return ""
 CORREO_KINGSTON = "administracion@iurexia.com"
 CORREO_631, NUMERO_631 = "soporte@iurexia.com", "631/2025"
 TRIBUNAL_ESPEJO = ("Tercer Tribunal Colegiado en Materias Administrativa y Civil del "
@@ -421,17 +435,33 @@ async def correr_oaj(n_por_tipo: int, semilla: int, con_base: bool) -> list:
     embed_leyes = (lambda t: m.get_dense_embedding(t, modelo=m.EMBEDDING_MODEL))
     clave, _ = fe.resolver_tribunal(TRIBUNAL_ESPEJO, "22")
     filas = []
+    import contexto_taller as _ct
+    import fase_oaj as fo
+    _, organo = fo.organo_de(TRIBUNAL_ESPEJO, "22")
     for caso in muestra_oaj(OAJ_DIR, n_por_tipo, semilla):
         p = dict(caso["principal"], jerarquia="principal")
         tipo = "amparo_revision" if caso["tipo"] == "AR" else "amparo_directo"
         fila = {"banco": "oaj", "archivo": caso["archivo"], "tipo": caso["tipo"], "oro": caso["oro"]}
+        # LA EXCLUSIÓN DE ESTE CASO (29-sep-2026): su NEUN, su número y todo lo
+        # fechado desde su sentencia, en TODAS las fuentes (contexto_taller):
+        # OAJ, espejo viejo, holdings, co-citación, sembrado y web.
+        _exc = {"neuns": [caso["neun"]] if caso.get("neun") else [],
+                "expedientes": [caso["numero"]] if caso.get("numero") else [],
+                "fecha_corte": _fecha_de_neun(caso.get("neun")) if caso.get("neun") else ""}
+        _ct.poner(True, {"exclusion": _exc})
+        fila["exclusion"] = _exc
         try:
             mat = await f6r.material_para(m.qdrant_client, m._embedding_juris, embed_leyes,
                                           p["pregunta"], "leyes_queretaro", cliente=m.chat_client,
                                           hecho=" ".join(str(p.get(k) or "") for k in ("combate", "resolvio")))
             mat.tipo_asunto = tipo
+            # LOS PRECEDENTES QUE VE PRODUCCIÓN: los de la OAJ (antes, el espejo
+            # viejo, que en el 3TCC ya sólo es el respaldo), con la exclusión.
             espejo = []
-            if clave:
+            if organo:
+                espejo = sin_fuga(await fo.precedentes_oaj(
+                    m.qdrant_client, embed_leyes, p, tipo, organo, caso.get("numero") or "") or [], caso)
+            if not espejo and clave:
                 espejo = sin_fuga(await fe.espejo(m.qdrant_client, embed_leyes, p["pregunta"],
                                                   clave, "22") or [], caso)
 

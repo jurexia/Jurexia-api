@@ -21,10 +21,34 @@ propuesta. `--etapa despues` reutiliza la sesión —que vive en Supabase— y s
 vuelve a proponer, con el código nuevo ya desplegado. Así el antes y el después
 comparten material, y la única diferencia es el paso que se está midiendo.
 
+ARREGLADO EL 29-SEP-2026 (rediseño del taller, punto 8; David: «arregla el
+banco»). Tres defectos medían en falso:
+  1. LA FUGA. 18 de los 24 asuntos están en el índice de la OAJ (el 274/2025 con
+     NEUN 38118729, fechado el 28-05-2026) y la única exclusión era el número
+     tecleado; el espejo viejo, los holdings, la co-citación y la web no
+     excluían nada. Ahora cada asunto viaja con su EXCLUSIÓN —NEUN, número y
+     serie, y fecha de corte = la de su sentencia en la OAJ— en el campo
+     `evaluacion` del adelanto; la API la guarda en la sesión y todas las
+     fuentes la respetan (contexto_taller). Además se cuentan las FUGAS: filas
+     del espejo que sean el propio asunto o posteriores al corte.
+  2. EL «DESPUÉS» NO RECALCULABA. /taller/proponer servía la propuesta guardada
+     y el banco llamaba a eso «después». Ahora las etapas que no son «antes» van
+     con `recalcular=1`.
+  3. UNA SOLA COSA POR ETAPA. `--banderas '{"fuerza_unificada": false}'` enciende
+     o apaga un cambio sólo en esa etapa, sobre las mismas sesiones.
+Y los resultados viven en el checkout principal, no en el worktree de turno.
+
+ESTE BANCO ES DE REGRESIÓN Y ESTÁ CONTAMINADO: siete de sus asuntos entraron en
+la calibración de la tabla OAJ, y todos se han usado para depurar. Su número no
+se publica como exactitud del motor; sirve para ver que un cambio no empeora.
+
 Uso:
-    .venv/bin/python banco_kingston.py --etapa antes   [--paralelo 3] [--solo N]
-    .venv/bin/python banco_kingston.py --etapa despues [--paralelo 3]
-    .venv/bin/python banco_kingston.py --comparar
+    .venv/bin/python banco_kingston.py --etapa base    [--paralelo 3] [--solo N]
+    .venv/bin/python banco_kingston.py --etapa fuerza_off --banderas '{"fuerza_unificada": false}'
+    .venv/bin/python banco_kingston.py --etapa fuerza_on  --banderas '{"fuerza_unificada": true}'
+    .venv/bin/python banco_kingston.py --comparar [--contra fuerza_off]
+(«antes» o «base» crean las sesiones con adelanto y acervo; las demás sólo
+vuelven a proponer, recalculando.)
 """
 import argparse, asyncio, glob, json, os, re, subprocess, sys, time, collections
 from pathlib import Path
@@ -35,7 +59,12 @@ from comparar import sentido as sentido_del_oro, calificaciones  # noqa: E402
 BASE = "https://jurexia-api.onrender.com"
 CORREO = "administracion@iurexia.com"     # de casa: sin tope, y no ensucia el historial de David
 CASOS = "/Users/josedavidalcantarmendoza/Documents/IUREXIA-MAC/redactor-sentencias/corpus/casos"
-AQUI = Path(__file__).parent / "bancos" / "kingston"
+# EN EL CHECKOUT PRINCIPAL, no junto al archivo: en un worktree la carpeta no
+# existía y banco_deliberacion leía un «hoy» vacío.
+AQUI = Path("/Users/josedavidalcantarmendoza/Documents/IUREXIA-MAC/jurexia-api-git/bancos/kingston")
+INDICE_OAJ = "/Users/josedavidalcantarmendoza/Documents/IUREXIA-MAC/redactor-sentencias/oaj/indice_oaj_v2.sqlite"
+ORGANO_OAJ = "Tercer Tribunal Colegiado en Materias Administrativa y Civil del Vig%"
+ETAPAS_CON_ADELANTO = ("antes", "base")
 AQUI.mkdir(parents=True, exist_ok=True)
 PDFS = AQUI / "pdf"; PDFS.mkdir(exist_ok=True)
 RESULTADOS = AQUI / "resultados.jsonl"
@@ -67,6 +96,61 @@ def numero_de(asunto: str) -> str:
     """«2. ADC 274-2025» → «274/2025». El primer número-año que aparezca."""
     m = re.search(r"(\d{1,4})\s*[-/]\s*(20\d{2})", asunto)
     return f"{m.group(1)}/{m.group(2)}" if m else asunto
+
+
+def exclusion_de(caso: dict) -> dict:
+    """La exclusión del fallo objetivo: su número y los de su serie («ADC
+    463-2024, 492-2024»), su NEUN y, si la OAJ lo publicó, la fecha de su
+    sentencia como corte (nada fechado ese día o después)."""
+    import sqlite3
+    nums = sorted({f"{m.group(1)}/{m.group(2)}"
+                   for m in re.finditer(r"(\d{1,4})\s*[-/]\s*(20\d{2})", caso["asunto"])})
+    neuns, fechas = [], []
+    try:
+        db = sqlite3.connect(f"file:{INDICE_OAJ}?mode=ro&immutable=1", uri=True)
+        for num in nums:
+            n, a = num.split("/")
+            for neun, alias, fecha in db.execute(
+                    "SELECT neun, alias, fecha_sentencia FROM asuntos WHERE tipo='Amparo Directo' "
+                    "AND organo LIKE ? AND (alias LIKE ? OR alias LIKE ?)",
+                    (ORGANO_OAJ, f"%{n}/{a}%", f"%{n}-{a}%")):
+                if re.search(r"(?<!\d)" + n + r"\s*[/\-]\s*" + a, alias or ""):
+                    neuns.append(int(neun)); fechas.append(fecha)
+    except Exception as e:
+        print(f"   ⚠️ índice OAJ no disponible para la exclusión: {e}")
+    import datetime as _dt
+    def _f(s):
+        try:
+            d, m, y = str(s).split("-"); return _dt.date(int(y), int(m), int(d))
+        except Exception:
+            return None
+    corte = min((x for x in map(_f, fechas) if x), default=None)
+    return {"expedientes": nums, "neuns": sorted(set(neuns)),
+            "fecha_corte": corte.isoformat() if corte else "", "serie": caso["asunto"][:60]}
+
+
+def fugas_en(espejo, exc: dict) -> int:
+    """Filas del espejo que son el propio asunto o posteriores al corte: con la
+    exclusión puesta deben ser CERO. Se cuentan, no se esconden."""
+    import datetime as _dt
+    nums = set(exc.get("expedientes") or []); neuns = set(exc.get("neuns") or [])
+    corte = exc.get("fecha_corte") or ""
+    n = 0
+    for g in (espejo or []):
+        for f in ((g or {}).get("filas") or []):
+            num = re.search(r"(\d{1,5})\s*[/\-]\s*(\d{4})", str(f.get("expediente") or ""))
+            fecha = str(f.get("fecha") or "")
+            iso = ""
+            m = re.match(r"^(\d{1,2})-(\d{1,2})-(\d{4})", fecha)
+            if m:
+                iso = f"{m.group(3)}-{int(m.group(2)):02d}-{int(m.group(1)):02d}"
+            elif re.match(r"^\d{4}-\d{2}-\d{2}", fecha):
+                iso = fecha[:10]
+            if ((num and f"{int(num.group(1))}/{num.group(2)}" in nums)
+                    or (f.get("neun") and int(float(f["neun"])) in neuns)
+                    or (corte and iso and iso >= corte)):
+                n += 1
+    return n
 
 
 def materia_de(caso: dict) -> str:
@@ -103,7 +187,7 @@ def ya_hechos(etapa: str) -> dict:
         for ln in RESULTADOS.read_text(encoding="utf-8").splitlines():
             if ln.strip():
                 r = json.loads(ln)
-                if r.get("etapa") == etapa and not r.get("error"):
+                if r.get("etapa") == etapa and not r.get("error") and r.get("exclusion"):
                     # EN LA ETAPA «DESPUÉS» SÓLO CUENTA LO QUE LLEVA CONTRASTE. La
                     # primera corrida arrancó con el despliegue recién vivo y dos
                     # casos los atendió el worker que aún rodaba el código viejo:
@@ -120,17 +204,20 @@ def anotar(fila: dict) -> None:
         fh.write(json.dumps(fila, ensure_ascii=False) + "\n")
 
 
-async def correr_caso(caso: dict, etapa: str, sem: asyncio.Semaphore) -> dict:
+async def correr_caso(caso: dict, etapa: str, sem: asyncio.Semaphore,
+                      banderas: dict | None = None) -> dict:
     import httpx
     asunto = caso["asunto"]; numero = numero_de(asunto)
     oro = sentido_del_oro(caso["oro"])
+    exc = exclusion_de(caso)
     fila = {"etapa": etapa, "asunto": asunto, "numero": numero, "oro": oro,
+            "exclusion": exc, "banderas": banderas or {},
             "t0": time.strftime("%Y-%m-%d %H:%M:%S")}
     async with sem:
         t = time.time()
         try:
             async with httpx.AsyncClient(timeout=httpx.Timeout(30, read=1800)) as cx:
-                if etapa == "antes":
+                if etapa in ETAPAS_CON_ADELANTO:
                     slug = re.sub(r"[^A-Za-z0-9]+", "_", asunto)[:40]
                     acto = pdf_de(caso["piezas"]["acto"]["texto"], PDFS / f"{slug}_acto.pdf")
                     dem = pdf_de(caso["piezas"]["demanda"]["texto"], PDFS / f"{slug}_demanda.pdf")
@@ -143,6 +230,8 @@ async def correr_caso(caso: dict, etapa: str, sem: asyncio.Semaphore) -> dict:
                         "tribunal": "Tercer Tribunal Colegiado en Materias Administrativa "
                                     "y Civil del Vigésimo Segundo Circuito",
                         "ciudad": "Querétaro, Querétaro",
+                        "evaluacion": json.dumps({"exclusion": exc, "banderas": banderas or {}},
+                                                 ensure_ascii=False),
                     }
                     with open(acto, "rb") as fa, open(dem, "rb") as fd:
                         r = await cx.post(f"{BASE}/taller/adelanto", data=datos,
@@ -156,11 +245,17 @@ async def correr_caso(caso: dict, etapa: str, sem: asyncio.Semaphore) -> dict:
                                             "coleccion_estatal": "leyes_queretaro"})
                     if r.status_code != 200:
                         raise RuntimeError(f"consultar {r.status_code}: {r.text[:200]}")
-                    fila["problemas"] = len((r.json() or {}).get("problemas") or [])
+                    _cj = r.json() or {}
+                    fila["problemas"] = len(_cj.get("problemas") or [])
+                    fila["fugas"] = fugas_en(_cj.get("espejo"), exc)
                     fila["t_acervo"] = round(time.time() - t)
 
-                r = await cx.post(f"{BASE}/taller/proponer",
-                                  data={"numero": numero, "user_email": CORREO})
+                _dp = {"numero": numero, "user_email": CORREO}
+                if etapa not in ETAPAS_CON_ADELANTO:
+                    _dp["recalcular"] = "1"
+                if banderas:
+                    _dp["banderas"] = json.dumps(banderas)
+                r = await cx.post(f"{BASE}/taller/proponer", data=_dp)
                 if r.status_code != 200:
                     raise RuntimeError(f"proponer {r.status_code}: {r.text[:200]}")
                 p = r.json()
@@ -185,7 +280,7 @@ async def correr_caso(caso: dict, etapa: str, sem: asyncio.Semaphore) -> dict:
     return fila
 
 
-async def correr(etapa: str, paralelo: int, solo: int | None) -> None:
+async def correr(etapa: str, paralelo: int, solo: int | None, banderas: dict | None = None) -> None:
     casos = banco()
     hechos = ya_hechos(etapa)
     pendientes = [c for c in casos if c["asunto"] not in hechos]
@@ -194,49 +289,61 @@ async def correr(etapa: str, paralelo: int, solo: int | None) -> None:
     print(f"═══ etapa «{etapa}» · {len(casos)} casos · {len(hechos)} hechos · "
           f"{len(pendientes)} por correr · {paralelo} en paralelo ═══", flush=True)
     sem = asyncio.Semaphore(paralelo)
-    await asyncio.gather(*(correr_caso(c, etapa, sem) for c in pendientes))
+    await asyncio.gather(*(correr_caso(c, etapa, sem, banderas) for c in pendientes))
     comparar()
 
 
-def comparar() -> None:
+def comparar(contra: str = "") -> None:
     filas = [json.loads(l) for l in RESULTADOS.read_text(encoding="utf-8").splitlines() if l.strip()]
     por = collections.defaultdict(dict)
     for f in filas:
         if f.get("error"):
             continue
-        if f["etapa"] != "antes" and not f.get("contraste"):
-            continue                                # worker viejo: no es «después»
+        # LAS FILAS DE ANTES DEL ARREGLO (sin exclusión) no se comparan con las
+        # nuevas: se midieron con fuga.
+        if not f.get("exclusion"):
+            continue
         por[f["etapa"]][f["asunto"]] = f           # la última de cada asunto manda
+    print("\n═══ RESULTADO · banco de REGRESIÓN, contaminado (no es la exactitud del motor) ═══")
     print("\n═══ RESULTADO ═══")
     for etapa, d in por.items():
         n = len(d); ok = sum(1 for f in d.values() if f.get("acierta"))
         conf = collections.Counter((f["oro"], f["propuesto"]) for f in d.values())
-        print(f"  {etapa:<8} sentido acertado {ok}/{n} = {100*ok/max(n,1):.0f}%   "
-              f"(línea base «siempre niega»: {sum(1 for f in d.values() if f['oro']=='niega')}/{n})")
+        fug = sum(int(f.get("fugas") or 0) for f in d.values())
+        print(f"  {etapa:<10} sentido acertado {ok}/{n} = {100*ok/max(n,1):.0f}%   "
+              f"(línea base «siempre niega»: {sum(1 for f in d.values() if f['oro']=='niega')}/{n})"
+              + (f"   ⚠️ FUGAS: {fug}" if fug else ""))
         for (o, p), k in sorted(conf.items()):
             print(f"           oro={o:<8} motor={p:<13} {k}")
-    for et in [e for e in por if e != "antes"]:
-        if "antes" not in por:
+    ref = contra or ("base" if "base" in por else "antes")
+    for et in [e for e in por if e != ref]:
+        if ref not in por:
             break
-        comunes = set(por["antes"]) & set(por[et])
-        mejora = sum(1 for a in comunes if por[et][a]["acierta"] and not por["antes"][a]["acierta"])
-        empeora = sum(1 for a in comunes if por["antes"][a]["acierta"] and not por[et][a]["acierta"])
-        print(f"\n  «{et}» sobre los {len(comunes)} comunes con «antes»: arregla {mejora} y estropea {empeora}")
+        comunes = set(por[ref]) & set(por[et])
+        mejora = sum(1 for a in comunes if por[et][a]["acierta"] and not por[ref][a]["acierta"])
+        empeora = sum(1 for a in comunes if por[ref][a]["acierta"] and not por[et][a]["acierta"])
+        print(f"\n  «{et}» sobre los {len(comunes)} comunes con «{ref}»: arregla {mejora} y estropea {empeora}")
         for a in sorted(comunes):
-            x, y = por["antes"][a], por[et][a]
+            x, y = por[ref][a], por[et][a]
             if x["acierta"] != y["acierta"]:
                 print(f"    {'↑' if y['acierta'] else '↓'} {a[:44]:<44} oro={x['oro']:<8} "
-                      f"antes={x['propuesto']:<8} {et}={y['propuesto']}")
+                      f"{ref}={x['propuesto']:<8} {et}={y['propuesto']}")
 
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
-    ap.add_argument("--etapa")   # antes | despues | despues2 …: lo que no es «antes» sólo propone
+    ap.add_argument("--etapa")   # base | antes crean sesiones; las demás sólo proponen, recalculando
     ap.add_argument("--paralelo", type=int, default=3)
     ap.add_argument("--solo", type=int)
+    ap.add_argument("--banderas", default="")
+    ap.add_argument("--contra", default="")
     ap.add_argument("--comparar", action="store_true")
+    ap.add_argument("--exclusiones", action="store_true", help="imprime la exclusión de cada asunto y sale")
     a = ap.parse_args()
-    if a.comparar or not a.etapa:
-        comparar()
+    if a.exclusiones:
+        for c in banco():
+            print(c["asunto"][:44], json.dumps(exclusion_de(c), ensure_ascii=False))
+    elif a.comparar or not a.etapa:
+        comparar(a.contra)
     else:
-        asyncio.run(correr(a.etapa, a.paralelo, a.solo))
+        asyncio.run(correr(a.etapa, a.paralelo, a.solo, json.loads(a.banderas) if a.banderas else None))

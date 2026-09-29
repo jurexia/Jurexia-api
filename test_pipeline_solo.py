@@ -62,8 +62,12 @@ handler = m[i_dec:i_str]
 ok("await _taller_proponer_nucleo(user_email, numero, ses, contexto)" in handler
    and handler.count('_taller_registrar_uso(user_email, numero, "propuesta")') == 2,
    "el endpoint llama al núcleo y registra el uso en las dos salidas")
+# «and not _forzar» (rediseño, punto 8): una cuenta de casa puede pedir que se
+# RECALCULE para medir; sin eso, igual que siempre.
 ok('_taller_leer_marca(user_email, numero, "propuesta")' in handler
-   and 'if not (contexto or "").strip():' in handler and 'return _previa' in handler,
+   and ('if not (contexto or "").strip():' in handler
+        or 'if not (contexto or "").strip() and not _forzar:' in handler)
+   and 'return _previa' in handler,
    "sin contexto sirve la propuesta calculada sola; con contexto, calcula")
 i_pre = m.find("async def _taller_preconsultar(")
 i_pp = m.find("async def _taller_preproponer(")

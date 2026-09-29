@@ -6,6 +6,10 @@
 import asyncio, inspect, sys, types
 sys.path.insert(0, ".")
 import fuente_tardia as ft
+import contexto_taller as ct
+import os
+os.environ.pop("FUENTE_TARDIA_AVISO", None)
+ct.poner(True, {})
 
 FALLOS = []
 
@@ -91,6 +95,11 @@ ok(meta.get("estado_salida") == "justificacion_pendiente" and any(a.startswith("
    "una tesis traída después de redactar y usada al contestar un agravio deja el proyecto en «justificacion_pendiente»")
 ok(any(c["fuente"] == "registro 2020001" for c in meta.get("fuentes_tardias", [])),
    "y el meta del estudio (ficha y evento «listo») lo registra")
+ct.poner(False, {})
+av2, meta2 = asyncio.run(_prueba())
+ok(not any(a.startswith("JUSTIFICACIÓN PENDIENTE") for a in av2)
+   and meta2.get("estado_salida") == "justificacion_pendiente",
+   "fuera de casa, en sombra: el aviso no se enseña hasta calibrarlo, pero el meta lo registra")
 
 print()
 if FALLOS:

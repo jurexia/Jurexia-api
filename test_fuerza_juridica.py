@@ -10,6 +10,10 @@ import sys
 sys.path.insert(0, ".")
 import fuerza_juridica as fj
 import tarjeta_decision as td
+import contexto_taller as ct
+import os
+os.environ.pop("FUERZA_UNIFICADA", None)
+ct.poner(True, {})          # una cuenta de casa: la bandera, encendida por omisión
 
 FALLOS = []
 
@@ -95,6 +99,22 @@ ok(not fj.sello_perdio_vigencia({"estado": "aclarada"}) and not fj.sello_perdio_
 import deliberacion as de
 ok(de.pierde_vigencia({"estado": "aclarada"}) is False and td.perdio_vigencia({"vigencia": {"estado": "modificada"}}) is True,
    "la deliberación y la tarjeta leen la misma")
+
+print("\n5c · CON LA BANDERA APAGADA (usuarios de fuera, o la etapa «off» del banco)")
+ct.poner(False, {})
+viejo = r._tesis_de(dict(TCC_J))
+ok(viejo["obligatoria"] is True and fj.rotulo(viejo) == "OBLIGATORIA" and fj.orden(viejo) == 0
+   and fj.vincula(viejo) is True,
+   "apagada, los prompts y el documento leen como antes (obligatoria = es jurisprudencia)")
+ok(viejo["vincula_al_tribunal"] is False and viejo["fuerza"] == "orienta",
+   "pero la fuerza calculada viaja igual: la tarjeta y la deliberación no cambian")
+ct.poner(True, {"banderas": {"fuerza_unificada": False}})
+ok(fj.activa() is False, "la casa puede apagarla en una etapa del banco")
+ct.poner(True, {})
+nuevo = r._tesis_de(dict(TCC_J))
+ok(nuevo["obligatoria"] is False and fj.rotulo(nuevo).startswith("orientadora"), "encendida, la regla nueva")
+fj.anotar([viejo])
+ok(viejo["obligatoria"] is False, "y una tesis anotada con la bandera apagada se RECALCULA al encenderla")
 
 print("\n6 · LAS SENTENCIAS PROPIAS")
 s = fj.de_sentencia_propia({"nivel": "posible", "similitud": 66, "cota_inferior": True})

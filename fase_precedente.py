@@ -220,8 +220,16 @@ async def _buscar(qdrant, vector, debe, top: int) -> list:
             collection_name=COL_HOLDINGS, query=vector, using="dense",
             query_filter=Filter(must=debe) if debe else None,
             limit=top, with_payload=True))
-        return [(str(p.id), p.payload, float(getattr(p, "score", 0.0) or 0.0))
-                for p in (getattr(r, "points", None) or [])]
+        fuera = [(str(p.id), p.payload, float(getattr(p, "score", 0.0) or 0.0))
+                 for p in (getattr(r, "points", None) or [])]
+        # EN UNA EVALUACIÓN, EL HOLDING DEL FALLO OBJETIVO NO CUENTA: le diría al
+        # motor el sentido «de ordinario» con el que se resolvió el propio asunto.
+        import contexto_taller as _ct
+        _exc = _ct.exclusion()
+        if _exc is not None:
+            fuera = [x for x in fuera if not (_exc.excluye_holding(x[1] or {})
+                                              or str(x[0]) in _exc.holding_ids)]
+        return fuera
     except Exception as e:
         print(f"   ⚠️ sondeo de precedente: {e}")
         return []
