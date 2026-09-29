@@ -32707,6 +32707,23 @@ def _taller_guardar_material(email: str, numero: str, m, huella: str = "",
     """
     if not (supabase_admin and m is not None):
         return False
+    # EN UNA SENTENCIA, si la migración está (ver `_taller_parchar_estado`).
+    _parche = {"material": _material_ligero(m)}
+    if marca is not None:
+        _parche["consulta"] = marca
+    for _k, _v in (otras or {}).items():
+        if _v is not None:
+            _parche[_k] = _v
+    if avisos is not None:
+        _parche["avisos"] = list(avisos)
+    _ok = _taller_parchar_estado(email, numero, _parche, huella)
+    if _ok is not None:
+        if _ok:
+            print(f"   💾 acervo de {numero} guardado con la sesión (atómico): "
+                  f"{len(_parche['material']['tesis'])} tesis · {len(_parche['material']['normas'])} normas")
+        else:
+            print(f"   ♻️ el acervo de {numero} es de un adelanto anterior (o no hay fila): no se guarda")
+        return _ok
     _correo = (email or "").strip().lower()
     try:
         r = supabase_admin.table("taller_sesiones").select("estado") \
@@ -32738,6 +32755,28 @@ def _taller_guardar_material(email: str, numero: str, m, huella: str = "",
         return False
 
 
+def _taller_parchar_estado(email: str, numero: str, parche: dict, huella: str = ""):
+    """Mezcla `parche` (claves de primer nivel) en el `estado` en UNA sentencia,
+    con la guarda de la huella en el mismo WHERE (función de Postgres
+    `taller_estado_parche`, migración 20260929). True/False si la función
+    contestó; None si no existe todavía —entonces quien llama cae a la
+    escritura de antes—. Rediseño, etapa 2: la lectura-cambio-escritura del
+    estado entero perdía marcas con varias tareas latiendo a la vez."""
+    if not supabase_admin:
+        return False
+    try:
+        r = supabase_admin.rpc("taller_estado_parche", {
+            "p_email": (email or "").strip().lower(), "p_expediente": numero,
+            "p_parche": parche, "p_huella": huella or None}).execute()
+        return bool(r.data)
+    except Exception as ex:
+        _t = str(ex)
+        if "taller_estado_parche" in _t or "PGRST202" in _t or "does not exist" in _t:
+            return None
+        print(f"   ⚠️ parche atómico del estado de {numero} falló: {err(ex)}")
+        return None
+
+
 def _taller_guardar_marca(email: str, numero: str, clave: str, doc: dict,
                           huella: str = "") -> bool:
     """Una marca en el estado —`consulta`, `contraste`—: {huella, estado,
@@ -32745,6 +32784,9 @@ def _taller_guardar_marca(email: str, numero: str, clave: str, doc: dict,
     siendo de ese adelanto."""
     if not supabase_admin:
         return False
+    _ok = _taller_parchar_estado(email, numero, {clave: doc}, huella)
+    if _ok is not None:
+        return _ok
     _correo = (email or "").strip().lower()
     try:
         r = supabase_admin.table("taller_sesiones").select("estado") \
