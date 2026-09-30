@@ -3638,6 +3638,14 @@ class ChatRequest(BaseModel):
     # esfuerzo_redaccion.py.
     esfuerzo: Optional[str] = Field(
         None, description="Esfuerzo de redacción elegido: basico, pro o platinum.")
+    # EL REINTENTO SE CUENTA (30-sep-2026). Cuando la primera petición del
+    # chat falla del lado del abogado —la red del teléfono, casi siempre— el
+    # servidor nunca se entera: en una semana de registros no hubo un solo error
+    # del chat y aun así David vio el aviso de reintento. El cliente manda aquí
+    # por qué reintenta y el servidor lo apunta en una línea («REINTENTO_CHAT»)
+    # que se cuenta en los registros de Render. Sólo números y un texto corto.
+    reintento: Optional[Dict[str, Any]] = Field(
+        None, description="Si es un reintento del cliente: intento, tipo de falla, status y error.")
 
 
 class AuditRequest(BaseModel):
@@ -12191,23 +12199,23 @@ async def extract_text_from_document(file: UploadFile = File(...)):
     
     try:
         if extension == "docx":
-            # Usar python-docx para .docx
-            from docx import Document
-            doc = Document(io.BytesIO(content))
-            text = "\n\n".join([para.text for para in doc.paragraphs if para.text.strip()])
-            
+            # Por flujo y en un hilo (30-sep-2026): ver `lectura_docx`.
+            import lectura_docx
+            text = await lectura_docx.leer_docx(content, "\n\n")
+
         elif extension == "doc":
-            # Usar olefile para .doc (formato binario antiguo)
+            # Usar olefile para .doc (formato binario antiguo), EN UN HILO
+            # (30-sep-2026): el filtro carácter por carácter de un .doc grande
+            # son segundos de Python puro con el trabajador congelado.
             import olefile
-            
-            try:
-                ole = olefile.OleFileIO(io.BytesIO(content))
-                
-                # Intentar extraer texto del stream WordDocument
-                if ole.exists("WordDocument"):
-                    # Método simple: buscar texto en streams
+
+            def _leer_doc_ole_extract(_c):
+                ole = olefile.OleFileIO(io.BytesIO(_c))
+                try:
+                    # Intentar extraer texto del stream WordDocument
+                    if not ole.exists("WordDocument"):
+                        raise ValueError("Archivo .doc no válido o corrupto")
                     text_parts = []
-                    
                     # Intentar el stream 1Table o 0Table (contiene texto)
                     for stream_name in ["1Table", "0Table", "WordDocument"]:
                         if ole.exists(stream_name):
@@ -12223,61 +12231,35 @@ async def extract_text_from_document(file: UploadFile = File(...)):
                                     text_parts.append(readable)
                             except:
                                 continue
-                    
-                    if text_parts:
-                        text = "\n\n".join(text_parts)
-                    else:
+                    if not text_parts:
                         raise ValueError("No se pudo extraer texto del documento .doc")
-                else:
-                    raise ValueError("Archivo .doc no válido o corrupto")
-                    
-                ole.close()
-                
+                    return "\n\n".join(text_parts)
+                finally:
+                    ole.close()
+
+            try:
+                text = await asyncio.to_thread(_leer_doc_ole_extract, content)
             except Exception as e:
                 raise HTTPException(
                     status_code=400,
                     detail=f"Error al procesar archivo .doc: {str(e)}. El archivo puede estar corrupto o protegido."
                 )
-                
+
         elif extension == "pdf":
-            # Usar Gemini para OCR avanzado de PDFs (Extracción Multimodal)
+            # EL LECTOR DEL TALLER (30-sep-2026). Aquí cada PDF se subía a Gemini
+            # y se esperaba la respuesta con el cliente SÍNCRONO dentro de la ruta
+            # async: el trabajador entero quedaba congelado mientras tanto (el OCR
+            # de Gemini midió 30-170 s), aun con PDF que ya traen su texto. Es el
+            # camino del auditor de sentencias. Ahora, el mismo lector que
+            # /analyze-document y el taller: el texto nativo en un hilo y, si es
+            # un escaneo, Azure con Gemini de repliegue, sin bloquear y con caché.
             try:
-                import tempfile
-                import os
-                
-                gemini_client = get_gemini_client()
-                
-                # Guardar localmente para subir a Gemini
-                with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
-                    tmp.write(content)
-                    tmp_path = tmp.name
-                
-                try:
-                    # Upload a Google AI Studio
-                    uploaded_file = gemini_client.files.upload(file=tmp_path)
-                    
-                    # Extraer texto preservando estructura
-                    prompt = "Extrae absolutamente TODO el texto de este documento legal PDF con la máxima precisión posible, preservando el espaciado, párrafos y estructura de secciones. No omitas ninguna palabra, no hagas resúmenes. Si hay firmas o sellos extrae el texto si es legible. Si hay saltos de línea, presérvalos."
-                    
-                    response = gemini_client.models.generate_content(
-                        model=REDACTOR_MODEL_EXTRACT,
-                        contents=[uploaded_file, prompt]
-                    )
-                    
-                    text = response.text
-                    
-                    # Borrar archivo de Gemini por privacidad y cuotas
-                    try:
-                        gemini_client.files.delete(name=uploaded_file.name)
-                    except Exception as clean_e:
-                        print(f"   ⚠️ Aviso: no se pudo borrar archivo de Gemini {uploaded_file.name}: {clean_e}")
-                finally:
-                    # Borrar archivo temporal
-                    if os.path.exists(tmp_path):
-                        os.remove(tmp_path)
-                        
+                text = await _extract_text_from_upload(_SubidaDeBytes(content, filename))
             except Exception as e:
-                raise ValueError(f"Fallo al procesar PDF con Gemini OCR: {str(e)}")
+                raise ValueError(f"Fallo al leer el PDF: {str(e)}")
+            import lectura_docx
+            if len(content) >= lectura_docx.UMBRAL_DEVOLVER:
+                await asyncio.to_thread(lectura_docx.devolver_memoria)
         else:
             raise HTTPException(
                 status_code=400,
@@ -12860,12 +12842,18 @@ async def analyze_document(
                 # Try text extraction first with PyMuPDF (fast, no API cost)
                 try:
                     import fitz  # PyMuPDF
-                    pdf_doc = fitz.open(stream=content, filetype="pdf")
-                    pages_text = []
-                    for page in pdf_doc:
-                        page_text = page.get_text()
-                        pages_text.append(page_text)
-                    pdf_doc.close()
+
+                    # EN UN HILO (30-sep-2026). Leer el texto de mil páginas es
+                    # rápido, pero dentro de la ruta async congela al trabajador
+                    # entero mientras dura: ver `lectura_docx`, que nació del
+                    # reinicio por memoria del 25-sep.
+                    def _leer_pdf_nativo(_c):
+                        _d = fitz.open(stream=_c, filetype="pdf")
+                        try:
+                            return [pg.get_text() for pg in _d]
+                        finally:
+                            _d.close()
+                    pages_text = await asyncio.to_thread(_leer_pdf_nativo, content)
                     extracted_text = "\n\n".join(pages_text)
 
                     # ¿ES ESTO UN DOCUMENTO, O SON LOS SELLOS? (21-sep-2026)
@@ -12943,15 +12931,22 @@ async def analyze_document(
                           f"en {_time.time() - t_ocr_start:.1f}s ({total_pages} pág)")
 
             elif extension == "docx":
-                from docx import Document as DocxDocument
-                doc = DocxDocument(io.BytesIO(content))
-                extracted_text = "\n\n".join([para.text for para in doc.paragraphs if para.text.strip()])
+                # POR FLUJO Y EN UN HILO (30-sep-2026). python-docx construía el
+                # árbol entero: un DOCX de 9 MB costó 626 MB que no se devolvieron
+                # y, junto con otros, tumbó la instancia el 25-sep. Ver
+                # `lectura_docx`; ahora entra también el texto de las tablas.
+                import lectura_docx
+                extracted_text = await lectura_docx.leer_docx(content, "\n\n")
                 print(f"   📝 DOCX procesado: {len(extracted_text):,} chars")
 
             elif extension == "doc":
                 import olefile
-                try:
-                    ole = olefile.OleFileIO(io.BytesIO(content))
+
+                # En un hilo (30-sep-2026): el filtro carácter por carácter de
+                # un .doc grande son segundos de Python puro.
+                def _leer_doc_ole(_c):
+                    import io as _io
+                    ole = olefile.OleFileIO(_io.BytesIO(_c))
                     text_parts = []
                     for stream_name in ["1Table", "0Table", "WordDocument"]:
                         if ole.exists(stream_name):
@@ -12965,7 +12960,9 @@ async def analyze_document(
                             except:
                                 continue
                     ole.close()
-                    extracted_text = "\n\n".join(text_parts) if text_parts else ""
+                    return "\n\n".join(text_parts) if text_parts else ""
+                try:
+                    extracted_text = await asyncio.to_thread(_leer_doc_ole, content)
                     print(f"   📝 DOC procesado: {len(extracted_text):,} chars")
                 except Exception as doc_err:
                     raise HTTPException(status_code=400, detail=f"Error al procesar .doc: {str(doc_err)}")
@@ -12977,6 +12974,14 @@ async def analyze_document(
             raise
         except Exception as extract_err:
             raise HTTPException(status_code=500, detail=f"Error al extraer texto: {str(extract_err)}")
+
+        # La memoria que usó la lectura, de vuelta al sistema (el DOCX ya lo hace
+        # dentro de `leer_docx`). Sin esto la instancia sube en escalones que no
+        # bajan; ver `lectura_docx.devolver_memoria`.
+        if extension in ("pdf", "doc"):
+            import lectura_docx
+            if len(content) >= lectura_docx.UMBRAL_DEVOLVER:
+                await asyncio.to_thread(lectura_docx.devolver_memoria)
 
         # ── Step 2: Truncate if beyond model capacity ──
         original_len = len(extracted_text)
@@ -15516,6 +15521,12 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
     """
     if not request.messages:
         raise HTTPException(status_code=400, detail="Se requiere al menos un mensaje")
+
+    if request.reintento:
+        import reintentos_cliente as _rc
+        _lr = _rc.linea(request.reintento)
+        if _lr:
+            print(f"   {_lr}")
 
     # ─────────────────────────────────────────────────────────────────────
     # INPUT SANITIZATION: XSS, SQL injection, enhanced prompt injection
@@ -21287,10 +21298,11 @@ async def _extract_text_from_upload(file: UploadFile) -> str:
             return ""
 
     if ext in ("docx", "doc"):
+        # Por flujo y en un hilo (30-sep-2026): ver `lectura_docx`. Un .doc no
+        # es un ZIP; cae al repliegue, que tampoco lo lee, y sale vacío como antes.
         try:
-            from docx import Document as _Docx
-            doc = _Docx(io.BytesIO(content))
-            return "\n".join(p.text for p in doc.paragraphs if p.text.strip())
+            import lectura_docx
+            return await lectura_docx.leer_docx(content, "\n")
         except Exception:
             return ""
 
