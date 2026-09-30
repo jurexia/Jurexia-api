@@ -177,7 +177,10 @@ ok("Razón declarada por quien proyecta" in _src and "not _auto_r" in _src,
 # y secretario no tienen que ir hasta abajo»—, así que lo que se comprueba es
 # lo que siempre importó: que con un cómputo extemporáneo NO salga la hoja de
 # síntesis proponiendo un fondo que el resolutivo no resuelve.
-ok("if not _extemp:\n        _bloque_sintesis" in _src,
+# Desde el 30-sep-2026 la misma guarda cubre el sobreseimiento por sentencia
+# dictada en cumplimiento de una ejecutoria (todo vinculado): `_cumpl_sob`.
+ok(("if not _extemp:\n        _bloque_sintesis" in _src
+    or "if not (_extemp or _cumpl_sob):\n        _bloque_sintesis" in _src),
    "con extemporaneidad, la SÍNTESIS no se escribe")
 ok("_bloque_firmas" not in _src, "y el proyecto ya no lleva firmas al pie")
 

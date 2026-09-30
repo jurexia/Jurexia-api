@@ -211,6 +211,9 @@ ok(AC.index("_ad.aplicar(") < AC.index("_ce_cc.aplicar(crit"), "y en el criterio
 CA = F[F.index("def _con_autos("):]
 ok("bloque_contexto()" in CA[:2500], "el bloque va en `_con_autos` (propuesta, plan, estudio, recalificación)")
 ok('@app.post("/taller/origen")' in F and "_taller_guardar_origen(" in F, "la puerta del secretario para corregirlo")
+PO = F[F.index('@app.post("/taller/origen")'):]
+ok(PO.index("if not tocados:") < PO.index("_taller_guardar_origen("),
+   "un POST sin cambios no escribe (antes dejaba sin clasificación lo ya clasificado)")
 RS = F[F.index("def _taller_recuperar_sesion("):]
 ok("poner_origen(_taller_origen(ses))" in RS[:1500], "cada petición recalcula el origen al recuperar la sesión")
 RA = Path("redactor_adelanto.py").read_text(encoding="utf-8")

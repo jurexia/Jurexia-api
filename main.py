@@ -35846,24 +35846,6 @@ def _taller_guardar_sesion(email: str, numero: str, r, tmp: str) -> None:
         print(f"   ⚠️ TALLER: no se pudo guardar la sesión: {ex}")
 
 
-def _taller_recuperar_sesion(email: str, numero: str):
-    """La sesión (ver `_taller_recuperar_sesion_crudo`) y, de paso, el CONTEXTO
-    de esta petición: si la cuenta es de casa y la sesión es de una evaluación,
-    su exclusión y sus banderas rigen todo lo que esta petición haga y lance
-    (contexto_taller; rediseño, punto 8)."""
-    ses = _taller_recuperar_sesion_crudo(email, numero)
-    try:
-        import contexto_taller as _ctx_t
-        _ctx_t.poner(_taller_es_casa(email), pruebas=_taller_cuenta_de_pruebas(email), evaluacion=
-                     getattr((ses or {}).get("resultado"), "evaluacion", None))
-        # Y EL ORIGEN DEL ACTO (30-sep-2026): quién dictó lo reclamado y si fue
-        # en cumplimiento. Rige todo lo que esta petición redacte.
-        _ctx_t.poner_origen(_taller_origen(ses))
-    except Exception as _ec:
-        print(f"   ⚠️ contexto del taller sin poner: {type(_ec).__name__}")
-    return ses
-
-
 def _taller_guardar_origen(email: str, numero: str, ses: dict, cambios: dict) -> bool:
     """Mezcla `cambios` ({"manual": {...}} o {"clasificacion": {...}}) en
     `estado.origen` con el parche atómico, y en la sesión en memoria. Una
@@ -35966,6 +35948,25 @@ def _taller_origen(ses) -> dict | None:
     except Exception as _eo:
         print(f"   ⚠️ origen del acto sin recalcular: {type(_eo).__name__}")
         return None
+
+
+def _taller_recuperar_sesion(email: str, numero: str):
+    """La sesión (ver `_taller_recuperar_sesion_crudo`) y, de paso, el CONTEXTO
+    de esta petición: si la cuenta es de casa y la sesión es de una evaluación,
+    su exclusión y sus banderas rigen todo lo que esta petición haga y lance
+    (contexto_taller; rediseño, punto 8)."""
+    ses = _taller_recuperar_sesion_crudo(email, numero)
+    try:
+        import contexto_taller as _ctx_t
+        _ctx_t.poner(_taller_es_casa(email), pruebas=_taller_cuenta_de_pruebas(email), evaluacion=
+                     getattr((ses or {}).get("resultado"), "evaluacion", None))
+        # Y EL ORIGEN DEL ACTO (30-sep-2026): quién dictó lo reclamado y si fue
+        # en cumplimiento. Rige todo lo que esta petición redacte.
+        _ctx_t.poner_origen(_taller_origen(ses))
+    except Exception as _ec:
+        print(f"   ⚠️ contexto del taller sin poner: {type(_ec).__name__}")
+    return ses
+
 
 
 def _taller_recuperar_sesion_crudo(email: str, numero: str):
@@ -37572,7 +37573,16 @@ async def taller_origen(request: Request):
         manual["sobreseer"] = _si(datos.get("sobreseer"))
     cambios = {"manual": manual}
     tocados = {k for k in set(antes) | set(manual) if antes.get(k) != manual.get(k)}
-    if tocados and tocados <= {"sobreseer", "instancia"}:
+    if not tocados:
+        # Nada cambió: no se escribe. Guardar «sin cambios» dejaría sin
+        # clasificación lo ya clasificado, que costó un modelo.
+        try:
+            import contexto_taller as _ct_or0
+            _ct_or0.poner_origen(_taller_origen(ses))
+        except Exception:
+            pass
+        return {"origen": _taller_origen_para_pantalla(), "reclasificar": False}
+    if tocados <= {"sobreseer", "instancia"}:
         # Ni la instancia ni la confirmación cambian qué quedó vinculado.
         _cl = (ses.get("origen_guardado") or {}).get("clasificacion")
         if _cl:
