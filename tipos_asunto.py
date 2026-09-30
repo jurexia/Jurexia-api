@@ -1347,6 +1347,22 @@ def _sujetos_del_origen() -> tuple | None:
         return None
 
 
+def cumplimiento_actual() -> dict:
+    """{consta, ejecutoria, efectos} si lo reclamado se dictó en cumplimiento de
+    una ejecutoria de amparo y rige `cumplimiento_ejecutoria`; {} si no. Los
+    prompts de narración (antecedentes, relato) lo consultan para CONTARLO:
+    que un amparo anterior mandó y ésta es la sentencia que lo acató."""
+    try:
+        import contexto_taller as _ct
+        o = _ct.origen()
+        if not o or not _ct.rediseno("cumplimiento_ejecutoria"):
+            return {}
+        c = o.get("cumplimiento") or {}
+        return dict(c) if c.get("consta") else {}
+    except Exception:
+        return {}
+
+
 def instancia_actual() -> str:
     """«unica», «alzada» o «» del acto de esta petición (sólo si rige
     `instancia_origen`). Los prompts de amparo directo la consultan para no
