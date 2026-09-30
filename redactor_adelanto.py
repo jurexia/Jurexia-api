@@ -527,6 +527,22 @@ async def generar(cliente, e: Encargo, texto_acto: str, texto_conceptos: str,
                 cliente, _datos_estructura(e, acto=texto_acto, partes=_p))
         return _p, _est
 
+    # ── EL ORIGEN DEL ACTO, ANTES DE LEER (30-sep-2026) ─────────────────────
+    # En amparo directo las fases 1-3 nombran al órgano con
+    # `tipos_asunto.sujetos_de`, que desde hoy lo lee del contexto: sin esto,
+    # un juicio oral mercantil volvía a salir como «la Sala». Se lee del nombre
+    # de la responsable y del acto; al terminar se afina con los antecedentes.
+    _oa = _ct_o = _o_pre = None
+    try:
+        import tipos_asunto as _ta_o
+        if _ta_o.normalizar(e.tipo_asunto or "amparo_directo") == "amparo_directo":
+            import origen_acto as _oa
+            import contexto_taller as _ct_o
+            _o_pre = _oa.origen(getattr(e, "responsable", "") or "", "", "", texto_acto or "")
+            _ct_o.poner_origen(_o_pre)
+    except Exception as _eo:
+        print(f"   ⚠️ origen del acto sin leer: {type(_eo).__name__}")
+
     with cronometrar("fases1-3+partes+estructura"):
         f, (partes, estructura_previa) = await asyncio.gather(
             f123.correr(cliente, texto_acto, texto_conceptos, e.es_recurso,
@@ -536,6 +552,23 @@ async def generar(cliente, e: Encargo, texto_acto: str, texto_conceptos: str,
             _partes_y_estructura())
     avisos.extend(f.avisos)
     avisos.extend(partes.avisos)
+    if _o_pre is not None:
+        try:
+            f.origen = _oa.origen(getattr(e, "responsable", "") or "", f.antecedentes or "",
+                                  f.resumen_acto or "", texto_acto or "")
+            _ct_o.poner_origen(f.origen)
+            _dice = _oa.aviso(f.origen)
+            if _dice:
+                print(f"   🏛️ {_dice}")
+            _c = f.origen.get("cumplimiento") or {}
+            if _c.get("consta") and not _c.get("efectos") and _ct_o.rediseno("cumplimiento_ejecutoria"):
+                avisos.append(
+                    f"La sentencia reclamada se dictó en cumplimiento de la ejecutoria del "
+                    f"{_c.get('ejecutoria') or 'amparo anterior'}, y el acto no transcribe sus efectos. "
+                    f"Sin ellos no se puede separar lo que quedó vinculado de lo que se resolvió con "
+                    f"libertad de jurisdicción: súbela como constancia o pega sus efectos.")
+        except Exception as _eo2:
+            print(f"   ⚠️ origen del acto sin afinar: {type(_eo2).__name__}")
 
     # ── EL NOMBRE DE QUIEN PROMUEVE, LEÍDO EN VEZ DE TECLEADO ──────────────
     # David: «muchos de los datos pueden obtenerse de los documentos

@@ -1,0 +1,250 @@
+# -*- coding: utf-8 -*-
+"""DE DÓNDE VIENE LA SENTENCIA RECLAMADA EN AMPARO DIRECTO (30-sep-2026).
+
+David, sobre un proyecto que generó en soporte@ (AD 323/2025, un juicio oral
+mercantil sobre el artículo 71 de la Ley Federal de Protección al Consumidor):
+«Siempre, en amparo directo, partimos de la base de que hay una sala. Es decir,
+una segunda instancia. Pero no siempre es así. La segunda instancia ocurre sólo
+si hubo recurso de apelación […]. La autoridad responsable era el propio juez
+de oralidad mercantil. En segundo lugar, la sentencia había sido dictada en
+cumplimiento.»
+
+El proyecto decía «la Sala responsable sí…», «la Sala atendió…», «la Sala no
+eliminó…» de un JUZGADO. La causa era una sola línea: `tipos_asunto.SUJETOS`
+fijaba «la Sala» como el órgano de TODO amparo directo, y de ahí bebían una
+docena de prompts. Aquí se lee, del nombre de la responsable y de los autos:
+
+  · QUÉ CLASE DE ÓRGANO dictó lo reclamado (juez, sala de alzada, sala del
+    TFJA, junta, tribunal laboral) y, con eso, CÓMO SE LE NOMBRA en la prosa;
+  · si hubo SEGUNDA INSTANCIA («alzada») o el juicio terminó en la primera
+    («unica»: el oral mercantil —art. 1390 Bis del Código de Comercio—, un
+    juicio de cuantía menor, un laudo, una sentencia de nulidad);
+  · y si la sentencia reclamada se dictó EN CUMPLIMIENTO de una ejecutoria de
+    amparo: cuál, y qué dijo que se hiciera (sus efectos), que es de donde sale
+    qué quedó vinculado y qué se resolvió con libertad de jurisdicción.
+
+LA REGLA DE SIEMPRE EN ESTE TALLER: ante la duda, vacío. Un hueco se ve y el
+secretario lo corrige en «El asunto, en corto»; un origen equivocado se firma.
+La clase de la responsable manda sobre el texto: si lo reclamado lo dictó un
+juez, no hubo alzada aunque los autos cuenten una apelación de otra etapa.
+"""
+from __future__ import annotations
+
+import re
+import unicodedata
+
+# ═══ LA CLASE DEL ÓRGANO ════════════════════════════════════════════════════
+
+
+def _plano(s: str) -> str:
+    s = unicodedata.normalize("NFKD", str(s or "").lower())
+    return " ".join("".join(c for c in s if not unicodedata.combining(c)).split())
+
+
+# El orden importa: lo más específico primero. Una «Sala Regional … del Tribunal
+# Federal de Justicia Administrativa» es sala, pero de ÚNICA instancia (el
+# juicio de nulidad); una «Sala Civil del Tribunal Superior de Justicia»
+# resuelve la apelación.
+_CLASES = (
+    ("sala_tfja", re.compile(r"\bsala\b.*\btribunal (federal )?de justicia administrativa\b|"
+                             r"\bsala (regional|especializada|superior)\b")),
+    ("sala_alzada", re.compile(r"\bsala\b")),
+    ("tribunal_alzada", re.compile(r"\btribunal (colegiado )?de (alzada|apelacion)\b|\bcolegiado de apelacion\b")),
+    ("junta", re.compile(r"\bjunta\b.*\bconciliacion\b")),
+    ("tribunal_laboral", re.compile(r"\btribunal\b.*\b(laboral|trabajo|conciliacion y arbitraje)\b")),
+    ("tribunal_agrario", re.compile(r"\btribunal unitario agrario\b")),
+    ("jueza", re.compile(r"^jueza\b|\bla jueza\b")),
+    ("juez", re.compile(r"\bjuez\b|\bjuzgado\b")),
+)
+
+
+def clase_de_organo(nombre: str) -> str:
+    """«juez», «jueza», «sala_alzada», «sala_tfja», «tribunal_alzada», «junta»,
+    «tribunal_laboral», «tribunal_agrario» o «» si el nombre no lo dice."""
+    p = _plano(nombre)
+    if not p:
+        return ""
+    for clase, rx in _CLASES:
+        if rx.search(p):
+            return clase
+    return ""
+
+
+# Cómo se nombra en la prosa, en el mismo orden que `tipos_asunto.SUJETOS`:
+# (sujeto corto, con «responsable», genérico, abreviado). Así lo escribe el
+# Tercer Tribunal Colegiado del XXII Circuito en sus amparos directos contra
+# jueces de oralidad: «el Juez responsable», «la autoridad responsable».
+SUJETOS_ORGANO = {
+    "sala_alzada": ("la Sala", "la Sala responsable", "la autoridad responsable", "la responsable"),
+    "sala_tfja": ("la Sala", "la Sala responsable", "la autoridad responsable", "la responsable"),
+    "tribunal_alzada": ("el Tribunal de Alzada", "el Tribunal responsable", "la autoridad responsable",
+                        "la responsable"),
+    "juez": ("el Juez", "el Juez responsable", "la autoridad responsable", "la responsable"),
+    "jueza": ("la Jueza", "la Jueza responsable", "la autoridad responsable", "la responsable"),
+    "junta": ("la Junta", "la Junta responsable", "la autoridad responsable", "la responsable"),
+    "tribunal_laboral": ("el Tribunal", "el Tribunal responsable", "la autoridad responsable",
+                         "la responsable"),
+    "tribunal_agrario": ("el Tribunal Unitario Agrario", "el Tribunal responsable",
+                         "la autoridad responsable", "la responsable"),
+}
+# Si no consta quién es: una fórmula que no afirma nada. «la Sala» por omisión
+# era justo el error.
+SUJETOS_NEUTROS = ("la autoridad responsable", "la autoridad responsable",
+                   "la responsable", "la responsable")
+
+_UNICA = {"sala_tfja", "juez", "jueza", "junta", "tribunal_laboral", "tribunal_agrario"}
+_ALZADA = {"sala_alzada", "tribunal_alzada"}
+
+
+# ═══ LA INSTANCIA ═══════════════════════════════════════════════════════════
+
+# La vía de un juicio que no admite apelación contra su sentencia. Sólo se usa
+# cuando la clase del órgano no lo resolvió (nombre vacío o ilegible).
+_VIA_UNICA = re.compile(
+    r"juicio\s+oral\s+mercantil|v[íi]a\s+oral\s+mercantil|oralidad\s+mercantil|"
+    r"1390\s+bis|no\s+proceder[áa]\s+recurso\s+ordinario|"
+    r"\blaudo\b|juicio\s+(?:contencioso\s+administrativo|de\s+nulidad)", re.I)
+
+
+def instancia_de(clase: str, texto: str = "") -> str:
+    """«unica», «alzada» o «». La clase manda; el texto sólo si no hay clase."""
+    if clase in _UNICA:
+        return "unica"
+    if clase in _ALZADA:
+        return "alzada"
+    s = " ".join(str(texto or "").split())
+    if not s:
+        return ""
+    import fase_origen as _fo
+    if _fo._RX_HAY_APELACION.search(s):
+        return "alzada"
+    if _VIA_UNICA.search(s):
+        return "unica"
+    return ""
+
+
+# ═══ LA SENTENCIA DICTADA EN CUMPLIMIENTO ═══════════════════════════════════
+
+# «en cumplimiento a la ejecutoria», «en cumplimiento de la ejecutoria dictada en
+# el juicio de amparo directo civil 590/2023», «en acatamiento al fallo
+# protector». Exige el OBJETO del cumplimiento —ejecutoria, sentencia de amparo,
+# fallo protector— porque «en cumplimiento del contrato» o «en cumplimiento de la
+# sentencia» (la de origen, en ejecución) son otra cosa.
+_RX_CUMPL = re.compile(
+    r"en\s+(?:cumplimiento|acatamiento)\s+(?:a|de|al|del)\s+(?:la\s+|lo\s+resuelto\s+en\s+la\s+)?"
+    r"(?:ejecutoria|sentencia\s+de\s+amparo|resoluci[óo]n\s+de\s+amparo|fallo\s+protector|"
+    r"concesi[óo]n\s+(?:del\s+|de\s+)?amparo|protecci[óo]n\s+constitucional)", re.I)
+
+# El número de la ejecutoria, cerca de la mención: «amparo directo civil
+# 590/2023», «A.D.C. 590/2023», «ADC 590/2023», «juicio de amparo 590/2023».
+_RX_EJECUTORIA = re.compile(
+    r"(?:(?:juicio\s+de\s+)?amparo\s+(?:directo|indirecto|en\s+revisi[óo]n)?\s*"
+    r"(?:civil|mercantil|administrativo|laboral|penal|familiar|agrario)?\s*"
+    r"(?:n[úu]mero\s+)?|\bA\.?\s?D\.?\s?C\.?\s+|\bA\.?\s?D\.?\s+)"
+    r"(\d{1,5}\s*/\s*\d{4})", re.I)
+
+# Dónde empiezan los efectos transcritos de esa ejecutoria.
+_RX_EFECTOS = re.compile(
+    r"para\s+(?:el\s+)?efecto\s+de\s+que|para\s+los\s+(?:siguientes\s+)?efectos|"
+    r"efectos\s+(?:de\s+la\s+concesi[óo]n|del\s+amparo|de\s+la\s+protecci[óo]n)|"
+    r"los\s+efectos\s+(?:del\s+amparo\s+)?(?:son|fueron|consisten)", re.I)
+
+
+def _nombre_ejecutoria(ventana: str) -> str:
+    m = _RX_EJECUTORIA.search(ventana)
+    if not m:
+        return ""
+    frase = " ".join(m.group(0).split())
+    num = re.sub(r"\s+", "", m.group(1))
+    tipo = "amparo directo"
+    fp = _plano(frase)
+    if "indirecto" in fp:
+        tipo = "amparo indirecto"
+    elif "revision" in fp:
+        tipo = "amparo en revisión"
+    materia = next((m_ for m_ in ("civil", "mercantil", "administrativo", "laboral", "penal", "familiar",
+                                  "agrario") if m_ in fp), "")
+    if re.match(r"a\.?\s?d\.?\s?c", fp):
+        materia = materia or "civil"
+    return " ".join(x for x in (tipo, materia, num) if x)
+
+
+def cumplimiento_de(*textos: str) -> dict:
+    """{consta, ejecutoria, fragmento, efectos} leídos de los textos dados, en
+    orden de preferencia (antecedentes, resumen del acto, el acto mismo).
+
+    `efectos` es el tramo donde el acto transcribe lo que la ejecutoria mandó,
+    si lo transcribe; vacío si no. Sin él no se puede saber qué quedó vinculado:
+    se pide como constancia, no se supone."""
+    out = {"consta": False, "ejecutoria": "", "fragmento": "", "efectos": ""}
+    for texto in textos:
+        s = " ".join(str(texto or "").split())
+        if not s:
+            continue
+        m = _RX_CUMPL.search(s)
+        if not m:
+            continue
+        a, b = max(0, m.start() - 250), min(len(s), m.end() + 350)
+        ventana = s[a:b]
+        out["consta"] = True
+        out["fragmento"] = out["fragmento"] or ventana.strip()
+        out["ejecutoria"] = out["ejecutoria"] or _nombre_ejecutoria(s[m.start():m.end() + 350]) \
+            or _nombre_ejecutoria(ventana)
+        if not out["efectos"]:
+            e = _RX_EFECTOS.search(s, max(0, m.start() - 400))
+            if e and e.start() - m.end() < 6000:
+                out["efectos"] = s[e.start():e.start() + 3000].strip()
+    return out
+
+
+# ═══ TODO JUNTO ═════════════════════════════════════════════════════════════
+
+
+def origen(responsable: str = "", *textos: str, tipo_asunto: str = "amparo_directo",
+           manual: dict | None = None) -> dict:
+    """El origen del acto reclamado. `textos`: antecedentes, resumen del acto y
+    el acto mismo (en ese orden de confianza). `manual` es lo que el secretario
+    corrigió en pantalla y manda sobre lo leído.
+
+    {clase, instancia, sujetos, lo_resuelto, cumplimiento, fuente}"""
+    import fase_origen as _fo
+    clase = clase_de_organo(responsable)
+    juntos = " ".join(str(t or "") for t in textos[:2])
+    inst = instancia_de(clase, juntos)
+    out = {
+        "clase": clase,
+        "instancia": inst,
+        "sujetos": list(SUJETOS_ORGANO.get(clase, SUJETOS_NEUTROS)),
+        "lo_resuelto": _fo.lo_resuelto(juntos, tipo_asunto) if inst != "unica"
+        else (_fo.lo_resuelto(juntos, tipo_asunto) or "ese juicio"),
+        "cumplimiento": cumplimiento_de(*textos),
+        "fuente": "leido",
+    }
+    # Con una sola instancia, «ese recurso de apelación» no puede ser lo resuelto.
+    if inst == "unica" and "apelaci" in out["lo_resuelto"]:
+        out["lo_resuelto"] = "ese juicio"
+    if isinstance(manual, dict) and manual:
+        if manual.get("instancia") in ("unica", "alzada"):
+            out["instancia"] = manual["instancia"]
+        if isinstance(manual.get("cumplimiento"), bool):
+            out["cumplimiento"] = dict(out["cumplimiento"], consta=manual["cumplimiento"])
+        for k in ("ejecutoria", "efectos"):
+            if str(manual.get(k) or "").strip():
+                out["cumplimiento"][k] = str(manual[k]).strip()
+        out["fuente"] = "secretario"
+    return out
+
+
+def aviso(o: dict) -> str:
+    """Una línea para «El asunto, en corto» y para los prompts."""
+    if not isinstance(o, dict):
+        return ""
+    partes = []
+    if o.get("instancia") == "unica":
+        partes.append("dictada en ÚNICA instancia (no hubo apelación)")
+    elif o.get("instancia") == "alzada":
+        partes.append("dictada en segunda instancia (resolvió un recurso de apelación)")
+    c = o.get("cumplimiento") or {}
+    if c.get("consta"):
+        partes.append("en CUMPLIMIENTO de la ejecutoria del " + (c.get("ejecutoria") or "amparo anterior"))
+    return "La sentencia reclamada fue " + " y ".join(partes) + "." if partes else ""

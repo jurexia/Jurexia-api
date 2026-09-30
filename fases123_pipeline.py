@@ -1494,6 +1494,12 @@ class Fases123:
     # `prompt_relato`. Sale de los tres resúmenes y va a la pantalla, no al
     # documento.
     relato: str = ""
+    # EL ORIGEN DEL ACTO (30-sep-2026, ver `origen_acto`): quién dictó lo
+    # reclamado, si hubo alzada, si se dictó en cumplimiento de una ejecutoria
+    # y —cuando un modelo ya lo clasificó— qué quedó vinculado y qué libre.
+    # `origen_manual` es lo que el secretario corrigió y manda sobre lo leído.
+    origen: dict = field(default_factory=dict)
+    origen_manual: dict = field(default_factory=dict)
 
     def parrafos_antecedentes(self) -> list[str]:
         """Sin el encabezado que el modelo se pone a sí mismo.

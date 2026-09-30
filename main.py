@@ -35782,6 +35782,11 @@ def _taller_guardar_sesion(email: str, numero: str, r, tmp: str) -> None:
             "expediente_origen": getattr(r.fases, "expediente_origen", "") or "",
             "fecha_origen": getattr(r.fases, "fecha_origen", "") or "",
             "relato": getattr(r.fases, "relato", "") or "",
+            # EL ORIGEN DEL ACTO (30-sep-2026): se recalcula al recuperar la
+            # sesión, pero lo que un modelo ya clasificó (lo vinculado y lo
+            # libre) y lo que el secretario corrigió sólo viven aquí.
+            "origen": dict(getattr(r.fases, "origen", {}) or {}),
+            "origen_manual": dict(getattr(r.fases, "origen_manual", {}) or {}),
         },
         "partes": (r.partes.__dict__ if r.partes else None),
         "computo": {"oportuna": r.computo.oportuna,
@@ -35836,9 +35841,63 @@ def _taller_recuperar_sesion(email: str, numero: str):
         import contexto_taller as _ctx_t
         _ctx_t.poner(_taller_es_casa(email), pruebas=_taller_cuenta_de_pruebas(email), evaluacion=
                      getattr((ses or {}).get("resultado"), "evaluacion", None))
+        # Y EL ORIGEN DEL ACTO (30-sep-2026): quién dictó lo reclamado y si fue
+        # en cumplimiento. Rige todo lo que esta petición redacte.
+        _ctx_t.poner_origen(_taller_origen(ses))
     except Exception as _ec:
         print(f"   ⚠️ contexto del taller sin poner: {type(_ec).__name__}")
     return ses
+
+
+def _taller_origen_para_pantalla() -> dict | None:
+    """Lo que la pantalla enseña del origen de ESTA petición, sin los textos
+    largos (la ventana de los efectos sí va: el secretario la tiene que ver)."""
+    try:
+        import contexto_taller as _ct_p
+        import origen_acto as _oa_p
+        o = _ct_p.origen()
+        if not o or not (_ct_p.rediseno("instancia_origen") or _ct_p.rediseno("cumplimiento_ejecutoria")):
+            return None
+        c = o.get("cumplimiento") or {}
+        return {"clase": o.get("clase", ""), "instancia": o.get("instancia", ""),
+                "organo": (o.get("sujetos") or [""])[0], "aviso": _oa_p.aviso(o),
+                "fuente": o.get("fuente", ""),
+                "cumplimiento": {"consta": bool(c.get("consta")), "ejecutoria": c.get("ejecutoria", ""),
+                                 "efectos": (c.get("efectos") or "")[:3000],
+                                 "clasificacion": o.get("clasificacion") or None}}
+    except Exception:
+        return None
+
+
+def _taller_origen(ses) -> dict | None:
+    """El origen del acto de una sesión de AMPARO DIRECTO (ver `origen_acto`).
+
+    SE RECALCULA EN CADA PETICIÓN, y es barato —expresiones regulares sobre lo
+    ya guardado—: así rige también en las sesiones anteriores a este cambio (el
+    AD 323/2025 se generó el 29-sep llamando «la Sala» a un juzgado) y sigue a
+    la responsable si el secretario la corrige. Lo que no se recalcula es lo
+    que costó un modelo (la clasificación de lo vinculado y lo libre) ni lo
+    que el secretario corrigió: eso se conserva de lo guardado."""
+    try:
+        r = (ses or {}).get("resultado")
+        if r is None:
+            return None
+        f, e = r.fases, r.encargo
+        import tipos_asunto as _ta_o
+        if _ta_o.normalizar(getattr(e, "tipo_asunto", "") or "amparo_directo") != "amparo_directo":
+            return None
+        import origen_acto as _oa
+        _fu = list(getattr(f, "fuentes", None) or [])
+        o = _oa.origen(getattr(e, "responsable", "") or "", getattr(f, "antecedentes", "") or "",
+                       getattr(f, "resumen_acto", "") or "", _fu[0] if _fu else "",
+                       manual=getattr(f, "origen_manual", None) or None)
+        viejo = getattr(f, "origen", None) or {}
+        if isinstance(viejo, dict) and viejo.get("clasificacion"):
+            o["clasificacion"] = viejo["clasificacion"]
+        return o
+    except Exception as _eo:
+        print(f"   ⚠️ origen del acto sin recalcular: {type(_eo).__name__}")
+        return None
 
 
 def _taller_recuperar_sesion_crudo(email: str, numero: str):
@@ -37026,6 +37085,10 @@ async def taller_contexto_del_asunto(numero: str, user_email: str):
                 "recurrido": _voc.get("recurrido", ""),
                 "promovente": _voc.get("promovente", ""),
                 "organo": _ta.sujetos_de(_t or "amparo_directo")["organo"][0]},
+        # DE DÓNDE VIENE LO RECLAMADO (30-sep-2026): única instancia o alzada, y
+        # si se dictó en cumplimiento de una ejecutoria. La pantalla lo enseña
+        # y deja corregirlo (ver `origen_acto`).
+        "origen": _taller_origen_para_pantalla(),
         "antecedentes": f.antecedentes or "",
         "resumen_acto": f.resumen_acto or "",
         "resumen_conceptos": f.resumen_conceptos or "",

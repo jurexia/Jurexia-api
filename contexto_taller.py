@@ -259,6 +259,25 @@ def exclusion() -> Exclusion | None:
     return actual().get("exclusion")
 
 
+# ═══ EL ORIGEN DEL ACTO RECLAMADO (30-sep-2026) ══════════════════════════════
+# Quién dictó lo reclamado, si hubo alzada y si se dictó en cumplimiento de una
+# ejecutoria (ver `origen_acto`). Vive aquí por la misma razón que la exclusión:
+# una docena de prompts nombran al órgano con `tipos_asunto.sujetos_de(tipo)` y
+# pasarles el dato por parámetro era tocar todas esas firmas. Se pone al
+# recuperar la sesión y al empezar el adelanto; fuera de eso, None, y todo se
+# comporta como antes.
+
+def poner_origen(origen: dict | None) -> None:
+    """Añade el origen al contexto de ESTA petición sin tocar lo demás."""
+    c = dict(actual())
+    c["origen"] = origen if isinstance(origen, dict) else None
+    _CTX.set(c)
+
+
+def origen() -> dict | None:
+    return actual().get("origen")
+
+
 def es_casa() -> bool:
     return bool(actual().get("casa"))
 
@@ -300,6 +319,9 @@ BANDERAS_REDISENO = {
     "estados_sesion": "ESTADOS_SESION",              # etapa 4: manifiesto «consume» y estado de la sesión
     "soluciones_por_desenlace": "SOLUCIONES_POR_DESENLACE",  # etapa 3: N justificadores, uno por solución
     "revision_semantica": "REVISION_SEMANTICA",      # etapa 3: la propuesta revisada por código (sólo avisa)
+    # 30-sep-2026, amparo directo (David: «no siempre hay una sala»):
+    "instancia_origen": "INSTANCIA_ORIGEN",          # la responsable se nombra por lo que es; única instancia
+    "cumplimiento_ejecutoria": "CUMPLIMIENTO_EJECUTORIA",  # lo vinculado por la ejecutoria, inoperante; sobreseer si todo
 }
 
 

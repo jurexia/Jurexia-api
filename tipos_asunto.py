@@ -1318,7 +1318,47 @@ SUJETOS = {
 
 
 def sujetos_de(tipo: str) -> dict:
-    return SUJETOS.get(normalizar(tipo), SUJETOS["amparo_directo"])
+    """Cómo se nombra a la parte y al órgano en la prosa del tipo.
+
+    AMPARO DIRECTO, 30-sep-2026: el órgano ya no es «la Sala» por decreto. Si
+    en esta petición rige `instancia_origen` y el contexto trae el origen del
+    acto (`origen_acto`), se le nombra por lo que es —«el Juez responsable»,
+    «la Junta», «la Sala»— o con una fórmula neutra si no consta. Una docena
+    de prompts beben de aquí; ése era el origen de «la Sala responsable» dicho
+    de un Juzgado de oralidad mercantil (AD 323/2025)."""
+    t = normalizar(tipo)
+    base = SUJETOS.get(t, SUJETOS["amparo_directo"])
+    if t == "amparo_directo" or t not in SUJETOS:
+        suj = _sujetos_del_origen()
+        if suj:
+            return {**base, "organo": suj}
+    return base
+
+
+def _sujetos_del_origen() -> tuple | None:
+    try:
+        import contexto_taller as _ct
+        o = _ct.origen()
+        if not o or not _ct.rediseno("instancia_origen"):
+            return None
+        s = tuple(o.get("sujetos") or ())
+        return s if len(s) == 4 and all(isinstance(x, str) and x for x in s) else None
+    except Exception:
+        return None
+
+
+def instancia_actual() -> str:
+    """«unica», «alzada» o «» del acto de esta petición (sólo si rige
+    `instancia_origen`). Los prompts de amparo directo la consultan para no
+    narrar una apelación que no hubo."""
+    try:
+        import contexto_taller as _ct
+        o = _ct.origen()
+        if not o or not _ct.rediseno("instancia_origen"):
+            return ""
+        return str(o.get("instancia") or "")
+    except Exception:
+        return ""
 
 
 # ═══════════════════════════════════════════════════════════════════════════
