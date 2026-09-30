@@ -61,7 +61,7 @@ import json
 import re
 import unicodedata
 
-VINCULACIONES = ("vinculado", "libre", "mixto", "exceso_defecto", "constitucionalidad", "no_consta")
+VINCULACIONES = ("vinculado", "consentido", "libre", "mixto", "exceso_defecto", "constitucionalidad", "no_consta")
 
 # Los apoyos, por registro: se traen del acervo como las tesis de la técnica
 # (`tipos_asunto.tecnica_de` → `fase6_rag.tesis_por_registro`), y el prompt
@@ -117,10 +117,14 @@ LOS PLANTEAMIENTOS DEL ASUNTO (cada uno con lo que resolvió la responsable y lo
 
 CÓMO SE DECIDE (Suprema Corte: 2a./J. 113/2012, 1a./J. 75/2014, P./J. 98/97):
 · vinculado: combate lo que la responsable decidió PORQUE la ejecutoria se lo ordenó —su sentido, sus lineamientos,
-  sus consideraciones— o lo que la ejecutoria dejó definido o intocado. Es cosa juzgada.
-· libre: combate lo que la responsable resolvió con criterio propio, porque la ejecutoria se lo dejó a su arbitrio
-  («con plenitud de jurisdicción», «con libertad de jurisdicción», «se pronuncie sobre…») o no lo tocó y la
-  responsable lo resolvió por primera vez o de nuevo.
+  sus consideraciones— o lo que la ejecutoria resolvió en definitiva. Es cosa juzgada.
+· consentido: la ejecutoria no lo tocó y la responsable sólo REITERÓ, tal cual, lo que ya había resuelto en la
+  sentencia anterior en contra de la misma parte, y ésta no lo impugnó la primera vez que se resolvió en su
+  contra. Es inoperante por consentimiento tácito, pero NO hace improcedente el juicio (2a./J. 113/2012). Si no
+  consta si lo impugnó entonces, es no_consta.
+· libre: combate lo que la responsable resolvió con consideraciones PROPIAS, porque la ejecutoria se lo dejó a su
+  arbitrio («con plenitud de jurisdicción», «con libertad de jurisdicción», «se pronuncie sobre…»), o un aspecto
+  NOVEDOSO del nuevo fallo, que no estaba en el anterior.
 · mixto: una parte combate lo vinculado y otra lo libre. Di cuál es cuál.
 · exceso_defecto: alega que la responsable hizo más o menos de lo que la ejecutoria mandaba.
 · constitucionalidad: plantea que es inconstitucional la norma cuya aplicación ordenó la ejecutoria. No decidas su
@@ -134,7 +138,7 @@ Decide también, del texto de los efectos, «hay_libertad»: ¿la ejecutoria dej
 criterio propio? Si fijó todo el sentido y la responsable sólo tenía que acatar, false.
 
 Devuelve JSON y nada más:
-{{"problemas": [{{"n": 1, "vinculacion": "vinculado|libre|mixto|exceso_defecto|constitucionalidad|no_consta",
+{{"problemas": [{{"n": 1, "vinculacion": "vinculado|consentido|libre|mixto|exceso_defecto|constitucionalidad|no_consta",
   "efecto": "el inciso o la parte de la ejecutoria que lo decide, en pocas palabras",
   "por_que": "una frase concreta", "parte_vinculada": "sólo si es mixto", "parte_libre": "sólo si es mixto"}}],
  "hay_libertad": true, "resumen": "dos frases: qué vinculó la ejecutoria y qué dejó libre"}}"""
@@ -186,7 +190,9 @@ def normalizar(d: dict, problemas: list) -> dict:
     hay = d.get("hay_libertad")
     hay_libertad = bool(hay) if isinstance(hay, bool) else True    # ante la duda, NO se propone sobreseer
     vs = [f["vinculacion"] for f in fuera]
-    todo = bool(vs) and all(v in ("vinculado", "exceso_defecto") for v in vs)
+    # «Todo vinculado» es sólo lo VINCULADO: lo consentido y el exceso o
+    # defecto son inoperantes «sin que ello implique el sobreseimiento».
+    todo = bool(vs) and all(v == "vinculado" for v in vs)
     return {"problemas": fuera, "hay_libertad": hay_libertad, "todo_vinculado": todo,
             "resumen": " ".join(str(d.get("resumen") or "").split())[:700]}
 
@@ -233,6 +239,15 @@ def razon_vinculado(ejecutoria: str, efecto: str, por_que: str) -> str:
             f"este juicio (2a./J. 113/2012 y 1a./J. 57/2018).{motivo}")
 
 
+def razon_consentido(ejecutoria: str, por_que: str) -> str:
+    """La razón de un planteamiento inoperante por consentido (2a./J. 113/2012)."""
+    ej = ejecutoria or "el amparo anterior"
+    motivo = f" {por_que.rstrip('.')}." if por_que else ""
+    return (f"Combate lo que la responsable sólo reiteró de la sentencia anterior, que la ejecutoria dictada en el "
+            f"{ej} no tocó, y que no se impugnó la primera vez que se resolvió en contra de la quejosa: lo consintió "
+            f"tácitamente, por lo que es inoperante, sin que ello haga improcedente el juicio (2a./J. 113/2012).{motivo}")
+
+
 def razon_exceso(ejecutoria: str, por_que: str) -> str:
     ej = ejecutoria or "el amparo anterior"
     motivo = f" {por_que.rstrip('.')}." if por_que else ""
@@ -271,15 +286,17 @@ def aplicar(criterios: list, clasificacion: dict, ejecutoria: str = "", tocados:
                 f"estudiarla por primera vez contra la sentencia de cumplimiento, respetando la legalidad fijada; la "
                 f"Segunda (2a. CXLVII/2017) exigía combatirla en revisión contra la ejecutoria. Decide tú si se estudia.")
             continue
-        if v not in ("vinculado", "exceso_defecto") or tocado:
+        if v not in ("vinculado", "consentido", "exceso_defecto") or tocado:
             continue
         razon = (razon_vinculado(ejecutoria, x.get("efecto", ""), x.get("por_que", "")) if v == "vinculado"
+                 else razon_consentido(ejecutoria, x.get("por_que", "")) if v == "consentido"
                  else razon_exceso(ejecutoria, x.get("por_que", "")))
         antes = (c.get("sentido") if es_dict else getattr(c, "sentido", "")) or ""
         # SU APOYO ES LA JURISPRUDENCIA QUE LA RAZÓN CITA (verificada en el
         # Semanario): sin él, la propuesta salía «SIN APOYO del acervo» aunque
         # la razón invocara la 2a./J. 113/2012 y la 1a./J. 57/2018.
-        apoyo = (APOYOS_MIXTA[:1] + APOYOS_IMPROCEDENCIA[:1]) if v == "vinculado" else APOYOS_EXCESO[:1]
+        apoyo = ((APOYOS_MIXTA[:1] + APOYOS_IMPROCEDENCIA[:1]) if v == "vinculado"
+                 else APOYOS_MIXTA[:1] if v == "consentido" else APOYOS_EXCESO[:1])
         if es_dict:
             c["sentido"] = "inoperante"
             c["razonamiento"] = razon
@@ -303,11 +320,14 @@ def aplicar(criterios: list, clasificacion: dict, ejecutoria: str = "", tocados:
 
 def sobreseer_propuesto(origen: dict | None) -> bool:
     """¿La ejecutoria no dejó libertad alguna? (con clasificación hecha)."""
+    # TODOS VINCULADOS, NINGUNO EN DUDA (revisión adversarial): un «no_consta»
+    # es duda, y ante la duda no se propone sobreseer; y el exceso o defecto
+    # es inoperante «sin que ello implique el sobreseimiento» (P./J. 98/97).
     c = (origen or {}).get("clasificacion") or {}
     cu = (origen or {}).get("cumplimiento") or {}
-    return bool(cu.get("consta") and c and c.get("hay_libertad") is False
-                and not any(p.get("vinculacion") in ("libre", "mixto", "constitucionalidad")
-                            for p in c.get("problemas") or []))
+    ps = [p for p in (c.get("problemas") or []) if isinstance(p, dict)]
+    return bool(cu.get("consta") and c and c.get("hay_libertad") is False and ps
+                and all(p.get("vinculacion") == "vinculado" for p in ps))
 
 
 def sobreseer_confirmado(origen: dict | None = None) -> bool:
@@ -318,13 +338,16 @@ def sobreseer_confirmado(origen: dict | None = None) -> bool:
             origen = _ct.origen()
         except Exception:
             origen = None
+    # Y SÓLO MIENTRAS SIGA PROPUESTO: una confirmación sobre una clasificación
+    # que ya no dice «todo vinculado» (otros efectos, otra lectura) no vale.
     return bool(rige() and isinstance(origen, dict) and origen.get("sobreseer_confirmado")
-                and (origen.get("cumplimiento") or {}).get("consta"))
+                and (origen.get("cumplimiento") or {}).get("consta") and sobreseer_propuesto(origen))
 
 
 # ═══ 3 · LO QUE LEEN LA PROPUESTA, EL PLAN Y EL ESTUDIO ═════════════════════
 
 _ETIQUETA = {"vinculado": "VINCULADO por la ejecutoria → inoperante",
+             "consentido": "CONSENTIDO (sólo reiterado, no impugnado la primera vez) → inoperante, sin sobreseer",
              "libre": "LIBERTAD de jurisdicción → se estudia",
              "mixto": "MIXTO → inoperante en lo vinculado, se estudia lo libre",
              "exceso_defecto": "EXCESO O DEFECTO en el cumplimiento → inoperante (no es materia de este amparo)",
@@ -410,4 +433,11 @@ def considerando_improcedencia(origen: dict | None = None) -> str:
         except Exception:
             origen = None
     ej = ((origen or {}).get("cumplimiento") or {}).get("ejecutoria") or "juicio de amparo anterior"
-    return IMPROCEDENTE["considerando"].replace("{ejecutoria}", ej)
+    return IMPROCEDENTE["considerando"].replace("{ejecutoria}", ej) + " " + VISTA_64
+
+# LA VISTA DEL ARTÍCULO 64, PÁRRAFO SEGUNDO (revisión adversarial): si la causa
+# se advierte de oficio, la quejosa debe ser oída antes (2a./J. 53/2016). El
+# tercer TCC la trata en cuatro de sus seis sobreseimientos por cumplimiento.
+# Si la hizo valer una parte, no hace falta: el aviso del documento lo dice.
+VISTA_64 = ("Advertida de oficio esta causa de improcedencia, se dio vista a la parte quejosa en términos del "
+            "artículo 64, párrafo segundo, de la Ley de Amparo, por acuerdo de *********, sin que *********.")

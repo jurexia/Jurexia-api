@@ -2417,8 +2417,12 @@ TECNICA_CUMPLIMIENTO = {
     "solo_si_estan": True,
     "apoyos": ["2001857", "2018315", "197240", "2007970", "2008199", "2015559", "2024239", "2015151"],
     "tecnica": [
-        "SÓLO ES MATERIA DE ESTE AMPARO LO QUE LA RESPONSABLE RESOLVIÓ CON LIBERTAD DE JURISDICCIÓN. Lo que la "
-        "ejecutoria dejó vinculado —su sentido, sus lineamientos, lo que dejó definido o intocado— es cosa juzgada.",
+        "SÓLO ES MATERIA DE ESTE AMPARO LO QUE LA RESPONSABLE RESOLVIÓ CON LIBERTAD DE JURISDICCIÓN y lo NOVEDOSO "
+        "del nuevo fallo. Lo que la ejecutoria dejó vinculado —su sentido, sus lineamientos, lo que resolvió en "
+        "definitiva— es cosa juzgada.",
+        "LO SÓLO REITERADO Y NO IMPUGNADO: lo que la ejecutoria no tocó y la responsable repitió tal cual de la "
+        "sentencia anterior, si la parte afectada no lo combatió la primera vez que se resolvió en su contra, es "
+        "inoperante por consentimiento tácito, SIN que el juicio se vuelva improcedente (2a./J. 113/2012).",
         "SE DISTINGUE POR LO QUE LA EJECUTORIA ORDENÓ: sus efectos y también sus consideraciones y lineamientos. "
         "Antes de los conceptos, un párrafo que diga qué ordenó, qué quedó vinculado y qué resolvió la responsable "
         "con libertad de jurisdicción.",
@@ -2428,7 +2432,8 @@ TECNICA_CUMPLIMIENTO = {
         "la vista del artículo 196, el recurso de inconformidad (artículo 201) o la denuncia de repetición.",
         "CON LIBERTAD PARCIAL NO SE SOBRESEE. Sólo si la ejecutoria no dejó libertad alguna el juicio es "
         "improcedente (artículo 61, fracción IX) y se sobresee (artículo 63, fracción V); eso lo confirma el "
-        "secretario y, si lo confirmó, no hay estudio de fondo.",
+        "secretario y, si lo confirmó, no hay estudio de fondo. Advertida de oficio la causa, se da vista a la "
+        "quejosa por tres días (artículo 64, párrafo segundo) o se razona por qué no hacía falta.",
         "LA INCONSTITUCIONALIDAD DE LA NORMA QUE LA EJECUTORIA MANDÓ APLICAR, planteada por quien fue tercero "
         "interesado en ese amparo: hay criterio dividido (1a. IX/2022 permite estudiarla por primera vez, respetando "
         "la legalidad fijada en la ejecutoria; 2a. CXLVII/2017 exigía combatirla en revisión contra la ejecutoria). "

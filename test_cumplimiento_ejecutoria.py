@@ -65,6 +65,23 @@ _o_m = oa.origen(_sala_o, "", "", "", manual={"instancia": "unica"})
 ok(_o_m["instancia"] == "unica" and "apelaci" not in _o_m["lo_resuelto"],
    "si él corrige a única, lo resuelto deja de ser «ese recurso de apelación»")
 
+# LO QUE ENCONTRÓ LA REVISIÓN ADVERSARIAL (30-sep-2026)
+for nombre, clase in (
+        ("Primera Sala Regional Civil de Toluca del Tribunal Superior de Justicia del Estado de México", "sala_alzada"),
+        ("Sala Regional Colegiada Civil Zona 01 Tuxtla del Tribunal Superior de Justicia del Estado de Chiapas", "sala_alzada"),
+        ("Primera Sala Regional Civil de Toluca", "sala_alzada"),
+        ("Sala Especializada en Materia Familiar del Tribunal Superior de Justicia", "sala_alzada"),
+        ("Primera Sección de la Sala Superior del Tribunal Federal de Justicia Administrativa", "sala_tfja"),
+        ("Sala Especializada en Materia de Comercio Exterior del Tribunal Federal de Justicia Administrativa", "sala_tfja"),
+        ("La Juez Séptimo de Distrito de Amparo y Juicios Federales en el Estado de Querétaro", "jueza"),
+        ("Titular del Juzgado Segundo Civil, Jueza María Pérez", "jueza")):
+    ok(oa.clase_de_organo(nombre) == clase, f"«{nombre[:60]}» → {clase} (dio {oa.clase_de_organo(nombre)})")
+ok(oa.origen("Tribunal de Justicia Administrativa del Estado de Querétaro",
+             "La actora promovió juicio contencioso administrativo. El Juez Primero Administrativo dictó sentencia; "
+             "inconforme, la autoridad interpuso recurso de revisión, del que conoció la Primera Sección de la Sala "
+             "Superior, que en la sentencia reclamada confirmó.")["instancia"] == "alzada",
+   "la revisión ante la Sala Superior del tribunal local es alzada, aunque sea juicio contencioso")
+
 print("\n2 · LA SENTENCIA DICTADA EN CUMPLIMIENTO: lo que es y lo que no")
 si = [
     "se dejó insubsistente la sentencia definitiva, en cumplimiento de la ejecutoria dictada en el juicio de amparo directo civil 590/2023",
@@ -82,6 +99,18 @@ no = [
     "podrá exponerlos para controvertir la resolución de la sala dictada en cumplimiento de la sentencia de amparo, de estimar que le causa perjuicio",
     "condenó al cumplimiento del contrato en cumplimiento de la sentencia de primera instancia",
 ]
+si += [
+    ("VISTOS para resolver en cumplimiento a la ejecutoria dictada en el amparo directo civil 590/2023 del índice del "
+     "Tercer Tribunal Colegiado en Materias Administrativa y Civil del Vigésimo Segundo Circuito, los autos del juicio "
+     "oral mercantil 800/2021"),
+    "6. Cumplimiento de concesión de amparo. En cumplimiento a la sentencia emitida dentro del juicio de amparo 174/2023, el Juez Segundo dejó sin efectos la sentencia",
+    "y para dar cumplimiento a la ejecutoria del amparo directo 55/2022, la Sala dictó nueva sentencia",
+]
+no += [
+    ("En cumplimiento a la ejecutoria dictada por la Primera Sección de la Sala Superior en el recurso de revisión "
+     "45/2021, el Juez Primero Administrativo dictó nueva sentencia, en la que reiteró la nulidad de la negativa de "
+     "renovación de la concesión de taxi."),
+]
 for s in si:
     ok(oa.cumplimiento_de(s)["consta"], f"SÍ: «{s[:70]}…»")
 for s in no:
@@ -89,6 +118,19 @@ for s in no:
 c = oa.cumplimiento_de("", "", ACTO)
 ok(c["ejecutoria"] == "amparo directo civil 590/2023" and c["efectos"].startswith("para el efecto de que"),
    f"la ejecutoria y sus efectos transcritos ({c['ejecutoria']})")
+_cadena = ("En cumplimiento a la ejecutoria dictada en el amparo directo civil 100/2019, la Sala dictó resolución, en la "
+           "que se concedió el amparo para el efecto de que valorara la prueba pericial. Inconforme, la actora promovió el "
+           "amparo directo civil 250/2020, que se concedió para el efecto de que dictara otra. En cumplimiento a la "
+           "ejecutoria dictada en el amparo directo civil 250/2020, la Sala dictó la sentencia reclamada.")
+ok(oa.cumplimiento_de(_cadena)["ejecutoria"] == "amparo directo civil 250/2020",
+   "en una cadena de amparos, la ejecutoria más reciente (antes, la primera)")
+ok(oa.cumplimiento_de("En cumplimiento a esa ejecutoria, la Sala dictó nueva sentencia. Se promovió el presente "
+                      "juicio de amparo directo civil 323/2025 en su contra.", excluir="323/2025")["ejecutoria"] == "",
+   "el número del propio amparo no se toma por la ejecutoria")
+_tram = oa.cumplimiento_de("SENTENCIA DEFINITIVA en cumplimiento a la ejecutoria dictada en el amparo directo civil "
+                           "590/2023, se dicta nueva sentencia. RESULTANDOS. 1. La actora demandó la rescisión, y se "
+                           "tuvo por presentada para los efectos legales a que haya lugar.")
+ok(_tram["consta"] and _tram["efectos"] == "", "«para los efectos legales a que haya lugar» no son los efectos del amparo")
 o = oa.origen(JUZGADO, "", "", ACTO, manual={"instancia": "alzada", "sobreseer": True, "efectos": "EFECTOS PEGADOS"})
 ok(o["instancia"] == "alzada" and o["sobreseer_confirmado"] and o["cumplimiento"]["efectos"] == "EFECTOS PEGADOS"
    and o["fuente"] == "secretario", "lo que corrige el secretario manda sobre lo leído")
@@ -181,6 +223,13 @@ props = [Prop(PROBLEMAS[0]["pregunta"], "infundado"), Prop(PROBLEMAS[3]["pregunt
 ce.aplicar(props, cl, "x")
 ok(props[0].sentido == "inoperante" and "cosa juzgada" in props[0].razon, "también sobre las propuestas del motor (objetos)")
 ok(props[0].apoyos == ["2001857", "2018315"], "lo vinculado lleva de apoyo la 2a./J. 113/2012 y la 1a./J. 57/2018")
+_cl_c = ce.normalizar({"problemas": [{"n": 1, "vinculacion": "consentido", "por_que": "Sólo lo reiteró."}],
+                       "hay_libertad": True}, PROBLEMAS[:1])
+_pc = [Prop(PROBLEMAS[0]["pregunta"], "fundado")]
+ce.aplicar(_pc, _cl_c, "amparo directo civil 590/2023")
+ok(_pc[0].sentido == "inoperante" and "consentimiento tácito" in _pc[0].razon.replace("consintió tácitamente", "consentimiento tácito")
+   and "sin que ello haga improcedente" in _pc[0].razon and _pc[0].apoyos == ["2001857"],
+   "lo sólo reiterado y no impugnado: inoperante por consentido, sin improcedencia (2a./J. 113/2012)")
 ok(props[1].apoyos == ["999"], "los apoyos que ya traía no se pisan")
 ok(props[2].apoyos == [], "lo libre no gana apoyos")
 _F5 = Path("main.py").read_text(encoding="utf-8"); MP = _F5[_F5.index("_ce_pp.aplicar(propuestas"):]
@@ -195,6 +244,15 @@ ok(ce.sobreseer_propuesto(o2) and cl_todo["todo_vinculado"], "sin libertad algun
 ok(not ce.sobreseer_confirmado(o2), "pero no se escribe sin su confirmación")
 o3 = dict(oa.origen(JUZGADO, "", "", ACTO, manual={"sobreseer": True}), clasificacion=cl_todo)
 ok(ce.sobreseer_confirmado(o3), "con su confirmación, sí")
+for _v in ("no_consta", "exceso_defecto", "consentido", "inconstitucionalidad"):
+    _cl_d = ce.normalizar({"problemas": [{"n": 1, "vinculacion": "vinculado"}, {"n": 2, "vinculacion": _v}],
+                           "hay_libertad": False}, PROBLEMAS[:2])
+    _o_d = dict(oa.origen(JUZGADO, "", "", ACTO, manual={"sobreseer": True}), clasificacion=_cl_d)
+    ok(not ce.sobreseer_propuesto(_o_d) and not ce.sobreseer_confirmado(_o_d),
+       f"con un «{_v}» no se propone sobreseer, y una confirmación vieja no vale")
+_o_lib = dict(oa.origen(JUZGADO, "", "", ACTO, manual={"sobreseer": True}), clasificacion=cl)
+ok(not ce.sobreseer_confirmado(_o_lib), "confirmado sobre una clasificación que ya encontró libertad: no sobresee")
+ok("artículo 64, párrafo segundo" in ce.considerando_improcedencia(o3), "el considerando lleva la vista del art. 64")
 ok("61, fracción IX" in ce.considerando_improcedencia(o3) and "590/2023" in ce.considerando_improcedencia(o3)
    and ce.IMPROCEDENTE["resolutivo"].startswith("ÚNICO. Se sobresee"), "considerando y resolutivo del sobreseimiento")
 import documento_generado as dg
@@ -218,15 +276,25 @@ PN = F[F.index("async def _taller_proponer_nucleo("):]
 PN = PN[:PN.index("\n@app.")] if "\n@app." in PN else PN
 ok(PN.index("_taller_clasificar_cumplimiento(") < PN.index("contexto = _con_autos(r, contexto)"),
    "se clasifica ANTES de armar el contexto de la propuesta")
-ok(PN.index("_ad.aplicar(") < PN.index("_ce_pp.aplicar(propuestas"), "y se aplica DESPUÉS del árbol en la propuesta")
+ok(PN.index("_ce_pp.aplicar(propuestas") < PN.index("_ad.aplicar("), "y se aplica ANTES del árbol en la propuesta")
 AC = F[F.index("def _taller_armar_criterio("):]
-ok(AC.index("_ad.aplicar(") < AC.index("_ce_cc.aplicar(crit"), "y en el criterio, respetando lo tocado")
+ok("tocados=_toc_ad" in AC[AC.index("_ce_cc.aplicar(crit"):][:300], "y en el criterio, respetando lo tocado")
 CA = F[F.index("def _con_autos("):]
 ok("bloque_contexto()" in CA[:2500], "el bloque va en `_con_autos` (propuesta, plan, estudio, recalificación)")
 ok('@app.post("/taller/origen")' in F and "_taller_guardar_origen(" in F, "la puerta del secretario para corregirlo")
 PO = F[F.index('@app.post("/taller/origen")'):]
 ok(PO.index("if not tocados:") < PO.index("_taller_guardar_origen("),
    "un POST sin cambios no escribe (antes dejaba sin clasificación lo ya clasificado)")
+PO2 = F[F.index('@app.post("/taller/origen")'):]
+ok("_efectivo(antes), _efectivo(manual)" in PO2[:6000] and 'manual.pop("sobreseer", None)' in PO2[:6000],
+   "el origen compara lo EFECTIVO y la confirmación caduca con otros efectos")
+ok('"origen_firma": _taller_firma_origen()' in F and "se calculó con otro origen del acto" in F,
+   "la propuesta guardada se recalcula si cambió el origen («reclasificar»)")
+_PN = F[F.index("async def _taller_proponer_nucleo"):]
+ok(_PN.index("_ce_pp.aplicar(propuestas") < _PN.index("_dz.reconciliar(propuestas") < _PN.index("_ad.aplicar("),
+   "lo vinculado se aplica ANTES de reconciliar y del árbol")
+_AC = F[F.index("def _taller_armar_criterio("):]
+ok(_AC.index("_ce_cc.aplicar(crit") < _AC.index("_ad.aplicar("), "y en el criterio, antes del árbol")
 AD_ = F[F.index('@app.post("/taller/adelanto")'):]
 ok(AD_.index("_ctx_g0.poner(") < AD_.index("await _ra.generar("),
    "el adelanto pone el contexto ANTES de generar (si no, las banderas del origen van apagadas en las fases 1-3)")

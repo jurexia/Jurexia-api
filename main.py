@@ -34276,6 +34276,23 @@ def _taller_armar_criterio(r, ses, glob: dict, *, sentido: str = "", problema: s
         _hp_ac = _rc_ac.huella_premisa(suplencia, _ctx_ac)
     except Exception:
         _hp_ac = ""
+    # LO VINCULADO POR LA EJECUTORIA, INOPERANTE (30-sep-2026), salvo lo que
+    # el secretario marcó a mano: su palabra manda, igual que en el árbol. Va
+    # ANTES del árbol, que decide la suerte de los accesorios con el principal
+    # ya calificado (revisión adversarial).
+    try:
+        import contexto_taller as _ct_cc
+        import cumplimiento_ejecutoria as _ce_cc
+        _o_cc = _ct_cc.origen()
+        if _o_cc and _ce_cc.rige() and (_o_cc.get("clasificacion") or {}).get("problemas"):
+            _av_cc, _ = _ce_cc.aplicar(crit, _o_cc["clasificacion"],
+                                       (_o_cc.get("cumplimiento") or {}).get("ejecutoria", ""),
+                                       tocados=_toc_ad)
+            for _a in _av_cc:
+                print(f"   ⚖️ CUMPLIMIENTO: {_a[:160]}")
+                avisos_fases.append(_a)
+    except Exception as _ecc:
+        print(f"   ⚠️ CUMPLIMIENTO en el criterio: {err(_ecc)}")
     _det_ad: dict = {}
     try:
         import arbol_decision as _ad
@@ -34302,21 +34319,6 @@ def _taller_armar_criterio(r, ses, glob: dict, *, sentido: str = "", problema: s
             avisos_fases.append(_a)
     except Exception as _ead:
         print(f"   ⚠️ ÁRBOL: no se pudo aplicar la suerte de los accesorios: {err(_ead)}")
-    # LO VINCULADO POR LA EJECUTORIA, INOPERANTE (30-sep-2026), salvo lo que
-    # el secretario marcó a mano: su palabra manda, igual que en el árbol.
-    try:
-        import contexto_taller as _ct_cc
-        import cumplimiento_ejecutoria as _ce_cc
-        _o_cc = _ct_cc.origen()
-        if _o_cc and _ce_cc.rige() and (_o_cc.get("clasificacion") or {}).get("problemas"):
-            _av_cc, _ = _ce_cc.aplicar(crit, _o_cc["clasificacion"],
-                                       (_o_cc.get("cumplimiento") or {}).get("ejecutoria", ""),
-                                       tocados=_toc_ad)
-            for _a in _av_cc:
-                print(f"   ⚖️ CUMPLIMIENTO: {_a[:160]}")
-                avisos_fases.append(_a)
-    except Exception as _ecc:
-        print(f"   ⚠️ CUMPLIMIENTO en el criterio: {err(_ecc)}")
     # LO QUE SIGUE VACÍO Y NO ESTÁ POR RECALIFICAR no se estudia, y se dice: son
     # los que él dejó sin sentido y los que la máquina dejó vacíos sin que el
     # árbol les encontrara calificación. Los tumbados por recalificar se
@@ -35906,6 +35908,23 @@ async def _taller_clasificar_cumplimiento(email: str, numero: str, ses: dict, r,
         print(f"   ⚠️ CUMPLIMIENTO: no se clasificó ({type(_ec).__name__}: {str(_ec)[:120]})")
 
 
+def _taller_firma_origen() -> str:
+    """La firma del origen con que se calcula una propuesta: instancia,
+    cumplimiento, ejecutoria y efectos. «» si no rige ninguna bandera del
+    origen (entonces nada cambia: las guardadas tampoco la llevan)."""
+    try:
+        import contexto_taller as _ct_f
+        o = _ct_f.origen()
+        if not o or not (_ct_f.rediseno("instancia_origen") or _ct_f.rediseno("cumplimiento_ejecutoria")):
+            return ""
+        c = o.get("cumplimiento") or {}
+        base = json.dumps([o.get("instancia", ""), bool(c.get("consta")), c.get("ejecutoria", ""),
+                           " ".join(str(c.get("efectos") or "").split())[:6000]], ensure_ascii=False)
+        return hashlib.sha1(base.encode("utf-8")).hexdigest()[:16]
+    except Exception:
+        return ""
+
+
 def _taller_origen_para_pantalla() -> dict | None:
     """Lo que la pantalla enseña del origen de ESTA petición, sin los textos
     largos (la ventana de los efectos sí va: el secretario la tiene que ver)."""
@@ -35950,7 +35969,8 @@ def _taller_origen(ses) -> dict | None:
         _fu = list(getattr(f, "fuentes", None) or [])
         o = _oa.origen(getattr(e, "responsable", "") or "", getattr(f, "antecedentes", "") or "",
                        getattr(f, "resumen_acto", "") or "", _fu[0] if _fu else "",
-                       manual=(_g.get("manual") or getattr(f, "origen_manual", None) or None))
+                       manual=(_g.get("manual") or getattr(f, "origen_manual", None) or None),
+                       numero=getattr(e, "numero", "") or "")
         viejo = getattr(f, "origen", None) or {}
         _cl = _g.get("clasificacion") or (viejo.get("clasificacion") if isinstance(viejo, dict) else None)
         if isinstance(_cl, dict) and _cl:
@@ -37582,8 +37602,26 @@ async def taller_origen(request: Request):
         manual["efectos"] = str(datos.get("efectos") or "").strip()[:12000]
     if "sobreseer" in datos and datos.get("sobreseer") is not None:
         manual["sobreseer"] = _si(datos.get("sobreseer"))
+    # LO QUE CAMBIA ES LO EFECTIVO, no lo tecleado (revisión adversarial): la
+    # tarjeta manda también lo leído que él no tocó, y compararlo contra lo
+    # corregido antes (vacío la primera vez) contaba como cambio y tiraba la
+    # clasificación ya pagada aunque sólo se hubiera corregido la instancia.
+    def _efectivo(m: dict) -> dict:
+        _s2 = dict(ses)
+        _s2["origen_guardado"] = dict(ses.get("origen_guardado") or {}, manual=m)
+        _o2 = _taller_origen(_s2) or {}
+        _c2 = _o2.get("cumplimiento") or {}
+        return {"instancia": _o2.get("instancia", ""), "cumplimiento": bool(_c2.get("consta")),
+                "ejecutoria": " ".join(str(_c2.get("ejecutoria") or "").split()),
+                "efectos": " ".join(str(_c2.get("efectos") or "").split()),
+                "sobreseer": bool(m.get("sobreseer"))}
+    _ea, _ed = _efectivo(antes), _efectivo(manual)
+    tocados = {k for k in _ea if _ea[k] != _ed[k]}
+    if tocados & {"cumplimiento", "ejecutoria", "efectos"}:
+        # Con otra ejecutoria u otros efectos, la confirmación del sobreseimiento
+        # se dio sobre una clasificación que ya no vale: caduca con ella.
+        manual.pop("sobreseer", None)
     cambios = {"manual": manual}
-    tocados = {k for k in set(antes) | set(manual) if antes.get(k) != manual.get(k)}
     if not tocados:
         # Nada cambió: no se escribe. Guardar «sin cambios» dejaría sin
         # clasificación lo ya clasificado, que costó un modelo.
@@ -37593,12 +37631,24 @@ async def taller_origen(request: Request):
         except Exception:
             pass
         return {"origen": _taller_origen_para_pantalla(), "reclasificar": False}
+    if manual.get("sobreseer") and "sobreseer" in tocados:
+        # SÓLO SE CONFIRMA LO QUE SE PROPONE: todos los planteamientos
+        # vinculados y la ejecutoria sin libertad (`sobreseer_propuesto`).
+        import cumplimiento_ejecutoria as _ce_or
+        if not _ce_or.sobreseer_propuesto(_taller_origen(ses)):
+            raise HTTPException(422, "No se propone sobreseer: la clasificación no dice que todo "
+                                     "lo reclamado se dictó vinculado por la ejecutoria.")
     if tocados <= {"sobreseer", "instancia"}:
         # Ni la instancia ni la confirmación cambian qué quedó vinculado.
         _cl = (ses.get("origen_guardado") or {}).get("clasificacion")
         if _cl:
             cambios["clasificacion"] = _cl
-    _taller_guardar_origen(user_email, numero, ses, cambios)
+    _antes_g = dict(ses.get("origen_guardado") or {})
+    if not _taller_guardar_origen(user_email, numero, ses, cambios):
+        # Con dos trabajadores, lo que sólo queda en la memoria de uno no
+        # existe para el otro: decir «guardado» sería mentir.
+        ses["origen_guardado"] = _antes_g
+        raise HTTPException(503, "No se pudo guardar de dónde viene lo reclamado. Vuelve a intentarlo.")
     try:
         import contexto_taller as _ct_or
         _ct_or.poner_origen(_taller_origen(ses))
@@ -38422,6 +38472,41 @@ async def _taller_proponer_nucleo(user_email: str, numero: str, ses: dict,
         razon="El motor no propuso un sentido para este problema.")
         for x, q in zip(_emparejadas, problemas)]
 
+    # LO VINCULADO POR LA EJECUTORIA, INOPERANTE (30-sep-2026) —ANTES de
+    # reconciliar y del árbol, que deciden la suerte de los accesorios con el
+    # principal ya calificado (revisión adversarial)—: la misma
+    # regla que en el criterio (`cumplimiento_ejecutoria.aplicar`), aquí
+    # sobre lo que propuso el motor; lo propuesto se guarda aparte.
+    try:
+        import contexto_taller as _ct_pp
+        import cumplimiento_ejecutoria as _ce_pp
+        _o_pp = _ct_pp.origen()
+        if _o_pp and _ce_pp.rige() and (_o_pp.get("clasificacion") or {}).get("problemas"):
+            _ej_pp = (_o_pp.get("cumplimiento") or {}).get("ejecutoria", "")
+            _antes_pp = [(_p.sentido, _p.razon) for _p in propuestas]
+            _av_cp, _ = _ce_pp.aplicar(propuestas, _o_pp["clasificacion"], _ej_pp)
+            for _p, (_s0, _r0) in zip(propuestas, _antes_pp):
+                if _p.sentido != _s0 and not getattr(_p, "sentido_propio", ""):
+                    _p.sentido_propio, _p.razon_propia = _s0, _r0
+            # El «SIN APOYO» lo escribió la propuesta ANTES de esto: se
+            # rehace con los apoyos y sentidos que quedaron.
+            _sin_ap = "se propone SIN APOYO del acervo"
+            avisos[:] = [_a for _a in avisos if _sin_ap not in str(_a)] + [
+                f"«{_p.sentido}» {_sin_ap}. Una propuesta sin fundamento es una opinión: "
+                f"compruébala antes de aceptarla."
+                for _p in propuestas if _p.alcanza and not _p.apoyos]
+            avisos.extend(_av_cp)
+            if _ce_pp.sobreseer_propuesto(_o_pp):
+                avisos.insert(0, (
+                    f"LA EJECUTORIA DEL {(_ej_pp or 'AMPARO ANTERIOR').upper()} NO DEJÓ LIBERTAD DE JURISDICCIÓN "
+                    f"ALGUNA: todo lo reclamado se dictó vinculado, el amparo es improcedente (artículo 61, "
+                    f"fracción IX, de la Ley de Amparo) y procede sobreseer (artículo 63, fracción V; 2a./J. "
+                    f"113/2012). Confírmalo en «De dónde viene lo reclamado»: sólo entonces el proyecto sobresee. "
+                    f"Si ninguna parte la hizo valer, antes da vista a la quejosa por tres días (artículo 64, "
+                    f"párrafo segundo)."))
+    except Exception as _ecp:
+        print(f"   ⚠️ CUMPLIMIENTO en la propuesta: {err(_ecp)}")
+
     # ═══ LA TARJETA NO PUEDE DECIR «NO PROSPERA» CON UN «FUNDADO» DEBAJO ═══
     # Revisión fiscal 2/2026: el motor razonó «el recurso no debe prosperar
     # (…) el tercer planteamiento es fundado (…) pero resulta insuficiente», y
@@ -38472,36 +38557,6 @@ async def _taller_proponer_nucleo(user_email: str, numero: str, ses: dict,
                 _p.sentido = _c["sentido"]
                 _p.razon = _c.get("razonamiento") or _p.razon
         avisos.extend(_av_ad)
-        # LO VINCULADO POR LA EJECUTORIA, INOPERANTE (30-sep-2026): la misma
-        # regla que en el criterio (`cumplimiento_ejecutoria.aplicar`), aquí
-        # sobre lo que propuso el motor; lo propuesto se guarda aparte.
-        try:
-            import contexto_taller as _ct_pp
-            import cumplimiento_ejecutoria as _ce_pp
-            _o_pp = _ct_pp.origen()
-            if _o_pp and _ce_pp.rige() and (_o_pp.get("clasificacion") or {}).get("problemas"):
-                _ej_pp = (_o_pp.get("cumplimiento") or {}).get("ejecutoria", "")
-                _antes_pp = [(_p.sentido, _p.razon) for _p in propuestas]
-                _av_cp, _ = _ce_pp.aplicar(propuestas, _o_pp["clasificacion"], _ej_pp)
-                for _p, (_s0, _r0) in zip(propuestas, _antes_pp):
-                    if _p.sentido != _s0 and not getattr(_p, "sentido_propio", ""):
-                        _p.sentido_propio, _p.razon_propia = _s0, _r0
-                # El «SIN APOYO» lo escribió la propuesta ANTES de esto: se
-                # rehace con los apoyos y sentidos que quedaron.
-                _sin_ap = "se propone SIN APOYO del acervo"
-                avisos[:] = [_a for _a in avisos if _sin_ap not in str(_a)] + [
-                    f"«{_p.sentido}» {_sin_ap}. Una propuesta sin fundamento es una opinión: "
-                    f"compruébala antes de aceptarla."
-                    for _p in propuestas if _p.alcanza and not _p.apoyos]
-                avisos.extend(_av_cp)
-                if _ce_pp.sobreseer_propuesto(_o_pp):
-                    avisos.insert(0, (
-                        f"LA EJECUTORIA DEL {(_ej_pp or 'AMPARO ANTERIOR').upper()} NO DEJÓ LIBERTAD DE JURISDICCIÓN "
-                        f"ALGUNA: todo lo reclamado se dictó vinculado, el amparo es improcedente (artículo 61, "
-                        f"fracción IX, de la Ley de Amparo) y procede sobreseer (artículo 63, fracción V; 2a./J. "
-                        f"113/2012). Confírmalo en «De dónde viene lo reclamado»: sólo entonces el proyecto sobresee."))
-        except Exception as _ecp:
-            print(f"   ⚠️ CUMPLIMIENTO en la propuesta: {err(_ecp)}")
         # LA REVISIÓN POR CÓDIGO DE LA PROPUESTA (rediseño, etapa 3; bandera
         # «revision_semantica»): sólo avisa.
         import contexto_taller as _ctx_rs
@@ -38640,6 +38695,9 @@ async def _taller_proponer_nucleo(user_email: str, numero: str, ses: dict,
         # recalcula. Súbelo cuando la respuesta gane un campo que la pantalla
         # necesita.
         "formato": 2,
+        # CON QUÉ ORIGEN SE CALCULÓ (30-sep-2026): si el secretario corrige la
+        # instancia o pega los efectos de la ejecutoria, la guardada ya no vale.
+        "origen_firma": _taller_firma_origen(),
         # EL CONTRASTE, A LA VISTA. Es la razón toral de cada planteamiento y si
         # el concepto la combate: lo que el secretario comprueba primero. Se
         # devuelve para que la pantalla lo enseñe junto a la propuesta y para
@@ -38796,6 +38854,11 @@ async def taller_proponer(
     if _previa is not None and _previa.get("formato") != 2:
         print(f"   ⚖️ TALLER: la propuesta guardada de {numero} es de un formato anterior "
               f"(sin vía protectora): se recalcula")
+        _previa = None
+    if _previa is not None and str(_previa.get("origen_firma") or "") != _taller_firma_origen():
+        # «reclasificar» de /taller/origen: la guardada se calculó con otro
+        # origen (otra instancia, u otros efectos de la ejecutoria).
+        print(f"   🏛️ TALLER: la propuesta guardada de {numero} se calculó con otro origen del acto: se recalcula")
         _previa = None
     if _previa is not None:
         _taller_registrar_uso(user_email, numero, "propuesta")

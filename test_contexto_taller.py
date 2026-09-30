@@ -118,8 +118,9 @@ ct.poner(True, {"exclusion": {"neuns": [5]}}, pruebas=False)
 ok(ct.exclusion() is not None, "la evaluación sigue siendo cosa de casa (no depende de ser de pruebas)")
 src_m = open("main.py", encoding="utf-8").read()
 ok("def _taller_cuenta_de_pruebas" in src_m and "c.endswith(TALLER_DOMINIO_INTERNO)" in src_m
-   and src_m.count("pruebas=_taller_cuenta_de_pruebas(") == 3,
-   "main marca como de prueba sólo las @iurexia.com (y REDISENO_CUENTAS_PRUEBA), en las tres puertas del contexto")
+   and src_m.count("pruebas=_taller_cuenta_de_pruebas(") == 4,
+   "main marca como de prueba sólo las @iurexia.com (y REDISENO_CUENTAS_PRUEBA), en las cuatro puertas del contexto "
+   "(el adelanto lo pone también ANTES de generar, 30-sep-2026)")
 
 print("\n5 · LAS FUENTES LA RESPETAN")
 import fase_oaj as fo

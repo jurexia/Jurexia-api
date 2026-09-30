@@ -402,8 +402,9 @@ def instrucciones_antecedentes(tipo_asunto: str = "") -> str:
         _extra += f"""- LA SENTENCIA RECLAMADA SE DICTÓ EN CUMPLIMIENTO de la ejecutoria del
   {_cumpl.get("ejecutoria") or "amparo anterior"}. Cuéntalo en su orden, un hecho por párrafo: la
   sentencia que se combatió primero; el amparo que se promovió contra ella
-  —su número, el tribunal que lo resolvió y qué ordenó la ejecutoria, con sus
-  efectos transcritos entre comillas si el documento los trae—; y, al final,
+  —su número con cifras y tal como aparece en autos (nunca en letra), el
+  tribunal que lo resolvió y qué ordenó la ejecutoria, con sus efectos
+  transcritos entre comillas si el documento los trae—; y, al final,
   la sentencia nueva que la responsable dictó para cumplirla, con su fecha y
   lo que resolvió. Sin ese hilo no se entiende qué quedó vinculado por la
   ejecutoria y qué se resolvió con libertad de jurisdicción. Si el documento

@@ -52,10 +52,19 @@ def _plano(s: str) -> str:
 # la Sala Superior del TFJA y sus Salas Regionales resuelven el juicio de
 # nulidad en única instancia (655). El Tribunal Unitario de Circuito es
 # alzada (apelación federal); el Unitario AGRARIO, única instancia (145).
+#
+# Y LAS SALAS REGIONALES DE LOS TRIBUNALES SUPERIORES (revisión adversarial):
+# el Estado de México, Chiapas y otros tienen «Salas Regionales» y «Salas
+# Especializadas» de APELACIÓN; se leían como del TFJA (única instancia). Lo del
+# TFJA se reconoce por su nombre, y una sala civil, familiar, penal o mercantil,
+# o de un Tribunal Superior, es de alzada.
 _CLASES = (
+    ("sala_tfja", re.compile(r"\btribunal federal de justicia (administrativa|fiscal)\b")),
+    ("sala_alzada", re.compile(r"\bsala\b.*\b(tribunal superior|supremo tribunal)\b|"
+                               r"\bsala\b[^,;]{0,60}\b(civil|familiar|penal|mercantil|colegiada)\b")),
     ("sala_alzada", re.compile(r"\b(sala superior|seccion de la sala superior)\b.*\btribunal de justicia "
-                               r"administrativa del estado\b|\bseccion de la sala superior\b")),
-    ("sala_tfja", re.compile(r"\bsala\b.*\btribunal (federal )?de justicia administrativa\b|"
+                               r"administrativa\b|\bseccion de la sala superior\b")),
+    ("sala_tfja", re.compile(r"\bsala\b.*\btribunal de justicia administrativa\b|"
                              r"\bsala (regional|especializada|superior)\b")),
     ("sala_alzada", re.compile(r"\bsala\b")),
     ("tribunal_agrario", re.compile(r"\btribunal unitario agrario\b")),
@@ -63,7 +72,8 @@ _CLASES = (
                                    r"\btribunal unitario\b")),
     ("junta", re.compile(r"\bjunta\b.*\bconciliacion\b")),
     ("tribunal_laboral", re.compile(r"\btribunal\b.*\b(laboral|trabajo|conciliacion y arbitraje)\b")),
-    ("jueza", re.compile(r"^jueza\b|\bla jueza\b")),
+    # «La Juez Séptimo…», «…, Jueza María…»: también son juzgadoras.
+    ("jueza", re.compile(r"\bjueza\b|\bla juez\b")),
     ("juez", re.compile(r"\bjuez\b|\bjuzgado\b")),
 )
 
@@ -116,6 +126,14 @@ _VIA_UNICA = re.compile(
     r"\blaudo\b|juicio\s+(?:contencioso\s+administrativo|de\s+nulidad)", re.I)
 
 
+# La revisión de los tribunales administrativos locales ES su alzada (la
+# resuelven la Sala Superior o una de sus Secciones); sin esto, «juicio
+# contencioso administrativo» mandaba a única instancia.
+_RX_REVISION_ALZADA = re.compile(
+    r"recurso\s+de\s+revisi[óo]n[^.]{0,220}(?:sala\s+superior|secci[óo]n)|"
+    r"(?:sala\s+superior|secci[óo]n\s+de\s+la\s+sala)[^.]{0,160}recurso\s+de\s+revisi[óo]n", re.I)
+
+
 def instancia_de(clase: str, texto: str = "") -> str:
     """«unica», «alzada» o «». La clase manda; el texto sólo si no hay clase."""
     if clase in _UNICA:
@@ -126,7 +144,7 @@ def instancia_de(clase: str, texto: str = "") -> str:
     if not s:
         return ""
     import fase_origen as _fo
-    if _fo._RX_HAY_APELACION.search(s):
+    if _fo._RX_HAY_APELACION.search(s) or _RX_REVISION_ALZADA.search(s):
         return "alzada"
     if _VIA_UNICA.search(s):
         return "unica"
@@ -141,10 +159,14 @@ def instancia_de(clase: str, texto: str = "") -> str:
 # fallo protector— porque «en cumplimiento del contrato» o «en cumplimiento de la
 # sentencia» (la de origen, en ejecución) son otra cosa.
 _RX_CUMPL = re.compile(
-    r"en\s+(?:cumplimiento|acatamiento)\s+(?:a|de|al|del)\s+(?:la\s+|lo\s+resuelto\s+en\s+la\s+|"
+    r"(?:en\s+(?:cumplimiento|acatamiento)|para\s+dar\s+cumplimiento|dando\s+cumplimiento)\s+(?:a|de|al|del)\s+"
+    r"(?:la\s+|lo\s+(?:resuelto|ordenado)\s+en\s+(?:la\s+)?|"
     r"(?:esa|dicha|la\s+citada|la\s+referida|la\s+mencionada)\s+)?"
     r"(?:ejecutoria|sentencia\s+de\s+amparo|resoluci[óo]n\s+de\s+amparo|fallo\s+protector|"
-    r"concesi[óo]n\s+(?:del\s+|de\s+)?amparo|protecci[óo]n\s+constitucional)", re.I)
+    r"concesi[óo]n\s+(?:del\s+|de\s+)?amparo|protecci[óo]n\s+constitucional|"
+    # «en cumplimiento a la sentencia dictada por el Tribunal Colegiado… en el
+    # amparo directo…» (revisión adversarial: no se reconocía)
+    r"sentencia\s+(?:dictada|pronunciada|emitida)[^.;]{0,160}?\bamparo)", re.I)
 
 # El número de la ejecutoria, cerca de la mención: «amparo directo civil
 # 590/2023», «A.D.C. 590/2023», «ADC 590/2023», «juicio de amparo 590/2023».
@@ -155,14 +177,29 @@ _RX_EJECUTORIA = re.compile(
     r"(\d{1,5}\s*/\s*\d{4})", re.I)
 
 # Dónde empiezan los efectos transcritos de esa ejecutoria.
+# NO «para los efectos legales a que haya lugar», que es fórmula de trámite
+# (revisión adversarial): los efectos de una concesión van tras la concesión.
 _RX_EFECTOS = re.compile(
-    r"para\s+(?:el\s+)?efecto\s+de\s+que|para\s+los\s+(?:siguientes\s+)?efectos|"
+    r"para\s+(?:el\s+)?efecto\s+de\s+que|para\s+los\s+siguientes\s+efectos|"
     r"efectos\s+(?:de\s+la\s+concesi[óo]n|del\s+amparo|de\s+la\s+protecci[óo]n)|"
     r"los\s+efectos\s+(?:del\s+amparo\s+)?(?:son|fueron|consisten)", re.I)
+_RX_EFECTOS_DE_AMPARO = re.compile(
+    r"conced\w*\s+(?:el\s+|la\s+)?(?:amparo|protecci)|ampar[oó]|ejecutoria|protecci[óo]n\s+(?:constitucional|federal)",
+    re.I)
 
 
-def _nombre_ejecutoria(ventana: str) -> str:
-    m = _RX_EJECUTORIA.search(ventana)
+def _num(x: str) -> str:
+    """«323 / 2025» → «323/2025» (sin ceros a la izquierda)."""
+    m = re.search(r"(\d{1,5})\s*/\s*(\d{4})", str(x or ""))
+    return f"{int(m.group(1))}/{m.group(2)}" if m else ""
+
+
+def _nombre_ejecutoria(ventana: str, excluir: str = "") -> str:
+    # EL NÚMERO DEL PROPIO AMPARO NO ES LA EJECUTORIA (revisión adversarial):
+    # «el presente amparo directo 323/2025», o el encabezado de página, cerca
+    # de la mención, se tomaba por la ejecutoria que se cumplía.
+    ex = _num(excluir)
+    m = next((x for x in _RX_EJECUTORIA.finditer(ventana) if not ex or _num(x.group(1)) != ex), None)
     if not m:
         return ""
     frase = " ".join(m.group(0).split())
@@ -187,7 +224,11 @@ def _nombre_ejecutoria(ventana: str) -> str:
 #   · lo que la quejosa «refiere/aduce/afirma» que se dictó en cumplimiento;
 #   · «en cumplimiento al Acuerdo General…».
 _RX_ALEGA = re.compile(r"(?:refiere|aduce|afirma|sostiene|alega|argumenta)[^.]{0,40}$", re.I)
-_RX_AMPARO_CERCA = re.compile(r"amparo|protector|protecci[óo]n\s+constitucional|concesi[óo]n", re.I)
+# «concesión» SOLA no: en administrativo es, sobre todo, la de un servicio
+# (taxi, transporte, agua) (revisión adversarial).
+_RX_AMPARO_CERCA = re.compile(
+    r"amparo|protector|protecci[óo]n\s+(?:constitucional|federal)|concesi[óo]n\s+(?:del\s+|de\s+la\s+)?(?:amparo|protecci)",
+    re.I)
 
 
 #   · y, las más, TESIS TRANSCRITAS y cumplimientos FUTUROS: «…en el nuevo acto
@@ -211,9 +252,11 @@ _RX_DICTADO = re.compile(
     # ejecutoria dictada en el amparo directo… en la que se concedió el amparo
     # para el efecto de que…», «…se dicta la presente resolución».
     r"se\s+(?:dicta|emite|pronuncia)|procede\s+a\s+dictar|concedi[óo]\s+(?:el\s+amparo|la\s+protecci)|"
+    r"vistos\s+para\s+resolver|"
     r"para\s+(?:el\s+|los\s+)?efectos?\s+(?:de\s+que|siguientes))", re.I)
 _RX_EMISION_TRAS = re.compile(
     r"\b(?:emiti[óo]|dict[óo]|pronunci[óo]|resolvi[óo]|se\s+dict[óo]|se\s+emiti[óo]|dej[óo]\s+insubsistente|"
+    r"dej[óo]\s+sin\s+efectos|"
     r"se\s+dej[óo]\s+insubsistente|constituye\s+el\s+acto\s+reclamado)\b", re.I)
 _RX_NO_PASADO = re.compile(
     r"(?:que\s+(?:emita|dicte|pronuncie|resuelva)|aduzca|deber[áa]|podr[áa]|habr[áa]\s+de|a\s+fin\s+de)[^.]{0,85}$",
@@ -223,9 +266,10 @@ _RX_NO_PASADO = re.compile(
 def _es_cumplimiento(s: str, m) -> bool:
     if "ejecutoria" in m.group(0).lower():
         tras = s[m.end():m.end() + 220]
-        # Con demostrativo («esa ejecutoria») el amparo se nombró ANTES.
+        # Con demostrativo («esa ejecutoria») el amparo se nombró ANTES, a
+        # menudo antes de transcribir sus efectos: se mira más atrás.
         cerca = tras if not re.search(r"(?:esa|dicha|citada|referida|mencionada)\s+ejecutoria", m.group(0), re.I) \
-            else s[max(0, m.start() - 300):m.end() + 220]
+            else s[max(0, m.start() - 2500):m.end() + 220]
         if not _RX_AMPARO_CERCA.search(cerca) or re.search(r"\btoca\b", tras[:120], re.I) and not \
                 re.search(r"amparo", tras[:120], re.I):
             return False
@@ -245,7 +289,7 @@ def _es_cumplimiento(s: str, m) -> bool:
     return bool(_RX_DICTADO.search(ventana))
 
 
-def cumplimiento_de(*textos: str) -> dict:
+def cumplimiento_de(*textos: str, excluir: str = "") -> dict:
     """{consta, ejecutoria, fragmento, efectos} leídos de los textos dados, en
     orden de preferencia (antecedentes, resumen del acto, el acto mismo).
 
@@ -257,19 +301,30 @@ def cumplimiento_de(*textos: str) -> dict:
         s = " ".join(str(texto or "").split())
         if not s:
             continue
-        m = next((x for x in _RX_CUMPL.finditer(s) if _es_cumplimiento(s, x)), None)
-        if not m:
+        validas = [x for x in _RX_CUMPL.finditer(s) if _es_cumplimiento(s, x)]
+        if not validas:
             continue
+        # EN UNA CADENA DE AMPAROS, LA ÚLTIMA (revisión adversarial): los
+        # antecedentes y los resultandos van en orden, y la sentencia reclamada
+        # cumple la ejecutoria más reciente, no la primera que se narra. De
+        # preferencia una que diga su número.
+        con_num = [x for x in validas if _nombre_ejecutoria(s[x.start():x.end() + 350], excluir)]
+        m = (con_num or validas)[-1]
         a, b = max(0, m.start() - 250), min(len(s), m.end() + 350)
         ventana = s[a:b]
         out["consta"] = True
         out["fragmento"] = out["fragmento"] or ventana.strip()
-        out["ejecutoria"] = out["ejecutoria"] or _nombre_ejecutoria(s[m.start():m.end() + 350]) \
-            or _nombre_ejecutoria(ventana)
+        out["ejecutoria"] = out["ejecutoria"] or _nombre_ejecutoria(s[m.start():m.end() + 350], excluir) \
+            or _nombre_ejecutoria(ventana, excluir)
         if not out["efectos"]:
-            e = _RX_EFECTOS.search(s, max(0, m.start() - 400))
-            if e and e.start() - m.end() < 6000:
-                out["efectos"] = s[e.start():e.start() + 3000].strip()
+            for e in _RX_EFECTOS.finditer(s, max(0, m.start() - 400)):
+                if e.start() - m.end() >= 6000:
+                    break
+                # Los efectos de un AMPARO van tras su concesión; «para el
+                # efecto de que pague» en un resolutivo de origen, no.
+                if _RX_EFECTOS_DE_AMPARO.search(s[max(0, e.start() - 250):e.start()]):
+                    out["efectos"] = s[e.start():e.start() + 3000].strip()
+                    break
     return out
 
 
@@ -277,7 +332,7 @@ def cumplimiento_de(*textos: str) -> dict:
 
 
 def origen(responsable: str = "", *textos: str, tipo_asunto: str = "amparo_directo",
-           manual: dict | None = None) -> dict:
+           manual: dict | None = None, numero: str = "") -> dict:
     """El origen del acto reclamado. `textos`: antecedentes, resumen del acto y
     el acto mismo (en ese orden de confianza). `manual` es lo que el secretario
     corrigió en pantalla y manda sobre lo leído.
@@ -293,7 +348,7 @@ def origen(responsable: str = "", *textos: str, tipo_asunto: str = "amparo_direc
         "sujetos": list(SUJETOS_ORGANO.get(clase, SUJETOS_NEUTROS)),
         "lo_resuelto": _fo.lo_resuelto(juntos, tipo_asunto) if inst != "unica"
         else (_fo.lo_resuelto(juntos, tipo_asunto) or "ese juicio"),
-        "cumplimiento": cumplimiento_de(*textos),
+        "cumplimiento": cumplimiento_de(*textos, excluir=numero),
         "fuente": "leido",
     }
     if isinstance(manual, dict) and manual:

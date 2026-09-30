@@ -184,8 +184,13 @@ def poner(casa: bool = False, evaluacion: dict | None = None, pruebas: bool | No
     # encienden para ellas; su cuenta personal (jdm.juridico, que es de casa
     # por ADMIN_EMAILS) queda como la de cualquier secretario. Sin decirlo,
     # prueba = casa.
+    # EL ORIGEN DEL ACTO SE CONSERVA (30-sep-2026): es de ESTE asunto, no de
+    # la cuenta, y lo pone quien lee la sesión o el adelanto. Reponer la cuenta
+    # después de generar lo borraba, y las tareas sueltas del adelanto
+    # (contraste, propuesta) salían sin él (revisión adversarial).
+    _prev = _CTX.get() or {}
     _CTX.set({"casa": bool(casa), "pruebas": bool(casa if pruebas is None else pruebas),
-              "exclusion": exc, "banderas": ban})
+              "exclusion": exc, "banderas": ban, "origen": _prev.get("origen")})
 
 
 def _booleano(v):

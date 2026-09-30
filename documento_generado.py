@@ -5539,7 +5539,9 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
             "CONFIRMASTE QUE LA EJECUTORIA NO DEJÓ LIBERTAD DE JURISDICCIÓN: el proyecto NO entra al fondo y "
             "sobresee (artículos 61, fracción IX, y 63, fracción V, de la Ley de Amparo; 2a./J. 113/2012 y "
             "1a./J. 57/2018). Si alguna parte se resolvió con libertad, quita la confirmación en «De dónde viene "
-            "lo reclamado» y vuelve a generar: con libertad parcial no se sobresee."))
+            "lo reclamado» y vuelve a generar: con libertad parcial no se sobresee. LA VISTA DEL ARTÍCULO 64, "
+            "PÁRRAFO SEGUNDO: si la causa se advierte de oficio, precisa en el considerando cuándo se dio vista a la "
+            "quejosa y qué contestó (o razona por qué no hacía falta); si la hizo valer una parte, quita ese párrafo."))
         con_apartados.append(
             (_ce_d.IMPROCEDENTE["rotulo"] + ".",
              (lambda c: lambda p: _texto_en(p, c))(_ce_d.considerando_improcedencia())))

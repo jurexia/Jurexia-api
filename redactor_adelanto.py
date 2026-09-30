@@ -534,11 +534,16 @@ async def generar(cliente, e: Encargo, texto_acto: str, texto_conceptos: str,
     # de la responsable y del acto; al terminar se afina con los antecedentes.
     _oa = _ct_o = _o_pre = None
     try:
+        import contexto_taller as _ct_o
+        # SIEMPRE SE PONE, aunque sea None: el contexto conserva el origen
+        # entre `poner()`s, y un banco que corre varios asuntos en un proceso
+        # no debe heredar el del anterior.
+        _ct_o.poner_origen(None)
         import tipos_asunto as _ta_o
         if _ta_o.normalizar(e.tipo_asunto or "amparo_directo") == "amparo_directo":
             import origen_acto as _oa
-            import contexto_taller as _ct_o
-            _o_pre = _oa.origen(getattr(e, "responsable", "") or "", "", "", texto_acto or "")
+            _o_pre = _oa.origen(getattr(e, "responsable", "") or "", "", "", texto_acto or "",
+                                numero=getattr(e, "numero", "") or "")
             _ct_o.poner_origen(_o_pre)
     except Exception as _eo:
         print(f"   ⚠️ origen del acto sin leer: {type(_eo).__name__}")
@@ -555,7 +560,8 @@ async def generar(cliente, e: Encargo, texto_acto: str, texto_conceptos: str,
     if _o_pre is not None:
         try:
             f.origen = _oa.origen(getattr(e, "responsable", "") or "", f.antecedentes or "",
-                                  f.resumen_acto or "", texto_acto or "")
+                                  f.resumen_acto or "", texto_acto or "",
+                                  numero=getattr(e, "numero", "") or "")
             _ct_o.poner_origen(f.origen)
             _dice = _oa.aviso(f.origen)
             if _dice:
