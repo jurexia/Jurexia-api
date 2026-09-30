@@ -2311,7 +2311,45 @@ def tecnica_de(tipo: str, rama: str = "", con_violacion_procesal: bool = False) 
     if t == "amparo_directo" and con_violacion_procesal:
         fuera.append(TECNICA_RESOLUCION["directo_violacion_procesal"])
         fuera.append(TECNICA_RESOLUCION["directo_orden_de_estudio"])
+    # LA SENTENCIA DICTADA EN CUMPLIMIENTO (30-sep-2026): sólo si consta en el
+    # origen del acto de esta petición y rige `cumplimiento_ejecutoria`.
+    if t == "amparo_directo" and cumplimiento_actual():
+        fuera.append(TECNICA_CUMPLIMIENTO)
     return fuera
+
+
+# ═══ LA SENTENCIA DICTADA EN CUMPLIMIENTO DE UNA EJECUTORIA (30-sep-2026) ═════
+# David: «sólo si se dejó plenitud de jurisdicción o libertad de jurisdicción a
+# la responsable, el ulterior amparo puede ser materia de análisis […] no
+# podemos entrar en un bucle de amparos». Las reglas y sus tesis están en
+# `cumplimiento_ejecutoria` (verificadas en el acervo el 30-sep-2026). Va
+# fuera de TECNICA_RESOLUCION porque sólo entra por el origen del acto, no por
+# la rama. `solo_si_estan`: el resolver trae sus apoyos también en sesiones
+# cuyo adelanto no los trajo, y el prompt sólo nombra los que llegaron.
+TECNICA_CUMPLIMIENTO = {
+    "cuando": "Amparo directo contra una sentencia dictada en cumplimiento de una ejecutoria de amparo.",
+    "fuente": "artículos 61, fracción IX, 63, fracción V, 77, 196 y 201 de la Ley de Amparo",
+    "solo_si_estan": True,
+    "apoyos": ["2001857", "2018315", "197240", "2007970", "2008199", "2015559", "2024239", "2015151"],
+    "tecnica": [
+        "SÓLO ES MATERIA DE ESTE AMPARO LO QUE LA RESPONSABLE RESOLVIÓ CON LIBERTAD DE JURISDICCIÓN. Lo que la "
+        "ejecutoria dejó vinculado —su sentido, sus lineamientos, lo que dejó definido o intocado— es cosa juzgada.",
+        "SE DISTINGUE POR LO QUE LA EJECUTORIA ORDENÓ: sus efectos y también sus consideraciones y lineamientos. "
+        "Antes de los conceptos, un párrafo que diga qué ordenó, qué quedó vinculado y qué resolvió la responsable "
+        "con libertad de jurisdicción.",
+        "LO VINCULADO SE DECLARA INOPERANTE con esa razón, sin volver a estudiarlo. Lo LIBRE se estudia a fondo y "
+        "se concede o se niega. Si una parte de un concepto combate lo vinculado y otra lo libre, se parte.",
+        "EL EXCESO O DEFECTO en el cumplimiento no es materia de este amparo: es inoperante y se dice que su vía es "
+        "la vista del artículo 196, el recurso de inconformidad (artículo 201) o la denuncia de repetición.",
+        "CON LIBERTAD PARCIAL NO SE SOBRESEE. Sólo si la ejecutoria no dejó libertad alguna el juicio es "
+        "improcedente (artículo 61, fracción IX) y se sobresee (artículo 63, fracción V); eso lo confirma el "
+        "secretario y, si lo confirmó, no hay estudio de fondo.",
+        "LA INCONSTITUCIONALIDAD DE LA NORMA QUE LA EJECUTORIA MANDÓ APLICAR, planteada por quien fue tercero "
+        "interesado en ese amparo: hay criterio dividido (1a. IX/2022 permite estudiarla por primera vez, respetando "
+        "la legalidad fijada en la ejecutoria; 2a. CXLVII/2017 exigía combatirla en revisión contra la ejecutoria). "
+        "Se estudia o no según lo que decidió el secretario, y se dice por qué.",
+    ],
+}
 
 
 def rama_revision(resolvio_a_quo: str, sentido: str,
