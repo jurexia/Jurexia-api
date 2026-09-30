@@ -455,8 +455,18 @@ RESULTANDOS = {
 
 
 def resultandos_de(tipo: str) -> list:
-    """[(rótulo, qué va dentro)] del tipo."""
-    return RESULTANDOS.get(normalizar(tipo), RESULTANDOS["amparo_directo"])
+    """[(rótulo, qué va dentro)] del tipo.
+
+    AMPARO DIRECTO SIN ALZADA (30-sep-2026): el primero pedía individualizar la
+    sentencia por «el NÚMERO DE EXPEDIENTE o toca de origen»; en única
+    instancia no hay toca, y ofrecérselo es invitar a buscarlo (o a inventarlo).
+    Sólo si la instancia consta como única; si no, como siempre."""
+    base = RESULTANDOS.get(normalizar(tipo), RESULTANDOS["amparo_directo"])
+    if unica_instancia(tipo):
+        return [(r, q.replace("NÚMERO DE EXPEDIENTE o toca de origen",
+                              "NÚMERO DE EXPEDIENTE de origen"))
+                for r, q in base]
+    return base
 
 
 def rotulo_estudio_de(tipo: str) -> str:
@@ -2269,6 +2279,77 @@ TECNICA_RESOLUCION["revision_fiscal_reenvio"] = {
 }
 
 
+# ═══ LA VIOLACIÓN PROCESAL CUANDO NO HUBO ALZADA (30-sep-2026) ═══════════════
+# David, sobre el AD 323/2025 (un juicio oral mercantil): «Siempre, en amparo
+# directo, partimos de la base de que hay una sala. Es decir, una segunda
+# instancia. Pero no siempre es así». La técnica de arriba lo suponía en tres
+# renglones: la violación «que, si la hubo, un recurso ordinario confirmó», el
+# objeto del examen «la resolución del recurso ordinario», y el efecto «deje sin
+# efectos la resolución del recurso ordinario». En un juicio sin apelación
+# —el oral mercantil (artículo 1390 Bis del Código de Comercio), el de cuantía
+# menor, el laudo, la nulidad— el motor buscaba esa resolución, no la
+# encontraba, y o la inventaba o reprochaba a la quejosa no haber apelado.
+#
+# El artículo 171 de la Ley de Amparo no pide eso: la preparación se mide con
+# el recurso o medio de defensa que la ley ordinaria prevea DURANTE el juicio
+# contra la actuación; contra la sentencia no había recurso, así que no se
+# exige haberla recurrido. Y la reposición deja insubsistente la sentencia
+# reclamada y repone desde la violación, sin una resolución de alzada que dejar
+# sin efectos. Se arma DE la de arriba, cambiando sólo esos tres renglones:
+# la confrontación, la trascendencia y la suerte de los demás son las mismas y
+# así no se separan con el tiempo. La elige `tecnica_de` cuando la instancia
+# es única (`instancia_actual`); si no consta, rige la de siempre.
+def _violacion_procesal_unica(base: dict) -> dict:
+    _cambio = {
+        "EL OBJETO DEL EXAMEN":
+            "EL OBJETO DEL EXAMEN ES LA ACTUACIÓN PROCESAL y, si contra ella se "
+            "hizo valer durante el juicio el medio de defensa que la ley de la "
+            "vía prevé, la resolución que lo decidió; no la sentencia "
+            "definitiva. La razón toral del planteamiento son las razones de "
+            "ESA actuación o de ESA resolución; lo que la sentencia dijo de "
+            "pasada sólo recoge el resultado.",
+        "PRIMERO LA PREPARACIÓN":
+            "PRIMERO LA PREPARACIÓN (artículo 171), medida con la ley de ESTA "
+            "vía: se examina respecto del recurso o medio de defensa que la ley "
+            "ordinaria prevea DURANTE el juicio contra esa actuación. Si lo "
+            "preveía, se dice si se agotó —y con qué resultado— o por qué no era "
+            "exigible; si no preveía ninguno, se dice así y la preparación no se "
+            "exige. Contra la sentencia no procedía recurso ordinario: no se "
+            "exige haberla recurrido ni se reprocha no haberlo hecho. Si había "
+            "un medio exigible y no se agotó, el planteamiento es inoperante y "
+            "se dice por qué.",
+        "LOS EFECTOS DE LA REPOSICIÓN":
+            "LOS EFECTOS DE LA REPOSICIÓN SE ORDENAN PASO A PASO, porque la "
+            "responsable NO puede dictar otra sentencia de inmediato: 1. deje "
+            "insubsistente la sentencia reclamada; 2. deje sin efectos la "
+            "actuación viciada (el acuerdo que desechó, tuvo por precluido o no "
+            "admitió) y, si se combatió durante el juicio, la resolución que la "
+            "confirmó; 3. reponga el procedimiento desde esa actuación —admita "
+            "la ampliación, la prueba o el escrito de que se trate—; 4. corra "
+            "traslado a la contraparte y desahogue lo que proceda, con "
+            "alegatos; 5. cerrada de nuevo la instrucción, dicte la sentencia de "
+            "fondo con plenitud de jurisdicción. Un «dicte otra en la que "
+            "atienda los lineamientos» provoca requerimientos de cumplimiento "
+            "defectuoso (artículos 192 a 196 de la Ley de Amparo).",
+    }
+
+    def _uno(t: str) -> str:
+        return next((v for k, v in _cambio.items() if t.startswith(k)), t)
+    return dict(base,
+                cuando="Amparo directo contra una sentencia dictada en ÚNICA "
+                       "instancia —sin recurso ordinario que la combata— en que "
+                       "se reclama una violación procesal: una actuación del "
+                       "procedimiento (ampliación desechada o precluida, prueba "
+                       "no admitida, emplazamiento…) y, si la ley de la vía daba "
+                       "contra ella un medio de defensa durante el juicio y se "
+                       "hizo valer, la resolución que lo decidió.",
+                tecnica=[_uno(t) for t in base["tecnica"]])
+
+
+TECNICA_RESOLUCION["directo_violacion_procesal_unica"] = _violacion_procesal_unica(
+    TECNICA_RESOLUCION["directo_violacion_procesal"])
+
+
 def tecnica_de(tipo: str, rama: str = "", con_violacion_procesal: bool = False) -> list:
     """Las reglas de técnica que aplican a ESTE asunto y ESTE desenlace.
 
@@ -2309,7 +2390,11 @@ def tecnica_de(tipo: str, rama: str = "", con_violacion_procesal: bool = False) 
     if t == "queja" and rama == "sin_materia":
         fuera.append(TECNICA_RESOLUCION["recurso_sin_materia"])
     if t == "amparo_directo" and con_violacion_procesal:
-        fuera.append(TECNICA_RESOLUCION["directo_violacion_procesal"])
+        # SIN ALZADA, SIN RECURSO ORDINARIO QUE EXAMINAR (30-sep-2026): ver
+        # `_violacion_procesal_unica`. Si la instancia no consta, la de siempre.
+        fuera.append(TECNICA_RESOLUCION["directo_violacion_procesal_unica"]
+                     if instancia_actual() == "unica"
+                     else TECNICA_RESOLUCION["directo_violacion_procesal"])
         fuera.append(TECNICA_RESOLUCION["directo_orden_de_estudio"])
     return fuera
 
@@ -3409,6 +3494,52 @@ def verbos_del_recurrido(tipo: str) -> str:
 
     Nunca los del amparo cuando el asunto no es un amparo en revisión: la
     autoridad responsable de un amparo directo no concede ni niega amparos.
+
+    Y en un amparo directo SIN ALZADA (30-sep-2026), nunca los de la apelación:
+    ver `VERBOS_DEL_RECURRIDO_UNICA`. Los dos consumidores —los antecedentes y
+    el contexto de la propuesta— ya pasan por aquí, así que la variante les
+    llega sin tocarlos.
     """
     t = normalizar(tipo) or "amparo_directo"
+    if t == "amparo_directo" and instancia_actual() == "unica":
+        return VERBOS_DEL_RECURRIDO_UNICA
     return VERBOS_DEL_RECURRIDO.get(t, VERBOS_DEL_RECURRIDO["amparo_directo"])
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# AMPARO DIRECTO SIN SEGUNDA INSTANCIA (30-sep-2026)
+#
+# David (AD 323/2025, juicio oral mercantil): «Siempre, en amparo directo,
+# partimos de la base de que hay una sala. Es decir, una segunda instancia.
+# Pero no siempre es así. La segunda instancia ocurre sólo si hubo recurso de
+# apelación». El menú de arriba empezaba por «confirmó, modificó o revocó la
+# sentencia de primera instancia», que es lo que hace una Sala de apelación:
+# dado a los antecedentes de un juicio oral mercantil —art. 1390 Bis del Código
+# de Comercio: contra sus resoluciones no procede recurso ordinario alguno—, el
+# motor narraba una alzada que no hubo. Sin alzada, quien dictó lo reclamado
+# resolvió el juicio mismo: la acción, la condena, la nulidad o el laudo.
+#
+# Estos dos accesores son los que consultan los prompts de amparo directo. Los
+# dos devuelven «no» si el tipo no es amparo directo, si no rige la bandera o
+# si la instancia no consta: entonces cada prompt queda exactamente como antes
+# (las cuentas de fuera no ven el cambio hasta medirlo).
+VERBOS_DEL_RECURRIDO_UNICA = (
+    "declaró procedente o improcedente la acción o la excepción; condenó o "
+    "absolvió; declaró la nulidad o reconoció la validez de la resolución "
+    "impugnada; decretó la caducidad; dejó a salvo los derechos")
+
+
+def unica_instancia(tipo: str = "") -> bool:
+    """¿Es un amparo directo contra lo dictado en ÚNICA instancia (sin
+    apelación) y rige `instancia_origen` en esta petición? Sin tipo se
+    entiende amparo directo, como en `sujetos_de`."""
+    t = normalizar(tipo) or "amparo_directo"
+    return t == "amparo_directo" and instancia_actual() == "unica"
+
+
+def cumplimiento_de_amparo(tipo: str = "") -> dict:
+    """{consta, ejecutoria, efectos} si ESTE amparo directo reclama una
+    sentencia dictada en cumplimiento de una ejecutoria (ver
+    `cumplimiento_actual`); {} en cualquier otro caso."""
+    t = normalizar(tipo) or "amparo_directo"
+    return cumplimiento_actual() if t == "amparo_directo" else {}

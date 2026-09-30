@@ -406,6 +406,23 @@ def prompt_resumen_acto(texto_acto: str, es_recurso: bool = False,
     # distrito». Sólo la inicial.
     _ej_org = _tap.sujetos_de(_t)["organo"][0]
     _ej_org = _ej_org[:1].upper() + _ej_org[1:]
+    _una_por_frase = f"""UNA DECISIÓN POR FRASE. Así escribe el secretario: «{_ej_org} consideró fundado
+el agravio respecto a la carga de la prueba. Determinó que, contrario a lo
+resuelto por el inferior, cuando una mujer argumenta que se dedicó al hogar,
+existe una presunción de que necesita alimentos.» Dos frases, dos decisiones.
+No una sola oración de doscientas palabras encadenando gerundios."""
+    # SIN ALZADA NO HAY AGRAVIO NI INFERIOR (30-sep-2026, AD 323/2025). El
+    # ejemplo de arriba es de una Sala que resuelve una apelación: con el
+    # sujeto ya bien puesto salía «El Juez consideró fundado el agravio…
+    # contrario a lo resuelto por el inferior», y un ejemplo se copia entero.
+    # En única instancia no se da otro caso para copiar —un ejemplo trae los
+    # datos de un asunto y el modelo los firma—: se describe la forma.
+    if _tap.unica_instancia(_t):
+        _una_por_frase = f"""UNA DECISIÓN POR FRASE. Así escribe el secretario: cada frase lleva una sola
+decisión de la sentencia, con el órgano como sujeto y el verbo en pretérito
+—«{_ej_org} consideró…», «Determinó que…»—, y dice qué decidió sobre la acción,
+las excepciones o las pruebas, y por qué. Dos decisiones, dos frases.
+No una sola oración de doscientas palabras encadenando gerundios."""
     return f"""{_NUCLEO}
 
 {instrucciones_resumen_acto(_t, objetivo_acto(texto_acto))}
@@ -417,11 +434,7 @@ primera vez:
 - NADA de crónica cronológica del procedimiento.
 - Se entra DIRECTO a lo que la autoridad decidió sobre el fondo y por qué.
 
-UNA DECISIÓN POR FRASE. Así escribe el secretario: «{_ej_org} consideró fundado
-el agravio respecto a la carga de la prueba. Determinó que, contrario a lo
-resuelto por el inferior, cuando una mujer argumenta que se dedicó al hogar,
-existe una presunción de que necesita alimentos.» Dos frases, dos decisiones.
-No una sola oración de doscientas palabras encadenando gerundios.
+{_una_por_frase}
 
 Se trata de la {que}. Éste es su texto:
 
@@ -653,6 +666,20 @@ def prompt_relato(antecedentes: str, resumen_acto: str, resumen_conceptos: str,
     # recurso. Lo lee `fase_origen.lo_resuelto`; si hay duda, devuelve vacío
     # y aquí se usa una fórmula que no afirma de dónde viene.
     _resuelto = " ".join(str(lo_resuelto or "").split())
+    # ═══ SIN ALZADA Y EN CUMPLIMIENTO (30-sep-2026) ═════════════════════════
+    # David, AD 323/2025: «no siempre hay una sala […] la sentencia había sido
+    # dictada en cumplimiento». El hilo pedía «qué resolvió cada instancia», y
+    # con una sola el relato se inventaba la segunda; y nada pedía contar que
+    # lo reclamado acataba una ejecutoria anterior, que es lo primero que
+    # necesita saber quien toma el asunto. Cada variante, sólo si consta
+    # (`tipos_asunto`); si no, el prompt es el de siempre.
+    _unica = (not es_recurso) and _tap.unica_instancia(_t)
+    _cumpl = {} if es_recurso else _tap.cumplimiento_de_amparo(_t)
+    # `fase_origen.lo_resuelto` lo lee de los antecedentes, que pueden contar
+    # una apelación de otra etapa del juicio: con una sola instancia, lo
+    # resuelto no puede ser «ese recurso de apelación».
+    if _unica and "apelaci" in _resuelto.lower():
+        _resuelto = "ese juicio"
     _pregunta = (f"¿Cómo resolvió {_organo} {_resuelto}?" if _resuelto
                  else f"¿Qué resolvió {_organo}?")
     _ficha = ""
@@ -660,6 +687,26 @@ def prompt_relato(antecedentes: str, resumen_acto: str, resumen_conceptos: str,
         _ficha += f"Quien promueve, según la ficha: {quejoso.strip()}.\n"
     if (responsable or "").strip():
         _ficha += f"Órgano que dictó lo que se combate, según la ficha: {responsable.strip()}.\n"
+    # Lo que la ejecutoria ordenó, si el acto lo transcribe: es dato del
+    # asunto (lo leyó `origen_acto`), no un ejemplo, y sin él el relato sólo
+    # podría decir que «hubo un amparo».
+    _efectos = " ".join(str((_cumpl or {}).get("efectos") or "").split())
+    if _efectos:
+        _ficha += ("Lo que ordenó esa ejecutoria, según lo transcribe la sentencia reclamada: «"
+                   + (_efectos[:900] + "…" if len(_efectos) > 900 else _efectos) + "»\n")
+    _paso2 = """2. AQUÍ EMPIEZA EL PROBLEMA. Qué se discutió y qué resolvió cada instancia
+   hasta llegar a lo que se reclama; lo principal, en una o dos frases."""
+    if _unica:
+        _paso2 = f"""2. AQUÍ EMPIEZA EL PROBLEMA. Qué se discutió en el juicio; lo principal, en
+   una o dos frases. El juicio se resolvió en UNA sola instancia: lo que se
+   reclama es la sentencia que dictó {_organo}, sin segunda instancia de por
+   medio, y así se cuenta."""
+    if _cumpl:
+        _paso2 += f"""
+   Y ESTO NO SE CALLA: la sentencia reclamada se dictó EN CUMPLIMIENTO de la
+   ejecutoria del {_cumpl.get("ejecutoria") or "amparo anterior"}. Cuenta que hubo un amparo
+   anterior contra la primera sentencia, qué ordenó esa ejecutoria y que lo
+   que ahora se reclama es la sentencia con que se le dio cumplimiento."""
     if es_recurso:
         _hilo = f"""1. EL ORIGEN. Qué autoridad hizo qué y a quién: el acto de donde arranca todo
    (una baja, una multa, una determinación, un crédito…), con los nombres.
@@ -672,8 +719,7 @@ def prompt_relato(antecedentes: str, resumen_acto: str, resumen_conceptos: str,
     else:
         _hilo = f"""1. EL ORIGEN. De qué juicio o procedimiento viene el asunto: quién demandó a
    quién y qué pedía, con los nombres.
-2. AQUÍ EMPIEZA EL PROBLEMA. Qué se discutió y qué resolvió cada instancia
-   hasta llegar a lo que se reclama; lo principal, en una o dos frases.
+{_paso2}
 3. CÓMO RESOLVIÓ {_organo.upper()}. Qué decidió en lo que se reclama y, en
    breve, las razones técnicas por las que lo decidió.
 4. QUIÉN VIENE AHORA. Quién promueve el {_nombre} y qué alega en sus
@@ -802,9 +848,31 @@ dentro de algún problema, cada uno en el que le corresponda por su materia.
     _campo_cubre = (
         f'\n      "cubre": [<número de planteamiento, entero de 1 a {n_planteamientos}>, …],'
         if n_planteamientos >= 2 else "")
+    # EL RÓTULO YA NOMBRA AL ÓRGANO POR LO QUE ES (`sujetos_de` lee el origen:
+    # «LO QUE RESOLVIÓ EL JUEZ»). Lo que seguía suponiendo alzada es la
+    # violación procesal: «la resolución del recurso ordinario que la
+    # confirmó». Sin segunda instancia (30-sep-2026), lo que la decidió es, si
+    # acaso, la resolución del medio de defensa que la ley de la vía da durante
+    # el juicio. Fuera de esa variante, el párrafo de siempre.
+    _clase_procesal = """"clase": "procesal" cuando lo que se combate es una actuación del
+procedimiento —una ampliación de demanda desechada o precluida, una prueba no
+admitida o no desahogada, un emplazamiento, un recurso ordinario resuelto—;
+"procedencia" cuando es una causa de improcedencia o sobreseimiento; "fondo"
+en lo demás. En la violación procesal, `resolvio` es lo que decidió la
+actuación combatida y, si la hubo, la resolución del recurso ordinario que la
+confirmó; no lo que la sentencia definitiva dijo de pasada."""
+    if _tap.unica_instancia(_t):
+        _clase_procesal = """"clase": "procesal" cuando lo que se combate es una actuación del
+procedimiento —una ampliación de demanda desechada o precluida, una prueba no
+admitida o no desahogada, un emplazamiento, un medio de defensa resuelto
+durante el juicio—; "procedencia" cuando es una causa de improcedencia o
+sobreseimiento; "fondo" en lo demás. En la violación procesal, `resolvio` es
+lo que decidió la actuación combatida y, si se combatió durante el juicio con
+el medio de defensa que la ley de la vía prevé, la resolución que lo decidió;
+no lo que la sentencia definitiva dijo de pasada."""
     return f"""{_NUCLEO}
 
-{instrucciones_problemas(global_primero=True)}
+{instrucciones_problemas(global_primero=True, tipo_asunto=_t)}
 
 LO QUE RESOLVIÓ {_organo}:
 {resumen_acto}
@@ -826,13 +894,7 @@ Devuelve JSON y nada más:
       "apoyo": null}}
   ]
 }}
-"clase": "procesal" cuando lo que se combate es una actuación del
-procedimiento —una ampliación de demanda desechada o precluida, una prueba no
-admitida o no desahogada, un emplazamiento, un recurso ordinario resuelto—;
-"procedencia" cuando es una causa de improcedencia o sobreseimiento; "fondo"
-en lo demás. En la violación procesal, `resolvio` es lo que decidió la
-actuación combatida y, si la hubo, la resolución del recurso ordinario que la
-confirmó; no lo que la sentencia definitiva dijo de pasada.
+{_clase_procesal}
 {_reparto}Si adviertes un impedimento técnico que llevaría a inoperancia, ponlo en
 "impedimento" como {{"motivo": "inoperancia", "explicacion": "..."}}.
 Y si adviertes lo contrario —algo que sostenga el planteamiento— ponlo en
