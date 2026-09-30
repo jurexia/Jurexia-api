@@ -69,6 +69,19 @@ SUJETOS_RESPONSABLE = (
     "la responsable", "el tribunal de origen", "el juez de origen",
 )
 
+
+def sujetos_responsable(tipo: str = "") -> tuple:
+    """El respaldo de arriba, salvo en un amparo directo de ÚNICA instancia
+    (30-sep-2026): ahí «la Sala» es justo el error que David marcó en el AD
+    323/2025 —un juzgado de oralidad mercantil llamado Sala—, así que se nombra
+    al órgano por lo que es (`sujetos_de`, que lo lee del origen) y, de
+    respaldo, con una fórmula que no afirma alzada. Hoy ningún prompt lee la
+    tupla; quien la necesite, que pase por aquí."""
+    if _ta_r.unica_instancia(tipo):
+        return tuple(_sujetos(tipo)["organo"]) + ("el órgano de origen",)
+    return SUJETOS_RESPONSABLE
+
+
 VERBOS_RESPONSABLE = (          # SIEMPRE en pretérito
     "consideró", "concluyó", "determinó", "resolvió", "precisó",
     "señaló", "sostuvo", "estimó",
@@ -94,6 +107,12 @@ def instrucciones_resumen_acto(tipo_asunto: str = "", objetivo: int = 0) -> str:
     # queja ordenaba llamar «responsable» al Juzgado de Distrito, que es el
     # órgano de control cuya decisión se recurre, no una parte.
     _sj = _sujetos(tipo_asunto)["organo"]
+    # CONTRA QUÉ VA LO QUE SE RESUME. Decía «agravios» en los cuatro tipos, que
+    # en amparo directo es el nombre de lo que se alega en la APELACIÓN; en un
+    # juicio de única instancia no hubo agravios de nadie (30-sep-2026, AD
+    # 323/2025). Sólo en esa variante se dice lo que es; fuera de ella, igual.
+    _contra = ("agravios" if not _ta_r.unica_instancia(tipo_asunto)
+               else _ta_r.vocabulario_de(tipo_asunto)["combate"])
     return f"""RESUMEN DEL ACTO RECLAMADO O SENTENCIA RECURRIDA
 
 Abre el estudio con esto. Cuenta qué resolvió la autoridad y con qué razones,
@@ -108,10 +127,10 @@ de modo que quien lea entienda la resolución impugnada sin tenerla enfrente.
   razón —qué decidió, por qué, con qué precepto— y en el orden en que la
   responsable las expuso. Si resolvió cinco cuestiones, aquí hay cinco. Un
   resumen que se queda con dos deja al estudio sin poder contestar los
-  agravios contra las otras tres, y eso se llama incongruencia.
+  {_contra} contra las otras tres, y eso se llama incongruencia.
 - LAS TESIS Y JURISPRUDENCIAS EN QUE SE APOYÓ SE NOMBRAN, con su clave o su
   registro tal como las cita: «…con apoyo en la jurisprudencia 2a./J. 13/2015
-  (registro 2008474)». No se transcriben; se nombran, porque los agravios
+  (registro 2008474)». No se transcriben; se nombran, porque los {_contra}
   suelen ir contra ellas y el estudio tiene que saber cuáles son.
 - CADA AFIRMACIÓN ANCLADA a su origen, para que el secretario coteje sin
   releer. Se marca con [[p.7 §3]] al final de la frase —página y párrafo— y NO
@@ -222,14 +241,22 @@ Y lo de siempre:
   cada argumento tenga su párrafo, se escriben."""
 
 
-def instrucciones_problemas(global_primero: bool = True) -> str:
+def instrucciones_problemas(global_primero: bool = True, tipo_asunto: str = "") -> str:
     """Los problemas jurídicos, del contraste entre los dos resúmenes.
 
     David planteó que un PROBLEMA GLOBAL puede ser más práctico que varios
     sueltos, y tiene razón en los asuntos de una sola cuestión toral: el
     estudio se ordena mejor alrededor de una pregunta que de cinco.
+
+    `tipo_asunto` (30-sep-2026) sólo cuenta en un amparo directo de ÚNICA
+    instancia: el ejemplo de la dependencia preguntaba «¿Debía la Sala…?», y
+    una pregunta de ejemplo se copia con su sujeto; ahí el sujeto es el órgano
+    que dictó lo reclamado (`sujetos_de`). Sin tipo, o sin esa variante, igual.
     """
-    base = """PROBLEMAS JURÍDICOS
+    _ej_org = "la Sala"
+    if _ta_r.unica_instancia(tipo_asunto):
+        _ej_org = _sujetos(tipo_asunto)["organo"][0]
+    base = f"""PROBLEMAS JURÍDICOS
 
 Salen del CONTRASTE entre los dos resúmenes: lo que la responsable resolvió
 frente a lo que se combate. No de la demanda sola ni del acto solo.
@@ -270,7 +297,7 @@ frente a lo que se combate. No de la demanda sola ni del acto solo.
   null en todos: la independencia se declara, no se supone.
 - «depende_de» NO ES DE ORDEN, ES DE PREMISA. Un problema depende de otro
   cuando su respuesta PRESUPONE la de aquél: si el principal cae, éste cae
-  con él, y si prospera, éste queda sin materia. «¿Debía la Sala estudiar
+  con él, y si prospera, éste queda sin materia. «¿Debía {_ej_org} estudiar
   los alegatos contra el crédito?» depende de «¿debió admitirse la ampliación
   que metía el crédito en la litis?»: sin ampliación no hay crédito en la
   litis ni alegatos que estudiar. Que dos temas se parezcan no los hace
@@ -326,6 +353,18 @@ ARRANQUES_ANTECEDENTES = ("Por auto de", "En proveído de", "En auto de",
                           "Seguido el juicio", "Inconforme con esa resolución",
                           "Radicada la demanda")
 
+# SIN ALZADA (30-sep-2026). Los verbos y los arranques de arriba se midieron en
+# un corpus donde lo reclamado venía casi siempre de una apelación: «interpuso»,
+# «confirmó», «revocó» e «Inconforme con esa resolución» son la cadena de la
+# segunda instancia, y dados a un juicio oral mercantil (AD 323/2025) el motor
+# la narraba aunque no hubiera existido. Éstos son los del trámite de la
+# primera y única instancia. NO ESTÁN MEDIDOS como los de arriba: cuando haya
+# corpus de amparos directos sin alzada, hay que medirlos.
+VERBOS_ANTECEDENTES_UNICA = ("presentó", "admitió", "emplazó", "desahogó",
+                             "dictó", "resolvió")
+ARRANQUES_ANTECEDENTES_UNICA = ("Por auto de", "En proveído de", "En auto de",
+                                "Radicada la demanda", "Seguido el juicio")
+
 
 def instrucciones_antecedentes(tipo_asunto: str = "") -> str:
     # EL ÚNICO DE LOS CUATRO QUE NO RECIBÍA EL TIPO, y el que más caro sale:
@@ -333,6 +372,44 @@ def instrucciones_antecedentes(tipo_asunto: str = "") -> str:
     # que aquí el disparate no se queda en pantalla, se FIRMA.
     import tipos_asunto as _ta
     _verbos = _ta.verbos_del_recurrido(tipo_asunto)
+    # ═══ DE DÓNDE VIENE LO RECLAMADO (30-sep-2026) ═════════════════════════
+    # David: «no siempre hay una sala […] la autoridad responsable era el
+    # propio juez de oralidad mercantil […] la sentencia había sido dictada en
+    # cumplimiento». Dos variantes, cada una sólo si consta (`tipos_asunto`):
+    #   · ÚNICA INSTANCIA: ni apelación ni toca; el último antecedente es la
+    #     sentencia del juez (o de la Junta, o de la Sala del TFJA) que se
+    #     reclama, y la responsable no es «una Sala o un tribunal ordinario».
+    #   · EN CUMPLIMIENTO: los antecedentes cuentan el amparo anterior —número,
+    #     tribunal, qué ordenó— y la sentencia nueva que lo acató. Sin ese hilo
+    #     el estudio no puede separar lo vinculado de lo libre.
+    # Sin ninguna de las dos, el prompt es el de siempre, letra por letra.
+    _unica = _ta.unica_instancia(tipo_asunto)
+    _cumpl = _ta.cumplimiento_de_amparo(tipo_asunto)
+    _v_tramite = VERBOS_ANTECEDENTES_UNICA if _unica else VERBOS_ANTECEDENTES
+    _arranques = ARRANQUES_ANTECEDENTES_UNICA if _unica else ARRANQUES_ANTECEDENTES
+    _quien = "una Sala o un tribunal ordinario"
+    _extra = ""
+    if _unica:
+        _org = _ta.sujetos_de(tipo_asunto)["organo"][0]
+        _quien = (f"quien dictó la sentencia reclamada —aquí, {_org}, que "
+                  f"resolvió el juicio en única instancia—")
+        _extra += f"""- EL JUICIO SE RESOLVIÓ EN ÚNICA INSTANCIA. No hubo segunda instancia: no
+  narres un recurso de apelación, un toca ni una Sala de alzada que no
+  existieron. El último párrafo es la sentencia que se reclama: la que dictó
+  {_org}, con su fecha y lo que resolvió, con su verbo.
+"""
+    if _cumpl:
+        _extra += f"""- LA SENTENCIA RECLAMADA SE DICTÓ EN CUMPLIMIENTO de la ejecutoria del
+  {_cumpl.get("ejecutoria") or "amparo anterior"}. Cuéntalo en su orden, un hecho por párrafo: la
+  sentencia que se combatió primero; el amparo que se promovió contra ella
+  —su número, el tribunal que lo resolvió y qué ordenó la ejecutoria, con sus
+  efectos transcritos entre comillas si el documento los trae—; y, al final,
+  la sentencia nueva que la responsable dictó para cumplirla, con su fecha y
+  lo que resolvió. Sin ese hilo no se entiende qué quedó vinculado por la
+  ejecutoria y qué se resolvió con libertad de jurisdicción. Si el documento
+  no dice el número del amparo o el tribunal, no lo inventes: di que consta
+  en autos.
+"""
     return f"""QUINTO. ANTECEDENTES
 
 Lo que PASÓ en el juicio de origen, en orden cronológico. NO es el resumen de
@@ -344,9 +421,9 @@ el trámite, para que quien lea entienda de dónde viene el asunto.
 - PÁRRAFOS CORTOS: mediana de 37 palabras, unos {PARRAFOS_ANTECEDENTES} en
   total, alrededor de {PALABRAS_ANTECEDENTES} palabras. Un hecho procesal por
   párrafo, nada de encadenar.
-- PRETÉRITO y verbos de TRÁMITE: {', '.join(VERBOS_ANTECEDENTES[:6])}.
+- PRETÉRITO y verbos de TRÁMITE: {', '.join(_v_tramite[:6])}.
 - ASÍ EMPIEZAN los párrafos en los engroses reales:
-  {'; '.join(f'«{a}…»' for a in ARRANQUES_ANTECEDENTES[:5])}.
+  {'; '.join(f'«{a}…»' for a in _arranques[:5])}.
 - CADA FECHA EN LETRA, como en todo documento judicial.
 - Los puntos resolutivos de las sentencias de origen se TRANSCRIBEN entre
   comillas cuando importan al asunto.
@@ -357,7 +434,7 @@ el trámite, para que quien lea entienda de dónde viene el asunto.
   que se apoyó.
 
   NO LE ATRIBUYAS UN DESENLACE QUE NO ES SUYO. En amparo directo la autoridad
-  responsable es una Sala o un tribunal ordinario: resuelve el juicio de
+  responsable es {_quien}: resuelve el juicio de
   origen, NO resuelve amparos, así que no puede conceder ni negar el amparo.
   Quien concede o niega es el Tribunal Colegiado, y eso va en el resolutivo de
   esta sentencia, no en los antecedentes.
@@ -367,4 +444,4 @@ el trámite, para que quien lea entienda de dónde viene el asunto.
   Medido: en un proyecto real los antecedentes narraron siete autos del juicio
   de nulidad y nunca dijeron que el Juzgado había sobreseído, así que el
   resolutivo del recurso salió con un hueco donde debía ir el verbo.
-- NO opines, NO califiques y NO adelantes el estudio."""
+{_extra}- NO opines, NO califiques y NO adelantes el estudio."""

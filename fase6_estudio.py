@@ -873,6 +873,14 @@ def _bloque_criterio(criterios: list[Criterio], materia: str = "",
         # estaban y el documento los pasa a infinitivo al componerlos
         # (`documento_generado.componer_efectos`). Sólo se le dice CUÁNDO en la
         # revisión, que antes los pedía también cuando se negaba.
+        # SIN ALZADA (30-sep-2026, AD 323/2025): el segundo paso de la
+        # reposición dejaba sin efectos «la resolución del recurso ordinario»,
+        # que en única instancia no existe. Sólo si la instancia consta como
+        # única (`tipos_asunto.unica_instancia`); si no, la v1 congelada.
+        _rep_v1 = ["efectos la resolución del recurso ordinario y la actuación viciada;"]
+        if _ta_ef.unica_instancia(tipo_asunto):
+            _rep_v1 = ["efectos la actuación viciada y, si se combatió durante el juicio, la",
+                       "resolución que la confirmó;"]
         lineas += ["",
                    "── LOS EFECTOS, AL FINAL Y CON ESTE RÓTULO ──"] + _cuando_ef + [
                    "Después del último párrafo del estudio escribe, en su propia línea",
@@ -889,8 +897,7 @@ def _bloque_criterio(criterios: list[Criterio], materia: str = "",
                    "interpretarla.",
                    "SI LA CONCESIÓN ES POR UNA VIOLACIÓN PROCESAL, la responsable NO",
                    "puede dictar otra sentencia de inmediato: los efectos ordenan la",
-                   "REPOSICIÓN paso a paso —dejar insubsistente la sentencia; dejar sin",
-                   "efectos la resolución del recurso ordinario y la actuación viciada;",
+                   "REPOSICIÓN paso a paso —dejar insubsistente la sentencia; dejar sin"] + _rep_v1 + [
                    "admitir la ampliación / la prueba / emplazar, según sea el caso;",
                    "correr traslado a la contraparte; desahogar lo que proceda y abrir",
                    "alegatos; y, cerrada de nuevo la instrucción, dictar la sentencia de",
@@ -2364,6 +2371,13 @@ def prompt_estudio(resumen_acto: str, resumen_conceptos: str,
     # se recurre lo resolvió el Juzgado de Distrito, que no es responsable de
     # nada: es el órgano de control cuya decisión se revisa.
     _org_rotulo = _sjs["organo"][0].upper()
+    # EL EJEMPLO DE LA REFUTACIÓN decía «la Sala afirmó X», y un ejemplo se
+    # copia con su sujeto: en un juicio de única instancia (30-sep-2026, AD
+    # 323/2025) el proyecto llamaba Sala al juez. Ahí se nombra al órgano por lo
+    # que es; en los demás casos, la v1 congelada.
+    _ej_afirmo = "la Sala"
+    if _ta_e.unica_instancia(getattr(material, "tipo_asunto", "") or "amparo_directo"):
+        _ej_afirmo = _sjs["organo"][0]
     # Los SIN CALIFICAR no entran en la frase de apertura («en parte fundados
     # y en parte » salía en la v1 con un sentido vacío); sin ellos, igual.
     calif = _calificacion([c for c in criterios if str(getattr(c, "sentido", "") or "").strip()]
@@ -2496,7 +2510,7 @@ NO REPITAS LO QUE YA ESTÁ ESCRITO — esto es lo primero:
   SEGUIDO abre el primer apartado en la forma que fija el bloque FORMATO de
   arriba. Nada de recuento.
   Puedes referirte a lo que la responsable sostuvo cuando lo estés refutando
-  —«la Sala afirmó X; ese razonamiento es incorrecto porque…»—, pero no vuelvas
+  —«{_ej_afirmo} afirmó X; ese razonamiento es incorrecto porque…»—, pero no vuelvas
   a contar la resolución ni a enumerar los agravios: el lector acaba de leerlos
   dos párrafos más arriba y se encuentra lo mismo por tercera vez.
 - Y NO ESCRIBAS RÓTULOS. Nada de «Agravios:», «Conceptos de violación:» ni

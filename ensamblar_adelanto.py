@@ -939,6 +939,54 @@ def _sanear_expediente(doc, numero: str) -> int:
     return n
 
 
+# ═══ LA AUTORIDAD DEL RESOLUTIVO DE LA PLANTILLA ═══════════════════════════
+# El resolutivo de la plantilla nombra a la autoridad del asunto anterior, y
+# sólo se sustituía si la frase casaba con «, por la <Sala…>, en el toca»: la
+# forma de una sentencia de alzada. Sin alzada (30-sep-2026, AD 323/2025) la
+# plantilla puede decir «, por el Juez…, en el expediente», o la de alzada
+# arrastrar «la Sala» y «el toca» a un juicio que no los tuvo. Entonces —y sólo
+# entonces: instancia única que consta y un órgano que se sabe concordar— se
+# acepta cualquiera de las dos formas, se pone el artículo del órgano y el toca
+# pasa a ser el expediente. Si no, lo de siempre, letra por letra.
+_RX_POR_LA_EN_TOCA = re.compile(r"(,\s*por\s+la\s+)([^,]{10,120})(,\s*en\s+el\s+toca)")
+_RX_POR_ORGANO_EN = re.compile(
+    r"(,\s*por\s+)(?:el|la)(\s+)([^,]{10,120})(,\s*en\s+el\s+)(toca|expediente|juicio)"
+    r"(\s+(?:civil|familiar|penal|mercantil))?\b", re.I)
+_ARTICULO_DEL_ORGANO = {"juez": "el", "tribunal_alzada": "el", "tribunal_laboral": "el",
+                        "tribunal_agrario": "el", "jueza": "la", "sala_alzada": "la",
+                        "sala_tfja": "la", "junta": "la"}
+
+
+def autoridad_en_resolutivo(texto: str, responsable: str) -> tuple:
+    """(texto con la autoridad del encargo, ¿el toca pasó a expediente?)."""
+    if not responsable:
+        return texto, False
+
+    def _siempre():
+        return _RX_POR_LA_EN_TOCA.sub(lambda m: m.group(1) + responsable + m.group(3),
+                                      texto, count=1), False
+    try:
+        import tipos_asunto as _ta_e
+        if not _ta_e.unica_instancia("amparo_directo"):
+            return _siempre()
+        import origen_acto as _oa_e
+        nombre = re.sub(r"^\s*(?:el|la|los|las)\s+", "", responsable.strip(), flags=re.I)
+        art = _ARTICULO_DEL_ORGANO.get(_oa_e.clase_de_organo(nombre), "")
+    except Exception:
+        return _siempre()
+    if not art:
+        return _siempre()
+    era_toca = []
+
+    def _uno(m):
+        toca = m.group(5).lower() == "toca"
+        era_toca.append(toca)
+        return (m.group(1) + art + m.group(2) + nombre + m.group(4)
+                + ("expediente" if toca else m.group(5) + (m.group(6) or "")))
+    nuevo = _RX_POR_ORGANO_EN.sub(_uno, texto, count=1)
+    return nuevo, any(era_toca)
+
+
 def ensamblar(ruta_plantilla: str, r: Relleno, ruta_salida: str) -> str:
     """Rellena la plantilla y guarda el adelanto. Devuelve la ruta escrita."""
     avisos_ensamblado.clear()
@@ -1234,10 +1282,9 @@ def ensamblar(ruta_plantilla: str, r: Relleno, ruta_salida: str) -> str:
     if p_res is not None and "justicia de la unión" in texto_de(p_res).lower():
         t_r = texto_de(p_res)
         original = t_r
-        if r.responsable:
-            t_r = re.sub(r"(,\s*por\s+la\s+)([^,]{10,120})(,\s*en\s+el\s+toca)",
-                         lambda m: m.group(1) + r.responsable + m.group(3),
-                         t_r, count=1)
+        # La autoridad, con la forma de la plantilla o —sin alzada— la del
+        # juez (ver `autoridad_en_resolutivo`).
+        t_r, _sin_toca = autoridad_en_resolutivo(t_r, r.responsable)
         t_r, n_f = re.subn(r"(sentencia\s+dictada\s+el\s+)([^,]{6,70})(,)",
                            lambda m: m.group(1) + HUECO + m.group(3), t_r, count=1)
         t_r, n_t = re.subn(r"((?:toca|expediente)\s+(?:civil|familiar|penal)?\s*)"
@@ -1248,8 +1295,11 @@ def ensamblar(ruta_plantilla: str, r: Relleno, ruta_salida: str) -> str:
             if n_f or n_t:
                 avisos_ensamblado.append(
                     "En el resolutivo se abrieron huecos donde iban la fecha del "
-                    "acto y el toca: la plantilla traía los del asunto anterior "
-                    "y no viajan como dato del encargo. Rellénalos.")
+                    + ("acto y el expediente de origen: la plantilla traía los del asunto "
+                       "anterior —y un toca que en este juicio, de única instancia, no "
+                       "hubo— " if _sin_toca else
+                       "acto y el toca: la plantilla traía los del asunto anterior ")
+                    + "y no viajan como dato del encargo. Rellénalos.")
 
             # El quejoso se sustituye, pero el APODERADO, el acto reclamado y la
             # autoridad siguen siendo los de la plantilla. Un hueco se ve; un

@@ -1577,6 +1577,17 @@ _IDENTIFICA_ACTO = {
     "queja": ("fecha, juzgado de distrito y número del juicio de amparo en que "
               "se dictó, y qué proveyó"),
 }
+# Y EL AMPARO DIRECTO SIN ALZADA (30-sep-2026). La fórmula de arriba es la de
+# una sentencia de segunda instancia, y en un juicio oral mercantil, un laudo o
+# una sentencia de nulidad no hay sala de apelación, ni toca, ni nada que
+# confirmar o revocar (AD 323/2025). La regla es la de este mismo comentario:
+# no se explica por qué no hay toca, sencillamente no se menciona. Se usa sólo
+# si la instancia consta como única (`tipos_asunto.unica_instancia`).
+_IDENTIFICA_ACTO_UNICA = ("fecha, órgano que la dictó y número del expediente "
+                          "de origen, y qué resolvió en ese juicio: si declaró "
+                          "procedente o improcedente la acción, si condenó o "
+                          "absolvió, si declaró la nulidad o reconoció la "
+                          "validez")
 _NOMBRE_ASUNTO = {
     "amparo_directo": "amparo directo",
     "amparo_revision": "amparo en revisión",
@@ -1690,6 +1701,13 @@ def prompt_estructura(datos: dict) -> str:
     # acto en cada tipo —«fecha, sala, toca y expediente de origen» en el
     # amparo directo— y ahora entra donde sirve, junto a la ficha de datos.
     _identifica = _IDENTIFICA_ACTO.get(_tipo, _IDENTIFICA_ACTO["amparo_directo"])
+    # SIN ALZADA (30-sep-2026): ni sala, ni toca, ni «qué confirmó» — ver
+    # `_IDENTIFICA_ACTO_UNICA`. Y la regla de no inventar ponía de ejemplo «un
+    # número de toca», que en única instancia es pedirle que lo busque.
+    _dato_ejemplo = "un número de toca"
+    if _ta_r.unica_instancia(_tipo):
+        _identifica = _IDENTIFICA_ACTO_UNICA
+        _dato_ejemplo = "un número de expediente"
     # LA FICHA PROCESAL, COMO DATOS (SPEC_E2, 28-sep-2026): quién promovió,
     # quién recurre y con qué carácter, qué órgano dictó la recurrida y qué
     # resolvió por acto, con su fuente. Es de donde salen la carátula, la
@@ -1723,7 +1741,7 @@ REGLAS:
   el documento añade solo el de la sesión.
 - NO ESCRIBAS ORDINALES. Nada de «PRIMERO.» ni «SEGUNDO.»: el documento los
   calcula y ponerlos aquí los duplica.
-- NO INVENTES DATOS. Si no sabes una fecha, un número de toca o un nombre, NO
+- NO INVENTES DATOS. Si no sabes una fecha, {_dato_ejemplo} o un nombre, NO
   lo pongas y NO lo sustituyas por uno verosímil: redacta la frase de modo que
   no lo necesite, o deja constancia de que consta en autos. Un dato inventado
   en un resultando se firma.
@@ -4467,6 +4485,43 @@ def _sobresee_por_cumplimiento(tipo_asunto: str) -> bool:
         return False
 
 
+# ═══ LA DEFINITIVIDAD DEL JUICIO ORAL MERCANTIL (30-sep-2026) ════════════════
+# El banco trae, como variante de la competencia del amparo directo, la
+# coletilla que el tribunal pega al final de ese párrafo cuando lo reclamado
+# resolvió un juicio oral mercantil —«…el numeral 1390 bis, que establece que,
+# contra las resoluciones pronunciadas en ese tipo de procedimientos, no
+# procederá recurso ordinario alguno»— (4 de 62 engroses). Ningún código la
+# usaba: el proyecto de un oral mercantil salía sin decir por qué la sentencia
+# es definitiva sin haber pasado por una Sala, que es justo lo que David echó
+# en falta en el AD 323/2025.
+#
+# Se pega SÓLO si las dos cosas constan: la instancia es única
+# (`tipos_asunto.unica_instancia`, que exige la bandera y el origen) y los autos
+# nombran la vía —«juicio oral mercantil», «vía oral mercantil» o el 1390 Bis—.
+# El nombre del juzgado no basta: un juzgado de oralidad mercantil también
+# lleva el ejecutivo mercantil oral, que es otra vía y otro precepto.
+_RX_VIA_ORAL_MERCANTIL = re.compile(
+    r"juicio\s+oral\s+mercantil|v[íi]a\s+oral\s+mercantil|\b1390\s*bis\b", re.I)
+
+
+def coletilla_oral_mercantil(tipo_asunto: str, datos: dict) -> str:
+    """La coletilla del banco para el párrafo de competencia, o «»."""
+    try:
+        if not _ta.unica_instancia(tipo_asunto):
+            return ""
+        d = datos or {}
+        autos = " ".join(str(d.get(k) or "")[:60000] for k in ("acto", "antecedentes"))
+        if not _RX_VIA_ORAL_MERCANTIL.search(autos):
+            return ""
+        import banco as _bk_c
+        for v in (_bk_c.apartado(tipo_asunto, "competencia").get("variantes") or []):
+            if v.get("id") == "ad-c1-coletilla-oral-mercantil":
+                return " ".join(str(v.get("texto") or "").split())
+    except Exception:
+        return ""
+    return ""
+
+
 def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
              ruta_salida: str, antecedentes=None, resumen_acto=None,
              resumen_conceptos=None, problemas=None, estudio=None,
@@ -4950,6 +5005,18 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
                       " ".join(str(r.get("texto") or "")
                                for r in (estructura.resultandos or []))]))
         _avisos_bk.extend(_av_comp)
+    # AMPARO DIRECTO CONTRA UN JUICIO ORAL MERCANTIL (30-sep-2026): la
+    # coletilla del banco, pegada al final del mismo párrafo, como la pegan los
+    # engroses (ver `coletilla_oral_mercantil`). Sin única instancia o sin la
+    # vía en los autos, vacía y el párrafo queda como estaba.
+    if (_comp or "").strip() and "1390" not in _comp:
+        _ante_c = antecedentes if isinstance(antecedentes, str) else " ".join(
+            str(x) for x in (antecedentes or []) if isinstance(x, str))
+        _col = coletilla_oral_mercantil(tipo_asunto, {
+            "acto": datos.get("acto"),
+            "antecedentes": " ".join([str(datos.get("antecedentes") or ""), _ante_c])})
+        if _col:
+            _comp = _comp.rstrip() + " " + _col
     if (_comp or "").strip():
         con_apartados.append((_bk.rotulo_de(tipo_asunto, "competencia", "Competencia."),
                               (lambda c: lambda p: _texto_en(p, c))(_comp)))
