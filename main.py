@@ -38475,6 +38475,13 @@ async def _taller_proponer_nucleo(user_email: str, numero: str, ses: dict,
                 for _p, (_s0, _r0) in zip(propuestas, _antes_pp):
                     if _p.sentido != _s0 and not getattr(_p, "sentido_propio", ""):
                         _p.sentido_propio, _p.razon_propia = _s0, _r0
+                # El «SIN APOYO» lo escribió la propuesta ANTES de esto: se
+                # rehace con los apoyos y sentidos que quedaron.
+                _sin_ap = "se propone SIN APOYO del acervo"
+                avisos[:] = [_a for _a in avisos if _sin_ap not in str(_a)] + [
+                    f"«{_p.sentido}» {_sin_ap}. Una propuesta sin fundamento es una opinión: "
+                    f"compruébala antes de aceptarla."
+                    for _p in propuestas if _p.alcanza and not _p.apoyos]
                 avisos.extend(_av_cp)
                 if _ce_pp.sobreseer_propuesto(_o_pp):
                     avisos.insert(0, (

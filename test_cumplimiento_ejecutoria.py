@@ -165,13 +165,20 @@ ok(crit2[0]["sentido"] == "fundado", "lo que el secretario tocó no se toca")
 
 
 class Prop:
-    def __init__(self, problema, sentido):
+    def __init__(self, problema, sentido, apoyos=None):
         self.problema, self.sentido, self.razon = problema, sentido, "r"
+        self.apoyos = list(apoyos or [])
 
 
-props = [Prop(PROBLEMAS[0]["pregunta"], "infundado")]
+props = [Prop(PROBLEMAS[0]["pregunta"], "infundado"), Prop(PROBLEMAS[3]["pregunta"], "fundado", ["999"]),
+         Prop(PROBLEMAS[1]["pregunta"], "fundado")]
 ce.aplicar(props, cl, "x")
 ok(props[0].sentido == "inoperante" and "cosa juzgada" in props[0].razon, "también sobre las propuestas del motor (objetos)")
+ok(props[0].apoyos == ["2001857", "2018315"], "lo vinculado lleva de apoyo la 2a./J. 113/2012 y la 1a./J. 57/2018")
+ok(props[1].apoyos == ["999"], "los apoyos que ya traía no se pisan")
+ok(props[2].apoyos == [], "lo libre no gana apoyos")
+_F5 = Path("main.py").read_text(encoding="utf-8"); MP = _F5[_F5.index("_ce_pp.aplicar(propuestas"):]
+ok("se propone SIN APOYO del acervo" in MP[:1600], "el «SIN APOYO» se rehace después de aplicar")
 
 print("\n6 · EL SOBRESEIMIENTO: se propone sin libertad, se escribe si él lo confirma")
 o = dict(oa.origen(JUZGADO, "", "", ACTO), clasificacion=cl)

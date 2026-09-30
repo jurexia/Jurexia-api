@@ -276,17 +276,25 @@ def aplicar(criterios: list, clasificacion: dict, ejecutoria: str = "", tocados:
         razon = (razon_vinculado(ejecutoria, x.get("efecto", ""), x.get("por_que", "")) if v == "vinculado"
                  else razon_exceso(ejecutoria, x.get("por_que", "")))
         antes = (c.get("sentido") if es_dict else getattr(c, "sentido", "")) or ""
+        # SU APOYO ES LA JURISPRUDENCIA QUE LA RAZÓN CITA (verificada en el
+        # Semanario): sin él, la propuesta salía «SIN APOYO del acervo» aunque
+        # la razón invocara la 2a./J. 113/2012 y la 1a./J. 57/2018.
+        apoyo = (APOYOS_MIXTA[:1] + APOYOS_IMPROCEDENCIA[:1]) if v == "vinculado" else APOYOS_EXCESO[:1]
         if es_dict:
             c["sentido"] = "inoperante"
             c["razonamiento"] = razon
             if "razon" in c:
                 c["razon"] = razon
+            if "apoyos" in c and not c.get("apoyos"):
+                c["apoyos"] = list(apoyo)
         else:
             setattr(c, "sentido", "inoperante")
             if hasattr(c, "razonamiento"):
                 setattr(c, "razonamiento", razon)
             if hasattr(c, "razon"):
                 setattr(c, "razon", razon)
+            if hasattr(c, "apoyos") and not getattr(c, "apoyos", None):
+                setattr(c, "apoyos", list(apoyo))
         if antes and antes != "inoperante":
             avisos.append(f"«{prob[:90]}»: {antes} → inoperante, porque combate lo que la ejecutoria del "
                           f"{ejecutoria or 'amparo anterior'} dejó vinculado. Si no es así, márcalo tú.")
