@@ -296,12 +296,13 @@ def origen(responsable: str = "", *textos: str, tipo_asunto: str = "amparo_direc
         "cumplimiento": cumplimiento_de(*textos),
         "fuente": "leido",
     }
-    # Con una sola instancia, «ese recurso de apelación» no puede ser lo resuelto.
-    if inst == "unica" and "apelaci" in out["lo_resuelto"]:
-        out["lo_resuelto"] = "ese juicio"
     if isinstance(manual, dict) and manual:
         if manual.get("instancia") in ("unica", "alzada"):
             out["instancia"] = manual["instancia"]
+        elif manual.get("instancia") == "no_consta":
+            # Él dijo que NO CONSTA: no se supone ni una ni otra, aunque la
+            # lectura creyera saberlo (antes «» volvía a lo leído).
+            out["instancia"] = ""
         if isinstance(manual.get("cumplimiento"), bool):
             out["cumplimiento"] = dict(out["cumplimiento"], consta=manual["cumplimiento"])
         for k in ("ejecutoria", "efectos"):
@@ -312,6 +313,10 @@ def origen(responsable: str = "", *textos: str, tipo_asunto: str = "amparo_direc
         if manual.get("sobreseer") is True:
             out["sobreseer_confirmado"] = True
         out["fuente"] = "secretario"
+    # Con una sola instancia, «ese recurso de apelación» no puede ser lo
+    # resuelto (después de lo manual: la corrección también cuenta).
+    if out["instancia"] == "unica" and "apelaci" in out["lo_resuelto"]:
+        out["lo_resuelto"] = "ese juicio"
     return out
 
 

@@ -133,6 +133,14 @@ def forma_del_estudio(formato: str, q: str, q1: str, parte: str, calif: str,
     """
     if str(variante or "").strip().lower() == "v2":
         return _forma_del_estudio_v2(formato, q, q1, parte, calif, palabras)
+    # SIN ALZADA NO HAY «SALA» EN EL EJEMPLO (30-sep-2026): un ejemplo del
+    # prompt se copia literal, y en un juicio oral mercantil la responsable es
+    # el juez. Sólo si la instancia consta como única; si no, como siempre.
+    try:
+        import tipos_asunto as _ta_fs
+        _quien = "La autoridad responsable" if _ta_fs.instancia_actual() == "unica" else "La Sala responsable"
+    except Exception:
+        _quien = "La Sala responsable"
     if normalizar(formato) == MODERNA:
         return f"""
 FORMATO: VERSIÓN MODERNA — la pregunta y enseguida la respuesta.
@@ -143,7 +151,7 @@ FORMATO: VERSIÓN MODERNA — la pregunta y enseguida la respuesta.
   {q} que contesta y su calificación: «No. El primer {q1} es infundado,
   porque…». Así:
 
-      1. ¿La Sala responsable estaba obligada a precisar la unidad de
+      1. ¿{_quien} estaba obligada a precisar la unidad de
       cuantificación aplicable a cada periodo?
 
       Sí lo estaba. El segundo {q1} es fundado, porque el artículo 50 de la

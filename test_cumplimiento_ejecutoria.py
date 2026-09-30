@@ -58,6 +58,12 @@ ok(oa.instancia_de("juez", "Inconforme, interpuso recurso de apelación") == "un
 o = oa.origen(JUZGADO, "", "", "")
 ok(o["sujetos"][0] == "el Juez" and o["sujetos"][1] == "el Juez responsable", "al juez se le nombra «el Juez responsable»")
 ok(oa.origen("", "", "", "")["sujetos"][0] == "la autoridad responsable", "sin responsable: fórmula neutra, nunca «la Sala»")
+ok(oa.origen(JUZGADO, "", "", "", manual={"instancia": "no_consta"})["instancia"] == "",
+   "«no consta» del secretario gana a la lectura (antes volvía a «única»)")
+_sala_o = "Primera Sala Civil del Tribunal Superior de Justicia del Estado de Querétaro"
+_o_m = oa.origen(_sala_o, "", "", "", manual={"instancia": "unica"})
+ok(_o_m["instancia"] == "unica" and "apelaci" not in _o_m["lo_resuelto"],
+   "si él corrige a única, lo resuelto deja de ser «ese recurso de apelación»")
 
 print("\n2 · LA SENTENCIA DICTADA EN CUMPLIMIENTO: lo que es y lo que no")
 si = [

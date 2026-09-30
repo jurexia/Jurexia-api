@@ -102,6 +102,8 @@ def textos():
         "estructura": dg.prompt_estructura(datos_estructura()),
         "verbos del recurrido": ta.verbos_del_recurrido(AD),
         "resultandos": " ".join(q for _, q in ta.resultandos_de(AD)),
+        "forma moderna del estudio": __import__("formato_sentencia").forma_del_estudio(
+            "moderna", "conceptos de violación", "concepto de violación", "quejosa", "fundados", 2000),
         "técnica de la violación procesal": " ".join(
             r["cuando"] + " " + " ".join(r["tecnica"]) for r in ta.tecnica_de(AD, "", True)),
     }
@@ -291,9 +293,17 @@ ok(_t3 == _res_sala.replace("Primera Sala Civil del Tribunal Superior de Justici
 
 
 # ═══════════════════════════════════════════════════════════════════════════
+poner_unica()
+_fm = textos()["forma moderna del estudio"]
+ok("¿La autoridad responsable estaba obligada" in _fm and "La Sala responsable" not in _fm,
+   "única instancia: el ejemplo del formato moderno no pregunta por «la Sala»")
+
+
 print("\n4 · LA REGLA DE ORO: SIN CONTEXTO, COMO ANTES")
 sin_contexto()
 _s = textos()
+ok("¿La Sala responsable estaba obligada" in _s["forma moderna del estudio"],
+   "forma moderna: el ejemplo de siempre")
 ok("«La Sala consideró fundado\nel agravio respecto a la carga de la prueba. Determinó que, contrario a lo\n"
    "resuelto por el inferior," in _s["resumen del acto"], "resumen del acto: el ejemplo de siempre")
 ok("contestar los\n  agravios contra las otras tres" in _s["instrucciones del resumen"]

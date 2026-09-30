@@ -37559,10 +37559,10 @@ async def taller_origen(request: Request):
     manual = dict(antes)
     if "instancia" in datos:
         v = str(datos.get("instancia") or "").strip().lower()
-        if v in ("unica", "alzada"):
+        if v in ("unica", "alzada", "no_consta"):
             manual["instancia"] = v
         else:
-            manual.pop("instancia", None)
+            manual.pop("instancia", None)  # «» = que lo lea del expediente
     if "cumplimiento" in datos and datos.get("cumplimiento") is not None:
         manual["cumplimiento"] = _si(datos.get("cumplimiento"))
     if "ejecutoria" in datos:
