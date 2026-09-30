@@ -104,7 +104,9 @@ _CARDINALES = _S("""
     cuarenta cincuenta sesenta setenta ochenta noventa cien ciento
 """)
 
-_CONECTORES = _S("de del la las los el al y e en")
+# «lo» (30-sep-2026): «Juez Tercero de lo Civil de Primera Instancia» salía
+# cortado en «Juez Tercero», y un juez de única instancia se leía a medias.
+_CONECTORES = _S("de del la las los lo el al y e en")
 
 _MATERIAS = _S("""
     civil civiles familiar familiares penal penales mercantil mercantiles
@@ -114,6 +116,7 @@ _MATERIAS = _S("""
     especializada especializado especial especiales mixto mixta oral orales
     ejecucion sanciones adolescentes extincion dominio tutelar
     responsabilidades anticorrupcion burocratico burocratica
+    oralidad
 """)
 
 _ORGANICO = _S("""

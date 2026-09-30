@@ -14,7 +14,15 @@ ve; por eso los huecos no se cuentan como fallo y los nombres equivocados sí.
 # -*- coding: utf-8 -*-
 """EL BANCO. Entradas literales y salida esperada. Compartido por los cuatro."""
 
-ACTO91 = open("/tmp/juez/acto91.txt").read()
+import os as _os
+
+# El OCR real del 91/2025 NO se versiona (trae partes nombradas). Sin él, su
+# caso adversario se salta; antes esta línea tumbaba el banco y la prueba
+# entera en cualquier máquina que no tuviera /tmp/juez (30-sep-2026).
+_R91 = next((r for r in ("/tmp/juez/acto91.txt",
+                         _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "banco_acto91.txt"))
+             if _os.path.exists(r)), None)
+ACTO91 = open(_R91, encoding="utf-8").read() if _R91 else ""
 
 # ── 45 nombres del acervo de produccion que NO se deben romper ──────────────
 LEGITIMOS = [
@@ -38,6 +46,9 @@ LEGITIMOS = [
  ("Juez Primero de Primera Instancia Civil del Distrito Judicial de Querétaro", "amparo_directo"),
  ("Jueza Primero de Primera Instancia Civil del Distrito Judicial de San Juan del Río, Querétaro", "amparo_directo"),
  ("Juzgado Quinto de Primera Instancia Civil del Distrito Judicial de Querétaro", "amparo_directo"),
+ # Única instancia (30-sep-2026): el AD 323/2025 viene de un juicio oral
+ # mercantil y su responsable salía HUECA («oralidad» no estaba en el léxico).
+ ("Juzgado Segundo de Primera Instancia Especializado en Oralidad Mercantil del Distrito Judicial de Querétaro", "amparo_directo"),
  ("Tribunal Unitario Agrario Distrito 42 en el Estado de Querétaro", "amparo_directo"),
  ("Tribunal Unitario Agrario Distrito 42 Querétaro, Querétaro", "amparo_directo"),
  ("Tribunal de Justicia Administrativa del Estado de Querétaro", "amparo_directo"),
@@ -165,3 +176,4 @@ ADV = [
   "revision_fiscal",
   "Sala Regional en Querétaro del Tribunal Federal de Justicia Administrativa"),
 ]
+ADV = [c for c in ADV if c[1]]
