@@ -34291,6 +34291,21 @@ def _taller_armar_criterio(r, ses, glob: dict, *, sentido: str = "", problema: s
             avisos_fases.append(_a)
     except Exception as _ead:
         print(f"   ⚠️ ÁRBOL: no se pudo aplicar la suerte de los accesorios: {err(_ead)}")
+    # LO VINCULADO POR LA EJECUTORIA, INOPERANTE (30-sep-2026), salvo lo que
+    # el secretario marcó a mano: su palabra manda, igual que en el árbol.
+    try:
+        import contexto_taller as _ct_cc
+        import cumplimiento_ejecutoria as _ce_cc
+        _o_cc = _ct_cc.origen()
+        if _o_cc and _ce_cc.rige() and (_o_cc.get("clasificacion") or {}).get("problemas"):
+            _av_cc, _ = _ce_cc.aplicar(crit, _o_cc["clasificacion"],
+                                       (_o_cc.get("cumplimiento") or {}).get("ejecutoria", ""),
+                                       tocados=_toc_ad)
+            for _a in _av_cc:
+                print(f"   ⚖️ CUMPLIMIENTO: {_a[:160]}")
+                avisos_fases.append(_a)
+    except Exception as _ecc:
+        print(f"   ⚠️ CUMPLIMIENTO en el criterio: {err(_ecc)}")
     # LO QUE SIGUE VACÍO Y NO ESTÁ POR RECALIFICAR no se estudia, y se dice: son
     # los que él dejó sin sentido y los que la máquina dejó vacíos sin que el
     # árbol les encontrara calificación. Los tumbados por recalificar se
@@ -35849,6 +35864,55 @@ def _taller_recuperar_sesion(email: str, numero: str):
     return ses
 
 
+def _taller_guardar_origen(email: str, numero: str, ses: dict, cambios: dict) -> bool:
+    """Mezcla `cambios` ({"manual": {...}} o {"clasificacion": {...}}) en
+    `estado.origen` con el parche atómico, y en la sesión en memoria. Una
+    corrección de la ejecutoria o de sus efectos deja sin valor la
+    clasificación: se borra para que se rehaga con lo nuevo."""
+    g = dict((ses or {}).get("origen_guardado") or {})
+    for k, v in (cambios or {}).items():
+        g[k] = v
+    if "manual" in (cambios or {}) and "clasificacion" not in (cambios or {}):
+        g.pop("clasificacion", None)
+    if ses is not None:
+        ses["origen_guardado"] = g
+    ok = _taller_parchar_estado(email, numero, {"origen": g})
+    if ok is None:
+        print(f"   ⚠️ ORIGEN de {numero}: el parche atómico no está; sólo queda en memoria")
+    return bool(ok)
+
+
+async def _taller_clasificar_cumplimiento(email: str, numero: str, ses: dict, r, problemas: list) -> None:
+    """LO VINCULADO Y LO LIBRE, antes de proponer (30-sep-2026). Si la sentencia
+    reclamada se dictó en cumplimiento y constan los efectos de la ejecutoria,
+    el lector clasifica cada planteamiento (`cumplimiento_ejecutoria`). Se
+    guarda con su huella: no se repite mientras no cambien los efectos ni las
+    preguntas. Nunca lanza."""
+    try:
+        import contexto_taller as _ct_c
+        import cumplimiento_ejecutoria as _ce
+        o = _ct_c.origen()
+        if not o or not _ce.rige():
+            return
+        cu = o.get("cumplimiento") or {}
+        if not cu.get("consta") or not str(cu.get("efectos") or "").strip():
+            return
+        h = _ce.huella(cu["efectos"], problemas)
+        if (o.get("clasificacion") or {}).get("huella") == h:
+            return
+        cl = await _ce.clasificar(chat_client, cu, problemas, getattr(r.fases, "resumen_acto", "") or "")
+        if not cl:
+            return
+        _ct_c.poner_origen(dict(o, clasificacion=cl))
+        _taller_guardar_origen(email, numero, ses, {"clasificacion": cl})
+        _cuenta = {}
+        for _x in cl.get("problemas") or []:
+            _cuenta[_x["vinculacion"]] = _cuenta.get(_x["vinculacion"], 0) + 1
+        print(f"   ⚖️ CUMPLIMIENTO de {numero}: {_cuenta} · libertad {'sí' if cl.get('hay_libertad') else 'NO'}")
+    except Exception as _ec:
+        print(f"   ⚠️ CUMPLIMIENTO: no se clasificó ({type(_ec).__name__}: {str(_ec)[:120]})")
+
+
 def _taller_origen_para_pantalla() -> dict | None:
     """Lo que la pantalla enseña del origen de ESTA petición, sin los textos
     largos (la ventana de los efectos sí va: el secretario la tiene que ver)."""
@@ -35864,7 +35928,9 @@ def _taller_origen_para_pantalla() -> dict | None:
                 "fuente": o.get("fuente", ""),
                 "cumplimiento": {"consta": bool(c.get("consta")), "ejecutoria": c.get("ejecutoria", ""),
                                  "efectos": (c.get("efectos") or "")[:3000],
-                                 "clasificacion": o.get("clasificacion") or None}}
+                                 "clasificacion": o.get("clasificacion") or None,
+                                 "sobreseer_propuesto": __import__("cumplimiento_ejecutoria").sobreseer_propuesto(o),
+                                 "sobreseer_confirmado": bool(o.get("sobreseer_confirmado"))}}
     except Exception:
         return None
 
@@ -35887,13 +35953,15 @@ def _taller_origen(ses) -> dict | None:
         if _ta_o.normalizar(getattr(e, "tipo_asunto", "") or "amparo_directo") != "amparo_directo":
             return None
         import origen_acto as _oa
+        _g = (ses or {}).get("origen_guardado") or {}
         _fu = list(getattr(f, "fuentes", None) or [])
         o = _oa.origen(getattr(e, "responsable", "") or "", getattr(f, "antecedentes", "") or "",
                        getattr(f, "resumen_acto", "") or "", _fu[0] if _fu else "",
-                       manual=getattr(f, "origen_manual", None) or None)
+                       manual=(_g.get("manual") or getattr(f, "origen_manual", None) or None))
         viejo = getattr(f, "origen", None) or {}
-        if isinstance(viejo, dict) and viejo.get("clasificacion"):
-            o["clasificacion"] = viejo["clasificacion"]
+        _cl = _g.get("clasificacion") or (viejo.get("clasificacion") if isinstance(viejo, dict) else None)
+        if isinstance(_cl, dict) and _cl:
+            o["clasificacion"] = _cl
         return o
     except Exception as _eo:
         print(f"   ⚠️ origen del acto sin recalcular: {type(_eo).__name__}")
@@ -36081,6 +36149,10 @@ def _taller_recuperar_sesion_crudo(email: str, numero: str):
                    razon_propia=str(x.get("razon_propia") or ""))
                for x in (r.data[0].get("propuestas") or [])
                if isinstance(x, dict)],
+           # EL ORIGEN DEL ACTO (30-sep-2026): lo que el secretario corrigió y
+           # lo que el modelo clasificó de la sentencia en cumplimiento. Vive
+           # en su propia clave para parcharla sin reescribir las fases.
+           "origen_guardado": (est.get("origen") if isinstance(est.get("origen"), dict) else {}),
            "sello": r.data[0].get("actualizado_en")}
     # EL ACERVO VUELVE ENTERO CON LA SESIÓN. Hasta el 17-sep-2026 la fila lo
     # guardaba y nadie lo reponía: el worker que no había consultado veía
@@ -37443,6 +37515,79 @@ async def taller_reparto(
         tipo_asunto=str(getattr(getattr(r, "encargo", None), "tipo_asunto", "") or ""))
 
 
+@app.post("/taller/origen")
+async def taller_origen(request: Request):
+    """De dónde viene lo reclamado, corregido por el secretario (30-sep-2026).
+
+    David: «es un taller inteligente y debe de entender cuando estamos en una
+    hipótesis y cuando en otra». Lo lee `origen_acto` de los autos; aquí se
+    corrige lo que leyó mal: la instancia («unica» | «alzada» | «» = que lo
+    lea), si se dictó en cumplimiento, la ejecutoria, sus efectos (que se
+    pegan cuando el acto no los transcribe) y la confirmación del
+    sobreseimiento cuando la ejecutoria no dejó libertad alguna.
+
+    Recibe formulario o JSON (la pantalla manda JSON). Cambiar la ejecutoria,
+    sus efectos o si hubo cumplimiento deja sin valor la clasificación de lo
+    vinculado: se rehace en la siguiente propuesta."""
+    try:
+        if "application/json" in (request.headers.get("content-type") or ""):
+            datos = await request.json()
+        else:
+            datos = dict(await request.form())
+    except Exception:
+        raise HTTPException(422, "No se pudo leer lo que llegó.")
+    if not isinstance(datos, dict):
+        raise HTTPException(422, "Se esperaba un objeto.")
+    numero = str(datos.get("numero") or "").strip()
+    user_email = str(datos.get("user_email") or "").strip()
+    if not numero or not user_email:
+        raise HTTPException(422, "Faltan el número del asunto o el correo.")
+    _taller_puerta(user_email)
+    ses = _taller_recuperar_sesion(user_email, numero)
+    if not ses:
+        raise HTTPException(404, "No hay un adelanto reciente de ese expediente.")
+    r = ses["resultado"]
+    import tipos_asunto as _ta_or
+    if _ta_or.normalizar(getattr(r.encargo, "tipo_asunto", "") or "amparo_directo") != "amparo_directo":
+        raise HTTPException(422, "El origen del acto sólo se corrige en amparo directo.")
+
+    def _si(v):
+        return str(v).strip().lower() in ("1", "true", "si", "sí", "on", "yes")
+
+    antes = dict((ses.get("origen_guardado") or {}).get("manual") or {})
+    manual = dict(antes)
+    if "instancia" in datos:
+        v = str(datos.get("instancia") or "").strip().lower()
+        if v in ("unica", "alzada"):
+            manual["instancia"] = v
+        else:
+            manual.pop("instancia", None)
+    if "cumplimiento" in datos and datos.get("cumplimiento") is not None:
+        manual["cumplimiento"] = _si(datos.get("cumplimiento"))
+    if "ejecutoria" in datos:
+        manual["ejecutoria"] = " ".join(str(datos.get("ejecutoria") or "").split())[:200]
+    if "efectos" in datos:
+        manual["efectos"] = str(datos.get("efectos") or "").strip()[:12000]
+    if "sobreseer" in datos and datos.get("sobreseer") is not None:
+        manual["sobreseer"] = _si(datos.get("sobreseer"))
+    cambios = {"manual": manual}
+    tocados = {k for k in set(antes) | set(manual) if antes.get(k) != manual.get(k)}
+    if tocados and tocados <= {"sobreseer", "instancia"}:
+        # Ni la instancia ni la confirmación cambian qué quedó vinculado.
+        _cl = (ses.get("origen_guardado") or {}).get("clasificacion")
+        if _cl:
+            cambios["clasificacion"] = _cl
+    _taller_guardar_origen(user_email, numero, ses, cambios)
+    try:
+        import contexto_taller as _ct_or
+        _ct_or.poner_origen(_taller_origen(ses))
+    except Exception:
+        pass
+    print(f"   🏛️ ORIGEN de {numero} corregido por el secretario: {sorted(tocados) or 'sin cambios'}")
+    return {"origen": _taller_origen_para_pantalla(),
+            "reclasificar": bool(tocados & {"cumplimiento", "ejecutoria", "efectos"})}
+
+
 @app.post("/taller/problema")
 async def taller_problema(
     numero: str = Form(...),
@@ -37705,6 +37850,16 @@ def _con_autos(r, contexto: str) -> str:
     son el documento y lo suyo es el comentario.
     """
     autos = str(getattr(getattr(r, "fases", None), "autos", "") or "")
+    # LA SENTENCIA EN CUMPLIMIENTO (30-sep-2026): la propuesta, el plan, el
+    # estudio, la recalificación y el razonamiento leen de aquí, así que el
+    # bloque va aquí y en ningún otro sitio (`cumplimiento_ejecutoria`).
+    try:
+        import cumplimiento_ejecutoria as _ce_ca
+        _blq = _ce_ca.bloque_contexto()
+    except Exception:
+        _blq = ""
+    if _blq:
+        contexto = _blq + "\n\n" + (contexto or "")
     if not autos:
         return contexto or ""
     # EL RÓTULO IMPORTA porque el modelo lo copia. Decía «aportadas por el
@@ -38020,6 +38175,11 @@ async def _taller_proponer_nucleo(user_email: str, numero: str, ses: dict,
     # LA MISMA CONSTRUCCIÓN QUE USA LA HUELLA DEL CONTRASTE ADELANTADO.
     problemas = _te.problemas_de(r)
 
+    # LA SENTENCIA EN CUMPLIMIENTO (30-sep-2026): qué quedó vinculado por la
+    # ejecutoria y qué se resolvió con libertad, ANTES de proponer, para que
+    # el motor lo tenga delante (entra por `_con_autos`).
+    await _taller_clasificar_cumplimiento(user_email, numero, ses, r, problemas)
+
     # LAS CONSTANCIAS SE SUMAN AL CONTEXTO. No son algo que buscar en el
     # acervo: son lo que el acervo no puede tener —el contrato colectivo de ESTE
     # centro de trabajo, el reglamento interior, el peritaje— y sin ellas hay
@@ -38291,6 +38451,29 @@ async def _taller_proponer_nucleo(user_email: str, numero: str, ses: dict,
                 _p.sentido = _c["sentido"]
                 _p.razon = _c.get("razonamiento") or _p.razon
         avisos.extend(_av_ad)
+        # LO VINCULADO POR LA EJECUTORIA, INOPERANTE (30-sep-2026): la misma
+        # regla que en el criterio (`cumplimiento_ejecutoria.aplicar`), aquí
+        # sobre lo que propuso el motor; lo propuesto se guarda aparte.
+        try:
+            import contexto_taller as _ct_pp
+            import cumplimiento_ejecutoria as _ce_pp
+            _o_pp = _ct_pp.origen()
+            if _o_pp and _ce_pp.rige() and (_o_pp.get("clasificacion") or {}).get("problemas"):
+                _ej_pp = (_o_pp.get("cumplimiento") or {}).get("ejecutoria", "")
+                _antes_pp = [(_p.sentido, _p.razon) for _p in propuestas]
+                _av_cp, _ = _ce_pp.aplicar(propuestas, _o_pp["clasificacion"], _ej_pp)
+                for _p, (_s0, _r0) in zip(propuestas, _antes_pp):
+                    if _p.sentido != _s0 and not getattr(_p, "sentido_propio", ""):
+                        _p.sentido_propio, _p.razon_propia = _s0, _r0
+                avisos.extend(_av_cp)
+                if _ce_pp.sobreseer_propuesto(_o_pp):
+                    avisos.insert(0, (
+                        f"LA EJECUTORIA DEL {(_ej_pp or 'AMPARO ANTERIOR').upper()} NO DEJÓ LIBERTAD DE JURISDICCIÓN "
+                        f"ALGUNA: todo lo reclamado se dictó vinculado, el amparo es improcedente (artículo 61, "
+                        f"fracción IX, de la Ley de Amparo) y procede sobreseer (artículo 63, fracción V; 2a./J. "
+                        f"113/2012). Confírmalo en «De dónde viene lo reclamado»: sólo entonces el proyecto sobresee."))
+        except Exception as _ecp:
+            print(f"   ⚠️ CUMPLIMIENTO en la propuesta: {err(_ecp)}")
         # LA REVISIÓN POR CÓDIGO DE LA PROPUESTA (rediseño, etapa 3; bandera
         # «revision_semantica»): sólo avisa.
         import contexto_taller as _ctx_rs

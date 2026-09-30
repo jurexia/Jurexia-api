@@ -206,7 +206,12 @@ _RX_DICTADO = re.compile(
     r"\b(?:dict[óo]|emiti[óo]|pronunci[óo]|resolvi[óo]|se\s+dej[óo]\s+insubsistente|dej[óo]\s+insubsistente|"
     r"dejando\s+insubsistente|(?:fue|ha\s+sido|es)\s+(?:dictad|emitid|pronunciad)[oa]|"
     r"(?:nueva|otra)\s+(?:sentencia|resoluci[óo]n)|la\s+sentencia\s+reclamada|el\s+acto\s+reclamado|"
-    r"dictad[oa]\s+en\s+cumplimiento|emitid[oa]\s+en\s+cumplimiento)", re.I)
+    r"dictad[oa]\s+en\s+cumplimiento|emitid[oa]\s+en\s+cumplimiento|"
+    # Como abre la propia sentencia de cumplimiento: «En cumplimiento a la
+    # ejecutoria dictada en el amparo directo… en la que se concedió el amparo
+    # para el efecto de que…», «…se dicta la presente resolución».
+    r"se\s+(?:dicta|emite|pronuncia)|procede\s+a\s+dictar|concedi[óo]\s+(?:el\s+amparo|la\s+protecci)|"
+    r"para\s+(?:el\s+|los\s+)?efectos?\s+(?:de\s+que|siguientes))", re.I)
 _RX_EMISION_TRAS = re.compile(
     r"\b(?:emiti[óo]|dict[óo]|pronunci[óo]|resolvi[óo]|se\s+dict[óo]|se\s+emiti[óo]|dej[óo]\s+insubsistente|"
     r"se\s+dej[óo]\s+insubsistente|constituye\s+el\s+acto\s+reclamado)\b", re.I)
@@ -218,7 +223,10 @@ _RX_NO_PASADO = re.compile(
 def _es_cumplimiento(s: str, m) -> bool:
     if "ejecutoria" in m.group(0).lower():
         tras = s[m.end():m.end() + 220]
-        if not _RX_AMPARO_CERCA.search(tras) or re.search(r"\btoca\b", tras[:120], re.I) and not \
+        # Con demostrativo («esa ejecutoria») el amparo se nombró ANTES.
+        cerca = tras if not re.search(r"(?:esa|dicha|citada|referida|mencionada)\s+ejecutoria", m.group(0), re.I) \
+            else s[max(0, m.start() - 300):m.end() + 220]
+        if not _RX_AMPARO_CERCA.search(cerca) or re.search(r"\btoca\b", tras[:120], re.I) and not \
                 re.search(r"amparo", tras[:120], re.I):
             return False
     antes = s[max(0, m.start() - 90):m.start()]

@@ -1390,7 +1390,12 @@ async def _tesis_de_la_tecnica(qdrant, material, rama: str) -> None:
     cuando se revoca una concesión, y eso se sabe al resolver. Por registro: o
     existen con ese número o no viene nada, y el prompt sólo nombra las que
     llegaron (`fase6_estudio._bloque_tecnica`). Nunca lanza."""
-    if qdrant is None or not rama:
+    # SIN RAMA TAMBIÉN (30-sep-2026): en amparo directo la rama va vacía, y la
+    # técnica de la sentencia en cumplimiento (`tipos_asunto.TECNICA_CUMPLIMIENTO`,
+    # `solo_si_estan`) tiene que traer sus apoyos al resolver en sesiones cuyo
+    # adelanto no los trajo. Sólo se piden las reglas marcadas: con la rama
+    # vacía, en revisión no lo está ninguna.
+    if qdrant is None:
         return
     try:
         import tipos_asunto as _ta_t

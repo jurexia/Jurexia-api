@@ -4452,6 +4452,21 @@ def _con_el_sentido_del_a_quo(texto: str, resolvio: str) -> str:
     return _RX_NO_CONSTA_SENTIDO.sub(verbo, texto)
 
 
+def _sobresee_por_cumplimiento(tipo_asunto: str) -> bool:
+    """¿Se sobresee porque la sentencia reclamada se dictó en cumplimiento de
+    una ejecutoria que no dejó libertad alguna? (30-sep-2026). Sólo en amparo
+    directo y sólo si el secretario lo CONFIRMÓ: quitar el estudio de fondo no
+    lo decide una lectura (ver `cumplimiento_ejecutoria`)."""
+    try:
+        import tipos_asunto as _ta_sc
+        if _ta_sc.normalizar(tipo_asunto or "amparo_directo") != "amparo_directo":
+            return False
+        import cumplimiento_ejecutoria as _ce_sc
+        return _ce_sc.sobreseer_confirmado()
+    except Exception:
+        return False
+
+
 def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
              ruta_salida: str, antecedentes=None, resumen_acto=None,
              resumen_conceptos=None, problemas=None, estudio=None,
@@ -5163,6 +5178,8 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
         getattr(computo, "cierra_por_extemporaneidad", None)
         if hasattr(computo, "cierra_por_extemporaneidad")
         else getattr(computo, "oportuna", None) is False)
+    # Tampoco se declara procedente lo que se va a sobreseer por cumplimiento.
+    _cierra_extemp = _cierra_extemp or _sobresee_por_cumplimiento(tipo_asunto)
     if (_proc or "").strip() and not _cierra_extemp and (
             esq.get("procedencia_propia")
             or (esq["existencia"] and not (estructura.existencia or "").strip())):
@@ -5407,6 +5424,9 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
                else (getattr(computo, "oportuna", None) is False
                      and not getattr(computo, "en_cualquier_tiempo", False)))
     _extemp = bool(_extemp)
+    # EL GEMELO: SOBRESEIMIENTO POR CUMPLIMIENTO (30-sep-2026). La
+    # extemporaneidad manda si concurren (es presupuesto de todo lo demás).
+    _cumpl_sob = (not _extemp) and _sobresee_por_cumplimiento(tipo_asunto)
     _reserva = bool(getattr(computo, "fondo_en_reserva", False))
     _rectif = bool(getattr(computo, "rectificada", False))
     if _rectif:
@@ -5446,6 +5466,16 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
         con_apartados.append(
             (_ex["rotulo"] + ".",
              (lambda c: lambda p: _texto_en(p, c))(_ex["considerando"])))
+    elif _cumpl_sob:
+        import cumplimiento_ejecutoria as _ce_d
+        _avisos_bk.insert(0, (
+            "CONFIRMASTE QUE LA EJECUTORIA NO DEJÓ LIBERTAD DE JURISDICCIÓN: el proyecto NO entra al fondo y "
+            "sobresee (artículos 61, fracción IX, y 63, fracción V, de la Ley de Amparo; 2a./J. 113/2012 y "
+            "1a./J. 57/2018). Si alguna parte se resolvió con libertad, quita la confirmación en «De dónde viene "
+            "lo reclamado» y vuelve a generar: con libertad parcial no se sobresee."))
+        con_apartados.append(
+            (_ce_d.IMPROCEDENTE["rotulo"] + ".",
+             (lambda c: lambda p: _texto_en(p, c))(_ce_d.considerando_improcedencia())))
     else:
         # ── LA CUESTIÓN, FIJADA ANTES DE RESOLVERLA ────────────────────────
         # Roberto Lara Chagoyán, «Sobre la estructura de las sentencias en
@@ -5506,7 +5536,7 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
     # los cuatro tipos, así que era la segunda puerta —la de la rama FUNDADA—
     # por la que la fórmula del amparo entraba en un recurso. Arreglar sólo la
     # otra habría tapado la mitad.
-    if _extemp:
+    if _extemp or _cumpl_sob:
         pass          # no hay efectos de una concesión que no existe
     elif concede and _ta.cierre_de(tipo_asunto)["efectos"]:
         # «EFECTOS. CON FUNDAMENTO EN EL ARTÍCULO 77…, LA AUTORIDAD RESPONSABLE
@@ -5571,6 +5601,12 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
         _ex = _ta.extemporaneo_de(tipo_asunto)
         _t = _ex["resolutivo"].replace("{quejoso}",
                                        str(datos.get("quejoso") or HUECO))
+        _cab, _resto = _t.split(". ", 1) if ". " in _t else (_t, "")
+        tramos(doc, [(_cab + ". ", {"bold": True}), (_resto, {})], sangria=False)
+        _hecho = True
+    elif _cumpl_sob:
+        import cumplimiento_ejecutoria as _ce_r
+        _t = _ce_r.IMPROCEDENTE["resolutivo"].replace("{quejoso}", str(datos.get("quejoso") or HUECO))
         _cab, _resto = _t.split(". ", 1) if ". " in _t else (_t, "")
         tramos(doc, [(_cab + ". ", {"bold": True}), (_resto, {})], sangria=False)
         _hecho = True
@@ -6135,7 +6171,7 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
     # carátula, que es donde se leen, y el engrose los firma cuando se firma:
     # el proyecto que sale del taller es un borrador para trabajar, y un pie de
     # firmas invita a tratarlo como si ya estuviera.
-    if not _extemp:
+    if not (_extemp or _cumpl_sob):
         _bloque_sintesis(doc, sintesis or {})
 
     # ═══════════════════════════════════════════════════════════════════════
