@@ -32629,6 +32629,17 @@ async def taller_adelanto(
         surte_efectos=(surte_efectos or "").strip(),
     )
     salida = f"{tmp}/{numero.replace('/', '-')} ADELANTO.docx"
+    # EL CONTEXTO ANTES DE GENERAR (30-sep-2026). Hasta hoy nada del adelanto
+    # dependía de él; el origen del acto sí (banderas `instancia_origen` y
+    # `cumplimiento_ejecutoria`): sin esto las dos quedaban apagadas durante
+    # las fases 1-3 y los antecedentes seguían narrando una Sala. Se vuelve a
+    # poner después, con la evaluación ya pegada al resultado.
+    try:
+        import contexto_taller as _ctx_g0
+        _ctx_g0.poner(_taller_es_casa(user_email), _ev_pedida,
+                      pruebas=_taller_cuenta_de_pruebas(user_email))
+    except Exception as _ecx0:
+        print(f"   ⚠️ contexto del taller sin poner antes del adelanto: {type(_ecx0).__name__}")
     r = await _ra.generar(chat_client, encargo, texto_acto, texto_conceptos,
                           salida, texto_autos)
 

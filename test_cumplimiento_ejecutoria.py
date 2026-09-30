@@ -227,6 +227,9 @@ ok('@app.post("/taller/origen")' in F and "_taller_guardar_origen(" in F, "la pu
 PO = F[F.index('@app.post("/taller/origen")'):]
 ok(PO.index("if not tocados:") < PO.index("_taller_guardar_origen("),
    "un POST sin cambios no escribe (antes dejaba sin clasificación lo ya clasificado)")
+AD_ = F[F.index('@app.post("/taller/adelanto")'):]
+ok(AD_.index("_ctx_g0.poner(") < AD_.index("await _ra.generar("),
+   "el adelanto pone el contexto ANTES de generar (si no, las banderas del origen van apagadas en las fases 1-3)")
 RS = F[F.index("def _taller_recuperar_sesion("):]
 ok("poner_origen(_taller_origen(ses))" in RS[:1500], "cada petición recalcula el origen al recuperar la sesión")
 RA = Path("redactor_adelanto.py").read_text(encoding="utf-8")
