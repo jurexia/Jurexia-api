@@ -56,7 +56,7 @@ from qdrant_client.http.models import (
 from fastembed import SparseTextEmbedding
 import time
 import types as _types
-from openai import AsyncOpenAI
+from openai import AsyncOpenAI, BadRequestError
 from supabase import create_client as supabase_create_client
 import httpx  # For Cohere Rerank API calls
 import hashlib  # For semantic cache keys
@@ -64,7 +64,7 @@ import taller_estado as _te
 import fuentes_elegidas as fuentes_sel
 import vigencia_tesis as _vig
 import cache_ocr
-from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type, retry_if_exception
 
 # ══════════════════════════════════════════════════════════════════════════════
 # SEMÁFOROS DE CONCURRENCIA — Protección contra sobrecarga de APIs externas
@@ -6059,7 +6059,15 @@ def _apply_materia_threshold(results: list, detected_materias: Optional[List[str
 # caracteres se aguanta incluso a 2.5 car./token (8,000 tokens), que es el peor
 # caso realista. Poner 26,000 —lo que salía de multiplicar por 3.2— se pasaba
 # del tope justo con el tipo de texto que provoca el problema.
-MAX_CHARS_EMBEDDING = 20_000
+#
+# 2.5 NO ERA EL PEOR CASO (2-oct-2026). Un usuario Platinum pegó en el chat sus
+# recibos de nómina —RFC, CURP, claves, importes, fechas— y ese texto tokeniza a
+# 1.93 car./token: 17,090 caracteres eran 8,859 tokens, bajo el tope de 20,000
+# caracteres pero sobre el de 8,192 tokens. Tres consultas seguidas acabaron en
+# «Fallo del stream». 14,000 caracteres son ~7,250 tokens a ese ritmo; y para lo
+# que sea aún más denso, get_dense_embedding parte el texto a la mitad si la API
+# vuelve a decir que se pasó.
+MAX_CHARS_EMBEDDING = 14_000
 
 
 def _acotar_para_embedding(texto: str) -> str:
@@ -6093,20 +6101,43 @@ def _acotar_para_embedding(texto: str) -> str:
     return texto[:MAX_CHARS_EMBEDDING]
 
 
+def _es_tope_de_tokens(e: Exception) -> bool:
+    """¿La API de embeddings rechazó el texto por largo? (400 «maximum context length»)."""
+    m = str(e).lower()
+    return "context length" in m or ("maximum" in m and "token" in m)
+
+
 @retry(
     stop=stop_after_attempt(3),
     wait=wait_exponential(multiplier=1, min=1, max=8),
-    retry=retry_if_exception_type(Exception),
+    # Un 400 no se arregla repitiendo la misma entrada (2-oct-2026): los tres
+    # reintentos sólo sumaban ~15 s antes del mismo «Fallo del stream».
+    retry=retry_if_exception(lambda e: not isinstance(e, BadRequestError)),
     before_sleep=lambda rs: print(f"   ⏳ Embedding retry #{rs.attempt_number} after error...")
 )
 async def get_dense_embedding(text: str, modelo: Optional[str] = None) -> List[float]:
-    """Genera embedding denso usando OpenAI (con reintentos automáticos + semáforo)."""
+    """Genera embedding denso usando OpenAI (con reintentos automáticos + semáforo).
+
+    Si aun acotado el texto rebasa el tope de tokens (texto muy denso en cifras y
+    claves), se parte a la mitad y se vuelve a pedir, hasta tres veces: el tema
+    está al principio y la búsqueda no pierde nada que importe."""
+    entrada = _acotar_para_embedding(text)
+    for _ in range(3):
+        try:
+            async with OPENAI_SEM:
+                response = await openai_client.embeddings.create(
+                    model=modelo or EMBEDDING_MODEL,
+                    input=entrada,
+                )
+            return response.data[0].embedding
+        except BadRequestError as e:
+            if not _es_tope_de_tokens(e) or len(entrada) < 2_000:
+                raise
+            entrada = entrada[: len(entrada) // 2]
+            print(f"   ✂️ El embedding rebasó el tope de tokens: se pide otra vez con {len(entrada):,} caracteres")
     async with OPENAI_SEM:
-        response = await openai_client.embeddings.create(
-            model=modelo or EMBEDDING_MODEL,
-            input=_acotar_para_embedding(text),
-        )
-        return response.data[0].embedding
+        response = await openai_client.embeddings.create(model=modelo or EMBEDDING_MODEL, input=entrada)
+    return response.data[0].embedding
 
 
 # Los silos se consultan EN PARALELO y varios pueden ser de jurisprudencia, así
