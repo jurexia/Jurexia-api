@@ -201,6 +201,18 @@ def _regla_suplencia(suplencia: dict | None, tipo: str = "") -> str:
             dato = ("El secretario CONFIRMÓ que en este asunto NO opera la suplencia de la queja: rige el "
                     "estricto derecho.")
         return cab + dato + cola
+    # LA DE MENORES, COMO HECHO AUNQUE NO SE HAYA CONFIRMADO (David, 3-oct-2026:
+    # «dile la suplencia de menores como hecho»). La fracción II la impone la
+    # ley de oficio siempre que estén en juego los derechos de menores o
+    # incapaces; esperar a que el secretario la confirme —lo que ocurre DESPUÉS
+    # de proponer— hacía que el examen de un asunto de custodia la tratara como
+    # simple indicio (ADC 296/2025: con ella como hecho, el examen acertó la
+    # concesión; como indicio, propuso negar).
+    if fr.upper() == "II":
+        dato = (f"En este asunto OPERA la suplencia de la queja: {sp.get('rotulo') or _rotulo(fr)}, a favor de "
+                f"{sp.get('a_favor_de') or 'las personas menores de edad o incapaces'}. La ley la impone de oficio "
+                f"cuando están en juego sus derechos.")
+        return cab + dato + cola
     # SIN CONFIRMAR: la propuesta automática, sus alternativas y lo que pide
     # la parte, como indicios. «Ninguna» automática NO es «estricto derecho».
     ind = []

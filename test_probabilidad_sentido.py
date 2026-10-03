@@ -150,6 +150,13 @@ _x = _pr({"fraccion": "ninguna", "confirmada": True})
 ok("CONFIRMÓ" in _x and "rige el estricto derecho" in _x, "«ninguna» confirmada por el secretario: estricto derecho")
 _x = _pr({"fraccion": "V", "a_favor_de": "la trabajadora", "confirmada": True})
 ok("CONFIRMÓ que en este asunto OPERA" in _x and "la trabajadora" in _x, "la confirmada se dice como hecho")
+# LA DE MENORES, COMO HECHO AUNQUE NO SE HAYA CONFIRMADO (David, 3-oct-2026).
+_x = _pr({"fraccion": "II", "rotulo": "fracción II", "a_favor_de": "las personas menores de edad"})
+ok("OPERA la suplencia" in _x and "menores" in _x and "TODAVÍA NO HA DECIDIDO" not in _x,
+   "la fracción II automática (menores) se dice como hecho")
+_x = _pr({"fraccion": "ninguna", "confirmada": True, "alternativas": [{"fraccion": "II"}]})
+ok("CONFIRMÓ" in _x and "rige el estricto derecho" in _x and "OPERA la suplencia" not in _x,
+   "pero si el secretario confirmó otra cosa, manda él")
 _x = _pr({"fraccion": "ninguna"}, "revision_fiscal")
 ok("no es un juicio de amparo" in _x, "revisión fiscal: sin artículo 79, por ley")
 ok("8. La suplencia" not in _pr(None), "sin suplencia, sin regla 8")
