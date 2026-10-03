@@ -38,9 +38,18 @@ conocido. Si Gemini VENCE no se reintenta con luna: sumaría otro tope entero a
 un resolver que ya roza los cinco minutos.
 
 LAS GUARDAS (todas por código; un parche que falle una se descarta):
-  · no cambia la dirección de ninguna calificación (`congruencia.direcciones`);
-  · no introduce registros ni números de tesis/expediente («82/2013») fuera del
-    material ∪ el párrafo original ∪ las fuentes del asunto;
+  · no cambia la dirección de ninguna calificación (`congruencia.direcciones`)
+    ni el conjunto de calificativos (infundado ≠ inoperante; 3-oct-2026),
+    salvo la incongruencia que endereza (`_endereza`: por el plan, o un
+    «fundado» dentro de un criterio todo «contra»);
+  · no cambia el desenlace del párrafo (conceder/negar, revocar/confirmar/
+    modificar, reponer, «para efectos», sobreseer) y, si la suma de parches
+    cambiara lo que el resolutivo lee del estudio entero, se revierte todo;
+  · no quita la respuesta a un argumento marcado (`marcas.rastros`);
+  · no quita ni cambia los registros del párrafo; no introduce registros ni
+    números de tesis/expediente («82/2013») fuera del material ∪ el párrafo
+    original ∪ las fuentes del asunto, ni registros de tesis sin vigencia;
+    un rubro nuevo sólo si es, entero, el de una tesis del material;
   · no introduce artículos fuera del párrafo original ∪ las normas del material;
   · no introduce fechas ni transcripciones entrecomilladas que no consten;
   · conserva las marcas ⟦…⟧ (se le enseña el párrafo SIN ellas y el código las
@@ -49,8 +58,9 @@ LAS GUARDAS (todas por código; un parche que falle una se descarta):
     cortos, documento_generado.py ~3808);
   · «eliminar» sólo en párrafos sin marcas, sin citas y sin calificación;
   · no alarga un párrafo más de un 20% salvo error jurídico o incongruencia;
-  · no toca los rubros transcritos ni los encabezados (párrafos FIJOS), y un
-    párrafo que lleva un rubro entre comillas lo conserva literal;
+  · no toca los rubros transcritos, los encabezados ni los rótulos internos
+    del guion (párrafos FIJOS), y un párrafo que lleva un rubro entre
+    comillas lo conserva literal;
   · no pierde el ordinal del concepto que contesta, ni el número de la orden
     de efectos;
   · no escribe frases de herramienta («material proporcionado»…).
@@ -231,6 +241,36 @@ def _fijo(texto: str) -> str:
     return ""
 
 
+# LOS RÓTULOS DEL GUION (revisión adversarial, 3-oct-2026). El supervisor corre
+# ANTES de `redactor_adelanto.limpiar_rotulos_del_guion`, que es quien lleva
+# «DESVIACIONES DEL GUION: …» a ADVERTENCIAS y tira «APLICA C1.a», «APARTADO 2 ·»…
+# Esos renglones no son prosa del estudio: si el supervisor los reescribe en
+# prosa, el limpiador ya no los reconoce y la nota interna llega al .docx; si
+# los elimina, el secretario pierde la explicación de la desviación. Son FIJOS.
+# Los patrones se toman del limpiador mismo para no divergir; la copia de abajo
+# sólo rige si no se puede importar (y una prueba vigila que sean iguales).
+_RX_ROTULO_GUION_COPIA = re.compile(
+    r"^[ \t>*#\-]*(?:"
+    r"GUION DEL ESTUDIO\b"
+    r"|APARTADO \d+ ·"
+    r"|(?:APLICA|REMITE|DESARROLLA|RESIDUAL|NO SE ESTUDIA) (?:AD|[CAS])\d+\.[a-z]{1,2}\b"
+    r"|EXPONE M\d+\b"
+    r"|JERARQUÍA DEL PROBLEMA \d+"
+    r"|(?:INNECESARIOS POR SUFICIENCIA|CAEN POR DERIVAR) (?:AD|[CAS])\d+\.[a-z]{1,2}\b"
+    r")")
+_RX_DESVIACIONES_COPIA = re.compile(r"^[ \t>*#\-]*DESVIACIONES DEL GUION\b")
+
+
+def _rotulo_del_guion(*renglones) -> bool:
+    """¿Alguno de los renglones empieza por un rótulo interno del guion?"""
+    try:
+        import redactor_adelanto as _ra
+        rxs = (_ra._RX_ROTULO_GUION, _ra._RX_DESVIACIONES)
+    except Exception:
+        rxs = (_RX_ROTULO_GUION_COPIA, _RX_DESVIACIONES_COPIA)
+    return any(rx.match(r or "") for r in renglones for rx in rxs)
+
+
 def bloques(estudio: str) -> list:
     """Los párrafos del estudio como los cuenta el mapa de marcas: un renglón
     no vacío con texto es un párrafo; una marca sola en su renglón vale para
@@ -251,7 +291,7 @@ def bloques(estudio: str) -> list:
         resto = ln
         for a, b, _ in sorted(ms, reverse=True):
             resto = resto[:a] + resto[b:]
-        fijo = _fijo(limpio)
+        fijo = "rótulo del guion" if _rotulo_del_guion(ln, limpio) else _fijo(limpio)
         # UNA MARCA A MEDIAS no se puede reponer intacta: el párrafo no se toca.
         if not fijo and ("⟦" in resto or "⟧" in resto):
             fijo = "marca a medias"
@@ -397,20 +437,200 @@ def _get(o, k, defecto=None):
     return getattr(o, k, defecto)
 
 
+# ═══ EL CALIFICATIVO, NO SÓLO SU DIRECCIÓN (3-oct-2026) ════════════════════
+# La revisión adversarial lo ejecutó: `congruencia.direcciones` mete en la
+# misma clase «contra» a infundado, inoperante, ineficaz, inatendible y
+# «fundado pero insuficiente», así que un parche que cambiaba «se considera
+# infundado» por «se considera inoperante» pasaba las guardas con cualquier
+# tipo. No es un matiz: el inoperante no entra al fondo. El prompt promete que
+# «ninguna corrección cambia una calificación» y ésta es la guarda que lo
+# cumple. Se lee sólo en las frases que califican por cuenta de este tribunal
+# (`congruencia.califica`), sin los rubros: el mismo filtro de `direcciones`.
+CALIFICATIVOS = ("fundado", "infundado", "inoperante", "ineficaz", "inatendible",
+                 "fundado_insuficiente", "innecesario", "sin_materia")
+_CALIF_CONTRA = {"infundado", "inoperante", "ineficaz", "inatendible", "fundado_insuficiente"}
+_RX_FUND_INSUF = re.compile(r"\bfundad\w*\s*,?\s*(?:pero|aunque)\s+(?:\w+\s+)?insuficien\w*", re.I)
+_RX_CALIFICATIVO = (
+    ("infundado", re.compile(r"\binfundad[oa]s?\b", re.I)),
+    ("inoperante", re.compile(r"\binoperan\w*", re.I)),
+    ("ineficaz", re.compile(r"\binefica\w*", re.I)),
+    ("inatendible", re.compile(r"\binatendib\w*", re.I)),
+    ("innecesario", re.compile(r"\binnecesari[oa]s?\b", re.I)),
+    ("sin_materia", re.compile(r"\bsin\s+materia\b", re.I)),
+)
+# «fundado», con o sin «esencialmente/parcialmente/sustancialmente»; «no es
+# fundado» es un infundado dicho de otro modo. «Le asiste la razón» es un
+# fundado y «no le asiste»/«carece de razón», un infundado: si no se contaran,
+# «no le asiste la razón» → «es inoperante» pasaría por igual.
+_RX_FUNDADO = re.compile(r"\bfundad[oa]s?\b", re.I)
+_RX_ASISTE = re.compile(r"\b(?:le\s+|les\s+)?asiste\s+(?:la\s+)?raz[óo]n|\btiene\w*\s+(?:la\s+)?raz[óo]n", re.I)
+_RX_CARECE = re.compile(r"\bcarece\w*\s+de\s+raz[óo]n", re.I)
+_RX_NO_ANTES = re.compile(r"\bno\s+(?:\w+\s+){0,2}$", re.I)
+
+
+def calificativos(t: str) -> set:
+    """El conjunto de calificativos propios del texto (de `CALIFICATIVOS`)."""
+    fuera = set()
+    try:
+        import congruencia as _cg
+    except Exception:
+        return fuera
+    for fr in _cg.frases(t or ""):
+        if _cg._es_rubro(fr) or not _cg.califica(fr):
+            continue
+        s = _cg._RX_NO_CALIF.sub(" ", fr)
+        if _RX_FUND_INSUF.search(s):
+            fuera.add("fundado_insuficiente")
+            s = _RX_FUND_INSUF.sub(" ", s)
+        for clave, rx in _RX_CALIFICATIVO:
+            if rx.search(s):
+                fuera.add(clave)
+        for rx, si, no in ((_RX_FUNDADO, "fundado", "infundado"), (_RX_ASISTE, "fundado", "infundado")):
+            for m in rx.finditer(s):
+                fuera.add(no if _RX_NO_ANTES.search(s[max(0, m.start() - 24):m.start()]) else si)
+        if _RX_CARECE.search(s):
+            fuera.add("infundado")
+    return fuera
+
+
+def _familia(etiqueta: str) -> str:
+    """La etiqueta del plan o el sentido del criterio, en el vocabulario de
+    `CALIFICATIVOS`: todo lo que prospera es «fundado» (el texto no distingue
+    «esencialmente» de «parcialmente»)."""
+    s = re.sub(r"\s+", "_", str(etiqueta or "").strip().lower())
+    if not s:
+        return ""
+    if s in CALIFICATIVOS and s != "fundado":
+        return s
+    try:
+        import tipos_asunto as _ta
+        if _ta.prospera(s):
+            return "fundado"
+    except Exception:
+        pass
+    return s if s in CALIFICATIVOS else ""
+
+
+# ═══ EL DESENLACE DEL PÁRRAFO (3-oct-2026) ══════════════════════════════════
+# LO GRAVE DE LA REVISIÓN ADVERSARIAL. En una revisión en plenitud (art. 93,
+# frs. V y VI) el cierre del estudio dice «procede revocar la sentencia
+# recurrida y negar el amparo» y NO lleva palabra de calificación. Un parche
+# que cambiaba «negar» por «conceder» pasaba todas las guardas, y después
+# `fase_rama.sentido_en_plenitud`, `_rama_de` y documento_generado leían el
+# segundo resolutivo de ese texto: el motor invertía el sentido que fijó el
+# secretario y el proyecto salía coherente con el texto alterado. Ahora un
+# parche no puede cambiar ninguna señal de desenlace del párrafo —conceder o
+# negar, revocar, confirmar o modificar, reponer, «para efectos», sobreseer o
+# levantar el sobreseimiento—, ni negar una que afirmaba («no procede revocar»).
+_RX_DESENLACE = (
+    ("concede", re.compile(r"\bconced(?:e|en|er|erse|ida|ido|i[óo])\s+(?:el\s+)?(?:amparo|la\s+protecci[óo]n)"
+                           r"|\bampara\s+y\s+protege", re.I)),
+    ("niega", re.compile(r"\b(?:niega|niegan|neg(?:ar|arse|ada|ado|[óo]))\s+(?:el\s+)?(?:amparo|la\s+protecci[óo]n)"
+                         r"|\bno\s+ampara\s+ni\s+protege", re.I)),
+    # REVOCAR Y CONFIRMAR, SÓLO CON SU OBJETO o con el verbo del tribunal
+    # delante: «lo que confirma que la prueba…» no es un desenlace, y acusarlo
+    # descartaría condensaciones buenas.
+    ("revoca", re.compile(r"\bse\s+revoca\b(?!\s+(?:el\s+)?sobreseimiento)"
+                          r"|\brevoca[rn]?(?:se|la|lo)?\s+(?:la\s+|el\s+)?(?:sentencia|resoluci[óo]n|fallo|"
+                          r"interlocutoria|determinaci[óo]n|auto\b|recurrid)"
+                          r"|\b(?:procede|debe|deber[áa]|lo\s+procedente\s+es)\s+revocar", re.I)),
+    ("confirma", re.compile(r"\bse\s+confirma\b(?!\s+que\b)"
+                            r"|\bconfirma[rn]?(?:se|la|lo)?\s+(?:la\s+|el\s+)?(?:sentencia|resoluci[óo]n|fallo|"
+                            r"interlocutoria|determinaci[óo]n|auto\b|recurrid)"
+                            r"|\b(?:procede|debe|deber[áa]|lo\s+procedente\s+es)\s+confirmar", re.I)),
+    ("modifica", re.compile(r"\b(?:se\s+modifica|modificar(?:se|la|lo)?)\s+(?:la\s+)?(?:sentencia|resoluci[óo]n|fallo)", re.I)),
+    ("repone", re.compile(r"\breponer\w*\s+(?:el\s+)?procedimiento|\breposici[óo]n\s+del\s+procedimiento", re.I)),
+    ("para_efectos", re.compile(r"\b(?:[úu]nicamente|s[óo]lo|solamente)\s+para\s+(?:los\s+)?efectos\b"
+                                r"|\b(?:amparo|protecci[óo]n)\s+(?:\w+\s+){0,6}?para\s+(?:los\s+)?efectos\b"
+                                r"|\bpara\s+(?:los\s+)?efectos\s+(?:precisados|que\s+se\s+precisan|siguientes)\b", re.I)),
+    ("sobresee", re.compile(r"\bse\s+sobresee\b|\bsobrese(?:er|erse|y[óo]|[ií]do)\b"
+                            r"|\bdecret\w+\s+el\s+sobreseimiento", re.I)),
+    ("levanta_sobreseimiento", re.compile(r"\b(?:levant|revoc)\w*\s+(?:el\s+)?sobreseimiento", re.I)),
+)
+
+
+def desenlace_de(t: str) -> set:
+    """Las señales de desenlace del texto, con «no_» delante si van negadas,
+    más lo que de él leen `fase_rama` (plenitud, violación procesal, sólo los
+    efectos) y `desenlace._dichos` (revoca/confirma por cuenta del tribunal)."""
+    tt = " ".join((t or "").split())
+    fuera = set()
+    for clave, rx in _RX_DESENLACE:
+        for m in rx.finditer(tt):
+            neg = _RX_NO_ANTES.search(tt[max(0, m.start() - 30):m.start()])
+            fuera.add(("no_" if neg else "") + clave)
+    try:
+        import fase_rama as _fr
+        s = _fr.sentido_en_plenitud(tt)
+        if s:
+            fuera.add("plenitud_" + s)
+        if _fr.hay_violacion_procesal(tt):
+            fuera.add("violacion_procesal")
+        if _fr.solo_los_efectos(tt):
+            fuera.add("solo_los_efectos")
+    except Exception:
+        pass
+    try:
+        import desenlace as _ds
+        for prospera, _ in _ds._dichos(tt):
+            fuera.add("dicho_revoca" if prospera else "dicho_confirma")
+    except Exception:
+        pass
+    return fuera
+
+
+def desenlace_global(estudio: str) -> tuple:
+    """Lo que de TODO el estudio leen el resolutivo y la rama: el sentido en
+    plenitud, si hay violación procesal, si sólo son los efectos y el último
+    dicho revoca/confirma. La red de seguridad de `supervisar`: si cambia
+    entre el estudio de entrada y el corregido, se revierte todo."""
+    tt = " ".join((estudio or "").split())
+    plen = proc = efe = ""
+    try:
+        import fase_rama as _fr
+        plen, proc, efe = (_fr.sentido_en_plenitud(tt), _fr.hay_violacion_procesal(tt),
+                           _fr.solo_los_efectos(tt))
+    except Exception:
+        pass
+    ult = None
+    try:
+        import desenlace as _ds
+        d = _ds._dichos(tt)
+        ult = d[-1][0] if d else None
+    except Exception:
+        pass
+    return (plen, proc, efe, ult)
+
+
 # ═══ LO QUE ANCLA LAS GUARDAS ═══════════════════════════════════════════════
 class Anclas:
     """Lo que un parche puede citar sin inventar: el material y las fuentes."""
 
-    def __init__(self, material=None, fuentes=None, criterios=None):
+    def __init__(self, material=None, fuentes=None, criterios=None, plan=None):
         tesis = list(_get(material, "tesis", None) or [])
         normas = list(_get(material, "normas", None) or [])
         self.registros = set()
         self.num_anio = set()
+        # LOS RUBROS ENTEROS DEL MATERIAL y los registros de tesis que PERDIERON
+        # VIGENCIA (3-oct-2026): un rubro nuevo sólo entra si es, completo, el
+        # de una tesis del material, y un registro nuevo nunca es el de una
+        # jurisprudencia abandonada (f6.revisar, que lo avisaría, corre antes).
+        self.rubros = set()
+        self.sin_vigencia = set()
         texto_tesis = []
         for t in tesis:
             if not isinstance(t, dict):
                 continue
-            self.registros |= registros_de(str(t.get("registro") or ""))
+            regs = registros_de(str(t.get("registro") or ""))
+            self.registros |= regs
+            if t.get("rubro"):
+                self.rubros.add(_plano(t.get("rubro")).rstrip(". "))
+            try:
+                import fuerza_juridica as _fj
+                if _fj.sello_perdio_vigencia(t.get("vigencia")):
+                    self.sin_vigencia |= regs
+            except Exception:
+                pass
             for k in ("clave", "tesis", "rubro"):
                 texto_tesis.append(str(t.get(k) or ""))
         for x in texto_tesis:
@@ -437,9 +657,86 @@ class Anclas:
                     self.dir_criterio.add(d)
         except Exception:
             pass
+        # LAS ETIQUETAS DEL PLAN (v4): {id del argumento: su calificación dentro
+        # de su problema}. Es lo único que dice qué calificación corresponde a
+        # un párrafo concreto: el sentido del problema no basta, porque dentro
+        # de un problema fundado cabe un argumento infundado (plan_estudio).
+        try:
+            import exhaustivo as _ex2
+            self.etiquetas = dict(_ex2.etiquetas_del_plan(plan) or {})
+        except Exception:
+            self.etiquetas = {}
+        # EL INVENTARIO de argumentos, para medir que un párrafo condensado
+        # siga contestando cada argumento que marca (`marcas.rastros`).
+        self.inventario = [s for s in list(_get(material, "inventario", None) or [])
+                           if isinstance(s, dict) and s.get("id")]
 
 
 # ═══ LAS GUARDAS ════════════════════════════════════════════════════════════
+def _endereza(bloque: dict, tipo: str, d_v: set, d_n: set, c_v: set, c_n: set,
+              anclas: Anclas) -> bool:
+    """¿El cambio de calificación es la incongruencia que se corrige?
+
+    LA EXCEPCIÓN ACOTADA (revisión adversarial, 3-oct-2026). Antes bastaba que
+    todo el criterio fuera en un solo sentido y el párrafo calificara al revés.
+    Pero con un criterio todo «fundado», el plan v4 etiqueta como infundados o
+    inoperantes argumentos DENTRO del problema fundado (plan_estudio: «si el
+    problema prospera, al menos uno lo funda y los demás pueden ser infundados
+    o inoperantes»); el estudio, siguiendo el plan, escribe «Es infundado…», y
+    Gemini lo volteaba a «fundado» con tipo incongruencia. Se eligió:
+
+      1 · ATRIBUIR POR EL PLAN cuando se puede —el párrafo marca argumentos y
+          todos tienen etiqueta—: el texto nuevo tiene que decir exactamente
+          los calificativos y la dirección de esas etiquetas, y el viejo no.
+          Es lo único que permite también la corrección de calificativo en la
+          misma dirección (el estudio escribió «infundado» donde el plan dice
+          «inoperante»).
+      2 · SIN PLAN QUE LO ATRIBUYA, sólo el volteo a «contra» cuando TODO el
+          criterio es «contra»: es el único sentido en que el plan prohíbe
+          argumentos de la dirección opuesta dentro del problema («si no
+          prospera, ninguno queda fundado»), así que un «fundado» ahí es
+          incongruente sin necesidad de saber a qué argumento responde. Con un
+          criterio todo «favor» no se puede saber y el parche se descarta.
+
+    Y siempre con tipo error_juridico o incongruencia: «redacción» no corrige
+    calificaciones."""
+    if tipo not in _TIPOS_QUE_ALARGAN or not c_n:
+        return False
+    ids = list(dict.fromkeys(bloque.get("ids") or []))
+    if ids and anclas.etiquetas and all(i in anclas.etiquetas for i in ids):
+        fams = {_familia(anclas.etiquetas[i]) for i in ids} - {""}
+        if not fams:
+            return False
+        dirs = {"favor" if f == "fundado" else "contra" for f in fams if f in _CALIF_CONTRA | {"fundado"}}
+        return c_n == fams and d_n == dirs and (c_v != fams or d_v != dirs)
+    return (anclas.dir_criterio == {"contra"} and "favor" in d_v and d_n == {"contra"}
+            and c_n <= _CALIF_CONTRA)
+
+
+def _pierde_respuesta(bloque: dict, viejo: str, nuevo: str, anclas: Anclas) -> str:
+    """La id de un argumento marcado que tenía rastro en el párrafo viejo y no
+    en el nuevo, o «». Las ids sin rastro en el viejo no se pueden comprobar
+    y pasan. El idf de `rastros` se calcula sobre el inventario ENTERO."""
+    ids = set(bloque.get("ids") or [])
+    if not ids or not anclas.inventario:
+        return ""
+    try:
+        import marcas as _mc
+        rv = _mc.rastros(anclas.inventario, viejo)
+        rn = _mc.rastros(anclas.inventario, nuevo)
+        um = _mc.UMBRAL_RASTRO
+    except Exception:
+        return ""
+    for i in sorted(ids):
+        if i not in rv:
+            continue
+        habia = rv[i][0] or rv[i][1] >= um
+        queda = bool(rn.get(i)) and (rn[i][0] or rn[i][1] >= um)
+        if habia and not queda:
+            return i
+    return ""
+
+
 def guardas(parche: dict, bloque: dict, anclas: Anclas) -> str:
     """El motivo para descartar un parche, o «» si pasa."""
     if bloque is None:
@@ -457,6 +754,10 @@ def guardas(parche: dict, bloque: dict, anclas: Anclas) -> str:
             return "eliminar un párrafo que califica"
         if _rubros_entre_comillas(viejo):
             return "eliminar un párrafo con un rubro"
+        # Un cierre «procede revocar … y negar el amparo» no lleva palabra de
+        # calificación ni cita: sin esta guarda se podía eliminar (3-oct-2026).
+        if desenlace_de(viejo):
+            return "eliminar un párrafo que dicta el desenlace"
         return ""
     nuevo = parche.get("texto") or ""
     if "⟦" in nuevo or "⟧" in nuevo or "[[" in nuevo:
@@ -470,19 +771,46 @@ def guardas(parche: dict, bloque: dict, anclas: Anclas) -> str:
         return "condensar sin acortar"
     if n_n > n_v * CRECIMIENTO_MAX and tipo not in _TIPOS_QUE_ALARGAN:
         return f"alarga el párrafo más de un 20% ({n_v} → {n_n} palabras)"
-    # LA CALIFICACIÓN: misma dirección. La única excepción es la incongruencia
-    # que endereza un párrafo que califica al revés del criterio, cuando todo
-    # el criterio va en un solo sentido.
+    # LA CALIFICACIÓN: misma dirección Y mismos calificativos (3-oct-2026:
+    # infundado → inoperante pasaba con la dirección sola). La única excepción
+    # es la incongruencia que ENDEREZA un párrafo que califica distinto de lo
+    # que le corresponde; ver `_endereza`.
     d_v, d_n = _direcciones(viejo), _direcciones(nuevo)
-    if d_v != d_n:
-        endereza = (len(anclas.dir_criterio) == 1 and d_n == anclas.dir_criterio
-                    and not d_v <= anclas.dir_criterio and tipo in _TIPOS_QUE_ALARGAN)
-        if not endereza:
+    c_v, c_n = calificativos(viejo), calificativos(nuevo)
+    if (d_v != d_n or c_v != c_n) and not _endereza(bloque, tipo, d_v, d_n, c_v, c_n, anclas):
+        if d_v != d_n:
             return f"cambia la calificación ({'/'.join(sorted(d_v)) or 'ninguna'} → " \
                    f"{'/'.join(sorted(d_n)) or 'ninguna'})"
+        return f"cambia el calificativo ({'/'.join(sorted(c_v)) or 'ninguno'} → " \
+               f"{'/'.join(sorted(c_n)) or 'ninguno'})"
+    # EL DESENLACE (lo grave de la revisión del 3-oct-2026): ninguna señal de
+    # conceder/negar, revocar/confirmar/modificar, reponer, «para efectos» o
+    # sobreseer puede aparecer, desaparecer ni negarse. El criterio es del
+    # secretario; el supervisor corrige la prosa, no el resolutivo.
+    ds_v, ds_n = desenlace_de(viejo), desenlace_de(nuevo)
+    if ds_v != ds_n:
+        return f"cambia el desenlace ({'/'.join(sorted(ds_v)) or 'ninguno'} → " \
+               f"{'/'.join(sorted(ds_n)) or 'ninguno'})"
+    # LA RESPUESTA A CADA ARGUMENTO MARCADO (3-oct-2026): condensar no puede
+    # quitar lo que contesta a uno de los argumentos que el párrafo marca. El
+    # mapa seguiría dándolo por contestado —la marca se repone delante— y el
+    # control V1 no avisaría. Se mide con el rastro de `marcas.verificar`: un
+    # argumento que tenía rastro en el párrafo viejo tiene que conservarlo.
+    perdido = _pierde_respuesta(bloque, viejo, nuevo, anclas)
+    if perdido:
+        return f"quita la respuesta a {perdido}"
+    # LOS REGISTROS DEL PÁRRAFO NO SE QUITAN NI SE CAMBIAN (3-oct-2026): una
+    # cita cambiada por el supervisor elude los controles de citas, que ya
+    # corrieron. Si la cita no sostiene lo que se dice, se corrige la frase.
+    reg_quitados = registros_de(viejo) - registros_de(nuevo)
+    if reg_quitados:
+        return f"quita o cambia un registro del párrafo ({', '.join(sorted(reg_quitados)[:3])})"
     reg_nuevos = registros_de(nuevo) - registros_de(viejo) - anclas.registros
     if reg_nuevos:
         return f"registro fuera del material ({', '.join(sorted(reg_nuevos)[:3])})"
+    reg_caducos = (registros_de(nuevo) - registros_de(viejo)) & anclas.sin_vigencia
+    if reg_caducos:
+        return f"cita una tesis que perdió vigencia ({', '.join(sorted(reg_caducos)[:3])})"
     na_nuevos = numeros_con_anio(nuevo) - numeros_con_anio(viejo) - anclas.num_anio
     if na_nuevos:
         return f"número de tesis o expediente que no consta ({', '.join(sorted(na_nuevos)[:3])})"
@@ -495,6 +823,15 @@ def guardas(parche: dict, bloque: dict, anclas: Anclas) -> str:
     for r in _rubros_entre_comillas(viejo):
         if _plano(r) not in _plano(nuevo):
             return "altera o quita un rubro transcrito"
+    # UN RUBRO NUEVO (texto en mayúsculas entre comillas) sólo entra si ya
+    # estaba en el párrafo o es, ENTERO, el de una tesis del material: la
+    # comprobación de transcripciones de abajo salta los rubros, y el catálogo
+    # se le enseña al modelo; un rubro truncado («… […]»), alterado o de otra
+    # tesis pegado a un registro real pasaba (3-oct-2026).
+    for r in _rubros_entre_comillas(nuevo):
+        rp = _plano(r).rstrip(". ")
+        if rp not in _plano(viejo) and rp not in anclas.rubros:
+            return "rubro entre comillas que no es, entero, el de una tesis del material"
     pv = _plano(viejo)
     for m in _RX_CITA_COMILLAS.finditer(nuevo):
         q = m.group(1)
@@ -560,8 +897,10 @@ def _objetos_completos(t: str) -> list:
     return fuera
 
 
-def parsear(salida: str) -> tuple:
-    """([parche normalizado], n_mal_formados). Nunca lanza."""
+def _crudos(salida: str):
+    """La lista «parches» tal como llegó, o None si la salida no la trae
+    legible (vacía, sin JSON, sin la clave, o cortada antes del primer parche
+    entero)."""
     t = (salida or "").strip()
     t = re.sub(r"^```(?:json)?\s*|\s*```\s*$", "", t)
     datos = None
@@ -575,24 +914,60 @@ def parsear(salida: str) -> tuple:
             except Exception:
                 datos = None
     if datos is None and '"parches"' in t:
-        datos = {"parches": _objetos_completos(t)}
+        rescatados = _objetos_completos(t)
+        datos = {"parches": rescatados} if rescatados else None
     if isinstance(datos, dict):
         crudos = datos.get("parches")
     elif isinstance(datos, list):
         crudos = datos
     else:
-        return [], 0
-    if not isinstance(crudos, list):
+        return None
+    return crudos if isinstance(crudos, list) else None
+
+
+def salida_legible(salida: str) -> str:
+    """«» si la salida trae la lista de parches (aunque venga vacía: «no hay
+    nada que corregir» es una respuesta); «sin_respuesta» si llegó vacía;
+    «ilegible» si llegó algo que no es esa lista.
+
+    POR QUÉ (revisión adversarial, 3-oct-2026): Gemini devuelve `text=None`
+    cuando bloquea el candidato (seguridad, recitación: posible con
+    expedientes penales) y la salida puede cortarse antes del primer objeto
+    entero. `parsear` da [] en los dos casos, igual que cuando el revisor no
+    encontró nada, y la pantalla decía «El revisor leyó el proyecto y no
+    encontró nada que corregir»: una garantía falsa. Ahora es «fallo»."""
+    if not (salida or "").strip():
+        return "sin_respuesta"
+    return "" if _crudos(salida) is not None else "ilegible"
+
+
+def _numero_de_parrafo(x) -> int:
+    """El número de UN párrafo («3», 3, «P3», «párrafo 3», 3.0), o 0 si no es
+    un solo entero. Antes se juntaban todos los dígitos y «3-4» (una fusión
+    que el modelo propone a veces) se leía como el párrafo 34, que suele
+    existir en un estudio v4: su contenido se sustituía por otro (revisión
+    adversarial, 3-oct-2026)."""
+    if isinstance(x, bool):
+        return 0
+    if isinstance(x, int):
+        return x
+    if isinstance(x, float):
+        return int(x) if x.is_integer() else 0
+    m = re.fullmatch(r"\s*(?:P|p[áa]rrafo)?\s*\.?\s*(\d{1,4})(?:\.0+)?\s*", str(x or ""), re.I)
+    return int(m.group(1)) if m else 0
+
+
+def parsear(salida: str) -> tuple:
+    """([parche normalizado], n_mal_formados). Nunca lanza."""
+    crudos = _crudos(salida)
+    if crudos is None:
         return [], 0
     fuera, malos = [], 0
     for c in crudos[:MAX_PARCHES * 2]:
         if not isinstance(c, dict):
             malos += 1
             continue
-        try:
-            n = int(re.sub(r"\D", "", str(c.get("parrafo", ""))) or 0)
-        except Exception:
-            n = 0
+        n = _numero_de_parrafo(c.get("parrafo"))
         accion = str(c.get("accion") or "").strip().lower()
         tipo = str(c.get("tipo") or "").strip().lower().replace(" ", "_")
         tipo = tipo.replace("jurídico", "juridico").replace("repetición", "repeticion") \
@@ -721,7 +1096,16 @@ def _bloque_catalogo(material) -> str:
     L = []
     for t in list(_get(material, "tesis", None) or [])[:40]:
         if isinstance(t, dict) and t.get("registro"):
-            L.append(f"· registro {t.get('registro')}: {_recorta(str(t.get('rubro') or ''), 220)}")
+            # EL RUBRO ENTERO Y LA VIGENCIA (3-oct-2026): un rubro nuevo sólo
+            # pasa la guarda si es, completo, el de una tesis del material, y
+            # el modelo tiene que ver cuál perdió vigencia, como la ve el estudio.
+            _sv = ""
+            try:
+                import fuerza_juridica as _fj
+                _sv = " [SIN VIGENCIA: no se cita]" if _fj.sello_perdio_vigencia(t.get("vigencia")) else ""
+            except Exception:
+                pass
+            L.append(f"· registro {t.get('registro')}{_sv}: {_recorta(str(t.get('rubro') or ''), 900)}")
     N = []
     for n in list(_get(material, "normas", None) or [])[:60]:
         if isinstance(n, dict) and n.get("articulo"):
@@ -750,7 +1134,7 @@ def prompt(bloques_: list, criterios, material, resumen_acto: str, resumen_conce
     hall = "\n".join(f"- {h}" for h in hallazgos_) or "- (ninguno)"
     return f"""Eres el secretario proyectista que revisa, antes de pasarlo al magistrado, el ESTUDIO DE FONDO de un proyecto de sentencia de un Tribunal Colegiado de Circuito de México. No lo reescribes: propones correcciones puntuales, párrafo por párrafo, y sólo donde hacen falta.
 
-EL CRITERIO DEL SECRETARIO ES INMUTABLE. El sentido de cada problema ya está decidido; ninguna corrección cambia una calificación (fundado, infundado, inoperante, ineficaz) ni el desenlace.
+EL CRITERIO DEL SECRETARIO ES INMUTABLE. El sentido de cada problema ya está decidido; ninguna corrección cambia una calificación (fundado, infundado, inoperante, ineficaz, inatendible, fundado pero insuficiente, innecesario, sin materia) ni el desenlace (conceder o negar el amparo; revocar, confirmar o modificar; reponer el procedimiento; «para efectos»; sobreseer).
 
 ═══ CRITERIO DEL SECRETARIO ═══
 {_bloque_criterio(criterios)}
@@ -772,7 +1156,7 @@ Ninguna corrección puede citar un registro, una clave de tesis, un expediente o
 1. error_juridico: una afirmación de derecho equivocada, un precepto aplicado fuera de su supuesto, una regla procesal mal enunciada.
 2. incongruencia: un párrafo que contradice a otro, a su propia calificación o al criterio del secretario.
 3. hecho_no_acreditado: el estudio da por cierto lo que sólo afirma la parte. Lo que dicen los agravios o los conceptos de violación es justo lo que se verifica; un hecho sólo se afirma como cierto si la resolución reclamada o recurrida lo tuvo por acreditado. Corrige atribuyéndolo a quien lo afirma o apoyándolo en lo que la resolución sí tuvo por acreditado; nunca añadas un hecho nuevo.
-4. cita: una tesis o un precepto invocado para algo que no sostiene. Si la quitas, no la sustituyas por otra fuera del catálogo.
+4. cita: una tesis o un precepto invocado para algo que no sostiene. No quites ni cambies los registros ni los rubros que el párrafo ya cita: corrige la afirmación que se apoya en ellos. Una cita que añadas sale del catálogo, con su rubro entero, y nunca de una tesis sin vigencia.
 5. repeticion: el mismo razonamiento dicho dos veces. Conserva la versión más completa y condensa o elimina la otra.
 6. extension: el estudio tiene {palabras} palabras y la referencia es {objetivo}. Si pasa de ella, condensa los párrafos que se demoran, repiten o glosan, sin perder ningún argumento contestado: la brevedad no vale si cuesta exhaustividad.
 7. redaccion: frases que un tribunal no escribe (las que hablan del conjunto de documentos como algo que a quien redacta se le entregó o remitió para el estudio, en vez de referirse a las constancias de autos o a la resolución), barroquismos, frases cortadas, oraciones kilométricas.
@@ -887,12 +1271,14 @@ def _informe_vacio(estado: str = "sin_cambios") -> dict:
 
 async def supervisar(estudio: str, criterios=None, material=None, resumen_acto: str = "",
                      resumen_conceptos: str = "", fuentes=None, cliente=None,
-                     tope_s: float = None, llamar=None) -> tuple:
+                     tope_s: float = None, llamar=None, plan=None) -> tuple:
     """(estudio, informe CONTRATO D). El estudio sale COMO ESTABA si la llamada
     falla o vence, o si ningún parche pasa las guardas.
 
     `llamar` se inyecta en las pruebas: async (prompt, tope_s) → (salida, uso,
-    modelo). En producción, Gemini y, si no abre, el respaldo por `cliente`."""
+    modelo). En producción, Gemini y, si no abre, el respaldo por `cliente`.
+    `plan` es el plan v4 con que se escribió el estudio (o None): sus
+    etiquetas dicen qué calificación corresponde a cada argumento marcado."""
     t0 = time.perf_counter()
     tope = float(tope_s or SUPERVISOR_TOPE_S)
     inf = _informe_vacio()
@@ -943,8 +1329,14 @@ async def supervisar(estudio: str, criterios=None, material=None, resumen_acto: 
     _c = coste_usd(uso)
     if _c is not None:
         inf["coste_usd"] = _c
+    # UNA SALIDA VACÍA O ILEGIBLE NO ES «SIN CAMBIOS» (3-oct-2026): el revisor
+    # no revisó, y la pantalla no puede decir que no encontró nada.
+    _ileg = salida_legible(salida)
+    if _ileg:
+        inf.update(estado="fallo", error=_ileg, segundos=round(time.perf_counter() - t0, 1))
+        return estudio, inf
     parches, malos = parsear(salida)
-    anclas = Anclas(material, fuentes, criterios)
+    anclas = Anclas(material, fuentes, criterios, plan)
     por_n = {b["n"]: b for b in bl}
     buenos, motivos, vistos = [], [], set()
     max_elim = max(1, int(len([b for b in bl if not b["fijo"]]) * MAX_ELIMINAR))
@@ -979,6 +1371,16 @@ async def supervisar(estudio: str, criterios=None, material=None, resumen_acto: 
         inf["motivos_descarte"].append({"parrafo": 0, "tipo": "extension",
                                         "motivo": f"dejaría el estudio en {pal_despues} de "
                                                   f"{pal_antes} palabras: se revierte todo"})
+        buenos, nuevo, pal_despues = [], estudio, pal_antes
+    if buenos and desenlace_global(_mc.sin_marcas(nuevo)) != desenlace_global(_mc.sin_marcas(estudio)):
+        # LA RED DE SEGURIDAD DEL DESENLACE (3-oct-2026): lo que el resolutivo
+        # y la rama leen del estudio entero —sentido en plenitud, violación
+        # procesal, sólo los efectos, el último «revoca/confirma»— no puede
+        # cambiar por la suma de parches que, uno a uno, pasaron. Se revierte
+        # todo, como con el piso de palabras.
+        inf["descartadas"] += len(buenos)
+        inf["motivos_descarte"].append({"parrafo": 0, "tipo": "incongruencia",
+                                        "motivo": "cambiaría el desenlace del estudio: se revierte todo"})
         buenos, nuevo, pal_despues = [], estudio, pal_antes
     inf["correcciones"] = [{"tipo": p["tipo"], "parrafo": p["parrafo"],
                             "antes": por_n[p["parrafo"]]["texto"][:400],
@@ -1016,10 +1418,36 @@ def aviso(inf: dict) -> str:
         return (f"El supervisor corrigió {len(cor)} cosa{'s' if len(cor) != 1 else ''} del "
                 f"estudio: {', '.join(partes)}{extra}. Cada cambio está en la ficha del proyecto.")
     if est in ("fallo", "vencido"):
-        return ("El supervisor no pudo revisar el estudio "
-                f"({'se pasó del tiempo' if est == 'vencido' else 'falló la llamada'}): "
-                "sale como lo escribió el redactor.")
+        if est == "vencido":
+            por = "se pasó del tiempo"
+        elif inf.get("error") in ("sin_respuesta", "ilegible"):
+            por = "no devolvió una respuesta legible"
+        else:
+            por = "falló la llamada"
+        return f"El supervisor no pudo revisar el estudio ({por}): sale como lo escribió el redactor."
     return ""
+
+
+def _como_texto(a) -> str:
+    """Los antecedentes como texto. `Fases123.antecedentes` es una CADENA, y
+    `"\n".join(cadena)` ponía una letra por renglón: las fechas, números y
+    transcripciones que sólo constan en los antecedentes dejaban de anclar
+    (revisión adversarial, 3-oct-2026; el mismo fallo que `_terminar` ya
+    corrigió en `_fuentes_fe`)."""
+    if isinstance(a, (list, tuple)):
+        return "\n".join(str(x) for x in a if x)
+    return str(a or "")
+
+
+def _plan_de(r):
+    """El plan v4 con que se escribió el estudio, o None. Lo mismo que
+    `redactor_adelanto._plan_del_estudio`, sin importar aquel módulo."""
+    try:
+        _pl = getattr(getattr(r, "encargo", None), "plan", None) or {}
+        _pl = _pl.get("plan") if isinstance(_pl, dict) else None
+        return _pl if isinstance(_pl, dict) else None
+    except Exception:
+        return None
 
 
 async def en_el_resolver(cliente, r, criterios, material, estudio: str, meta: dict,
@@ -1034,13 +1462,13 @@ async def en_el_resolver(cliente, r, criterios, material, estudio: str, meta: di
     try:
         fases = getattr(r, "fases", None)
         fuentes = list(getattr(fases, "fuentes", None) or []) + [
-            "\n".join(getattr(fases, "antecedentes", None) or []),
+            _como_texto(getattr(fases, "antecedentes", None)),
             str(getattr(fases, "autos", "") or ""), str(contexto or "")]
         nuevo, inf = await supervisar(
             estudio, criterios, material,
             resumen_acto=str(getattr(fases, "resumen_acto", "") or ""),
             resumen_conceptos=str(getattr(fases, "resumen_conceptos", "") or ""),
-            fuentes=fuentes, cliente=cliente)
+            fuentes=fuentes, cliente=cliente, plan=_plan_de(r))
         if isinstance(meta, dict):
             meta["supervisor"] = inf
         _av = aviso(inf)
@@ -1073,11 +1501,12 @@ async def en_el_resolver(cliente, r, criterios, material, estudio: str, meta: di
 # misma doble confirmación—; lo que cambia es cuándo se pregunta.
 class BarridoMemo:
     """`preguntar` y `confirmar` para `barrido_preceptos.barrer` que recuerdan
-    lo ya contestado. Lo que falló no se recuerda: se vuelve a preguntar."""
+    lo ya contestado. Lo que falló no se recuerda: se vuelve a preguntar (en
+    `confirmar`, sólo se recuerda la confirmación positiva)."""
 
     def __init__(self):
         self.respuestas = {}       # (ley, num) → dict de la respuesta (sin «n»)
-        self.confirmados = {}      # (ley, num) → bool (¿inexistente confirmado?)
+        self.confirmados = {}      # (ley, num) → True sólo si se confirmó inexistente
 
     async def preguntar(self, lote: list, segundos: float) -> list:
         import barrido_preceptos as _bp
@@ -1095,12 +1524,21 @@ class BarridoMemo:
                 if tuple(p) in self.respuestas]
 
     async def confirmar(self, pares: list, segundos: float) -> set:
+        """SÓLO SE RECUERDA LO CONFIRMADO (3-oct-2026). `_confirmar` devuelve
+        el conjunto de los que una segunda pregunta volvió a negar, y en él no
+        se distingue «dijo que existe» de «venció el plazo» o «falló la red»
+        (cada `_uno` devuelve None). Guardar False para todos los demás hacía
+        que el barrido final no volviera a preguntar una cita inventada cuya
+        confirmación falló en el adelantado, y lo que habría sido «la cita
+        está inventada» bajaba a «no se pudo comprobar». Lo no confirmado se
+        vuelve a preguntar: son pocos (sólo los que la primera pasada negó)."""
         import barrido_preceptos as _bp
-        faltan = [tuple(p) for p in pares if tuple(p) not in self.confirmados]
+        faltan = [tuple(p) for p in pares if not self.confirmados.get(tuple(p))]
         if faltan:
             hechos = await _bp._confirmar(faltan, segundos)
             for p in faltan:
-                self.confirmados[p] = p in (hechos or set())
+                if p in (hechos or set()):
+                    self.confirmados[p] = True
         return {tuple(p) for p in pares if self.confirmados.get(tuple(p))}
 
 

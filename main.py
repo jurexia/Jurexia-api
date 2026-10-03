@@ -11043,7 +11043,10 @@ app.add_middleware(
     expose_headers=["X-Borrador", "X-Palabras", "X-Avisos", "X-Avisos-Detalle",
                     "X-Huecos", "X-Advertencias", "X-Problemas", "X-Oportunidad",
                     "X-Tiempos", "X-Rama", "X-Depuracion", "X-Leido",
-                    "X-Version", "Content-Disposition"],
+                    # X-Supervisor (3-oct-2026): el camino plano dice cuántas
+                    # correcciones hizo el supervisor y, sin exponerla, el
+                    # navegador la leía siempre como null.
+                    "X-Version", "X-Supervisor", "Content-Disposition"],
 )
 
 # El agente de los flujos de trabajo (25-sep-2026): un ayudante sin estado que
@@ -40985,6 +40988,11 @@ async def taller_proyecto(numero: str, user_email: str):
         "nombre": pr.get("nombre") or "",
         "sentido_global": pr.get("sentido_global") or "",
         "modo": pr.get("modo") or "",
+        # LO QUE CORRIGIÓ EL SUPERVISOR (3-oct-2026), como lo lleva
+        # `_taller_meta_listo`: sólo si corrió. La ficha ya lo guardaba, pero
+        # aquí no salía, y tras un corte la pantalla recuperaba el .docx
+        # corregido sin enseñar «Lo que corrigió el revisor».
+        **({"supervisor": dict(pr["supervisor"])} if isinstance(pr.get("supervisor"), dict) else {}),
     }}
 
 

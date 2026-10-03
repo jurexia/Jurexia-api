@@ -14,7 +14,12 @@ un doble. Comprueba:
   8 · el barrido adelantado: lo contestado no se vuelve a preguntar;
   9 · el camino: los DOS gemelos lo llaman tras `_congruencia_apertura`, el de
       flujo emite «revisando», main.py lo reenvía, el meta lo lleva sólo si
-      corrió y la cabecera del camino plano; apagado, `activo()` es False.
+      corrió y la cabecera del camino plano; apagado, `activo()` es False;
+ 10 · la revisión adversarial del 3-oct-2026: el desenlace no se voltea, el
+      calificativo tampoco, «endereza» acotado por el plan, condensar no quita
+      una respuesta, registros y rubros intactos, «3-4» no es 34, los rótulos
+      del guion son fijos, el memo no recuerda fallos, la salida ilegible es
+      «fallo», los antecedentes como texto, X-Supervisor y /taller/proyecto.
 
     .venv/bin/python test_supervisor_proyecto.py
 """
@@ -284,9 +289,18 @@ ok("falló" in S.aviso(i2), "y el aviso dice que no se revisó")
 _ll, _ = _doble("{}", espera=0.5)
 n3, i3 = asyncio.run(S.supervisar(ESTUDIO, CRIT, MATERIAL, "", "", FUENTES, llamar=_ll, tope_s=0.05))
 ok(n3 == ESTUDIO and i3["estado"] == "vencido", "si vence (con el tope del doble), como estaba")
-_ll, _ = _doble("esto no es JSON")
+_ll, _ = _doble('{"parches": []}')
 n4, i4 = asyncio.run(S.supervisar(ESTUDIO, CRIT, MATERIAL, "", "", FUENTES, llamar=_ll))
 ok(n4 == ESTUDIO and i4["estado"] == "sin_cambios" and S.aviso(i4) == "", "sin parches: sin cambios y sin aviso")
+# UNA SALIDA VACÍA O ILEGIBLE NO ES «SIN CAMBIOS» (revisión del 3-oct-2026).
+for _sal, _err in (("esto no es JSON", "ilegible"), ("", "sin_respuesta"), (None, "sin_respuesta"),
+                   ('{"resultado": "ok"}', "ilegible"),
+                   ('{"parches": [ {"parrafo": 3, "accion": "condensar", "te', "ilegible")):
+    _ll, _ = _doble(_sal)
+    n4b, i4b = asyncio.run(S.supervisar(ESTUDIO, CRIT, MATERIAL, "", "", FUENTES, llamar=_ll))
+    ok(n4b == ESTUDIO and i4b["estado"] == "fallo" and i4b.get("error") == _err
+       and "no devolvió una respuesta legible" in S.aviso(i4b),
+       f"salida {_sal!r:.30}: «fallo» ({_err}), no «sin cambios», y el aviso lo dice")
 # EL PISO: condensar todo a seis palabras dejaría el estudio muy por debajo.
 _todo = [{"parrafo": b["n"], "accion": "condensar", "tipo": "extension",
           "texto": "Esto es lo que se resuelve aquí."} for b in BL if not b["fijo"] and not b["ids"]
@@ -363,6 +377,19 @@ try:
     c2 = asyncio.run(memo.confirmar([("Ley X", "999")], 5))
     ok(c1 == c2 == {("Ley X", "999")} and sum(1 for x in _llamadas if x[0] == "conf") == 1,
        "la confirmación tampoco se repite")
+    # LA CONFIRMACIÓN QUE FALLÓ NO SE RECUERDA (3-oct-2026): `_confirmar`
+    # devuelve set() si vence o falla la red; el barrido final vuelve a pedirla.
+    _veces = []
+
+    async def _conf_falla_luego(pares, segundos):
+        _veces.append(list(pares))
+        return set() if len(_veces) == 1 else set(pares)
+    bp._confirmar = _conf_falla_luego
+    memo2 = S.BarridoMemo()
+    d1 = asyncio.run(memo2.confirmar([("Ley Z", "884")], 5))
+    d2 = asyncio.run(memo2.confirmar([("Ley Z", "884")], 5))
+    ok(d1 == set() and d2 == {("Ley Z", "884")} and len(_veces) == 2,
+       "una confirmación fallida se vuelve a pedir en el barrido final")
 finally:
     bp._preguntar, bp._confirmar = _orig_p, _orig_c
 _rel = SN(estudio=["uno", "dos"], antecedentes=["tres"], resumen_acto=[], resumen_conceptos=["cuatro"],
@@ -422,6 +449,209 @@ os.environ["SUPERVISOR_PROYECTO"] = "0"
 ok(S.activo() is False and _ns2["_taller_plan_adelantar"]("otro@x") is False, "apagado, nada")
 os.environ.pop("SUPERVISOR_PROYECTO", None)
 ok(S.activo() is False, "por omisión («casa»), fuera de una sesión de pruebas, no rige")
+
+print("10 · la revisión adversarial del 3-oct-2026")
+# (1) EL DESENLACE. Revisión en plenitud: «revocar y negar» → «revocar y conceder».
+_cierre = S.bloques("Por lo expuesto, procede revocar la sentencia recurrida y negar el amparo y "
+                    "protección de la Justicia Federal a la parte quejosa.")[0]
+CRIT_P = [SN(problema="¿Procedía el sobreseimiento?", sentido="fundado", jerarquia="principal", razonamiento=""),
+          SN(problema="¿Son fundados los conceptos?", sentido="infundado", jerarquia="accesorio", razonamiento="")]
+AN_P = S.Anclas(MATERIAL, FUENTES, CRIT_P)
+for _t in ("error_juridico", "incongruencia", "redaccion"):
+    ok(S.guardas({"parrafo": 1, "accion": "reemplazar", "tipo": _t,
+                  "texto": _cierre["texto"].replace("negar", "conceder")}, _cierre, AN_P)
+       .startswith("cambia el desenlace"), f"negar → conceder en plenitud ({_t}): fuera")
+_noprocede = S.bloques("En consecuencia, no procede revocar la sentencia recurrida, cuyas consideraciones "
+                       "subsisten en sus términos.")[0]
+ok(S.guardas({"parrafo": 1, "accion": "reemplazar", "tipo": "error_juridico",
+              "texto": "En consecuencia, procede revocar la sentencia recurrida, cuyas consideraciones no "
+                       "subsisten en sus términos."}, _noprocede, AN_P).startswith("cambia el desenlace"),
+   "«no procede revocar» → «procede revocar»: fuera")
+for _de, _a in (("únicamente para efectos de que", "para que"), ("se sobresee en el juicio", "se niega el amparo"),
+                ("ordenar la reposición del procedimiento", "ordenar que se dicte otra sentencia")):
+    _b = S.bloques(f"Por tanto, lo procedente es {_de} la autoridad responsable deje insubsistente el acto "
+                   f"reclamado en este asunto.")[0]
+    ok(S.guardas({"parrafo": 1, "accion": "reemplazar", "tipo": "error_juridico",
+                  "texto": _b["texto"].replace(_de, _a)}, _b, AN_P).startswith("cambia el desenlace"),
+       f"«{_de}» → «{_a}»: fuera")
+ok(S.guardas({"parrafo": 1, "accion": "condensar", "tipo": "extension",
+              "texto": "Por lo expuesto, procede revocar la sentencia recurrida y negar el amparo a la quejosa."},
+             _cierre, AN_P) == "", "condensar el cierre conservando el desenlace: pasa")
+ok(S.guardas({"parrafo": 1, "accion": "eliminar", "tipo": "repeticion", "texto": ""}, _cierre, AN_P)
+   == "eliminar un párrafo que dicta el desenlace", "eliminar el párrafo del desenlace: fuera")
+# La red de seguridad de `supervisar`: aunque una guarda dejara pasar el parche,
+# el desenlace del estudio entero no cambia.
+_EST_P = ESTUDIO + "\n\n" + _cierre["texto"]
+_n_cierre = len(S.bloques(_EST_P))
+_ll, _ = _doble(_json.dumps({"parches": [{"parrafo": _n_cierre, "accion": "reemplazar", "tipo": "error_juridico",
+                                          "texto": _cierre["texto"].replace("negar", "conceder")}]}))
+_g_orig = S.guardas
+S.guardas = lambda p, b, a: ""
+try:
+    n8, i8 = asyncio.run(S.supervisar(_EST_P, CRIT_P, MATERIAL, "", "", FUENTES, llamar=_ll))
+finally:
+    S.guardas = _g_orig
+ok(n8 == _EST_P and i8["estado"] == "sin_cambios"
+   and any("desenlace" in m["motivo"] for m in i8["motivos_descarte"]),
+   "si la suma de parches cambiara el desenlace del estudio, se revierte todo")
+_ll, _ = _doble(_json.dumps({"parches": [{"parrafo": _n_cierre, "accion": "reemplazar", "tipo": "error_juridico",
+                                          "texto": _cierre["texto"].replace("negar", "conceder")}]}))
+n8b, i8b = asyncio.run(S.supervisar(_EST_P, CRIT_P, MATERIAL, "", "", FUENTES, llamar=_ll))
+ok(n8b == _EST_P and i8b["descartadas"] == 1, "supervisar de punta a punta: el volteo del desenlace no entra")
+
+# (2) EL CALIFICATIVO, no sólo la dirección.
+for _otro in ("inoperante", "ineficaz", "inatendible", "fundado pero insuficiente"):
+    for _t in ("error_juridico", "incongruencia", "redaccion"):
+        ok(g(2, "reemplazar", P2.replace("infundado", _otro), _t).startswith("cambia el calificativo"),
+           f"infundado → {_otro} ({_t}): fuera")
+_dos = S.bloques("Sobre el primer agravio, se considera infundado en una parte y, en otra, es inoperante "
+                 "porque no combate las consideraciones.")[0]
+ok(S.guardas({"parrafo": 1, "accion": "condensar", "tipo": "extension",
+              "texto": "Sobre el primer agravio, se considera infundado en su totalidad."}, _dos, AN)
+   .startswith("cambia el calificativo"), "condensar quitando uno de dos calificativos del mismo lado: fuera")
+_asiste = S.bloques("Respecto del primer agravio, no le asiste la razón a la recurrente en lo que plantea.")[0]
+ok(S.guardas({"parrafo": 1, "accion": "reemplazar", "tipo": "error_juridico",
+              "texto": "Respecto del primer agravio, es inoperante lo que plantea la recurrente."}, _asiste, AN)
+   .startswith("cambia el calificativo"), "«no le asiste la razón» → «inoperante»: fuera")
+ok(S.calificativos("Es fundado pero insuficiente el agravio.") == {"fundado_insuficiente"}
+   and S.calificativos("Su estudio resulta innecesario.") == {"innecesario"}
+   and S.calificativos("Sirve de apoyo la tesis «AGRAVIOS INOPERANTES. LO SON LOS QUE NO COMBATEN.»") == set(),
+   "los calificativos se leen de las frases que califican, sin los rubros")
+
+# (3) «ENDEREZA», ACOTADO. Criterio todo «fundado» y un argumento que el plan
+# dejó infundado dentro del problema fundado: el volteo a «fundado» se descarta.
+CRIT_F = [SN(problema="¿Prescribió la acción?", sentido="fundado", jerarquia="principal", razonamiento=""),
+          SN(problema="¿Los demás conceptos?", sentido="innecesario", jerarquia="accesorio", razonamiento="")]
+_est_f = "⟦C2.a⟧ Es infundado, en cambio, el planteamiento relativo a la prescripción del segundo concepto."
+_bf = S.bloques(_est_f)[0]
+_pf = {"parrafo": 1, "accion": "reemplazar", "tipo": "incongruencia",
+       "texto": "Es fundado, en cambio, el planteamiento relativo a la prescripción del segundo concepto."}
+ok(S.guardas(_pf, _bf, S.Anclas(MATERIAL, FUENTES, CRIT_F)).startswith("cambia la calificación"),
+   "criterio todo fundado, sin plan que lo atribuya: el volteo se descarta")
+_plan_inf = {"segmentos": [{"id": "C2.a", "etiqueta": "infundado"}]}
+ok(S.guardas(_pf, _bf, S.Anclas(MATERIAL, FUENTES, CRIT_F, _plan_inf)).startswith("cambia la calificación"),
+   "el plan dice infundado: el volteo a fundado se descarta")
+_plan_fun = {"segmentos": [{"id": "C2.a", "etiqueta": "fundado"}]}
+ok(S.guardas(_pf, _bf, S.Anclas(MATERIAL, FUENTES, CRIT_F, _plan_fun)) == "",
+   "el plan dice fundado: enderezar a fundado pasa")
+ok(S.guardas(dict(_pf, tipo="redaccion"), _bf, S.Anclas(MATERIAL, FUENTES, CRIT_F, _plan_fun))
+   .startswith("cambia la calificación"), "y como «redacción», no")
+_bi = S.bloques("⟦C1.a⟧ Sobre el primer agravio, que plantea la cosa juzgada, se considera infundado.")[0]
+_plan_ino = {"segmentos": [{"id": "C1.a", "etiqueta": "inoperante"}]}
+_pi = {"parrafo": 1, "accion": "reemplazar", "tipo": "incongruencia",
+       "texto": "Sobre el primer agravio, que plantea la cosa juzgada, se considera inoperante."}
+ok(S.guardas(_pi, _bi, S.Anclas(MATERIAL, FUENTES, CRIT, _plan_ino)) == "",
+   "el plan dice inoperante y el estudio escribió infundado: la corrección pasa")
+ok(S.guardas(_pi, _bi, S.Anclas(MATERIAL, FUENTES, CRIT)).startswith("cambia el calificativo"),
+   "la misma corrección sin plan: fuera")
+
+# (4) CONDENSAR NO QUITA LA RESPUESTA A UN ARGUMENTO MARCADO.
+INV = [{"id": "C1.a", "texto": "El juez no valoró el dictamen pericial en grafoscopía que demostraba la "
+                               "falsedad de la firma del pagaré", "anclas": []},
+       {"id": "C1.b", "texto": "La confesional ficta de la demandada debió tenerse por desahogada porque no "
+                               "compareció a absolver posiciones", "anclas": []},
+       {"id": "C2.a", "texto": "La prescripción de la acción cambiaria directa operó porque transcurrieron "
+                               "más de tres años", "anclas": []}]
+MAT_INV = SN(**dict(vars(MATERIAL), inventario=INV))
+_b2 = S.bloques("⟦C1.a C1.b⟧ Es infundado el primer agravio. Por una parte, el dictamen pericial en grafoscopía "
+                "sí fue valorado por el juez, quien explicó por qué no demostraba la falsedad de la firma del "
+                "pagaré. Por otra, la confesional ficta de la demandada no podía tenerse por desahogada, pues no "
+                "fue citada legalmente a absolver posiciones.")[0]
+_AN_INV = S.Anclas(MAT_INV, FUENTES, CRIT)
+ok(S.guardas({"parrafo": 1, "accion": "condensar", "tipo": "extension",
+              "texto": "Es infundado el primer agravio, porque el dictamen pericial en grafoscopía sí fue "
+                       "valorado por el juez, quien explicó por qué no demostraba la falsedad de la firma."},
+             _b2, _AN_INV) == "quita la respuesta a C1.b", "condensar dejando sólo la pericial: fuera (C1.b)")
+ok(S.guardas({"parrafo": 1, "accion": "condensar", "tipo": "extension",
+              "texto": "Es infundado el primer agravio: el juez sí valoró el dictamen pericial en grafoscopía "
+                       "sobre la firma del pagaré, y la confesional ficta de la demandada no podía tenerse por "
+                       "desahogada sin citarla a absolver posiciones."},
+             _b2, _AN_INV) == "", "condensar conservando las dos respuestas: pasa")
+
+# (5) REGISTROS Y RUBROS DEL PÁRRAFO.
+_p4 = por_n[4]
+ok(not _p4["fijo"] and g(4, "reemplazar", "Sirve de apoyo la jurisprudencia de registro digital 173604, de rubro "
+                                          "siguiente:", "cita").startswith("quita o cambia un registro"),
+   "cambiar el registro que el párrafo cita: fuera")
+ok(g(4, "reemplazar", "Sirve de apoyo la jurisprudencia que se transcribe enseguida, de rubro siguiente:", "cita")
+   .startswith("quita o cambia un registro"), "quitar el registro: fuera")
+ok(g(3, "reemplazar", P3 + " Así lo sostiene la tesis de rubro «COSA JUZGADA REFLEJA. SUS ALCANCES EN EL "
+                           "JUICIO DE ORIGEN […]».", "error_juridico").startswith("rubro entre comillas"),
+   "un rubro nuevo que no es el de una tesis del material: fuera")
+ok(g(3, "reemplazar", P3 + " Sirve de apoyo la tesis 2026918, de rubro «COSA JUZGADA Y SUS EFECTOS DIRECTO Y "
+                           "REFLEJO.».", "error_juridico") == "",
+   "un rubro nuevo que es, entero, el de una tesis del material: pasa")
+MAT_SV = SN(**dict(vars(MATERIAL), tesis=list(MATERIAL.tesis) + [
+    {"registro": "2011111", "rubro": "PRUEBA PERICIAL. SU VALORACIÓN.", "vigencia": {"estado": "abandonada"}}]))
+ok(S.guardas({"parrafo": 3, "accion": "reemplazar", "tipo": "cita",
+              "texto": P3.replace("conforme al", "como dice la tesis 2011111 y el")}, por_n[3],
+             S.Anclas(MAT_SV, FUENTES, CRIT)).startswith("cita una tesis que perdió vigencia"),
+   "citar una tesis del material que perdió vigencia: fuera")
+ok("[SIN VIGENCIA" in S._bloque_catalogo(MAT_SV) and "PRUEBA PERICIAL. SU VALORACIÓN." in S._bloque_catalogo(MAT_SV),
+   "el catálogo enseña el rubro entero y la vigencia")
+
+# (6) EL NÚMERO DE PÁRRAFO ES UN SOLO ENTERO.
+for _x, _esp in (("3-4", 0), ("1 y 2", 0), ("P34", 34), (3.0, 3), ("3.0", 3), (3.5, 0), ("párrafo 5", 5),
+                 (True, 0), (7, 7), ("P3", 3)):
+    ok(S._numero_de_parrafo(_x) == _esp, f"párrafo {_x!r} → {_esp}")
+ps, malos = S.parsear('{"parches": [{"parrafo": "3-4", "accion": "condensar", "tipo": "repeticion", '
+                      '"texto": "uno dos tres cuatro cinco seis"}]}')
+ok(ps == [] and malos == 1, "«3-4» es un parche mal formado, no el párrafo 34")
+
+# (7) LOS RÓTULOS DEL GUION SON FIJOS.
+_bg = S.bloques("DESVIACIONES DEL GUION: el apartado del segundo concepto se desarrolla con su diferencia propia.\n\n"
+                "APLICA C1.a por la premisa M1 del plan, que se expone primero en este estudio.\n\n"
+                "**DESVIACIONES DEL GUION** ninguna que deba informarse al secretario en este punto del estudio.")
+ok([b["fijo"] for b in _bg] == ["rótulo del guion"] * 3, "«DESVIACIONES DEL GUION» y «APLICA C1.a» son fijos")
+import redactor_adelanto as _ra
+ok(_ra._RX_ROTULO_GUION.pattern == S._RX_ROTULO_GUION_COPIA.pattern
+   and _ra._RX_DESVIACIONES.pattern == S._RX_DESVIACIONES_COPIA.pattern,
+   "la copia de respaldo de los rótulos es igual a la del limpiador")
+
+# (10) LOS ANTECEDENTES SON UNA CADENA: no una letra por renglón.
+_vistos_f = {}
+
+
+async def _sup_espia(estudio, criterios, material, **kw):
+    _vistos_f.update(kw)
+    return estudio, S._informe_vacio()
+S.supervisar = _sup_espia
+try:
+    asyncio.run(S.en_el_resolver(None, SN(fases=SN(fuentes=["f1"], antecedentes="El ocho de abril se dictó.",
+                                                   autos="", resumen_acto="", resumen_conceptos=""),
+                                          encargo=SN(plan={"plan": _plan_fun})),
+                                 CRIT, MATERIAL, ESTUDIO, {}, []))
+finally:
+    S.supervisar = _orig_sup
+ok("El ocho de abril se dictó." in _vistos_f.get("fuentes", []), "los antecedentes llegan como texto entero")
+ok(_vistos_f.get("plan") == _plan_fun, "y el plan v4 del encargo llega a las guardas")
+ok(S._como_texto(["a", "b"]) == "a\nb" and S._como_texto(None) == "", "una lista se une; nada, cadena vacía")
+
+# main.py: X-Supervisor expuesta por CORS y /taller/proyecto con el supervisor.
+_cors = re.search(r"expose_headers=\[(.*?)\]", msrc, re.S)
+ok(_cors is not None and '"X-Supervisor"' in _cors.group(1), "CORS expone X-Supervisor")
+_tp = next(n for n in _marbol.body if isinstance(n, ast.AsyncFunctionDef) and n.name == "taller_proyecto")
+_ns3 = {"_taller_puerta": lambda e: None, "err": str, "print": lambda *a, **k: None}
+
+
+class _Q:
+    def __init__(self, data):
+        self.data = data
+
+    def __getattr__(self, k):
+        return lambda *a, **kw: self
+
+    def execute(self):
+        return SN(data=self.data)
+
+
+exec(ast.get_source_segment(msrc, _tp), _ns3)
+for _pr, _espera in (({"version": 2, "supervisor": {"estado": "aplicado", "correcciones": []}}, "aplicado"),
+                     ({"version": 2}, None)):
+    _ns3["supabase_admin"] = SN(table=lambda *_a, _d=[{"estado": {"proyecto": _pr}}]: _Q(_d))
+    _r = asyncio.run(_ns3["taller_proyecto"]("1/2026", "x@y"))["proyecto"]
+    ok(((_r.get("supervisor") or {}).get("estado")) == _espera and ("supervisor" in _r) == (_espera is not None),
+       f"/taller/proyecto {'devuelve' if _espera else 'no inventa'} el supervisor")
 
 print()
 if FALLOS:
