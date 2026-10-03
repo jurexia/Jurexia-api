@@ -1,78 +1,39 @@
 # -*- coding: utf-8 -*-
 """LA PROPUESTA SIEMPRE ELIGE UN LADO: EL QUE PASA DEL 50% (David, 2-oct-2026).
 
-«Si ya tenemos jurimetría y sólo hay dos sentidos (conceder o negar, fundado o
-infundado), lo correcto es que si hay un 50.01% de probabilidad hacia un lado
-sea esa la propuesta de resolución, para que el secretario pueda generar el
-proyecto en automático. Esa función debe persistir desde un inicio.»
+«Si hay un 50.01% de probabilidad hacia un lado sea esa la propuesta de
+resolución, para que el secretario pueda generar el proyecto en automático.»
 
-POR QUÉ NO BASTA CON EL VOTO DEL MOTOR. Medido en el banco Kingston con el oro
-auditado sobre los resolutivos (21 amparos directos, 29-sep-2026):
+DE DÓNDE SALE EL NÚMERO (David, 2-oct-2026, corrigiendo la primera versión):
+«Tú partes de que es con la tasa del tribunal y no es así; quizá el tribunal se
+equivoca. El tribunal sólo sirve como guía en casos de precedentes claros, pero
+el motor puede aprovechar su capacidad de razonar una respuesta en aplicación
+de una jurisprudencia aplicable al caso, una aplicable temáticamente o, incluso,
+una por analogía (…) lo que resuelve es la inteligencia en el razonamiento
+jurídico». Así que:
 
-    el motor votó CONCEDER en el 83% de los asuntos que el tribunal concedió
-    y en el 71% de los que el tribunal NEGÓ.
+ · LA PROBABILIDAD ES RAZONADA, no estadística: la da el EXAMINADOR
+   (`examinador.py`), un segundo razonador que examina las dos vías que el
+   motor ya escribió y dice con qué probabilidad prosperan los conceptos o
+   agravios. Si no llega, manda el lado que razonó el motor.
+ · NI LA TASA DEL TRIBUNAL NI SUS PRECEDENTES DECIDEN. Los precedentes del
+   propio tribunal sobre el mismo problema sólo AVISAN al secretario
+   (`aviso_precedentes`): un caso muy parecido no prueba que se resolvió bien.
+   La primera versión de este módulo mezclaba la tasa (71% de negativas en
+   amparo directo) y proponía negar siempre; se retiró el mismo día.
 
-Su voto casi no separa un desenlace del otro (razón de verosimilitud 1.17), y
-la confianza que declara tampoco: «conceder, confianza alta» acertó 6 de 27.
-El tribunal, en cambio, niega el 71% de sus amparos directos. Un número que
-mezcla las tres fuentes con el peso que cada una DEMOSTRÓ es más honesto que
-cualquiera de ellas sola, y es lo que aquí se calcula.
-
-LAS TRES FUENTES, Y CÓMO PESA CADA UNA
- 1. La TASA DEL TRIBUNAL por tipo de asunto (`probabilidad_sentido.json`,
-    fichas OAJ): es el punto de partida, con el peso de `kappa` asuntos.
- 2. Los PRECEDENTES DEL MISMO PROBLEMA (`fase_oaj.precedentes_oaj`, la tarjeta
-    del principal): cada planteamiento del tribunal suma su calificación
-    —prosperó o no— con el peso de su probabilidad calibrada de ser el mismo
-    problema (0.85 o más para «mismo problema», 0.50-0.85 para «posible»). La
-    coincidencia por TEMA del asunto pesa la mitad y se lee por el sentido de
-    la sentencia, porque no trae calificación del planteamiento.
- 3. El VOTO DEL MOTOR, con la razón de verosimilitud medida en Kingston. Se
-    recalibra cuando el motor cambie: los números viven en el JSON.
-
-LO QUE NO HACE
- · No escribe razones: si el lado que gana no es el que el motor razonó, se
-   usa la vía contraria que el propio motor ya escribió «como si la
-   defendiera» (`global.alternativa`, `checklist`).
- · No toca el sentido que haya dictado el secretario: corre sobre la
-   propuesta, antes de que nadie decida.
- · Si no hay tasa para el tipo, decide el motor (no se inventa un número).
+LO QUE HACE AQUÍ: la mecánica pura —qué lado, si se voltea, cómo se
+intercambian las vías— para probarla sin red; main pone el examen alrededor.
 """
 from __future__ import annotations
 
-import json
-import math
-import os
 import re
-from pathlib import Path
-
-RUTA = Path(__file__).with_name("probabilidad_sentido.json")
-_CAL: dict | None = None
 
 # Las calificaciones que hacen PROSPERAR un planteamiento; las demás no. «Fundado
 # pero insuficiente / pero inoperante» no prospera: tiene razón y no alcanza.
 _RX_NO = re.compile(r"infundad|insuficient|inoperant|ineficaz|inatendibl|improceden", re.I)
 _RX_SI = re.compile(r"fundad", re.I)
 _RX_SIN = re.compile(r"no se estudi|sin materia|innecesari|desech|sobres", re.I)
-
-# El sentido del resolutivo, para las filas por TEMA (sin calificación).
-_RX_SENT_SI = re.compile(r"^\s*(ampara(?! ni)|revoca|modifica|fundad)", re.I)
-_RX_SENT_NO = re.compile(r"^\s*(no ampara|confirma|infundad)", re.I)
-
-
-def cargar(ruta: str | os.PathLike | None = None) -> dict:
-    """La calibración; {} si no existe o no se lee (entonces decide el motor)."""
-    global _CAL
-    if ruta is None and _CAL is not None:
-        return _CAL
-    try:
-        d = json.loads(Path(ruta or RUTA).read_text(encoding="utf-8"))
-    except Exception as e:
-        print(f"   ⚠️ probabilidad del sentido: sin calibración ({type(e).__name__})")
-        d = {}
-    if ruta is None:
-        _CAL = d
-    return d
 
 
 def prospera(calificacion) -> int | None:
@@ -88,193 +49,38 @@ def prospera(calificacion) -> int | None:
     return None
 
 
-def _de_sentido(sentido) -> int | None:
-    s = str(sentido or "")
-    if _RX_SENT_NO.search(s):
-        return 0
-    if _RX_SENT_SI.search(s):
-        return 1
-    return None
-
-
-# LOS TIPOS QUE EL TALLER NO PROYECTA PERO EL TRIBUNAL SÍ DECIDE (2-oct-2026).
-# `tipos_asunto.normalizar` sólo conoce los cuatro del taller (la reclamación y
-# el impedimento quedaron fuera por decisión de David, ver su cabecera); la
-# tasa de estos tres está medida igual y no se pierde por la grafía.
-_ALIAS_TIPO = {
-    "reclamacion": "reclamacion", "recurso_de_reclamacion": "reclamacion",
-    "recurso_reclamacion": "reclamacion", "rec": "reclamacion",
-    "inconformidad": "inconformidad", "recurso_de_inconformidad": "inconformidad",
-    "recurso_inconformidad": "inconformidad", "inc": "inconformidad",
-    "impedimento": "impedimento", "imp": "impedimento",
-}
-
-
-def clave_tipo(tipo) -> str:
-    """La clave con que se busca la tasa: la de `tipos_asunto.normalizar` para
-    los cuatro del taller, la propia para reclamación, inconformidad e
-    impedimento, y la grafía limpia si no se reconoce."""
-    import unicodedata
-    x = unicodedata.normalize("NFKD", str(tipo or "").strip().lower())
-    x = "".join(c for c in x if not unicodedata.combining(c))
-    x = x.replace(" ", "_").replace("-", "_")
-    if x in _ALIAS_TIPO:
-        return _ALIAS_TIPO[x]
-    try:
-        import tipos_asunto as _ta
-        return _ta.normalizar(x) or x
-    except Exception:                                   # pragma: no cover
-        return x
-
-
-def tasa(tipo: str, cal: dict | None = None) -> tuple:
-    """(probabilidad de que prospere, asuntos que la sostienen) del tipo; (None, 0)
-    si el tipo no está medido."""
-    cal = cargar() if cal is None else cal
-    t = (cal.get("tasas") or {}).get(clave_tipo(tipo)) or {}
-    try:
-        p = float(t.get("prospera"))
-    except (TypeError, ValueError):
-        return None, 0
-    if not 0.0 < p < 1.0:
-        return None, 0
-    return p, int(t.get("n") or 0)
-
-
-def evidencia(filas: list, cal: dict | None = None) -> dict:
-    """Los precedentes del principal como pseudo-cuentas ponderadas.
-
-    Cada fila de `fase_oaj` trae `similitud` (probabilidad calibrada de ser el
-    mismo problema, en %), `fuente` (planteamiento | tema), `calificacion` y
-    `sentido`. Devuelve {a_favor, en_contra, n, filas: [...]} donde a_favor es la
-    suma de pesos de los que prosperaron."""
-    cal = cargar() if cal is None else cal
-    peso_tema = float(cal.get("peso_tema", 0.5) or 0.5)
-    a = b = 0.0
-    usadas = []
-    vistos = set()
-    for f in filas or []:
-        if not isinstance(f, dict):
-            continue
-        clave = (f.get("neun"), f.get("pregunta"))
-        if clave in vistos:
-            continue
-        vistos.add(clave)
-        try:
-            w = max(0.0, min(0.99, float(f.get("similitud") or 0) / 100.0))
-        except (TypeError, ValueError):
-            continue
-        if w < 0.5:
-            continue
-        if (f.get("fuente") or "planteamiento") == "tema":
-            y = _de_sentido(f.get("sentido"))
-            w *= peso_tema
-        else:
-            y = prospera(f.get("calificacion"))
-        if y is None:
-            continue
-        if y:
-            a += w
-        else:
-            b += w
-        usadas.append({"expediente": f.get("expediente") or "", "similitud": f.get("similitud"),
-                       "prospero": bool(y), "calificacion": f.get("calificacion") or f.get("sentido") or "",
-                       "nivel": f.get("nivel") or ""})
-    return {"a_favor": round(a, 3), "en_contra": round(b, 3), "n": len(usadas), "filas": usadas}
-
-
 def voto_motor(sentido) -> int | None:
-    """El voto del motor sobre si el asunto prospera (su sentido global)."""
+    """El lado que razonó el motor (su sentido global): 1 prospera, 0 no."""
     return prospera(sentido)
 
 
-def calcular(tipo: str, filas: list | None = None, sentido_motor=None,
-             cal: dict | None = None, propio: bool = True) -> dict:
-    """La probabilidad de que el asunto PROSPERE y el lado que se propone.
-
-    {p_prospera, lado: "prospera"|"no_prospera"|None, tasa, n_tasa, precedentes,
-     motor, explicacion}. `lado` None sólo si no hay tasa para el tipo ni voto del
-    motor: entonces no hay número que dar."""
-    cal = cargar() if cal is None else cal
-    tipo = clave_tipo(tipo)
-    p0, n0 = tasa(tipo, cal)
-    ev = evidencia(filas or [], cal)
-    v = voto_motor(sentido_motor)
-    if p0 is None:
-        # Sin tasa medida para el tipo no se inventa: decide el motor, como antes.
-        lado = None if v is None else ("prospera" if v else "no_prospera")
-        return {"p_prospera": None, "lado": lado, "tasa": None, "n_tasa": 0,
-                "precedentes": ev, "motor": v, "fuente": "motor",
-                "explicacion": ("Sin tasa medida para este tipo de asunto: manda la propuesta del motor."
-                                if v is not None else
-                                "Sin tasa medida para este tipo de asunto y sin propuesta del motor: "
-                                "no hay número que dar.")}
-    kappa = float(cal.get("kappa", 3) or 3)
-    a = kappa * p0 + ev["a_favor"]
-    b = kappa * (1.0 - p0) + ev["en_contra"]
-    p = a / (a + b)
-    lr = 1.0
-    m = cal.get("motor") or {}
-    if v is not None:
-        try:
-            lr = float(m.get("lr_prospera" if v else "lr_no_prospera") or 1.0)
-        except (TypeError, ValueError):
-            lr = 1.0
-    odds = (p / (1.0 - p)) * max(lr, 1e-6)
-    p = odds / (1.0 + odds)
-    p = min(max(p, 0.01), 0.99)
-    lado = "prospera" if p > 0.5 else "no_prospera"
-    return {"p_prospera": round(p, 3), "lado": lado, "tasa": p0, "n_tasa": n0,
-            "precedentes": ev, "motor": v, "fuente": "jurimetria",
-            "explicacion": explicar(tipo, p, p0, n0, ev, v, lado, propio)}
-
-
-# En plural, porque se lee «la tasa del tribunal en sus amparos directos».
-_NOMBRE_TIPO = {"amparo_directo": "amparos directos", "amparo_revision": "amparos en revisión",
-                "queja": "quejas", "revision_fiscal": "revisiones fiscales",
-                "reclamacion": "recursos de reclamación", "inconformidad": "recursos de inconformidad",
-                "impedimento": "impedimentos"}
-_PROSPERA_TXT = {"amparo_directo": ("conceder", "negar"),
-                 "amparo_revision": ("que el recurso prospere", "que no prospere"),
-                 "queja": ("que la queja sea fundada", "que sea infundada"),
-                 "revision_fiscal": ("que el recurso prospere", "que no prospere"),
-                 "reclamacion": ("que la reclamación sea fundada", "que sea infundada"),
-                 "inconformidad": ("que la inconformidad sea fundada", "que sea infundada"),
-                 "impedimento": ("que el impedimento sea fundado", "que sea infundado")}
-
-
-def _pct(x: float) -> str:
-    return f"{int(round(x * 100))}%"
-
-
-def explicar(tipo, p, p0, n0, ev, v, lado, propio: bool = True) -> str:
-    """Una frase para el secretario: el número y de dónde sale.
-
-    (2-oct-2026) «Sale de … ningún precedente» no se lee: lo que no hay se
-    dice aparte. `propio` False: el tribunal que proyecta no es el de la tasa
-    y se dice que es una referencia, no su estadística."""
-    tipo = clave_tipo(tipo)
-    si, no = _PROSPERA_TXT.get(tipo, ("que prospere", "que no prospere"))
-    gana = si if lado == "prospera" else no
-    prob = p if lado == "prospera" else 1 - p
-    nombre = _NOMBRE_TIPO.get(tipo, "asuntos de " + str(tipo or "").replace("_", " "))
-    if propio:
-        partes = [f"la tasa del tribunal en sus {nombre} (prospera el {_pct(p0)} de {n0:,} asuntos)"]
-    else:
-        partes = [f"la tasa de referencia del Tercer Tribunal Colegiado del Vigésimo Segundo "
-                  f"Circuito en sus {nombre} (prospera el {_pct(p0)} de {n0:,} asuntos)"]
-    fav = sum(1 for f in ev["filas"] if f["prospero"]) if ev.get("n") else 0
-    if ev.get("n"):
-        partes.append(f"{ev['n']} precedente{'s' if ev['n'] != 1 else ''} del tribunal sobre el mismo "
-                      f"problema ({fav} en que prosperó y {ev['n'] - fav} en que no)")
-    if v is not None:
-        partes.append(f"la lectura del motor, que {'apuntaba a que prospera' if v else 'apuntaba a que no prospera'} "
-                      f"(su voto pesa poco: así lo midió el banco de 21 asuntos)")
-    frase = (f"Se propone {gana}, con una probabilidad del {_pct(prob)}. Sale de "
-             + (", ".join(partes[:-1]) + " y " if len(partes) > 1 else "") + partes[-1] + ".")
-    if not ev.get("n"):
-        frase += " No hay precedentes del tribunal sobre el mismo problema."
-    return frase
+def aviso_precedentes(filas: list, sentido: str) -> str:
+    """El aviso de los precedentes del PROPIO tribunal sobre el mismo problema
+    (filas de `fase_oaj`, nivel «mismo_problema»): guía, nunca decide. «» si no
+    hay ninguno de ese nivel con calificación."""
+    quiere = prospera(sentido)
+    vistos, a_favor, en_contra = set(), [], []
+    for f in filas or []:
+        if not isinstance(f, dict) or str(f.get("nivel") or "") != "mismo_problema":
+            continue
+        y = prospera(f.get("calificacion"))
+        clave = (f.get("neun"), f.get("expediente"))
+        if y is None or clave in vistos:
+            continue
+        vistos.add(clave)
+        etq = f"{f.get('tipo_asunto') or ''} {f.get('expediente') or ''}".strip() or "un asunto"
+        etq += f" ({f.get('similitud')}% mismo problema, «{f.get('calificacion')}»)"
+        (a_favor if (quiere is not None and y == quiere) else en_contra).append(etq)
+    if not (a_favor or en_contra):
+        return ""
+    partes = []
+    if en_contra:
+        partes.append("lo resolvió al revés en " + "; ".join(en_contra[:3]))
+    if a_favor:
+        partes.append("lo resolvió en el mismo sentido en " + "; ".join(a_favor[:3]))
+    return ("PRECEDENTES DEL PROPIO TRIBUNAL (guía, no deciden): sobre este mismo problema, el tribunal "
+            + " y ".join(partes) + ". Un caso muy parecido no prueba que se haya resuelto bien: revísalos "
+            "antes de firmar.")
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -353,26 +159,31 @@ def _intercambiar_checklist(checklist: list) -> None:
             c["con_propuesta"], c["con_alternativa"] = c.get("con_alternativa", ""), c.get("con_propuesta", "")
 
 
-def aplicar(glob, propuestas: list, problemas: list, tipo: str, filas: list | None = None,
-            jerarquias: dict | None = None, cal: dict | None = None, propio: bool = True) -> dict:
-    """Fija EN SITIO el lado de la propuesta con la probabilidad.
+def aplicar(glob, propuestas: list, problemas: list, prob: dict | None,
+            jerarquias: dict | None = None) -> dict:
+    """Fija EN SITIO el lado de la propuesta con la probabilidad RAZONADA.
 
     `glob`: la `Global` de la fase 5 (o un dict con sus campos); `propuestas`:
-    las `Propuesta` ya emparejadas con `problemas` (las huérfanas sin
-    sentido). `filas`: los precedentes del propio tribunal para el principal.
+    las `Propuesta` ya emparejadas con `problemas`. `prob`: {p_prospera, lado
+    («prospera» | «no_prospera»), fuente, explicacion} — la del examinador; si
+    es None o no trae lado, manda el lado que razonó el motor.
 
     Devuelve {probabilidad, principal, volteada, necesita_razon, sentido,
-    avisos}. `probabilidad` es la de `calcular` más `volteada` y
-    `sentido_motor`. `necesita_razon`: el lado ganador no tiene razón escrita
-    —el motor no escribió la vía contraria, o no propuso nada— y main la pide.
-    Nunca lanza por datos raros: lo que no entiende, lo deja como estaba."""
+    avisos}. `necesita_razon`: el lado ganador no tiene razón escrita y main
+    la pide. Nunca lanza por datos raros: lo que no entiende, lo deja."""
     avisos: list = []
     i = indice_principal(problemas, propuestas, jerarquias)
     pral = propuestas[i] if i >= 0 else None
     s_glob = str(_g(glob, "sentido", "") or "").strip().lower()
     s_pral = str(_g(pral, "sentido", "") or "").strip().lower() if pral is not None else ""
     s_motor = s_glob or s_pral
-    prob = calcular(tipo, filas, s_motor or None, cal, propio=propio)
+    prob = dict(prob or {})
+    if prob.get("lado") not in ("prospera", "no_prospera"):
+        # SIN EXAMEN, manda el motor: su lado, sin número que inventar.
+        _vm = voto_motor(s_motor) if s_motor else None
+        prob = {"p_prospera": None, "fuente": "motor",
+                "lado": None if _vm is None else ("prospera" if _vm else "no_prospera"),
+                "explicacion": "Se propone el lado que razonó el motor; el examen de las dos vías no llegó."}
     prob["sentido_motor"] = s_motor
     prob["volteada"] = False
     info = {"probabilidad": prob, "principal": i, "volteada": False,
@@ -462,10 +273,8 @@ def aplicar(glob, propuestas: list, problemas: list, tipo: str, filas: list | No
         _s(pral, "sostenida", bool(nuevo["apoyos"]))
         _s(pral, "origen", "probabilidad")
     if volteada:
-        prob["explicacion"] = (prob.get("explicacion", "") + f" El motor se inclinaba por lo contrario "
-                               f"(«{s_motor.replace('_', ' ')}»): su razón queda como vía contraria.")
-        avisos.append("LA PROPUESTA SE VOLTEÓ POR PROBABILIDAD: " + prob["explicacion"])
+        avisos.append("EL EXAMEN DE LAS DOS VÍAS VOLTEÓ LA PROPUESTA: " + str(prob.get("explicacion", "")))
     elif not s_motor:
-        avisos.append("El motor no propuso ningún sentido; se propone el más probable: "
-                      + prob.get("explicacion", ""))
+        avisos.append("El motor no propuso ningún sentido; se propone el más probable según el examen: "
+                      + str(prob.get("explicacion", "")))
     return info

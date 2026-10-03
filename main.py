@@ -38861,16 +38861,18 @@ async def _taller_proponer_nucleo(user_email: str, numero: str, ses: dict,
     # David: «si ya tenemos jurimetría y sólo hay dos sentidos (…) si hay un
     # 50.01% de probabilidad hacia un lado sea esa la propuesta de resolución,
     # para que el secretario pueda generar el proyecto en automático». La
-    # probabilidad combina la tasa del tribunal, los precedentes del mismo
-    # problema y el voto del motor con el peso que demostró en Kingston
-    # (`probabilidad_sentido`). Si gana el lado contrario al del motor, se
-    # VOLTEA con la vía contraria que el propio motor escribió. Va DESPUÉS de
+    # probabilidad es RAZONADA, no estadística (David, mismo día: «lo que
+    # resuelve es la inteligencia en el razonamiento jurídico»): la da el
+    # EXAMINADOR, un segundo razonador que examina las dos vías ya escritas
+    # (`examinador.py`). Los precedentes del tribunal sólo avisan. Si gana el
+    # lado contrario al del motor, se VOLTEA con la vía contraria que el propio
+    # motor escribió (`probabilidad_sentido.aplicar`). Va DESPUÉS de
     # lo vinculado por la ejecutoria y ANTES de reconciliar y del árbol, que
     # recalculan los accesorios con el principal ya decidido.
     if _por_prob and glob is not None:
         try:
             await _taller_probabilidad_sentido(r, ses, problemas, propuestas, glob,
-                                               _jer_por_problema, avisos)
+                                               _jer_por_problema, avisos, analisis=_analisis_p)
         except Exception as _eps:
             print(f"   ⚠️ PROBABILIDAD del sentido: no se pudo aplicar: {err(_eps)}")
 
@@ -39058,8 +39060,8 @@ async def _taller_proponer_nucleo(user_email: str, numero: str, ses: dict,
         for _p in propuestas:
             _p.alcanza = bool(str(_p.sentido or "").strip())
         glob.alcanza = bool(str(glob.sentido or "").strip())
-    _preguntas_p = [q for q in (ses.get("preguntas") or []) if isinstance(q, dict)] \
-        if isinstance(ses.get("preguntas"), list) else []
+    # LAS PREGUNTAS SON LAS DE LA COMPUERTA (`_taller_compuerta_preguntas`, más
+    # arriba): None sin la bandera; si no, la lista con sus respuestas.
 
     return {
         "expediente": numero,
@@ -39099,7 +39101,7 @@ async def _taller_proponer_nucleo(user_email: str, numero: str, ses: dict,
         "formato": _formato_p,
         # «lista» o «preguntas» (contrato A, 2-oct-2026); aquí siempre lista:
         # la de «preguntas» sale antes de llamar al modelo.
-        **({"estado": "lista", "preguntas": _preguntas_p} if _f3 else {}),
+        **({"estado": "lista", "preguntas": list(_preguntas_p or [])} if _f3 else {}),
         # CON QUÉ ORIGEN SE CALCULÓ (30-sep-2026): si el secretario corrige la
         # instancia o pega los efectos de la ejecutoria, la guardada ya no vale.
         "origen_firma": _taller_firma_origen(),
@@ -39217,49 +39219,85 @@ def _taller_filas_del_principal(material, pregunta: str) -> list:
 
 
 async def _taller_probabilidad_sentido(r, ses: dict, problemas: list, propuestas: list,
-                                       glob, jerarquias: dict, avisos: list) -> dict | None:
-    """LA CAPA DE PROBABILIDAD SOBRE LA PROPUESTA (2-oct-2026; ver
-    `probabilidad_sentido.aplicar`). Pone alrededor lo que necesita red: los
-    precedentes del principal (los de la consulta; si no los hay, se buscan con
-    tope de tiempo) y, sólo si el lado que gana no tiene razón escrita, UNA
-    llamada a `_f5.razonar`. Deja `glob.probabilidad` y los avisos. Nada de
-    esto tumba la propuesta: si algo falla, se queda la del motor."""
+                                       glob, jerarquias: dict, avisos: list, analisis=None) -> dict | None:
+    """EL LADO DE LA PROPUESTA, POR EXAMEN DE LAS DOS VÍAS (2-oct-2026; ver
+    `examinador.py` y `probabilidad_sentido.aplicar`). Pone alrededor lo que
+    necesita red: el examen (Gemini, con tope), los precedentes del principal
+    —SÓLO para el aviso: no deciden— y, sólo si el lado que gana no tiene
+    razón escrita, UNA llamada a `_f5.razonar`. Deja `glob.probabilidad` y los
+    avisos. Nada de esto tumba la propuesta: si algo falla, se queda la del
+    motor."""
     import probabilidad_sentido as _ps
     import fase5_propuesta as _f5p
+    import examinador as _ex
     e = getattr(r, "encargo", None)
     tipo = str(getattr(e, "tipo_asunto", "") or "")
+    numero = str(getattr(e, "numero", "") or "")
     i = _ps.indice_principal(problemas, propuestas, jerarquias)
     pdict = problemas[i] if 0 <= i < len(problemas) and isinstance(problemas[i], dict) else {}
     preg = str(pdict.get("pregunta") or (propuestas[i].problema if 0 <= i < len(propuestas) else ""))
     material = ses.get("material")
-    filas = _taller_filas_del_principal(material, preg) if material is not None else []
-    # ¿ES EL TRIBUNAL DE LA TASA? Si no, la tasa se dice como referencia.
-    propio = True
-    try:
-        import fase_oaj as _fo_ps
-        import fase_precedente as _fp_ps
-        _circ = _fp_ps.circuito_de(getattr(e, "tribunal", "") or "")
-        _clave_o, _organo = _fo_ps.organo_de(getattr(e, "tribunal", "") or "", _circ,
-                                             getattr(e, "ciudad", "") or "")
-        propio = (_clave_o or "") == str(_ps.cargar().get("clave_organo") or "3TCC")
-        if not filas and _organo and pdict:
-            # LA CONSULTA NO LOS DEJÓ (sesión de antes, o el espejo calló por
-            # el principal): se buscan para el principal solo, como en
-            # `redactor_adelanto._espejo_oaj`, con tope. Si no llegan, la tasa
-            # y el voto del motor deciden igual.
+
+    async def _precedentes() -> list:
+        # LOS PRECEDENTES DEL PRINCIPAL, PARA AVISAR: los de la consulta; si no
+        # los dejó, se buscan para el principal solo, con tope.
+        filas = _taller_filas_del_principal(material, preg) if material is not None else []
+        if filas:
+            return filas
+        try:
+            import fase_oaj as _fo_ps
+            import fase_precedente as _fp_ps
+            _circ = _fp_ps.circuito_de(getattr(e, "tribunal", "") or "")
+            _clave_o, _organo = _fo_ps.organo_de(getattr(e, "tribunal", "") or "", _circ,
+                                                 getattr(e, "ciudad", "") or "")
+            if not (_organo and pdict):
+                return []
             filas = await asyncio.wait_for(_fo_ps.precedentes_oaj(
                 qdrant_client, lambda t: get_dense_embedding(t, modelo=EMBEDDING_MODEL),
-                pdict, tipo, _organo, getattr(e, "numero", "") or ""), timeout=20.0) or []
-            _propio_num = _fo_ps.numero_expediente(getattr(e, "numero", "") or "")
-            if _propio_num:
-                filas = [f for f in filas
-                         if _fo_ps.numero_expediente(f.get("expediente")) != _propio_num]
-    except asyncio.TimeoutError:
-        print("   ⚠️ PROBABILIDAD: los precedentes del principal tardaron más de 20 s: sin ellos")
-    except Exception as _exc_f:
-        print(f"   ⚠️ PROBABILIDAD: sin precedentes del principal: {type(_exc_f).__name__}")
-    info = _ps.aplicar(glob, propuestas, problemas, tipo, filas, jerarquias, propio=propio)
+                pdict, tipo, _organo, numero), timeout=20.0) or []
+            _propio_num = _fo_ps.numero_expediente(numero)
+            return [f for f in filas if not _propio_num
+                    or _fo_ps.numero_expediente(f.get("expediente")) != _propio_num]
+        except Exception as _exc_f:
+            print(f"   ⚠️ PRECEDENTES del principal para el aviso: {type(_exc_f).__name__}")
+            return []
+
+    async def _examen():
+        _alt = getattr(glob, "alternativa", None)
+        _alt = _alt if isinstance(_alt, dict) else {}
+        _via_p = {"sentido": str(getattr(glob, "sentido", "") or ""), "razon": str(getattr(glob, "razon", "") or ""),
+                  "efecto": str(getattr(glob, "efecto", "") or ""), "apoyos": list(getattr(glob, "apoyos", None) or [])}
+        _fu = list(getattr(r.fases, "fuentes", []) or []) + ["", ""]
+        _sup = None
+        try:
+            import suplencia as _sp_ex
+            _sup = _sp_ex.proponer_de(r)
+        except Exception:
+            _sup = None
+        return await _ex.examinar(
+            numero, tipo, [p for p in problemas if isinstance(p, dict)], _via_p, _alt, analisis,
+            list(getattr(material, "tesis", None) or []), list(getattr(material, "normas", None) or []),
+            str(_fu[0] or ""), str(_fu[1] or ""), _sup)
+
+    # EL EXAMEN Y LOS PRECEDENTES, A LA VEZ: no dependen uno del otro.
+    dec, filas = await asyncio.gather(_examen(), _precedentes())
+    prob = None
+    if dec and dec.get("lado") in ("prospera", "no_prospera"):
+        prob = {"p_prospera": dec.get("p_prospera"), "lado": dec["lado"], "fuente": "examinador"}
+    info = _ps.aplicar(glob, propuestas, problemas, prob, jerarquias)
     prob = info.get("probabilidad") or {}
+    if dec:
+        prob["explicacion"] = _ex.explicacion(dec, info.get("sentido") or "", bool(info.get("volteada")),
+                                              prob.get("sentido_motor") or "")
+        prob["examen"] = {k: dec.get(k) for k in ("razon_decisiva", "que_lo_cambiaria", "fallas",
+                                                   "jurisprudencia", "solidez", "modelo", "segundos", "tokens")}
+        if info.get("volteada"):
+            avisos[:] = [a for a in avisos if not str(a).startswith("EL EXAMEN DE LAS DOS VÍAS VOLTEÓ")] + [
+                "EL EXAMEN DE LAS DOS VÍAS VOLTEÓ LA PROPUESTA: " + prob["explicacion"]]
+    _aviso_prec = _ps.aviso_precedentes(filas, info.get("sentido") or "")
+    if _aviso_prec:
+        prob["precedentes_aviso"] = _aviso_prec
+        avisos.append(_aviso_prec)
     if info.get("necesita_razon") and info.get("sentido"):
         # EL LADO QUE GANA SIN RAZÓN ESCRITA: una llamada, con el mismo modelo
         # que la razón de la calificación que elige el secretario.
@@ -39275,21 +39313,21 @@ async def _taller_probabilidad_sentido(r, ses: dict, problemas: list, propuestas
         except Exception as _exc_r:
             print(f"   ⚠️ PROBABILIDAD: la razón del lado propuesto no llegó: {type(_exc_r).__name__}")
         if not (_txt or "").strip():
-            # Sin razón no se inventa una: se dice de dónde salió el sentido y
-            # que la razón está por escribir.
-            _txt = (f"{prob.get('explicacion', '')} La razón jurídica de esta vía está por "
-                    f"escribir: el motor no la redactó. Pídela con «Redactar el criterio de esta "
-                    f"vía» o escríbela tú.").strip()
-            avisos.append("El sentido propuesto no trae razón escrita: sale de la probabilidad. "
-                          "Pide o escribe la razón antes de generar.")
+            _txt = ((dec or {}).get("razon_decisiva") or "").strip()
+        if not (_txt or "").strip():
+            _txt = ("La razón jurídica de esta vía está por escribir: el motor no la redactó. "
+                    "Pídela con «Redactar el criterio de esta vía» o escríbela tú.")
+            avisos.append("El sentido propuesto no trae razón escrita. Pide o escribe la razón antes de generar.")
         glob.razon = _txt[:900]
         if 0 <= i < len(propuestas) and propuestas[i].sentido == info["sentido"] \
                 and not str(propuestas[i].razon or "").strip():
             propuestas[i].razon = _txt[:900]
     glob.probabilidad = prob
-    avisos.extend(info.get("avisos") or [])
-    print(f"   🎲 PROBABILIDAD del sentido ({tipo or 'sin tipo'}): p(prospera)="
-          f"{prob.get('p_prospera')} → {prob.get('lado')} · {len(filas)} precedente(s)"
+    # El aviso del volteo ya va arriba con la explicación del examen.
+    avisos.extend(a for a in (info.get("avisos") or [])
+                  if not (dec and str(a).startswith("EL EXAMEN DE LAS DOS VÍAS VOLTEÓ")))
+    print(f"   🎲 LADO DE LA PROPUESTA ({tipo or 'sin tipo'}): fuente {prob.get('fuente')} · "
+          f"p(prospera)={prob.get('p_prospera')} → {prob.get('lado')} · {len(filas)} precedente(s) para el aviso"
           + (" · VOLTEADA" if info.get("volteada") else ""))
     return info
 
