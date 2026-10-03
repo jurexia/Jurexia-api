@@ -137,6 +137,26 @@ async def _razonar(cliente, problema, sentido, material, *a, **k):
 
 f5.razonar = _razonar
 
+# EL EXAMINADOR, FALSO: decide sin red lo que cada sección le pide.
+import examinador as _exm
+_EXAMEN = {"dec": None}
+_EXAMINADOS = []
+
+
+async def _examinar(numero, tipo, problemas, via_p, via_a, *a, **k):
+    _EXAMINADOS.append((via_p.get("sentido"), via_a.get("sentido")))
+    return _EXAMEN["dec"]
+
+
+_exm.examinar = _examinar
+
+
+def _dec(via, p):
+    lado_p = "prospera" if via == "propuesta" else "no_prospera"
+    return {"via": via, "p_prospera": p, "lado": lado_p, "razon_decisiva": f"razón decisiva ({via})",
+            "que_lo_cambiaria": "", "fallas": {"propuesta": [], "alternativa": []},
+            "jurisprudencia": {}, "solidez": {}, "modelo": "falso", "segundos": 0.1, "tokens": {}}
+
 
 def correr(props_glob, espejo=None, banderas=True):
     async def _proponer(*a, **k):
@@ -165,21 +185,24 @@ ok(resp["propuestas"][2]["alcanza"] is False and resp["propuestas"][2]["sentido"
    "el problema sin propuesta queda en blanco, como ayer")
 ok(len(json.loads(resp["criterios_json"])) == 2, "criterios_json sólo con los que alcanzan")
 
-print("\n2 · ENCENDIDA: SE VOLTEA CON LA VÍA QUE EL MOTOR ESCRIBIÓ")
+print("\n2 · ENCENDIDA: EL EXAMEN DA LA VÍA CONTRARIA Y SE VOLTEA CON LA QUE EL MOTOR ESCRIBIÓ")
 _RAZONES.clear()
+_EXAMEN["dec"] = {**_dec("alternativa", 0.2), "lado": "no_prospera"}
 resp, ses = correr(_propuesta_del_motor())
 g = resp["global"]
 ok(resp["formato"] == 3 and resp["estado"] == "lista" and resp["preguntas"] == [],
    "formato 3, estado «lista», preguntas (vacías)")
 pr = g.get("probabilidad") or {}
-ok(pr.get("lado") == "no_prospera" and pr.get("volteada") is True and pr.get("fuente") == "jurimetria"
-   and pr.get("sentido_motor") == "fundado" and pr.get("p_prospera") == 0.324,
-   f"la probabilidad: {pr.get('p_prospera')} → {pr.get('lado')}, volteada")
+ok(pr.get("lado") == "no_prospera" and pr.get("volteada") is True and pr.get("fuente") == "examinador"
+   and pr.get("sentido_motor") == "fundado" and pr.get("p_prospera") == 0.2,
+   f"la probabilidad razonada: {pr.get('p_prospera')} → {pr.get('lado')}, volteada")
+ok("tasa" not in pr and "razón decisiva" in pr.get("explicacion", "") and pr.get("examen", {}).get("modelo") == "falso",
+   "ni rastro de la tasa del tribunal: la explicación es la del examen")
 ok(g["sentido"] == "infundado" and g["razon"] == "el actuario se cercioró del domicilio"
    and g["alternativa"]["sentido"] == "fundado" and g["en_contra"].startswith("el emplazamiento es ilegal"),
    "la global es la vía contraria del motor y lo del motor queda como alternativa")
-ok(g["alcanza"] is True and g["sostenida"] is True and g["confianza"] == "media"
-   and g["confianza_motor"] == "alta", "alcanza, sostenida, confianza de la probabilidad")
+ok(g["alcanza"] is True and g["sostenida"] is True and g["confianza"] == "alta"
+   and g["confianza_motor"] == "alta", "alcanza, sostenida, confianza de la probabilidad (0.8 del lado)")
 ok(_RAZONES == [], "no hizo falta pedir ninguna razón: la vía contraria ya estaba escrita")
 p = resp["propuestas"]
 ok(p[0]["sentido"] == "infundado" and p[0]["origen"] == "probabilidad"
@@ -192,45 +215,46 @@ ok(all(x["alcanza"] == bool(x["sentido"]) for x in p), "alcanza = hay sentido")
 _cj = json.loads(resp["criterios_json"])
 ok(len(_cj) == 3 and [c["sentido"] for c in _cj] == ["infundado", "infundado", "inoperante"],
    "criterios_json con TODOS los problemas con sentido")
-ok(any("SE VOLTEÓ" in a for a in resp["avisos"]), "se avisa el volteo")
+ok(sum("VOLTEÓ LA PROPUESTA" in a for a in resp["avisos"]) == 1, "se avisa el volteo, una vez")
 ok(not getattr(ses["propuestas"][0], "sentido_propio", ""),
    "el principal no guarda lo del motor en sentido_propio (el árbol lo leería como «su vía»)")
 ok(g["checklist"][0]["con_propuesta"] == "infundado", "la lista de comprobación, intercambiada")
 
-print("\n3 · CON PRECEDENTES DEL PROPIO TRIBUNAL QUE PROSPERARON, GANA EL MOTOR")
+print("\n3 · LOS PRECEDENTES DEL TRIBUNAL AVISAN, NO DECIDEN")
 _esp = [{"problema": P1, "filas": [
     {"similitud": 95, "calificacion": "fundado", "neun": "a", "expediente": "10/2024", "nivel": "mismo_problema"},
     {"similitud": 91, "calificacion": "fundado", "neun": "b", "expediente": "11/2024", "nivel": "mismo_problema"}]}]
+_EXAMEN["dec"] = {**_dec("alternativa", 0.3), "lado": "no_prospera"}
 resp, _ = correr(_propuesta_del_motor(), espejo=_esp)
 pr = resp["global"]["probabilidad"]
-ok(pr["lado"] == "prospera" and pr["volteada"] is False and pr["precedentes"]["n"] == 2
-   and resp["global"]["sentido"] == "fundado",
-   f"dos precedentes del mismo problema: p={pr['p_prospera']}, se queda la del motor")
+ok(pr["lado"] == "no_prospera" and resp["global"]["sentido"] == "infundado",
+   "dos precedentes que prosperaron NO cambian el lado que razonó el examen")
+ok("al revés" in pr.get("precedentes_aviso", "") and any("PRECEDENTES DEL PROPIO TRIBUNAL" in a for a in resp["avisos"]),
+   "pero se avisa que el tribunal lo resolvió al revés")
+_EXAMEN["dec"] = _dec("propuesta", 0.85)
+resp, _ = correr(_propuesta_del_motor(), espejo=_esp)
+pr = resp["global"]["probabilidad"]
+ok(pr["lado"] == "prospera" and pr["volteada"] is False and resp["global"]["sentido"] == "fundado"
+   and "en el mismo sentido" in pr.get("precedentes_aviso", ""),
+   "con el examen a favor de la propuesta, se queda la del motor y el aviso dice que coincide")
 ok(resp["propuestas"][1]["sentido"] == "innecesario" and resp["propuestas"][2]["sentido"] == "innecesario",
    "y los accesorios quedan sin materia (la suerte del principal que prospera)")
 
-print("\n4 · SIN VÍA CONTRARIA ESCRITA: UNA LLAMADA PARA LA RAZÓN")
+print("\n3-bis · SIN EXAMEN, MANDA EL MOTOR")
+_EXAMEN["dec"] = None
+resp, _ = correr(_propuesta_del_motor())
+pr = resp["global"]["probabilidad"]
+ok(pr["fuente"] == "motor" and pr["p_prospera"] is None and pr["lado"] == "prospera"
+   and resp["global"]["sentido"] == "fundado", "el examen no llegó: el lado del motor, sin número inventado")
+
+print("\n4 · SIN VÍA CONTRARIA ESCRITA NO HAY QUÉ EXAMINAR")
 _RAZONES.clear()
+_EXAMEN["dec"] = None
 pg = _propuesta_del_motor()
 pg[1].alternativa = {"sentido": "", "razon": "", "efecto": "", "apoyos": []}
 resp, _ = correr(pg)
-ok(_RAZONES == [(P1, "infundado")] and resp["global"]["razon"] == "Razón escrita para «infundado»."
-   and resp["propuestas"][0]["razon"] == "Razón escrita para «infundado».",
-   "se pide UNA razón para el lado nuevo y la llevan la global y el principal")
-
-
-async def _razonar_falla(*a, **k):
-    raise RuntimeError("sin red")
-
-
-f5.razonar = _razonar_falla
-pg = _propuesta_del_motor()
-pg[1].alternativa = {}
-resp, _ = correr(pg)
-ok(resp["global"]["sentido"] == "infundado" and "está por escribir" in resp["global"]["razon"]
-   and any("no trae razón escrita" in a for a in resp["avisos"]),
-   "si la razón no llega, se dice de dónde salió el sentido y que la razón está por escribir")
-f5.razonar = _razonar
+ok(_RAZONES == [] and resp["global"]["sentido"] == "fundado",
+   "se queda la del motor y no se pide ninguna razón")
 
 print("\n5 · EL ÚLTIMO PROBLEMA YA NO SE CAE EN SILENCIO (MODO ACERVO)")
 import modos_decision as md
