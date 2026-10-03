@@ -35631,7 +35631,19 @@ def _taller_plan_adelantar(email: str) -> bool:
     if modo in ("off", "0", "no"):
         return False
     if modo == "casa":
-        return _taller_es_casa(email)
+        if _taller_es_casa(email):
+            return True
+        # PARA TODOS CON EL SUPERVISOR (2-oct-2026). La v4 escribe para todas
+        # las cuentas desde el 26-sep (fase6_estudio.variante_global), pero el
+        # plan sólo se adelantaba para las de casa: a los demás les costaba
+        # hasta 120 s EN SERIE dentro del resolver. El supervisor suma su
+        # llamada al resolver; este tiempo es el primero que lo paga. Va con
+        # su bandera para que, apagada, todo quede como hoy.
+        try:
+            import contexto_taller as _ct_pl
+            return _ct_pl.rediseno("supervisor_proyecto")
+        except Exception:
+            return False
     return True
 
 
@@ -35734,7 +35746,21 @@ def _taller_meta_listo(res) -> dict:
         fuera["fuentes_tardias"] = [dict(x) for x in _m["fuentes_tardias"][:20] if isinstance(x, dict)]
     if _m.get("estado_salida"):
         fuera["estado_salida"] = str(_m["estado_salida"])
+    # EL SUPERVISOR DEL PROYECTO (2-oct-2026, contrato D): qué corrigió, con su
+    # antes y su después, cuántas propuestas descartaron las guardas, modelo y
+    # segundos. Sólo si corrió: con la bandera apagada no cambia ni un campo.
+    if isinstance(_m.get("supervisor"), dict):
+        fuera["supervisor"] = dict(_m["supervisor"])
     return fuera
+
+
+def _taller_cabecera_supervisor(res) -> dict:
+    """{"X-Supervisor": "<n> correcciones"} si el supervisor corrió; {} si no
+    (camino plano, contrato D)."""
+    _s = _taller_meta_listo(res).get("supervisor")
+    if not isinstance(_s, dict):
+        return {}
+    return {"X-Supervisor": f"{len(_s.get('correcciones') or [])} correcciones"}
 
 
 # EL CRITERIO COMPLETO, TAL COMO LLEGÓ. Hasta el 26-sep-2026 la ficha guardaba
@@ -40119,6 +40145,9 @@ async def taller_resolver_stream(
                     # LA REPARACIÓN DIRIGIDA (v3/v4, p2-exhaustivo): una llamada
                     # más al modelo del estudio; la pantalla lo rotula mientras.
                     _cola.put_nowait({"tipo": "completando"})
+                elif tipo == "revisando":
+                    # EL SUPERVISOR DEL PROYECTO (2-oct-2026, contrato D).
+                    _cola.put_nowait({"tipo": "revisando"})
                 elif tipo == "listo":
                     res = paso["resultado"]
                     _taller_registrar_uso(user_email, numero, "proyecto")
@@ -40669,6 +40698,8 @@ async def taller_resolver(
             "X-Variante-Estudio": _taller_meta_listo(r2)["variante"],
             "X-Commit": _taller_meta_listo(r2)["commit"],
             "X-Finish-Reason": _taller_meta_listo(r2)["finish_reason"],
+            # EL SUPERVISOR (2-oct-2026, contrato D): sólo si corrió.
+            **_taller_cabecera_supervisor(r2),
         },
     )
 
