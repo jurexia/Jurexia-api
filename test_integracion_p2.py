@@ -323,7 +323,10 @@ def _gemelos_ns():
         "_taller_inventario_al_encargo": _inventario_espia,
         "_taller_registrar_uso": lambda *a, **k: LLAMADAS.__setitem__("uso", LLAMADAS["uso"] + 1),
         "_taller_cobrar": lambda *a, **k: LLAMADAS.__setitem__("cobro", LLAMADAS["cobro"] + 1),
-        "_TALLER_LATIDO_S": 0.2, "qdrant_client": None})
+        "_TALLER_LATIDO_S": 0.2, "qdrant_client": None,
+        # Las tesis del vicio antes del plan (2-oct-2026): sin Qdrant no traen
+        # nada y el material sigue siendo el de la sesión.
+        "_embedding_juris": None})
     for n in ("taller_resolver", "taller_resolver_stream"):
         nodo = copy.deepcopy(FN[n])
         nodo.decorator_list = []

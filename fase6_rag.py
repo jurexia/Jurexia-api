@@ -2125,13 +2125,32 @@ CONSULTA_POR_CALIFICATIVA = {
 
 
 async def tesis_de_la_calificativa(qdrant, embed_juris, sentido: str,
-                                   problema: str = "", limite: int = 4) -> list:
+                                   problema: str = "", limite: int = 4, *,
+                                   vicio: str = "", argumento: str = "",
+                                   resolvio: str = "", tipo_asunto: str = "",
+                                   cliente=None) -> list:
     """Las tesis que fundan ESA calificativa, no el fondo del asunto.
 
     Devuelve [] cuando la calificativa resuelve el fondo —fundado, infundado—:
     para ésas ya sirve el material del caso, y añadir tesis de técnica sólo
     haría ruido.
+
+    Con la bandera `inoperancia_por_vicio` (2-oct-2026) busca por el VICIO
+    concreto (`tesis_del_vicio`); sin ella, exactamente como antes.
     """
+    import vicio_inoperancia as _vi
+    if _vi.activa():
+        # El vicio lo dice quien llama (de la razón del secretario o de la
+        # fase 3), nunca el argumento de la parte: «la responsable partió de
+        # una premisa falsa» es lo que ALEGA, no el vicio de su agravio.
+        _v = _vi.vicio_de(sentido, "", vicio)
+        if not _v:
+            return []
+        return await tesis_del_vicio(
+            qdrant, embed_juris, _v, argumento=argumento or problema,
+            resolvio=resolvio, tipo_asunto=tipo_asunto, limite=limite,
+            cliente=cliente,
+            calificativa=(sentido or "").strip().lower().replace(" ", "_"))
     clave = (sentido or "").strip().lower()
     consulta = CONSULTA_POR_CALIFICATIVA.get(clave)
     if not consulta or not qdrant or not embed_juris:
@@ -2158,3 +2177,353 @@ async def tesis_de_la_calificativa(qdrant, embed_juris, sentido: str,
         if len(fuera) >= limite:
             break
     return fuera
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# LA TESIS DE LA INOPERANCIA, POR EL VICIO CONCRETO (2-oct-2026)
+# ═══════════════════════════════════════════════════════════════════════════
+# David: «en la cita de jurisprudencias sobre inoperancia siempre es la misma…
+# cuando tenemos un acervo basto».
+#
+# La consulta de arriba es UN texto fijo por calificativa más 180 caracteres
+# del problema: el vector lo domina el texto fijo, y las cuatro tesis salían
+# prácticamente iguales en cualquier asunto, sin mirar vigencia, época ni
+# recurso. Pero un secretario no cita «la tesis de la inoperancia»: cita la
+# del vicio —novedoso, premisa falsa, reitera sin combatir—, y cada vicio
+# tiene su jurisprudencia. La llave es la razón tipificada del plan
+# (plan_estudio.RAZONES), y cada vicio se busca con dos o tres formulaciones
+# en forma de rubro, que es contra lo que se compara (VECTOR_RUBRO).
+#
+# Son CONSULTAS, no texto para un prompt: aquí la forma del rubro ayuda a que
+# el vector caiga sobre rubros parecidos, y nadie las copia.
+CONSULTA_POR_VICIO = {
+    "no_combate": (
+        "AGRAVIOS INOPERANTES. LO SON LOS QUE NO COMBATEN TODAS LAS CONSIDERACIONES "
+        "CONTENIDAS EN LA SENTENCIA RECURRIDA",
+        "CONCEPTOS DE VIOLACIÓN INOPERANTES. LO SON LOS QUE NO CONTROVIERTEN LOS "
+        "FUNDAMENTOS Y MOTIVOS QUE SUSTENTAN EL ACTO RECLAMADO",
+        "AGRAVIOS INSUFICIENTES. SI NO SE ATACA LA CONSIDERACIÓN TORAL QUE RIGE EL "
+        "SENTIDO DEL FALLO, ÉSTA DEBE SEGUIR RIGIENDO"),
+    "ataca_accesoria": (
+        "AGRAVIOS INOPERANTES. LO SON LOS QUE SE DIRIGEN A COMBATIR CONSIDERACIONES "
+        "ACCESORIAS O EXPRESADAS A MAYOR ABUNDAMIENTO",
+        "CONSIDERACIONES DADAS A MAYOR ABUNDAMIENTO. ES INOPERANTE SU IMPUGNACIÓN SI "
+        "SUBSISTE LA CONSIDERACIÓN QUE SUSTENTA EL FALLO"),
+    "generico": (
+        "CONCEPTOS DE VIOLACIÓN O AGRAVIOS INOPERANTES. LO SON LAS AFIRMACIONES "
+        "GENÉRICAS, DOGMÁTICAS O ABSTRACTAS QUE NO EXPRESAN RAZONAMIENTO JURÍDICO",
+        "AGRAVIOS INOPERANTES. SON LOS QUE SE LIMITAN A MANIFESTACIONES GENERALES SIN "
+        "PRECISAR LA LESIÓN NI LOS ARGUMENTOS QUE LA DEMUESTRAN",
+        "CAUSA DE PEDIR. NO BASTA LA MERA AFIRMACIÓN SIN SUSTENTO; DEBEN EXPRESARSE "
+        "RAZONAMIENTOS QUE DEMUESTREN LA ILEGALIDAD"),
+    "reitera_sin_combatir": (
+        "AGRAVIOS INOPERANTES. LO SON LOS QUE REITERAN LOS CONCEPTOS DE VIOLACIÓN SIN "
+        "COMBATIR LAS CONSIDERACIONES DE LA SENTENCIA RECURRIDA",
+        "AGRAVIOS INOPERANTES. LO SON LOS QUE REPRODUCEN LO EXPRESADO EN LA DEMANDA O "
+        "EN LA INSTANCIA ANTERIOR Y ABUNDAN SOBRE ELLO"),
+    "falsa_premisa": (
+        "AGRAVIOS INOPERANTES. LO SON AQUELLOS QUE SE SUSTENTAN EN PREMISAS FALSAS",
+        "CONCEPTOS DE VIOLACIÓN INOPERANTES. LO SON LOS QUE PARTEN DE UN SUPUESTO QUE "
+        "NO RESULTÓ VERDADERO"),
+    "novedoso": (
+        "AGRAVIOS INOPERANTES. LO SON AQUELLOS QUE SE REFIEREN A CUESTIONES NO "
+        "ADUCIDAS EN EL ESCRITO DE DEMANDA",
+        "CONCEPTOS DE VIOLACIÓN INOPERANTES. LO SON LOS QUE PLANTEAN CUESTIONES "
+        "NOVEDOSAS QUE NO FUERON PROPUESTAS ANTE LA AUTORIDAD RESPONSABLE",
+        "PLANTEAMIENTOS NOVEDOSOS. NO PUEDEN EXAMINARSE PORQUE NO FORMARON PARTE DE "
+        "LA LITIS"),
+    "cosa_juzgada_amparo_previo": (
+        "CONCEPTOS DE VIOLACIÓN INOPERANTES. LO SON LOS QUE PLANTEAN CUESTIONES YA "
+        "DECIDIDAS EN UN JUICIO DE AMPARO ANTERIOR",
+        "COSA JUZGADA EN EL AMPARO. LO RESUELTO EN UNA EJECUTORIA PREVIA NO PUEDE "
+        "VOLVER A EXAMINARSE"),
+    "procesal_171_172": (
+        "VIOLACIONES PROCESALES EN EL AMPARO DIRECTO. SON INOPERANTES LOS CONCEPTOS DE "
+        "VIOLACIÓN SI NO SE PREPARARON CONFORME AL ARTÍCULO 171 DE LA LEY DE AMPARO",
+        "PREPARACIÓN DE LAS VIOLACIONES PROCESALES. DEBEN IMPUGNARSE DURANTE EL "
+        "PROCEDIMIENTO MEDIANTE EL RECURSO ORDINARIO PARA RECLAMARSE EN AMPARO DIRECTO"),
+    "adhesivo_fuera_182": (
+        "AMPARO ADHESIVO. SON INOPERANTES LOS CONCEPTOS DE VIOLACIÓN QUE NO TIENDEN A "
+        "FORTALECER LAS CONSIDERACIONES DEL ACTO RECLAMADO",
+        "AMPARO ADHESIVO. SUS CONCEPTOS DE VIOLACIÓN DEBEN LIMITARSE A LO PREVISTO EN "
+        "EL ARTÍCULO 182 DE LA LEY DE AMPARO"),
+    "deriva_de_desestimado": (
+        "AGRAVIOS INOPERANTES. LO SON LOS QUE SE HACEN DEPENDER DE OTROS QUE FUERON "
+        "DESESTIMADOS",
+        "CONCEPTOS DE VIOLACIÓN INOPERANTES. SON LOS QUE DERIVAN DE LOS QUE YA SE "
+        "DECLARARON INFUNDADOS"),
+    "fundado_insuficiente": (
+        "AGRAVIOS FUNDADOS PERO INOPERANTES. CUANDO NO TRASCIENDEN AL SENTIDO DEL "
+        "FALLO PORQUE SUBSISTEN OTRAS CONSIDERACIONES QUE LO SOSTIENEN",
+        "CONCEPTOS DE VIOLACIÓN FUNDADOS PERO INSUFICIENTES PARA CONCEDER EL AMPARO"),
+    "inatendible": (
+        "AGRAVIOS INATENDIBLES. LO SON LOS QUE SE DIRIGEN CONTRA ACTOS O "
+        "CONSIDERACIONES AJENOS A LA LITIS",
+        "CONCEPTOS DE VIOLACIÓN INATENDIBLES. LOS QUE CONTROVIERTEN ACTOS CONSENTIDOS"),
+    "ineficaz": (
+        "AGRAVIOS INEFICACES. LO SON LOS QUE AUN FUNDADOS NO TRASCIENDEN AL RESULTADO "
+        "DEL FALLO",
+        "CONCEPTOS DE VIOLACIÓN FUNDADOS PERO INEFICACES PARA CONCEDER EL AMPARO"),
+    "innecesario": (
+        "CONCEPTOS DE VIOLACIÓN. ES INNECESARIO SU ESTUDIO CUANDO NO PUEDE REPORTAR "
+        "MAYOR BENEFICIO AL QUEJOSO",
+        "AGRAVIOS. ES INNECESARIO SU ESTUDIO CUANDO SE HA ALCANZADO EL MÁXIMO BENEFICIO"),
+}
+
+# El pozo: 20 por formulación, 40-60 en total. La pertinencia al argumento
+# decide cuáles OCHO compiten; dentro de esas ocho manda la fuerza (una
+# obligatoria de la Corte no cede su lugar a una orientadora para variar).
+POZO_POR_CONSULTA = 20
+PERTINENTES = 8
+
+# ¿Para qué recurso dice el rubro que es? «EN LA REVISIÓN FISCAL» sólo sirve
+# en revisión fiscal; la que habla de la queja, en la queja. Un rubro que no
+# nombra la vía sirve en todas. El orden importa: «AMPARO DIRECTO EN REVISIÓN»
+# es de la revisión, no del directo.
+_VIAS_DEL_RUBRO = (
+    ("REVISION FISCAL", ("revision_fiscal",)),
+    ("AMPARO DIRECTO EN REVISION", ("amparo_revision",)),
+    ("AMPARO DIRECTO", ("amparo_directo",)),
+    ("AMPARO EN REVISION", ("amparo_revision",)),
+    ("RECURSO DE REVISION", ("amparo_revision",)),
+    # «AGRAVIOS INOPERANTES EN LA REVISIÓN» a secas: de las dos revisiones que
+    # resuelve un colegiado, no de la queja ni del directo (medido 2-oct-2026:
+    # la 184999 salía en una queja).
+    ("EN LA REVISION", ("amparo_revision", "revision_fiscal")),
+    ("AMPARO INDIRECTO", ("amparo_revision", "queja")),
+    ("QUEJA", ("queja",)),
+    ("RECLAMACION", ()),
+    ("APELACION", ()),
+    ("INCONFORMIDAD", ()),
+    ("CONCEPTOS DE ANULACION", ()),
+    ("CONCEPTOS DE IMPUGNACION", ()),
+)
+
+
+def apta_para_el_recurso(rubro: str, tipo_asunto: str) -> bool:
+    """¿Esta tesis de técnica sirve en ESTE tipo de asunto, a juzgar por la vía
+    que su rubro nombra? Sin tipo conocido, o sin vía en el rubro, sí."""
+    import tipos_asunto as _ta_v
+    tipo = _ta_v.normalizar(tipo_asunto or "")
+    if not tipo:
+        return True
+    r = " " + re.sub(r"[^A-Z0-9 ]", " ", _sin_acentos(rubro or "")) + " "
+    r = " ".join(r.split())
+    vistas, sirve = False, set()
+    resto = r
+    for clave, tipos in _VIAS_DEL_RUBRO:
+        if re.search(r"\b" + clave + r"\b", resto):
+            vistas = True
+            sirve.update(tipos)
+            # Lo ya leído no cuenta dos veces: «AMPARO DIRECTO EN REVISIÓN» no
+            # es además «AMPARO DIRECTO».
+            resto = re.sub(r"\b" + clave + r"\b", " ", resto)
+    return (not vistas) or tipo in sirve
+
+
+_EPOCA_PALABRA = (("UNDECIMA", 11), ("DUODECIMA", 12), ("DECIMA", 10), ("NOVENA", 9),
+                  ("OCTAVA", 8), ("SEPTIMA", 7), ("SEXTA", 6), ("QUINTA", 5))
+
+
+def _epoca_num(t: dict) -> int:
+    """La época de la tesis, de su localización o de su campo `epoca`; 0 si no
+    consta."""
+    try:
+        import fuerza_juridica as _fj
+        n = _fj.epoca_de(t)
+        if n:
+            return n
+    except Exception:
+        pass
+    e = _sin_acentos(str(t.get("epoca") or ""))
+    m = re.search(r"(\d{1,2})", e)
+    if m:
+        return int(m.group(1))
+    for palabra, n in _EPOCA_PALABRA:
+        if palabra in e:
+            return n
+    return 0
+
+
+def _perdio_vigencia(t: dict) -> bool:
+    """La misma definición que la tarjeta y el estudio (fuerza_juridica)."""
+    try:
+        import fuerza_juridica as _fj
+        return _fj.sello_perdio_vigencia(t.get("vigencia"))
+    except Exception:
+        return False
+
+
+def _vincula_aqui(t: dict) -> bool:
+    """¿Obliga? Con la fuerza unificada, la calculada para el tribunal; sin
+    ella, la marca de siempre (`vincula_origen`/`obligatoria`), como ordena
+    `material_del_caso`."""
+    try:
+        import fuerza_juridica as _fj
+        if _fj.activa():
+            return _fj.orden(t) == 0
+    except Exception:
+        pass
+    return bool(t.get("vincula_origen", t.get("obligatoria")))
+
+
+def _termino_del_tipo(rubro: str, tipo_asunto: str) -> bool:
+    """¿El rubro habla del escrito que aquí se califica? En el amparo directo
+    se califican CONCEPTOS DE VIOLACIÓN; en los recursos, AGRAVIOS. Desempata,
+    no excluye: la de agravios se cita en el directo por analogía."""
+    r = _sin_acentos(rubro or "")
+    if tipo_asunto == "amparo_directo":
+        return "CONCEPTOS DE VIOLACION" in r
+    return "AGRAVIO" in r
+
+
+# Lo que ya se buscó en ESTE worker. Es sólo para no repetir el costo (la
+# pantalla pide la razón cada vez que se marca la calificativa): la respuesta
+# es la misma en los dos workers porque sale de Qdrant y del mismo texto, no
+# de esta caché.
+_CACHE_VICIO: "_OD_vi" = None
+_CACHE_VICIO_MAX = 64
+
+
+async def tesis_del_vicio(qdrant, embed_juris, vicio: str, *, argumento: str = "",
+                          resolvio: str = "", tipo_asunto: str = "", limite: int = 4,
+                          cliente=None, calificativa: str = "") -> list:
+    """Las tesis que fundan la inoperancia POR ESTE VICIO, ordenadas por lo
+    que sirven a ESTE argumento.
+
+      1. Un pozo de 40-60 candidatas: cada formulación del vicio contra el
+         vector del rubro, fundidas por rango recíproco.
+      2. Fuera las que perdieron vigencia, las de un recurso que no es éste y
+         lo que la evaluación excluye (`contexto_taller.filtrar_tesis`).
+      3. La pertinencia al argumento concreto: el mismo vector del rubro
+         contra el argumento, sólo entre las del pozo. Con `cliente`, además,
+         el rerank del modelo con el argumento y lo que se resolvió (con
+         tope); sin él —el camino del plan, que necesita la misma respuesta
+         en los dos workers— sólo similitud.
+      4. Entre las OCHO más pertinentes manda la fuerza para el tribunal y,
+         dentro de ella, la 10a./11a. Época.
+
+    Marcadas `tecnica` (cupo aparte en el prompt), `de_la_calificativa` y
+    `vicio`. Nunca lanza: ante un fallo, [] y se dice en el registro."""
+    global _CACHE_VICIO
+    consultas = CONSULTA_POR_VICIO.get(vicio or "")
+    if not consultas or not qdrant or not embed_juris:
+        return []
+    import copy as _copy
+    import tipos_asunto as _ta_v
+    tipo = _ta_v.normalizar(tipo_asunto or "")
+    arg = " ".join((argumento or "").split())[:600]
+    res_ = " ".join((resolvio or "").split())[:600]
+    llave = (vicio, tipo, arg, res_, bool(cliente))
+    if _CACHE_VICIO is None:
+        from collections import OrderedDict as _OD_vi
+        _CACHE_VICIO = _OD_vi()
+    ordenadas = _CACHE_VICIO.get(llave)
+    if ordenadas is None:
+        try:
+            ordenadas = await _tesis_del_vicio_sin_cache(
+                qdrant, embed_juris, vicio, consultas, arg, res_, tipo, cliente)
+        except Exception as e:
+            print(f"   ⚠️ no se pudieron traer las tesis del vicio «{vicio}»: {type(e).__name__}")
+            return []
+        _CACHE_VICIO[llave] = ordenadas
+        while len(_CACHE_VICIO) > _CACHE_VICIO_MAX:
+            _CACHE_VICIO.popitem(last=False)
+    try:
+        import contexto_taller as _ct_v
+        ordenadas = _ct_v.filtrar_tesis(ordenadas)
+    except Exception:
+        pass
+    fuera = []
+    for t in ordenadas[:max(0, int(limite))]:
+        d = _copy.deepcopy(t)
+        d["tecnica"] = True
+        d["de_la_calificativa"] = calificativa or vicio
+        d["vicio"] = vicio
+        fuera.append(d)
+    return fuera
+
+
+async def _tesis_del_vicio_sin_cache(qdrant, embed_juris, vicio, consultas, arg, res_,
+                                     tipo, cliente) -> list:
+    from qdrant_client.models import FieldCondition, Filter, MatchAny
+
+    async def _una(c):
+        v = await embed_juris(c)
+        return await _buscar(qdrant, COLECCION_JURIS, VECTOR_RUBRO, v, POZO_POR_CONSULTA)
+
+    listas = await asyncio.gather(*[_una(c) for c in consultas], return_exceptions=True)
+    puntos, cand, crudos = {}, {}, {}
+    for lista in listas:
+        if isinstance(lista, Exception):
+            continue
+        for j, p in enumerate(lista or []):
+            reg = str(p.get("registro") or "").strip()
+            if not reg:
+                continue
+            puntos[reg] = puntos.get(reg, 0.0) + 1.0 / (60 + j)
+            if reg not in cand:
+                cand[reg] = _tesis_de(p)
+                crudos[reg] = p.get("registro")
+    pozo = len(cand)
+    # FUERA LO QUE NO SE PUEDE CITAR AQUÍ: sin rubro, sin vigencia, de otro
+    # recurso.
+    sin_vig = [r for r, t in cand.items() if _perdio_vigencia(t)]
+    otra_via = [r for r, t in cand.items()
+                if r not in sin_vig and not apta_para_el_recurso(t.get("rubro", ""), tipo)]
+    for r in set(sin_vig) | set(otra_via):
+        cand.pop(r, None)
+    cand = {r: t for r, t in cand.items() if t.get("rubro")}
+    if not cand:
+        print(f"   ⚖️ tesis del vicio «{vicio}»: pozo de {pozo}, ninguna utilizable")
+        return []
+    # LA PERTINENCIA AL ARGUMENTO: el argumento contra el rubro, sólo entre las
+    # del pozo. Pesa el doble que la del vicio: el vicio ya lo garantizó el
+    # pozo, y lo que distingue un asunto de otro es el argumento.
+    if arg:
+        try:
+            va = await embed_juris(arg)
+            hits = await _buscar(qdrant, COLECCION_JURIS, VECTOR_RUBRO, va, len(cand),
+                                 filtro=Filter(must=[FieldCondition(
+                                     key="registro",
+                                     match=MatchAny(any=[crudos[r] for r in cand]))]))
+            for j, p in enumerate(hits or []):
+                reg = str(p.get("registro") or "").strip()
+                if reg in cand:
+                    puntos[reg] = puntos.get(reg, 0.0) + 2.0 / (60 + j)
+        except Exception as e:
+            print(f"   ⚠️ tesis del vicio «{vicio}»: sin pertinencia al argumento ({type(e).__name__})")
+    for r, t in cand.items():
+        if _termino_del_tipo(t.get("rubro", ""), tipo):
+            puntos[r] = puntos.get(r, 0.0) + 0.5 / 60
+    por_pertinencia = sorted(cand, key=lambda r: -puntos.get(r, 0.0))
+    # EL RERANK, SÓLO SI HAY CLIENTE Y CON TOPE: elige entre las doce primeras
+    # las que resuelven el punto; las elegidas van delante, en su orden.
+    if cliente is not None and arg:
+        _doce = [cand[r] for r in por_pertinencia[:12]]
+        try:
+            await asyncio.wait_for(rerank_tesis(
+                cliente, f"¿Es inoperante este planteamiento porque "
+                         f"{__import__('vicio_inoperancia').VICIOS.get(vicio, vicio)}? {arg}",
+                res_, _doce), timeout=15)
+            _elegidas = sorted((t for t in _doce if t.get("rerank")), key=lambda t: t["rerank"])
+            if _elegidas:
+                _ya = {t["registro"] for t in _elegidas}
+                por_pertinencia = [t["registro"] for t in _elegidas] + [
+                    r for r in por_pertinencia if r not in _ya]
+        except Exception:
+            print(f"   ⚖️ tesis del vicio «{vicio}»: rerank sin respuesta a tiempo; queda la similitud")
+        for t in _doce:
+            t.pop("rerank", None)
+    # ENTRE LAS PERTINENTES MANDA LA JERARQUÍA DE LA CASA (ver _RANGO: Corte ·
+    # Plenos Regionales · Colegiados, y dentro de cada grupo lo que vincula),
+    # y dentro de ella la 10a./11a. Época. Así la variedad nunca se paga con
+    # fuerza: una obligatoria de la Corte pertinente va delante de cualquier
+    # orientadora.
+    pertinentes = por_pertinencia[:PERTINENTES]
+    pos = {r: i for i, r in enumerate(pertinentes)}
+    pertinentes.sort(key=lambda r: (_rango_instancia(cand[r]), not _vincula_aqui(cand[r]),
+                                    _epoca_num(cand[r]) < 10, pos[r]))
+    print(f"   ⚖️ tesis del vicio «{vicio}»: pozo de {pozo} · {len(sin_vig)} sin vigencia · "
+          f"{len(otra_via)} de otro recurso · primeras {', '.join(pertinentes[:3])}")
+    return [cand[r] for r in pertinentes]

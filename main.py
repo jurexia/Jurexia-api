@@ -38028,13 +38028,38 @@ async def taller_razonar(
     # «infundado» devuelve vacío y no se gasta la llamada.
     try:
         import fase6_rag as _rag
-        _tec = await _rag.tesis_de_la_calificativa(
-            qdrant_client, _embedding_juris, sentido, problema)
-        if _tec:
-            _vistos = {t.get("registro") for t in (material.tesis or [])}
-            material.tesis = list(material.tesis or []) + [
-                t for t in _tec if t.get("registro") not in _vistos]
-            print(f"   ⚖️  {len(_tec)} tesis de «{sentido}» añadidas para razonar")
+        import vicio_inoperancia as _vi_r
+        if _vi_r.activa():
+            # POR EL VICIO Y SIN TOCAR LA SESIÓN (2-oct-2026, David: «la cita
+            # de inoperancia siempre es la misma»). El vicio sale de la base
+            # del secretario o del impedimento de la fase 3; las tesis se
+            # ordenan por lo que sirven a ESTE argumento. Y van a una COPIA del
+            # material: pegarlas al de la sesión las dejaba en la memoria de
+            # UN worker (gunicorn -w 2), llegaban al estudio o no según quién
+            # resolviera. Al estudio las lleva el resolver antes del plan
+            # (`redactor_adelanto.material_con_tesis_del_vicio`).
+            import copy as _copy_r
+            import redactor_adelanto as _ra_v
+            _vic_r, _arg_r, _res_v = _ra_v.vicio_y_argumento(r, problema, sentido, directriz)
+            _tec = await _rag.tesis_de_la_calificativa(
+                qdrant_client, _embedding_juris, sentido, problema, 3, vicio=_vic_r,
+                argumento=_arg_r, resolvio=_res_v,
+                tipo_asunto=(getattr(r.encargo, "tipo_asunto", "") or "") if r.encargo else "")
+            if _tec:
+                _vistos = {t.get("registro") for t in (material.tesis or [])}
+                material = _copy_r.copy(material)
+                material.tesis = [t for t in _tec if t.get("registro") not in _vistos] \
+                    + list(material.tesis or [])
+                print(f"   ⚖️  {len(_tec)} tesis del vicio «{_vic_r}» para razonar "
+                      f"(no se guardan en la sesión)")
+        else:
+            _tec = await _rag.tesis_de_la_calificativa(
+                qdrant_client, _embedding_juris, sentido, problema)
+            if _tec:
+                _vistos = {t.get("registro") for t in (material.tesis or [])}
+                material.tesis = list(material.tesis or []) + [
+                    t for t in _tec if t.get("registro") not in _vistos]
+                print(f"   ⚖️  {len(_tec)} tesis de «{sentido}» añadidas para razonar")
     except Exception as _ex:
         print(f"   ⚠️ no se pudieron traer tesis de «{sentido}»: {err(_ex)}")
 
@@ -39532,12 +39557,20 @@ async def taller_resolver_stream(
             # se cuela).
             if _taller_plan_aplica(r):
                 _cola.put_nowait({"tipo": "ordenando"})
-            await _taller_plan_para(user_email, numero, r, ses, crit,
+            # LAS TESIS DEL VICIO, ANTES DEL PLAN (2-oct-2026, David: «la cita
+            # de inoperancia siempre es la misma»): 1-2 por cada vicio de los
+            # criterios de técnica, en una COPIA del material que ven el plan
+            # y el estudio. Sin la bandera `inoperancia_por_vicio`, el mismo
+            # material y la misma sesión de siempre.
+            _mat_v = await _ra.material_con_tesis_del_vicio(
+                qdrant_client, _embedding_juris, r, ses["material"], crit)
+            _ses_v = ses if _mat_v is ses["material"] else {**ses, "material": _mat_v}
+            await _taller_plan_para(user_email, numero, r, _ses_v, crit,
                                     contexto=_con_autos(r, contexto),
                                     razones_segmento=razones_segmento,
                                     tocados=_arm["tocados"])
             async for paso in _ra.resolver_en_vivo(
-                    chat_client, r, crit, ses["material"], salida, _marco,
+                    chat_client, r, crit, _mat_v, salida, _marco,
                     qdrant=qdrant_client, contexto=_con_autos(r, contexto)):
                 tipo = paso.get("tipo")
                 if tipo == "texto":
@@ -40031,11 +40064,16 @@ async def taller_resolver(
     await _taller_inventario_al_encargo(user_email, numero, r)
     # EL PLAN DEL ESTUDIO (v4), igual que en el gemelo de flujo pero sin
     # evento: este camino no emite nada hasta el final.
-    await _taller_plan_para(user_email, numero, r, ses, crit,
+    # LAS TESIS DEL VICIO, ANTES DEL PLAN (2-oct-2026), igual que en el
+    # gemelo de flujo: en una COPIA del material; sin la bandera, el de siempre.
+    _mat_v = await _ra.material_con_tesis_del_vicio(
+        qdrant_client, _embedding_juris, r, ses["material"], crit)
+    _ses_v = ses if _mat_v is ses["material"] else {**ses, "material": _mat_v}
+    await _taller_plan_para(user_email, numero, r, _ses_v, crit,
                             contexto=_con_autos(r, contexto),
                             razones_segmento=razones_segmento,
                             tocados=_arm["tocados"])
-    r2 = await _ra.resolver(chat_client, r, crit, ses["material"], salida,
+    r2 = await _ra.resolver(chat_client, r, crit, _mat_v, salida,
                             _marco, qdrant=qdrant_client,
                             contexto=_con_autos(r, contexto))
     _taller_registrar_uso(user_email, numero, "proyecto")
