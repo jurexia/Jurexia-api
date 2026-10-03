@@ -335,6 +335,11 @@ async def esperar_consulta(huella: str, leer, tope: float = 90.0,
 #                            casilla}}. La clave del plan lleva criterio,
 #                            entradas, contexto, suplencia y decisiva.
 #   estado.avisos, .evaluacion, .encargo, .fases, .partes…: datos, no marcas.
+#   estado.respuestas        {huella, items, firma}: lo que el secretario
+#                            contestó a las preguntas del motor (2-oct-2026,
+#                            `preguntas_secretario`). Es DATO suyo, como
+#                            `origen.manual`, no una marca calculada: su firma
+#                            viaja en la marca «propuesta» hecha con ellas.
 #   La marca «tarjeta» ya no existe: se recalcula en cada GET (28-sep).
 #
 # LO QUE CADA UNA CONSUMIRÁ está en `MARCAS` (abajo). Al cablearlo, cada

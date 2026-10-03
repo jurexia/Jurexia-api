@@ -253,6 +253,105 @@ ok(_al2.MAX_ACTO == 220000, "un tope mal escrito en el entorno vale el de omisi�
 del _os.environ["ANALISIS_MAX_ACTO"]
 _il.reload(al)
 
+# ═══ 8 · LAS PREMISAS DE LA PARTE (2-oct-2026, bandera «preguntas_al_secretario») ═══
+print("\n8 · SIN LA BANDERA, IDÉNTICO A LA BASE (b89e049), LETRA POR LETRA")
+import subprocess, importlib.util as _ilu
+ct.poner(False, {})
+try:
+    _src_base = subprocess.run(["git", "show", "b89e049:analisis_litis.py"], capture_output=True,
+                               text=True, check=True).stdout
+    _spec = _ilu.spec_from_loader("analisis_litis_base", loader=None)
+    al0 = _ilu.module_from_spec(_spec)
+    exec(compile(_src_base, "analisis_litis_base.py", "exec"), al0.__dict__)
+except Exception as _eb:
+    al0 = None
+    print(f"   (no se pudo leer la base: {_eb})")
+if al0 is not None:
+    _args = (ACTO, ESCRITO, "constancias", SEGS, [{"pregunta": "¿Procede?"}], "FICHA", True, "amparo_revision")
+    ok(al.prompt(*_args) == al0.prompt(*_args), "el prompt, idéntico")
+    _CR8 = dict(CRUDO, hechos=CRUDO["hechos"] + [
+        {"id": "H4", "que": "lo dice la parte", "afirma": "recurrente", "fuente": "escrito",
+         "condicion": "no_controvertido",
+         "cita": "el adquirente no acreditó la cesión del derecho contractual concreto que se ejecuta"}],
+        premisas=[{"id": "F1", "afirma_la_parte": "x", "pregunta": "¿x?"}])
+    ok(al.verificar(_CR8, ACTO, ESCRITO, "", SEGS) == al0.verificar(_CR8, ACTO, ESCRITO, "", SEGS),
+       "la verificación, idéntica (sin premisas ni «afirmado_por_la_parte»)")
+    _d8 = al.verificar(_CR8, ACTO, ESCRITO, "", SEGS)
+    ok(al.bloque_propuesta(_d8) == al0.bloque_propuesta(_d8), "el bloque de la propuesta, idéntico")
+    ok(al.huella(r1) == al0.huella(r1), "la huella, idéntica: el análisis guardado sigue valiendo")
+    ok(al.verificar_cita("adquirió el bien durante el procedimiento y conocía el arrendamiento",
+                         al.textos(ACTO, ESCRITO, ""), "escrito")
+       == al0.verificar_cita("adquirió el bien durante el procedimiento y conocía el arrendamiento",
+                             al0.textos(ACTO, ESCRITO, ""), "escrito"),
+       "verificar_cita sin `solo` busca como siempre (con caída a las demás fuentes)")
+
+print("\n9 · CON LA BANDERA: LAS PREMISAS, VERIFICADAS POR FUENTE")
+ct.poner(True, {"banderas": {"preguntas_al_secretario": True}}, pruebas=True)
+ok(al.version() == "analisis-4" and al.VERSION == "analisis-3", "otra versión, sólo con la bandera")
+ok(al.huella(r1) != al0.huella(r1) if al0 is not None else True, "y la huella lo dice: se recalcula")
+_p9 = al.prompt(*(ACTO, ESCRITO, "", SEGS, [{"pregunta": "¿Procede?"}], "FICHA", True, "amparo_revision"))
+ok("premisas:" in _p9 and "afirma_la_parte" in _p9 and "no_se_pronuncia" in _p9 and "carga_de" in _p9
+   and "afirmado_por_la_parte" in _p9, "el prompt pide las premisas y conoce la condición nueva")
+ok("faltantes:" not in _p9, "y deja de pedir faltantes abiertos (las preguntas los sustituyen)")
+ok("emplazamiento" not in _p9 and "cláusula sexta" not in _p9,
+   "describe la forma de la pregunta sin dar una (un ejemplo literal se copia)")
+_T9 = al.textos(ACTO, ESCRITO, "")
+_c = "el adquirente no acreditó la cesión del derecho contractual concreto que se ejecuta"
+ok(al.verificar_cita(_c, _T9, "acto", solo=("acto", "constancias"))[1] is False
+   and al.verificar_cita(_c, _T9, "acto")[1] is True,
+   "con `solo`, una cita del escrito NO pasa por cita del acto (sin `solo`, sí: la caída de siempre)")
+_CR9 = dict(CRUDO, faltantes=[{"que": "el contrato", "por_que_importa": "x"}],
+            hechos=CRUDO["hechos"] + [
+                {"id": "H4", "que": "lo dice la parte", "afirma": "recurrente", "fuente": "escrito",
+                 "condicion": "no_controvertido", "cita": _c},
+                {"id": "H5", "que": "lo dice el acto", "afirma": "a_quo", "fuente": "escrito",
+                 "condicion": "tenido_por_acreditado",
+                 "cita": "las prestaciones a ejecutar no cambiaron con la sustitución de la parte actora"}],
+            premisas=[
+                {"id": "F1", "segmento": "a1.a", "problema": 1, "afirma_la_parte": "no hubo cesión",
+                 "cita_escrito": _c, "el_acto": "no_se_pronuncia", "cita_acto": "", "carga_de": "recurrente",
+                 "pregunta": "hubo cesión del derecho contractual", "tipo": "si_no",
+                 "si_si": "infundado", "si_no": "fundado", "para_que": "legitimación"},
+                {"id": "F2", "segmento": "A1.a", "afirma_la_parte": "conocía el arrendamiento",
+                 "cita_escrito": _c, "el_acto": "lo_tuvo_por_cierto",
+                 "cita_acto": "adquirió el bien durante el procedimiento y conocía el arrendamiento celebrado"},
+                {"id": "F3", "segmento": "A1.a", "afirma_la_parte": "la Sala lo tuvo por cierto",
+                 "cita_escrito": _c, "el_acto": "lo_tuvo_por_cierto",
+                 "cita_acto": _c, "pregunta": "¿Se probó?", "si_si": "fundado", "si_no": "infundado"},
+                {"id": "F4", "segmento": "A1.a", "afirma_la_parte": "inventada",
+                 "cita_escrito": "esta frase no aparece en el escrito de la parte por ningún lado nunca",
+                 "el_acto": "no_se_pronuncia", "pregunta": "¿Pasó?", "si_si": "fundado", "si_no": "infundado"}])
+_d9 = al.verificar(_CR9, ACTO, ESCRITO, "", SEGS, True)
+_H9 = {h["id"]: h for h in _d9["hechos"]}
+ok(_H9["H4"]["condicion"] == "afirmado_por_la_parte",
+   "un «no controvertido» cuya cita sólo está en el escrito: AFIRMADO POR LA PARTE")
+ok(_H9["H5"]["condicion"] == "tenido_por_acreditado" and _H9["H5"]["fuente"] == "acto",
+   "si también está en el acto, la condición se queda y la fuente es el acto")
+ok(_d9["faltantes"] == [], "los faltantes abiertos ya no se piden")
+_F = {f["id"]: f for f in _d9["premisas"]}
+ok(_F["F1"]["segmento"] == "A1.a" and _F["F1"]["cita_escrito_verificada"] and _F["F1"]["carga_de"] == "la_parte"
+   and _F["F1"]["pregunta"] and _F["F1"]["tipo"] == "si_no",
+   "la premisa del escrito, con su segmento del inventario, su carga y su pregunta")
+ok(_F["F2"]["el_acto"] == "lo_tuvo_por_cierto" and _F["F2"]["fuente_acto"] == "acto" and "pregunta" not in _F["F2"],
+   "lo que el acto tuvo por cierto, con su cita del acto, no se pregunta")
+ok(_F["F3"]["el_acto"] == "no_se_pronuncia" and _F["F3"]["cita_acto"] == "" and _F["F3"]["pregunta"],
+   "la «cita del acto» que sólo está en el escrito no vale: el acto no se pronunció")
+ok(not _F["F4"]["cita_escrito_verificada"] and "pregunta" not in _F["F4"],
+   "una premisa que la parte no escribió no se le pregunta a nadie")
+import preguntas_secretario as ps9
+_q9 = ps9.preguntas_de(_d9, [{"pregunta": "¿Procede?", "jerarquia": "principal"}])
+ok(len(_q9) == 2 and all(q["indispensable"] for q in _q9) and _q9[0]["pregunta"].startswith("¿"),
+   "de ahí salen las preguntas (F1 y F3), indispensables por código")
+_b9 = al.bloque_propuesta(ps9.con_respuestas(_d9, ps9.preguntas_de(
+    _d9, [{"pregunta": "¿Procede?", "jerarquia": "principal"}], {_q9[0]["id"]: "no"})))
+ok("PREMISAS DE LA PARTE, CONTRASTADAS CON LA RESOLUCIÓN" in _b9 and "[lo afirma: recurrente]" in _b9
+   and "SÓLO LO AFIRMA LA PARTE" in _b9, "el bloque dice quién afirma cada hecho y la sección de premisas")
+ok("respuesta del secretario: NO" in _b9 and "decide la carga de la prueba" in _b9,
+   "con la respuesta del secretario, o sin ella la carga de la prueba")
+ok("lo que sólo afirma la parte NO es un hecho del asunto" in _b9 and "FALTA EN LOS INSUMOS" not in _b9,
+   "y su regla")
+ct.poner(False, {})
+
 print()
 if FALLOS:
     print("FALLAS:\n  " + "\n  ".join(FALLOS))

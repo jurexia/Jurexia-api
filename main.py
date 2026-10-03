@@ -33383,7 +33383,7 @@ def _taller_marca_es_mia(email: str, numero: str, ficha: str) -> bool:
     return isinstance(m, dict) and m.get("ficha") == ficha
 
 
-async def _taller_preproponer(email: str, numero: str, r, material) -> None:
+async def _taller_preproponer(email: str, numero: str, r, material, forzar: bool = False) -> None:
     """La propuesta de solución, sola, en cuanto la consulta automática deja
     el acervo. Es el mismo núcleo que corre el botón, sin contexto del
     secretario; se guarda entera en `estado.propuesta` (marca + respuesta) y
@@ -33394,12 +33394,27 @@ async def _taller_preproponer(email: str, numero: str, r, material) -> None:
     calcular—, no sobre la copia en memoria del worker, que la pantalla puede
     haber rehidratado mientras tanto. Lo que produce se copia a esa copia por
     huella (`_taller_sesion_en_memoria`) y, sobre todo, va a la fila.
+
+    `forzar` (2-oct-2026): la relanza /taller/responder porque el secretario
+    contestó las preguntas; la de antes ya no vale aunque la hubiera reclamado
+    el botón.
     """
     huella = ""
     try:
         huella = _te.huella_contraste(r)
         if material is None:
             return
+        # LAS RESPUESTAS CON QUE ARRANCA (2-oct-2026, bandera «preguntas_al_
+        # secretario»): si el secretario contesta mientras ésta corre, la que
+        # sale ya no es la de sus respuestas y no se guarda (la relanzada sí).
+        # Se leen de la fila, no de memoria: gunicorn corre con -w 2.
+        _firma_r0 = None
+        try:
+            import preguntas_secretario as _ps_pp
+            if _ps_pp.activa():
+                _firma_r0 = _ps_pp.firma_de_marca(_taller_leer_marca(email, numero, _ps_pp.CLAVE_MARCA), huella)
+        except Exception:
+            _firma_r0 = None
         # UNA SOLA PROPUESTA VIVA POR ADELANTO (rediseño, etapa 3, paso 1;
         # bandera «propuesta_unica»). Medido en el banco Kingston: el botón
         # forzado (o con contexto) entraba ~2 s después de que arrancara ésta,
@@ -33409,7 +33424,7 @@ async def _taller_preproponer(email: str, numero: str, r, material) -> None:
         # al terminar sólo escribe si la marca sigue siendo SUYA (su ficha).
         _unica = _taller_propuesta_unica()
         _ficha = f"fondo-{uuid.uuid4().hex[:12]}" if _unica else ""
-        if _unica and _taller_propuesta_reclamada(email, numero, huella):
+        if _unica and not forzar and _taller_propuesta_reclamada(email, numero, huella):
             print(f"   ⚖️ la propuesta de {numero} ya la está calculando el botón: la de fondo no arranca")
             return
         _desde = time.time()
@@ -33428,9 +33443,28 @@ async def _taller_preproponer(email: str, numero: str, r, material) -> None:
         if _unica and not _taller_marca_es_mia(email, numero, _ficha):
             print(f"   ⚖️ la propuesta de fondo de {numero} quedó superada por la del botón: no se guarda")
             return
+        _extra_r = {}
+        if _firma_r0 is not None:
+            _firma_r1 = _ps_pp.firma_de_marca(_taller_leer_marca(email, numero, _ps_pp.CLAVE_MARCA), huella)
+            if _firma_r1 != _firma_r0:
+                print(f"   ❓ la propuesta de {numero} se calculó antes de las últimas respuestas del "
+                      f"secretario: no se guarda (la relanzada manda)")
+                return
+            # LA CLAVE CON QUE SE SIRVE LA GUARDADA LLEVA LAS RESPUESTAS.
+            _extra_r = {"respuestas_firma": _firma_r0}
+            resp["respuestas_firma"] = _firma_r0
         if _taller_guardar_marca(email, numero, "propuesta", {
                 "huella": huella, "estado": "listo", "segundos": round(_seg, 1),
-                "respuesta": resp, **({"ficha": _ficha, "origen": "fondo"} if _unica else {})}, huella):
+                "respuesta": resp, **_extra_r,
+                **({"ficha": _ficha, "origen": "fondo"} if _unica else {})}, huella):
+            # PREGUNTAS SIN CONTESTAR (2-oct-2026): la propuesta no se hizo; no
+            # hay plan ni deliberación que adelantar. La marca queda «listo»
+            # —el cálculo terminó y /taller/proponer la sirve tal cual— y
+            # `_taller_avance` la enseña como «preguntas».
+            if isinstance(resp, dict) and resp.get("estado") == "preguntas":
+                print(f"   ❓ PROPUESTA de {numero} detenida: {resp.get('pendientes')} pregunta(s) "
+                      f"indispensable(s) al secretario sin contestar")
+                return
             _taller_sesion_en_memoria(email, numero, huella, material=material,
                                       propuestas=ses.get("propuestas"),
                                       **({"global": ses["global"]} if ses.get("global") is not None else {}))
@@ -33710,7 +33744,15 @@ def _taller_avance(email: str, numero: str) -> dict:
                 _est = str(d.get("estado") or "")
                 if _te.abandonada(d):
                     _est = "fallo"
+                # LA PROPUESTA DETENIDA POR PREGUNTAS (2-oct-2026): el cálculo
+                # terminó («listo») pero no propuso: espera las respuestas
+                # indispensables del secretario. La pantalla lo enseña así.
+                _resp_av = d.get("respuesta") if k == "propuesta" else None
+                if _est == "listo" and isinstance(_resp_av, dict) and _resp_av.get("estado") == "preguntas":
+                    _est = "preguntas"
                 out[k] = {"estado": _est, "segundos": d.get("segundos")}
+                if _est == "preguntas":
+                    out[k]["pendientes"] = _resp_av.get("pendientes")
         return out
     except Exception as ex:
         print(f"   ⚠️ no se pudo leer el avance de {numero}: {err(ex)}")
@@ -33729,7 +33771,9 @@ async def _taller_preanalizar(email: str, numero: str, r) -> None:
     {huella del adelanto, huella_analisis, estado, doc}. Sólo con la bandera.
     Nunca lanza: sin análisis la propuesta se hace como siempre."""
     import contexto_taller as _ctx_a
-    if not _ctx_a.rediseno("analisis_neutral"):
+    # Las preguntas al secretario salen del análisis (2-oct-2026): con su
+    # bandera, el análisis corre aunque «analisis_neutral» esté apagada.
+    if not (_ctx_a.rediseno("analisis_neutral") or _ctx_a.rediseno("preguntas_al_secretario")):
         return
     huella = ""
     try:
@@ -33763,7 +33807,7 @@ async def _taller_esperar_analisis(email: str, numero: str, r):
     """El análisis de ESTE adelanto (y de esta versión), o None. Espera con
     tope: la propuesta nunca queda bloqueada por él (regla de David)."""
     import contexto_taller as _ctx_a
-    if not _ctx_a.rediseno("analisis_neutral"):
+    if not (_ctx_a.rediseno("analisis_neutral") or _ctx_a.rediseno("preguntas_al_secretario")):
         return None
     try:
         import analisis_litis as _al
@@ -33805,6 +33849,204 @@ async def _taller_esperar_analisis(email: str, numero: str, r):
     except Exception as ex:
         print(f"   ⚠️ no se pudo recoger el análisis neutral: {err(ex)}")
         return None
+
+
+# ═══ LAS PREGUNTAS AL SECRETARIO (2-oct-2026) ════════════════════════════════
+# David: «el motor siempre pide constancias, creo que pudiéramos simplificarlo a
+# preguntas… y no ser tan exigentes»; «nunca dar por hecho que lo que se dice en
+# los recursos o conceptos de violación es cierto… sólo si no se dice [en la
+# resolución] se le pregunta al abogado, pero no se genera ninguna propuesta
+# hasta que no se respondan esas preguntas, sólo si se consideran
+# indispensables». Bandera «preguntas_al_secretario».
+#
+# LAS PREGUNTAS salen del análisis neutral (sus premisas donde el acto calla);
+# cuáles detienen la propuesta lo decide el código (`preguntas_secretario`).
+# LAS RESPUESTAS viven en la fila, `estado.respuestas` = {huella, items, firma}
+# (gunicorn -w 2: nada en memoria), se escriben con el parche atómico, y su
+# firma entra en la clave con que se sirve la propuesta guardada.
+
+def _taller_respuestas_guardadas(email: str, numero: str, r) -> list:
+    """Las respuestas del secretario de ESTE adelanto, leídas de la fila y
+    puestas en `r.respuestas_secretario` (de ahí las toma `_con_autos`). []
+    sin la bandera o si algo falla. Nunca lanza."""
+    try:
+        import preguntas_secretario as _ps_g
+        if not _ps_g.activa() or r is None:
+            return []
+        items = _ps_g.items_de_marca(_taller_leer_marca(email, numero, _ps_g.CLAVE_MARCA),
+                                     _te.huella_contraste(r))
+        try:
+            r.respuestas_secretario = items
+        except Exception:
+            pass
+        return items
+    except Exception as ex:
+        print(f"   ⚠️ no se pudieron leer las respuestas del secretario de {numero}: {err(ex)}")
+        return []
+
+
+def _taller_bloque_respuestas(r) -> str:
+    """El bloque «RESPUESTAS DEL SECRETARIO» para el contexto; «» sin la
+    bandera o sin respuestas (entonces `_con_autos` no cambia ni un carácter)."""
+    try:
+        import preguntas_secretario as _ps_b
+        if not _ps_b.activa():
+            return ""
+        _b = _ps_b.bloque_respuestas(list(getattr(r, "respuestas_secretario", None) or []))
+        return (_b + "\n") if _b else ""
+    except Exception:
+        return ""
+
+
+def _taller_analisis_guardado(r, marca) -> dict | None:
+    """El documento del análisis de la marca si es de ESTE adelanto y de esta
+    versión del análisis; None si no."""
+    try:
+        import analisis_litis as _al_g
+        if isinstance(marca, dict) and marca.get("huella") == _te.huella_contraste(r) \
+                and marca.get("huella_analisis") == _al_g.huella(r) and isinstance(marca.get("doc"), dict):
+            return marca["doc"]
+    except Exception:
+        pass
+    return None
+
+
+def _taller_preguntas_para_pantalla(email: str, numero: str, r):
+    """Las preguntas con su respuesta, para /taller/contexto-del-asunto. None
+    sin la bandera (la clave no se añade); [] si el análisis aún no está. UNA
+    lectura de la fila para las dos ramas: la pantalla pregunta cada pocos
+    segundos."""
+    try:
+        import preguntas_secretario as _ps_c
+        if not _ps_c.activa():
+            return None
+        fila = _taller_leer_marcas(email, numero, ("analisis", "respuestas"))
+        doc = _taller_analisis_guardado(r, fila.get("analisis"))
+        if doc is None:
+            return []
+        items = _ps_c.items_de_marca(fila.get("respuestas"), _te.huella_contraste(r))
+        return _ps_c.preguntas_de(doc, _te.problemas_de(r), _ps_c.respuestas_de(items))
+    except Exception as ex:
+        print(f"   ⚠️ preguntas de {numero} sin calcular: {err(ex)}")
+        return []
+
+
+def _taller_compuerta_preguntas(numero: str, r, problemas: list, analisis, modelo: str = "") -> tuple:
+    """(respuesta «preguntas» o None, preguntas o None, análisis para la
+    propuesta). La compuerta de `_taller_proponer_nucleo`, aparte para poder
+    probarla sin red. Sin la bandera: (None, None, análisis intacto). Si queda
+    alguna INDISPENSABLE sin contestar, la respuesta del contrato A con estado
+    «preguntas», que se devuelve SIN llamar al modelo de la propuesta. Si no,
+    el análisis lleva la respuesta del secretario junto a su premisa. Si algo
+    falla, se propone como siempre: un error nunca detiene la propuesta."""
+    try:
+        import preguntas_secretario as _ps_n
+        if not _ps_n.activa():
+            return None, None, analisis
+        _resp_n = getattr(r, "respuestas_secretario", None) or []
+        preguntas = _ps_n.preguntas_de(analisis, problemas, _ps_n.respuestas_de(_resp_n))
+        _pend_n = _ps_n.pendientes(preguntas)
+        if _pend_n:
+            print(f"   ❓ TALLER: propuesta {numero} detenida · {len(_pend_n)} pregunta(s) "
+                  f"indispensable(s) al secretario sin contestar")
+            return (_ps_n.respuesta_preguntas(numero, preguntas, modelo=modelo,
+                                              origen_firma=_taller_firma_origen(),
+                                              firma_respuestas=_ps_n.firma(_resp_n)),
+                    preguntas, analisis)
+        return None, preguntas, _ps_n.con_respuestas(analisis, preguntas)
+    except Exception as _exc_ps:
+        print(f"   ⚠️ preguntas al secretario sin calcular: {err(_exc_ps)}; se propone como siempre")
+        return None, None, analisis
+
+
+@app.post("/taller/responder")
+async def taller_responder(
+    numero: str = Form(...),
+    user_email: str = Form(...),
+    # [{"id": "P1a2b3c", "respuesta": "si" | "no" | "no_consta" | texto}]
+    respuestas_json: str = Form("[]"),
+):
+    """LAS RESPUESTAS DEL SECRETARIO A LAS PREGUNTAS DEL MOTOR (contrato C).
+
+    Se guardan en la fila (`estado.respuestas`, parche atómico), y la propuesta
+    guardada deja de valer: si ya no queda ninguna indispensable sin contestar,
+    se relanza en segundo plano como la de fondo; si aún queda alguna, se
+    actualizan las preguntas guardadas sin llamar a ningún modelo.
+
+    Devuelve {"ok": true, "pendientes": int, "propuesta": "en_curso"|"preguntas"}."""
+    _taller_puerta(user_email)
+    ses = _taller_recuperar_sesion(user_email, numero)
+    if not ses:
+        raise HTTPException(404, "No hay un adelanto reciente de ese expediente.")
+    import preguntas_secretario as _ps_r
+    if not _ps_r.activa():
+        raise HTTPException(409, "Las preguntas al secretario no están activas para esta cuenta.")
+    try:
+        nuevas = json.loads(respuestas_json or "[]")
+    except Exception:
+        raise HTTPException(422, "respuestas_json no es un JSON legible.")
+    if isinstance(nuevas, dict):
+        nuevas = [{"id": k, "respuesta": v} for k, v in nuevas.items()]
+    if not isinstance(nuevas, list):
+        raise HTTPException(422, "respuestas_json debe ser una lista de {id, respuesta}.")
+    r = ses["resultado"]
+    hu = _te.huella_contraste(r)
+    fila = _taller_leer_marcas(user_email, numero, ("analisis", "respuestas", "propuesta"))
+    doc = _taller_analisis_guardado(r, fila.get("analisis"))
+    if doc is None:
+        raise HTTPException(409, "Las preguntas de este asunto aún no están listas.")
+    problemas = _te.problemas_de(r)
+    previas = _ps_r.items_de_marca(fila.get("respuestas"), hu)
+    preguntas = _ps_r.preguntas_de(doc, problemas, _ps_r.respuestas_de(previas))
+    marca, ignorados = _ps_r.marca_respuestas(hu, previas, nuevas, preguntas, time.time())
+    if ignorados:
+        print(f"   ❓ respuestas de {numero} a preguntas que ya no existen, ignoradas: {ignorados[:5]}")
+    # Un DATO del secretario, como `origen.manual` (no una marca del manifiesto
+    # de `taller_estado`): el parche atómico mezcla sólo esta rama.
+    if not _taller_guardar_marca(user_email, numero, _ps_r.CLAVE_MARCA, marca, hu):
+        raise HTTPException(503, "No se pudieron guardar las respuestas; inténtalo de nuevo.")
+    try:
+        r.respuestas_secretario = marca["items"]
+    except Exception:
+        pass
+    preguntas = _ps_r.preguntas_de(doc, problemas, _ps_r.respuestas_de(marca["items"]))
+    pend = _ps_r.pendientes(preguntas)
+    print(f"   ❓ RESPUESTAS de {numero}: {len(marca['items'])} guardada(s) · {len(pend)} indispensable(s) pendiente(s)")
+    if pend:
+        # AÚN FALTA ALGUNA: se rehace la respuesta «preguntas» guardada, por
+        # código, para que la pantalla vea lo ya contestado.
+        _mp = fila.get("propuesta")
+        if isinstance(_mp, dict) and _mp.get("huella") == hu and _mp.get("estado") == "listo" \
+                and isinstance(_mp.get("respuesta"), dict) and _mp["respuesta"].get("estado") == "preguntas":
+            _r0 = _mp["respuesta"]
+            _taller_guardar_marca(user_email, numero, "propuesta", dict(
+                _mp, respuesta=_ps_r.respuesta_preguntas(
+                    numero, preguntas, modelo=str(_r0.get("modelo") or ""),
+                    origen_firma=str(_r0.get("origen_firma") or ""), firma_respuestas=marca["firma"]),
+                respuestas_firma=marca["firma"]), hu)
+        return {"ok": True, "pendientes": len(pend), "propuesta": "preguntas"}
+    # YA SE PUEDE PROPONER. La guardada se invalida AQUÍ, en la misma petición
+    # —si no, un /taller/proponer inmediato serviría la de antes de contestar—,
+    # y se relanza la de fondo, forzada: la del botón, si la había, es de
+    # antes de las respuestas.
+    _ahora = time.time()
+    material = ses.get("material")
+    if material is None:
+        # Sin acervo en la sesión la consulta aún corre (o la sesión es
+        # anterior): la propuesta encadenada a ella leerá las respuestas de la
+        # fila. Si la guardada es de antes, se tira para que el botón la rehaga.
+        _mp = fila.get("propuesta")
+        if isinstance(_mp, dict) and _mp.get("huella") == hu and _mp.get("estado") != "en_curso":
+            _taller_guardar_marca(user_email, numero, "propuesta",
+                                  {"huella": hu, "estado": "fallo", "motivo": "respuestas"}, hu)
+        return {"ok": True, "pendientes": 0, "propuesta": "en_curso"}
+    _taller_guardar_marca(user_email, numero, "propuesta", {
+        "huella": hu, "estado": "en_curso", "desde": _ahora, "latido": _ahora,
+        "origen": "respuestas", "respuestas_firma": marca["firma"]}, hu)
+    _tr = asyncio.ensure_future(_taller_preproponer(user_email, numero, r, material, forzar=True))
+    _TALLER_EN_MARCHA.add(_tr)
+    _tr.add_done_callback(_TALLER_EN_MARCHA.discard)
+    return {"ok": True, "pendientes": 0, "propuesta": "en_curso"}
 
 
 REQUISITOS_ESPERA_S = float(os.getenv("REQUISITOS_ESPERA_S", "90"))
@@ -36027,6 +36269,11 @@ def _taller_recuperar_sesion(email: str, numero: str):
         _ctx_t.poner_origen(_taller_origen(ses))
     except Exception as _ec:
         print(f"   ⚠️ contexto del taller sin poner: {type(_ec).__name__}")
+    # Y LAS RESPUESTAS DEL SECRETARIO (2-oct-2026), de la fila y no de la
+    # memoria del worker: el estudio, el plan y la recalificación las leen por
+    # `_con_autos`. Sin la bandera no se lee nada.
+    if ses:
+        _taller_respuestas_guardadas(email, numero, ses.get("resultado"))
     return ses
 
 
@@ -37237,6 +37484,12 @@ async def taller_contexto_del_asunto(numero: str, user_email: str):
         # Y CÓMO VA LO QUE CORRE SOLO: la pantalla lo pregunta cada pocos
         # segundos y, cuando la propuesta está lista, la pide y pasa al paso 3.
         "avance": _taller_avance(user_email, numero),
+        # LAS PREGUNTAS AL SECRETARIO CON SU RESPUESTA (2-oct-2026, contrato
+        # C): salen del análisis, que corre junto a la consulta, así que el
+        # secretario puede contestarlas mientras se busca. Sin la bandera, la
+        # clave no existe.
+        **({"preguntas": _preg_ctx} if (_preg_ctx := _taller_preguntas_para_pantalla(
+            user_email, numero, r)) is not None else {}),
         "problemas": [
             {"pregunta": (p.get("pregunta") if isinstance(p, dict) else str(p)) or "",
              "resolvio": (p.get("resolvio") if isinstance(p, dict) else "") or "",
@@ -37962,14 +38215,19 @@ def _con_autos(r, contexto: str) -> str:
         _blq = ""
     if _blq:
         contexto = _blq + "\n\n" + (contexto or "")
+    # LAS RESPUESTAS DEL SECRETARIO, DELANTE DE TODO Y SIN RECORTE (2-oct-2026,
+    # bandera «preguntas_al_secretario»). Lo aportado iba DETRÁS de los autos y
+    # los bloques se cortan por la cola a 20 mil caracteres: con autos largos
+    # la respuesta no llegaba al modelo. «» sin bandera ni respuestas.
+    _resp_sec = _taller_bloque_respuestas(r)
     if not autos:
-        return contexto or ""
+        return _resp_sec + (contexto or "")
     # EL RÓTULO IMPORTA porque el modelo lo copia. Decía «aportadas por el
     # secretario» y el estudio salió diciendo «La constancia de audiencia
     # aportada por el secretario muestra que…». Una sentencia habla en nombre
     # del tribunal y las constancias son DE AUTOS: quién las digitalizó no es
     # parte del razonamiento.
-    return ("CONSTANCIAS QUE OBRAN EN AUTOS (son del expediente; cítalas como "
+    return (_resp_sec + "CONSTANCIAS QUE OBRAN EN AUTOS (son del expediente; cítalas como "
             "«las constancias de autos», «la documental que obra a foja…», "
             "NUNCA como aportadas por nadie):\n"
             f"{autos}\n\n" + (contexto or ""))
@@ -38287,6 +38545,10 @@ async def _taller_proponer_nucleo(user_email: str, numero: str, ses: dict,
     # centro de trabajo, el reglamento interior, el peritaje— y sin ellas hay
     # asuntos que no se pueden resolver. Van delante de lo que escriba el
     # secretario, porque son el documento y él es el comentario.
+    # Y LAS RESPUESTAS DEL SECRETARIO A LAS PREGUNTAS DEL MOTOR (2-oct-2026,
+    # bandera «preguntas_al_secretario»), de la fila: `_con_autos` las pone
+    # delante de todo, y la compuerta de abajo sabe qué ya se contestó.
+    _taller_respuestas_guardadas(user_email, numero, r)
     contexto = _con_autos(r, contexto)
 
     # ═══════════════════════════════════════════════════════════════════════
@@ -38442,6 +38704,18 @@ async def _taller_proponer_nucleo(user_email: str, numero: str, ses: dict,
     # EL ANÁLISIS NEUTRAL (rediseño, etapa 2): la propuesta lo espera con tope
     # (decisión 4 de David) y, si no llega, propone sin él.
     _analisis_p = await _taller_esperar_analisis(user_email, numero, r)
+    # ═══ LA COMPUERTA DE LAS PREGUNTAS (2-oct-2026) ═════════════════════════
+    # David: «no se genera ninguna propuesta hasta que no se respondan esas
+    # preguntas, sólo si se consideran indispensables». Indispensable lo decide
+    # el CÓDIGO (`preguntas_secretario`): del problema principal, que su
+    # respuesta cambie el desenlace y que la resolución calle. Si queda alguna
+    # sin contestar, se devuelven las preguntas SIN llamar al modelo de la
+    # propuesta (contrato A, estado «preguntas»). Si algo falla aquí, se
+    # propone como siempre: un error nunca detiene la propuesta.
+    _detenida, _preguntas_p, _analisis_p = _taller_compuerta_preguntas(
+        numero, r, problemas, _analisis_p, _f5.MODELO_PROPUESTA)
+    if _detenida is not None:
+        return _detenida
     # LA RECUPERACIÓN POR REQUISITOS (rediseño, etapa 2; bandera
     # «recuperacion_requisitos»): la demostración del principal y sus fuentes,
     # sumadas al material con cupo propio. Con tope; si no llega, se propone
@@ -38761,6 +39035,13 @@ async def _taller_proponer_nucleo(user_email: str, numero: str, ses: dict,
             "constancias": list(getattr(glob, "constancias", None) or []),
         },
         "avisos": avisos,
+        # LAS PREGUNTAS AL SECRETARIO (2-oct-2026, contrato A): las no
+        # indispensables y las ya contestadas, para enseñarlas. Sin la bandera,
+        # la clave no existe.
+        **({"preguntas": _preguntas_p,
+            "respuestas_firma": __import__("preguntas_secretario").firma(
+                getattr(r, "respuestas_secretario", None))}
+           if _preguntas_p is not None else {}),
         # LA LÍNEA DE LA CORTE BUSCADA EN INTERNET: su resumen y las PISTAS que
         # el acervo no confirmó (AR 631/2025, 28-sep-2026). Vivían sólo en
         # `ses["internet"]` —y en la propuesta calculada sola, en una sesión
@@ -38891,6 +39172,18 @@ async def taller_proponer(
         # origen (otra instancia, u otros efectos de la ejecutoria).
         print(f"   🏛️ TALLER: la propuesta guardada de {numero} se calculó con otro origen del acto: se recalcula")
         _previa = None
+    if _previa is not None:
+        # LAS RESPUESTAS DEL SECRETARIO ENTRAN EN LA CLAVE (2-oct-2026, bandera
+        # «preguntas_al_secretario»): la calculada antes de contestar no se sirve.
+        try:
+            import preguntas_secretario as _ps_pr
+            if _ps_pr.activa() and str(_previa.get("respuestas_firma") or "") != _ps_pr.firma(
+                    getattr(ses["resultado"], "respuestas_secretario", None)):
+                print(f"   ❓ TALLER: la propuesta guardada de {numero} es de antes de las respuestas "
+                      f"del secretario: se recalcula")
+                _previa = None
+        except Exception as _exc_pr:
+            print(f"   ⚠️ firma de las respuestas sin comprobar: {err(_exc_pr)}")
     if _previa is not None:
         _taller_registrar_uso(user_email, numero, "propuesta")
         _taller_guardar_global(user_email, numero, ses["resultado"], _previa)
