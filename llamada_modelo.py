@@ -37,7 +37,7 @@ _RX_PARAM = re.compile(
 # Sólo se quitan los de MUESTREO. Si el servidor rechaza `messages` o `model`,
 # eso no es un lujo prescindible: es la llamada, y tiene que reventar.
 _PRESCINDIBLES = {"temperature", "seed", "top_p", "frequency_penalty",
-                  "presence_penalty", "logprobs"}
+                  "presence_penalty", "logprobs", "service_tier"}
 
 
 def parametro_rechazado(exc: Exception) -> str:
@@ -140,6 +140,14 @@ async def _crear_una(cliente, **kw):
 
 
 async def _crear_una_sin_anotar(cliente, **kw):
+    # EL CARRIL DEL TALLER (3-oct-2026, `nivel_servicio`): el mismo modelo con
+    # el mismo razonamiento, en el carril rápido si así se configuró. Si el
+    # modelo no lo admite, se quita como cualquier parámetro prescindible.
+    try:
+        import nivel_servicio as _ns
+        _ns.aplicar_openai(kw)
+    except Exception:
+        pass
     quitados = []
     for _ in range(4):
         try:
@@ -150,6 +158,8 @@ async def _crear_una_sin_anotar(cliente, **kw):
             return r
         except Exception as exc:
             p = parametro_rechazado(exc)
+            if not p and "service_tier" in kw and "service_tier" in str(exc):
+                p = "service_tier"
             if not p or p not in kw:
                 raise
             kw.pop(p, None)

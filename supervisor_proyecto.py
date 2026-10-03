@@ -1220,10 +1220,14 @@ def _config_gemini():
 async def _llamar_gemini(texto_prompt: str, tope_s: float) -> tuple:
     """(salida, uso, modelo). Lanza si falla; `asyncio.TimeoutError` si vence."""
     cli = _cliente_gemini()
-    r = await asyncio.wait_for(
-        cli.aio.models.generate_content(model=SUPERVISOR_MODELO, contents=texto_prompt,
-                                        config=_config_gemini()),
-        timeout=tope_s)
+    # TURNO Y REINTENTOS (3-oct-2026, `nivel_servicio`): con veinte asuntos a
+    # la vez, o la corrida nocturna, Gemini contesta 429/503; se reintenta con
+    # espera dentro del mismo tope en vez de entregar el estudio sin revisar.
+    import nivel_servicio as _ns
+    r = await _ns.llamar_gemini(
+        lambda: cli.aio.models.generate_content(model=SUPERVISOR_MODELO, contents=texto_prompt,
+                                                config=_config_gemini()),
+        tope_s, etiqueta="supervisor")
     um = getattr(r, "usage_metadata", None)
     uso = {}
     for k_s, k_e in (("entrada", "prompt_token_count"), ("salida", "candidates_token_count"),

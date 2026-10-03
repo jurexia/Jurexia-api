@@ -529,9 +529,11 @@ async def examinar(numero: str, tipo: str, problemas: list, via_propuesta: dict,
             if restante < 15:
                 break
             try:
-                r = await asyncio.wait_for(
-                    _gemini().aio.models.generate_content(model=MODELO, contents=texto, config=cfg),
-                    timeout=restante)
+                # TURNO Y REINTENTOS ante 429/503 (3-oct-2026, `nivel_servicio`).
+                import nivel_servicio as _ns
+                r = await _ns.llamar_gemini(
+                    lambda: _gemini().aio.models.generate_content(model=MODELO, contents=texto, config=cfg),
+                    restante, etiqueta="examinador")
             except asyncio.TimeoutError:
                 print(f"   ⚖️ EXAMINADOR: venció el tope de {tope:.0f} s")
                 return None

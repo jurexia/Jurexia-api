@@ -6056,15 +6056,26 @@ async def redactar_en_vivo(cliente, resumen_acto: str, resumen_conceptos: str,
     # Si el proveedor no admitiera la opción se llama sin ella: medir es una
     # mejora, no un requisito.
     kw["stream_options"] = {"include_usage": True}
+    # EL CARRIL DEL TALLER (3-oct-2026, `nivel_servicio`): el estudio es la
+    # llamada más larga y la que más gana con el carril rápido.
+    try:
+        import nivel_servicio as _ns
+        _ns.aplicar_openai(kw)
+    except Exception:
+        pass
     entero = []
     meta = _meta_vacia(material)
     try:
         flujo = await cliente.chat.completions.create(**kw)
     except Exception as _exs:
-        if "stream_options" not in str(_exs):
+        if "service_tier" in kw and "service_tier" in str(_exs):
+            kw.pop("service_tier", None)
+            flujo = await cliente.chat.completions.create(**kw)
+        elif "stream_options" not in str(_exs):
             raise
-        kw.pop("stream_options", None)
-        flujo = await cliente.chat.completions.create(**kw)
+        else:
+            kw.pop("stream_options", None)
+            flujo = await cliente.chat.completions.create(**kw)
     async for trozo in flujo:
         if getattr(trozo, "usage", None):
             meta["uso"] = _uso_de(trozo.usage)
