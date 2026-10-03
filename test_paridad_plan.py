@@ -1157,9 +1157,16 @@ if os.environ.get("PARIDAD_HIJO"):
 print("\n1 · LAS BANDERAS DEL REDISEÑO, APAGADAS (lo que ven las cuentas de fuera)")
 ok(not ct.es_de_pruebas() and not ct.es_casa() and ct.aplicado()["banderas"] == {},
    "el contexto es el de una cuenta de fuera: ni de casa ni de prueba, sin banderas pedidas")
-_encendidas = [b for b in ct.BANDERAS_REDISENO if ct.rediseno(b)]
-ok(not _encendidas, f"ninguna bandera del rediseño rige ({len(ct.BANDERAS_REDISENO)} en la lista)"
-                   + (f"; encendidas: {_encendidas}" if _encendidas else ""))
+# C8 (3-oct-2026, David: «empuja para todos los usuarios»): «procedencia_por_tipo»
+# nace encendida para TODOS (`OMISION_REDISENO` = «todos»), también para las
+# cuentas de fuera. No toca el plan, los prompts, la V0 ni el guion —la foto
+# sigue idéntica byte a byte con ella encendida (sección 4)—; por eso se aparta
+# de esta cuenta. Antes se exigía que no rigiera ninguna.
+_PARA_TODOS = {k for k, v in getattr(ct, "OMISION_REDISENO", {}).items() if v == "todos"}
+_encendidas = [b for b in ct.BANDERAS_REDISENO if ct.rediseno(b) and b not in _PARA_TODOS]
+ok(not _encendidas and _PARA_TODOS <= {"procedencia_por_tipo"},
+   f"ninguna bandera del rediseño rige ({len(ct.BANDERAS_REDISENO)} en la lista), salvo las que nacen "
+   f"para todos ({sorted(_PARA_TODOS)})" + (f"; encendidas: {_encendidas}" if _encendidas else ""))
 ok({"plan_con_analisis", "exclusiones_con_prueba", "estados_sesion"} <= set(ct.BANDERAS_REDISENO),
    "las tres de la etapa 4 están en la lista (y por eso, apagadas aquí)")
 

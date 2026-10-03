@@ -68,6 +68,19 @@ LAS GUARDAS (todas por código; un parche que falle una se descarta):
 DETRÁS DE LA BANDERA `supervisor_proyecto` (contexto_taller.BANDERAS_REDISENO;
 «casa» por omisión). Apagada, nadie llama a este módulo: el resolver, el meta
 y los prompts quedan idénticos.
+
+LOS ANTECEDENTES (3-oct-2026). David: «el revisor agente (gemini) concentra
+su capacidad en antecedentes y estudio de fondo» —lo procesal sale ya por
+construcción (resultandos_por_tipo)—. Con la bandera `procedencia_por_tipo`
+la MISMA llamada revisa también el considerando de antecedentes: sus párrafos
+van numerados aparte («A1…», nunca mezclados con los «P» del estudio) y sus
+parches pasan sus propias guardas (`guardas_antecedente`): ninguna fecha,
+número, nombre ni artículo que no esté en el párrafo o en las fuentes (el
+acto, el escrito, las constancias); no cambia lo que cada instancia resolvió
+ni lo que tuvo por acreditado; no alarga más de un 20%; seis palabras como
+mínimo; «eliminar» sólo la repetición pura. El trámite en este tribunal no se
+le enseña nunca. Los antecedentes corregidos llegan al proyecto por
+`material.sintesis`, que es de donde `_terminar` los toma.
 """
 from __future__ import annotations
 
@@ -151,6 +164,23 @@ def activo() -> bool:
     try:
         import contexto_taller as _ct
         return _ct.rediseno("supervisor_proyecto")
+    except Exception:
+        return False
+
+
+def rige_antecedentes() -> bool:
+    """¿Revisa también los antecedentes? Bandera `procedencia_por_tipo`.
+
+    SÓLO SI LA BANDERA ESTÁ DADA DE ALTA (3-oct-2026): `rediseno` con un nombre
+    que no está en BANDERAS_REDISENO cae a «casa» y encendería esto para las
+    cuentas de prueba antes de que el cableado registre la bandera. Mientras
+    no exista, False."""
+    try:
+        import contexto_taller as _ct
+        if "procedencia_por_tipo" not in (getattr(_ct, "BANDERAS_REDISENO", None) or {}):
+            return False
+        _f = getattr(_ct, "rige", None) or _ct.rediseno
+        return bool(_f("procedencia_por_tipo"))
     except Exception:
         return False
 
@@ -856,6 +886,486 @@ def guardas(parche: dict, bloque: dict, anclas: Anclas) -> str:
     return ""
 
 
+# ═══ LOS ANTECEDENTES (3-oct-2026) ══════════════════════════════════════════
+# David, 3-oct-2026: «el revisor agente (gemini) concentra su capacidad en
+# antecedentes y estudio de fondo». Hasta hoy los parches sólo alcanzaban el
+# estudio, y los antecedentes —que escribe el modelo de las fases, a veces con
+# la fecha o el órgano equivocados, o dando por cierto lo que sólo afirmó una
+# parte— llegaban al proyecto sin segunda lectura. Aquí van sus párrafos, sus
+# anclas y sus guardas, APARTE de las del estudio: lo que se mide en un
+# antecedente (lo que resolvió cada instancia, sus fechas, sus nombres) no es
+# lo que se mide en un párrafo del estudio (la calificación, las citas).
+ANT_CRECIMIENTO_MAX = 1.20
+# Lo que tiene que repetirse de un párrafo en OTRO para que borrarlo no pierda
+# nada: el 80% de sus palabras de contenido y TODOS sus datos.
+ANT_UMBRAL_REPETICION = 0.80
+# El extracto del acto que ve el revisor (`extracto_del_acto`): hasta
+# EXTRACTO_CABEZA caracteres de los pasajes donde constan los datos de los
+# antecedentes, y EXTRACTO_COLA de los puntos resolutivos. El prompt sigue
+# corto; las guardas cotejan contra el texto ENTERO.
+EXTRACTO_CABEZA = 7000
+EXTRACTO_COLA = 3000
+# La síntesis moderna corre a la par del estudio y casi siempre ya terminó;
+# si no, no se la espera más que esto (los antecedentes se quedan sin revisar).
+ESPERA_SINTESIS_S = 30.0
+
+# EL TRÁMITE EN ESTE TRIBUNAL NO ES UN ANTECEDENTE: lo escriben los
+# resultandos por construcción (resultandos_por_tipo) y al revisor no se le
+# enseña. Si el redactor de las fases lo metió en los antecedentes, el
+# párrafo queda FIJO y fuera del prompt.
+_RX_TRAMITE_TCC = re.compile(
+    r"\bpor\s+(?:auto|acuerdo)\s+de\s+presidencia\b"
+    r"|\b(?:este|el\s+presente)\s+(?:tribunal\s+colegiado|[óo]rgano\s+(?:jurisdiccional\s+)?colegiado)"
+    r"\s+(?:\w+\s+){0,3}?(?:registr|admiti|turn|return)\w*"
+    r"|\bse\s+(?:turn|return)\w+\s+(?:los\s+autos|el\s+(?:asunto|expediente|toca))\b", re.I)
+# LAS PERÍFRASIS QUE SUSTITUYEN UN DATO (SPEC procedencia §0: «se advierte de
+# las constancias» en 76 de 81 resultandos de octubre). Un parche no puede
+# traer una que el párrafo no tenía; la que ya trae se le señala para quitarla.
+_RX_PERIFRASIS = re.compile(
+    r"\bse\s+advierte\s+de\s+(?:las|los)\s+(?:constancias|autos)\b"
+    r"|\bcuya\s+fecha\s+se\s+advierte\b"
+    r"|\bque\s+obran?\s+en\s+(?:autos|el\s+expediente)\b"
+    r"|\bla\s+persona\s+a\s+quien\s+resulta\b"
+    r"|\bno\s+consta\s+en\s+los\s+datos\s+proporcionados\b", re.I)
+_RX_HUECO = re.compile(r"\*{3,}")
+_RX_ETIQUETA = re.compile(r"\[\s*[AP]\s*\d{1,4}\b")
+_RX_NUMERO = re.compile(r"\d+(?:[.,]\d+)*")
+
+
+def numeros_de(t: str) -> set:
+    """Los números en cifra del texto, sin separadores ni ceros a la izquierda
+    («912/2022» → {912, 2022}; «$2,500.00» → {250000}; «3.5» → {35})."""
+    fuera = set()
+    for x in _RX_NUMERO.findall(t or ""):
+        y = re.sub(r"[.,]", "", x).lstrip("0")
+        fuera.add(y or "0")
+    return fuera
+
+
+def _dias_mes(t: str) -> set:
+    """{(mes, día)} de toda fecha del texto, con año o sin él: «el ocho de
+    abril siguiente» no lo lee `fechas_en_autos` (exige los tres elementos) y
+    un parche podía cambiarlo por «el nueve de abril siguiente»."""
+    try:
+        import fechas_en_autos as _fe
+    except Exception:
+        return set()
+    tt = " ".join(str(t or "").split())
+    meses = "|".join(_fe._MESES)
+    fuera = {(m, d) for (_a, m, d) in _fe.fechas_de(tt)}
+    for m in re.finditer(rf"\b({_fe._DIA_RX})\s+de\s+({meses})\b", tt, re.I):
+        d, mes = _fe._dia(m.group(1)), _fe._MESES.get(m.group(2).lower())
+        if d and mes:
+            fuera.add((mes, d))
+    for m in re.finditer(rf"\b(\d{{1,2}})\s+de\s+({meses})\b", tt, re.I):
+        d, mes = int(m.group(1)), _fe._MESES.get(m.group(2).lower())
+        if mes and 1 <= d <= 31:
+            fuera.add((mes, d))
+    return fuera
+
+
+# LAS CANTIDADES EN LETRA («seis mil pesos», «quince días»): un número escrito
+# con palabras también es un dato que el parche no puede cambiar.
+_PAL_NUM = (r"(?:un|uno|una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|once|doce|trece|catorce|"
+            r"quince|diec\w+|veint\w+|treinta|cuarenta|cincuenta|sesenta|setenta|ochenta|noventa|"
+            r"cien|ciento|\w+cientos|\w+cientas|quinientos|quinientas|mil|millones|mill[óo]n)")
+_RX_CANTIDAD_LETRA = re.compile(
+    rf"\b({_PAL_NUM}(?:\s+(?:y\s+)?{_PAL_NUM})*)\s+(?:de\s+)?(pesos|d[íi]as|meses|a[ñn]os|por\s+ciento|"
+    rf"unidades|salarios|semanas)\b", re.I)
+
+
+def cantidades_en_letra(t: str) -> set:
+    return {_plano(m.group(0)) for m in _RX_CANTIDAD_LETRA.finditer(" ".join(str(t or "").split()))}
+
+
+# LOS NOMBRES PROPIOS: las palabras con mayúscula seguidas, partidas en los
+# conectores («Primera Sala Civil» · «Tribunal Superior» · «Justicia») y sin la
+# que abre la oración. Cada tramo tiene que estar, palabra por palabra y
+# entero, en el párrafo viejo o en las fuentes: «Juzgado Quinto» por «Juzgado
+# Cuarto», o una persona que no aparece en ningún papel, se descartan.
+_RX_PALABRA = re.compile(r"[A-Za-zÁÉÍÓÚÑÜáéíóúñü][\wÁÉÍÓÚÑÜáéíóúñü.]*")
+_GENERICOS = {"ley", "amparo", "constitucion", "constitucion politica", "constitucion federal",
+              "estados unidos mexicanos", "tribunal colegiado", "justicia", "justicia federal", "union",
+              "federacion", "codigo", "republica", "estado", "estados"}
+
+
+def nombres_de(t: str) -> list:
+    """Los tramos de nombre propio del texto, en plano, sin repetir."""
+    t = str(t or "")
+    fuera, tramo, fin_ant = [], [], None
+
+    def _cierra():
+        if tramo:
+            s = _plano(" ".join(tramo))
+            if s and s not in fuera:
+                fuera.append(s)
+        tramo.clear()
+
+    for m in _RX_PALABRA.finditer(t):
+        w = m.group(0)
+        punto_final = False
+        if "." in w[:-1] or (len(w) == 2 and w.endswith(".") and w[0].isupper()):
+            pass                                  # abreviatura o inicial («C.T.M.», «S.A», «J.»): se queda
+        elif w.endswith("."):
+            w, punto_final = w.rstrip("."), True  # «Civil. Pedro…»: el punto cierra el tramo
+        antes = t[fin_ant if fin_ant is not None else 0:m.start()]
+        if fin_ant is not None and antes.strip():
+            _cierra()                             # una coma o un punto parten el tramo
+        fin_ant = m.end()
+        if not w[:1].isupper():
+            _cierra()                             # un conector o una palabra común
+            continue
+        previo = t[:m.start()].rstrip()
+        if not tramo and (not previo or previo[-1] in ".;:!?¿¡«\"“(\n"):
+            continue                              # la que abre la oración no es un nombre
+        tramo.append(w)
+        if punto_final:
+            _cierra()
+    _cierra()
+    return fuera
+
+
+def _en(s: str, plano: str) -> bool:
+    return bool(re.search(r"(?<!\w)" + re.escape(s) + r"(?!\w)", plano or ""))
+
+
+# LO QUE RESOLVIÓ CADA INSTANCIA Y LO QUE TUVO POR ACREDITADO. El conjunto de
+# señales del párrafo viejo tiene que ser el del nuevo: ni se quita «absolvió»
+# de un «condenó a X y absolvió de Y», ni se voltea «confirmó» en «revocó», ni
+# «no acreditó» en «acreditó». Se suman las de `_RX_DESENLACE` (conceder,
+# negar, revocar, confirmar, modificar, reponer, sobreseer…).
+_RX_SENTIDO_ANT = (
+    ("condena", re.compile(r"\bcondena\w*|\bcondenó\b", re.I)),
+    ("absuelve", re.compile(r"\babsuel\w+|\babsolv\w+", re.I)),
+    ("procedente", re.compile(r"\bprocedentes?\b|\bprocedencia\b", re.I)),
+    ("improcedente", re.compile(r"\bimprocedentes?\b|\bimprocedencia\b", re.I)),
+    ("fundado", re.compile(r"\bfundad[oa]s?\b", re.I)),
+    ("infundado", re.compile(r"\binfundad[oa]s?\b", re.I)),
+    ("inoperante", re.compile(r"\binoperantes?\b", re.I)),
+    ("acredita", re.compile(r"\bacredit\w*|\bprob[óo]\b|\bprobad[oa]s?\b|\bdemostr\w*", re.I)),
+    ("desecha", re.compile(r"\bdesech\w+", re.I)),
+    ("nulidad", re.compile(r"\bnulidad\b", re.I)),
+    ("validez", re.compile(r"\bvalidez\b", re.I)),
+    ("sin_materia", re.compile(r"\bsin\s+materia\b", re.I)),
+    ("legitimacion", re.compile(r"\blegitimaci[óo]n\b|\blegitimad[oa]s?\b", re.I)),
+    ("prescripcion", re.compile(r"\bprescri\w+|\bcaducidad\b|\bcaduc[óo]\b", re.I)),
+    # EN PRETÉRITO, QUE ES COMO NARRAN LOS ANTECEDENTES. Las de `_RX_DESENLACE`
+    # son del estudio («procede revocar», «se confirma»): sobre el AR 631/2025
+    # no veían «la Sala confirmó la sentencia definitiva» (medido el 3-oct-2026).
+    ("confirma", re.compile(r"\bconfirm\w*\s+(?:en\s+sus\s+t[ée]rminos\s+)?(?:la\s+|el\s+|lo\s+)?(?:sentencia|"
+                            r"resoluci[óo]n|fallo|interlocutoria|determinaci[óo]n|auto\b|acuerdo|laudo|"
+                            r"recurrid|apelad|impugnad|reclamad)", re.I)),
+    ("revoca", re.compile(r"\brevoc\w*\s+(?:la\s+|el\s+|lo\s+)?(?:sentencia|resoluci[óo]n|fallo|interlocutoria|"
+                          r"determinaci[óo]n|auto\b|acuerdo|laudo|recurrid|apelad|impugnad|reclamad)", re.I)),
+    ("modifica", re.compile(r"\bmodific\w*\s+(?:la\s+|el\s+|lo\s+)?(?:sentencia|resoluci[óo]n|fallo|"
+                            r"interlocutoria|determinaci[óo]n|auto\b|acuerdo|laudo|recurrid|apelad|impugnad)",
+                            re.I)),
+    ("admite", re.compile(r"\badmiti\w*|\badmit[ea](?:n|r)?\b", re.I)),
+    ("decreta", re.compile(r"\bdecret[óoa]\w*", re.I)),
+    ("concede_suspension", re.compile(r"\bconced\w*\s+(?:la\s+)?suspensi[óo]n", re.I)),
+    ("niega_suspension", re.compile(r"\bneg[óoa]\w*\s+(?:la\s+)?suspensi[óo]n", re.I)),
+)
+_RX_NO_PRESENTADA = re.compile(r"\bpor\s+no\s+(?:presentad|interpuest)\w*", re.I)
+_RX_NEG_ANT = re.compile(r"\b(?:no|ni|sin|nunca|carec\w*\s+de|falta\s+de)\s+(?:\w+\s+){0,2}$", re.I)
+
+
+def sentido_antecedente(t: str) -> set:
+    """Las señales de lo resuelto o acreditado, «no_» delante si van negadas."""
+    tt = " ".join(str(t or "").split())
+    fuera = set()
+    if _RX_NO_PRESENTADA.search(tt):
+        fuera.add("no_presentada")
+        tt = _RX_NO_PRESENTADA.sub(" ", tt)
+    for clave, rx in tuple(_RX_SENTIDO_ANT) + tuple(_RX_DESENLACE):
+        for m in rx.finditer(tt):
+            neg = _RX_NEG_ANT.search(tt[max(0, m.start() - 30):m.start()])
+            fuera.add(("no_" if neg else "") + clave)
+    return fuera
+
+
+# LAS PARTES POR SU PAPEL. Un parche de redacción no cambia quién hizo qué:
+# «la parte demandada interpuso apelación» no pasa a «la parte actora». Sólo
+# una corrección de fondo (incongruencia con la resolución) puede nombrar a
+# una parte que el párrafo no nombraba.
+_RX_ROLES = (
+    ("actora", re.compile(r"\bactor(?:a|es|as)?\b", re.I)),
+    ("demandada", re.compile(r"\bdemandad[oa]s?\b", re.I)),
+    ("quejosa", re.compile(r"\bquejos[oa]s?\b", re.I)),
+    ("tercero", re.compile(r"\btercer[oa]s?\s+interesad[oa]s?\b", re.I)),
+    ("recurrente", re.compile(r"\brecurrentes?\b", re.I)),
+    ("incidentista", re.compile(r"\bincidentistas?\b", re.I)),
+    ("apelante", re.compile(r"\bapelantes?\b", re.I)),
+    ("ministerio_publico", re.compile(r"\bministerio\s+p[úu]blico\b", re.I)),
+    ("autoridad", re.compile(r"\bautoridad(?:es)?\s+(?:responsables?|demandadas?)\b", re.I)),
+)
+
+
+def _roles(t: str) -> set:
+    return {k for k, rx in _RX_ROLES if rx.search(t or "")}
+
+
+_TIPOS_DE_FONDO_ANT = ("incongruencia", "error_juridico")
+
+
+def bloques_antecedentes(antecedentes) -> list:
+    """Los párrafos de los antecedentes, numerados aparte del estudio:
+    [{n, indice, texto, fijo}]. `indice` es su posición en la lista (o en los
+    renglones, si llegan como cadena)."""
+    lista = antecedentes.split("\n") if isinstance(antecedentes, str) else list(antecedentes or [])
+    fuera = []
+    for k, x in enumerate(lista):
+        t = " ".join(str(x or "").split())
+        if not t:
+            continue
+        fijo = "trámite en este tribunal" if _RX_TRAMITE_TCC.search(t) else _fijo(t)
+        fuera.append({"n": len(fuera) + 1, "indice": k, "texto": t, "fijo": fijo,
+                      "ids": [], "marcas": []})
+    return fuera
+
+
+class AnclasAntecedentes:
+    """Lo que un parche de los antecedentes puede decir sin inventar: el acto,
+    el escrito, las constancias y lo que aportó el secretario. NO los
+    resúmenes del modelo: un dato que sólo consta en prosa de modelo no ancla."""
+
+    def __init__(self, fuentes=None):
+        textos = [str(x or "") for x in (fuentes or []) if x]
+        todo = "\n".join(textos)
+        self.plano = _plano(todo)
+        self.fechas = _fechas(todo)
+        self.dias_mes = _dias_mes(todo)
+        self.numeros = numeros_de(todo)
+        self.articulos = articulos_de(todo)
+        self.cantidades = cantidades_en_letra(todo)
+        self.hay_fuentes = bool(todo.strip())
+
+
+def _contenido(t: str) -> set:
+    return {_raiz(w) for w in re.findall(r"\w{5,}", _plano(t)) if w not in _VACIAS_ATR}
+
+
+def repite_en(texto: str, otros: list) -> int:
+    """El índice, en `otros`, del párrafo que ya dice TODO lo de `texto`
+    (el 80% de sus palabras de contenido, todas sus fechas, números,
+    artículos, nombres y lo que resolvió), o -1. Es la «repetición pura»."""
+    c = _contenido(texto)
+    if len(c) < 3:
+        return -1
+    datos = (_fechas(texto), _dias_mes(texto), numeros_de(texto), articulos_de(texto))
+    nombres, sentido = nombres_de(texto), sentido_antecedente(texto)
+    for i, o in enumerate(otros or []):
+        if not o:
+            continue
+        if len(c & _contenido(o)) / len(c) < ANT_UMBRAL_REPETICION:
+            continue
+        if not all(d <= f(o) for d, f in zip(datos, (_fechas, _dias_mes, numeros_de, articulos_de))):
+            continue
+        po = _plano(o)
+        if not all(_en(n, po) for n in nombres) or not sentido <= sentido_antecedente(o):
+            continue
+        return i
+    return -1
+
+
+def guardas_antecedente(parche: dict, bloque: dict, anclas: AnclasAntecedentes, otros=None) -> str:
+    """El motivo para descartar un parche de los antecedentes, o «» si pasa.
+    `otros`: el texto vigente de los demás párrafos (para la repetición pura)."""
+    if bloque is None:
+        return "párrafo inexistente"
+    if bloque.get("fijo"):
+        return f"párrafo fijo ({bloque['fijo']})"
+    accion, tipo = parche.get("accion"), parche.get("tipo")
+    viejo = bloque["texto"]
+    if accion == "eliminar":
+        # SÓLO LA REPETICIÓN PURA: lo que se borra tiene que estar dicho, con
+        # todos sus datos, en otro párrafo que se queda.
+        if tipo != "repeticion":
+            return "eliminar sólo procede por repetición"
+        if repite_en(viejo, otros or []) < 0:
+            return "eliminar un párrafo que dice algo que ningún otro dice"
+        return ""
+    nuevo = parche.get("texto") or ""
+    if "⟦" in nuevo or "⟧" in nuevo or "[[" in nuevo or _RX_ETIQUETA.search(nuevo):
+        return "marca o etiqueta dentro del texto"
+    if _RX_ID_INTERNO.search(nuevo) and not _RX_ID_INTERNO.search(viejo):
+        return "identificador interno en el texto"
+    if _RX_HUECO.search(nuevo) and not _RX_HUECO.search(viejo):
+        return "deja un dato en blanco"
+    n_v, n_n = _palabras(viejo), _palabras(nuevo)
+    if n_n < MIN_PALABRAS:
+        return f"párrafo de menos de {MIN_PALABRAS} palabras ({n_n})"
+    if accion == "condensar" and n_n >= n_v:
+        return "condensar sin acortar"
+    # SIN EXCEPCIÓN POR TIPO: un antecedente se corrige con el dato bueno, no
+    # con más palabras.
+    if n_n > n_v * ANT_CRECIMIENTO_MAX:
+        return f"alarga el párrafo más de un 20% ({n_v} → {n_n} palabras)"
+    pv = _plano(viejo)
+    if _fechas(nuevo) - _fechas(viejo) - anclas.fechas or \
+            _dias_mes(nuevo) - _dias_mes(viejo) - anclas.dias_mes:
+        return "fecha que no consta en el acto, el escrito ni las constancias"
+    art = articulos_de(nuevo) - articulos_de(viejo) - anclas.articulos
+    if art:
+        return f"artículo que no consta en las fuentes ({', '.join(sorted(art)[:3])})"
+    num = numeros_de(nuevo) - numeros_de(viejo) - anclas.numeros
+    if num:
+        return f"número que no consta en las fuentes ({', '.join(sorted(num)[:3])})"
+    cant = cantidades_en_letra(nuevo) - cantidades_en_letra(viejo) - anclas.cantidades
+    if cant:
+        return f"cantidad que no consta en las fuentes («{sorted(cant)[0]}»)"
+    for s in nombres_de(nuevo):
+        if s in _GENERICOS or _en(s, pv) or _en(s, anclas.plano):
+            continue
+        return f"nombre que no consta en las fuentes («{s}»)"
+    s_v, s_n = sentido_antecedente(viejo), sentido_antecedente(nuevo)
+    if s_v != s_n:
+        return f"cambia lo resuelto o lo acreditado ({'/'.join(sorted(s_v)) or 'nada'} → " \
+               f"{'/'.join(sorted(s_n)) or 'nada'})"
+    if _roles(nuevo) - _roles(viejo) and tipo not in _TIPOS_DE_FONDO_ANT:
+        return "nombra una parte que el párrafo no nombraba"
+    for m in _RX_CITA_COMILLAS.finditer(nuevo):
+        q = _plano(m.group(1))
+        if _palabras(q) >= 6 and q not in pv and q not in anclas.plano:
+            return "transcripción entrecomillada que no consta"
+    if frases_de_herramienta(nuevo):
+        return "frase de herramienta"
+    if len(_RX_PERIFRASIS.findall(nuevo)) > len(_RX_PERIFRASIS.findall(viejo)):
+        return "sustituye un dato por una remisión genérica a las constancias"
+    if da_por_cierto(viejo, nuevo):
+        return "borra la atribución a la parte: da por cierto lo que sólo se afirma"
+    pre_v = _RX_PREFIJO_ORDEN.match(viejo)
+    if pre_v:
+        pre_n = _RX_PREFIJO_ORDEN.match(nuevo)
+        if not pre_n or re.sub(r"\s", "", pre_n.group(1)) != re.sub(r"\s", "", pre_v.group(1)):
+            return "pierde el número del antecedente"
+    return ""
+
+
+def aplicar_antecedentes(antecedentes, parches: list, bloques_: list):
+    """Los antecedentes con los parches aprobados, en la misma forma en que
+    llegaron (lista o cadena). Lo no tocado queda byte por byte."""
+    es_cadena = isinstance(antecedentes, str)
+    lista = antecedentes.split("\n") if es_cadena else list(antecedentes or [])
+    por_n = {b["n"]: b for b in bloques_}
+    nuevas, quitar = {}, set()
+    for p in parches:
+        b = por_n[p["parrafo"]]
+        if p["accion"] == "eliminar":
+            quitar.add(b["indice"])
+            if es_cadena and b["indice"] + 1 < len(lista) and not lista[b["indice"] + 1].strip():
+                quitar.add(b["indice"] + 1)
+        else:
+            nuevas[b["indice"]] = p["texto"]
+    fuera = [nuevas.get(k, x) for k, x in enumerate(lista) if k not in quitar]
+    return "\n".join(fuera) if es_cadena else fuera
+
+
+def hallazgos_antecedentes(bloques_: list, fuentes=None) -> list:
+    """Lo que el código ya sabe de los antecedentes, situado por párrafo A."""
+    fuera = []
+    try:
+        import fechas_en_autos as _fe
+    except Exception:
+        _fe = None
+    # Las fechas de las fuentes, UNA vez (`sin_respaldo` las recalcula en cada
+    # llamada: 0.4 s sobre el 631 por párrafo a párrafo).
+    en_autos = _fechas("\n".join(str(x or "") for x in (fuentes or []))) if _fe is not None else set()
+    for b in bloques_:
+        if b["fijo"]:
+            continue
+        t, n = b["texto"], b["n"]
+        for frase, _ in frases_de_herramienta(t):
+            fuera.append(f"[A{n}] frase de herramienta, un tribunal no la escribe: «{frase}»")
+        for m in _RX_PERIFRASIS.finditer(t):
+            fuera.append(f"[A{n}] remisión genérica en lugar del dato: «{m.group(0)}»")
+        if en_autos:
+            for f in [ap for k, ap in _fe.fechas_de(t).items() if k not in en_autos][:3]:
+                fuera.append(f"[A{n}] fecha que no consta en el acto, el escrito ni las constancias: «{f}»")
+        otros = [o["texto"] for o in bloques_ if o["n"] != n]
+        j = repite_en(t, otros)
+        if j >= 0:
+            fuera.append(f"[A{n}] repite lo que ya dice otro párrafo de los antecedentes")
+    return fuera[:20]
+
+
+_RX_FIRMA_ELECTRONICA = re.compile(
+    r"EVIDENCIA\s+CRIPTOGR[ÁA]FICA|FIRMA\s+ELECTR[ÓO]NICA\s+AVANZADA|Cadena\s+de\s+firma|"
+    r"\bOCSP\b|Datos\s+estampillados|Nombre\s+del\s+respondedor", re.I)
+_RX_RESUELVE = re.compile(r"\bR\s?E\s?S\s?U\s?E\s?L\s?V\s?E\b|\bPUNTOS\s+RESOLUTIVOS\b", re.I)
+
+
+def extracto_del_acto(acto: str, antecedentes=None, cabeza: int = None, cola: int = None) -> str:
+    """Lo que del acto ve el revisor: los pasajes donde constan las fechas y
+    los números que citan los antecedentes, y el final (los puntos
+    resolutivos). Sin antecedentes, o si ninguno de sus datos está en el acto,
+    el principio y el final.
+
+    POR QUÉ NO SÓLO EL PRINCIPIO (medido el 3-oct-2026 sobre el AR 631/2025):
+    el texto del PDF trae una palabra por renglón en el proemio, y en una
+    revisión el relato del juicio de origen está a media sentencia, no en sus
+    resultandos: los primeros 7,000 caracteres no llegaban a él. Se compacta
+    el espacio y se va a donde están los datos."""
+    cabeza = EXTRACTO_CABEZA if cabeza is None else cabeza
+    cola = EXTRACTO_COLA if cola is None else cola
+    t = " ".join(str(acto or "").split())
+    # LA FIRMA ELECTRÓNICA NO ES EL FINAL (mismo día, mismo AR): tras los
+    # resolutivos el PDF trae la evidencia criptográfica —cadenas en
+    # hexadecimal, OCSP, sellos de tiempo— y la cola caía entera ahí.
+    m_firma = _RX_FIRMA_ELECTRONICA.search(t, len(t) // 2)
+    if m_firma:
+        t = t[:m_firma.start()].rstrip()
+    if len(t) <= cabeza + cola + 200:
+        return t
+    m_res = None
+    for m_res in _RX_RESUELVE.finditer(t):
+        pass
+    final = (t[m_res.start():m_res.start() + cola] if m_res and len(t) - m_res.start() > 200
+             else t[-cola:].split(" ", 1)[-1])
+    lugares = []
+    if antecedentes:
+        txt_a = antecedentes if isinstance(antecedentes, str) else "\n".join(str(x) for x in antecedentes)
+        try:
+            import fechas_en_autos as _fe
+            del_acto = _fe.fechas_de(t)
+            for clave in _fe.fechas_de(txt_a):
+                if clave in del_acto:
+                    k = t.find(del_acto[clave])
+                    if k >= 0:
+                        lugares.append(k)
+        except Exception:
+            pass
+        for na in numeros_con_anio(txt_a):
+            k = t.find(na)
+            if k >= 0:
+                lugares.append(k)
+    if not lugares:
+        return t[:cabeza].rsplit(" ", 1)[0] + " […] " + final
+    # VENTANAS ALREDEDOR DE CADA DATO, fundidas y en el orden del acto, hasta
+    # el presupuesto de la cabeza.
+    tramos = []
+    lugares = sorted(set(lugares))
+    ancho = max(500, min(1100, cabeza // len(lugares)))
+    for k in lugares:
+        a, b = max(0, k - int(ancho * 0.4)), min(len(t) - cola, k + int(ancho * 0.6))
+        if b <= a:
+            continue
+        if tramos and a <= tramos[-1][1]:
+            tramos[-1][1] = max(tramos[-1][1], b)
+        else:
+            tramos.append([a, b])
+    fuera, usados = [], 0
+    for a, b in tramos:
+        if usados >= cabeza:
+            break
+        b = min(b, a + (cabeza - usados))
+        trozo = t[a:b]
+        if a > 0:
+            trozo = trozo.split(" ", 1)[-1]
+        fuera.append(trozo.rsplit(" ", 1)[0] if b < len(t) else trozo)
+        usados += b - a
+    return " […] ".join(fuera) + " […] " + final
+
+
 # ═══ EL PARSEO ══════════════════════════════════════════════════════════════
 def _objetos_completos(t: str) -> list:
     """Los objetos {…} COMPLETOS de la lista «parches» de una salida cortada.
@@ -957,8 +1467,27 @@ def _numero_de_parrafo(x) -> int:
     return int(m.group(1)) if m else 0
 
 
+_RX_ETIQUETA_A = re.compile(r"\s*(?:A|antecedentes?\s*)\s*\.?\s*(\d{1,4})\s*", re.I)
+
+
+def seccion_y_parrafo(x, seccion=None) -> tuple:
+    """(«estudio»|«antecedentes», número) de la etiqueta de un parche: «A3»
+    es el tercer párrafo de los antecedentes; «P3», «3» o 3, el del estudio.
+    Una clave «seccion» que diga antecedentes también vale (3-oct-2026)."""
+    if isinstance(x, str):
+        m = _RX_ETIQUETA_A.fullmatch(x)
+        if m:
+            return "antecedentes", int(m.group(1))
+    s = str(seccion or "").strip().lower()
+    n = _numero_de_parrafo(x)
+    if s.startswith("antecedente") or s == "a":
+        return "antecedentes", n
+    return "estudio", n
+
+
 def parsear(salida: str) -> tuple:
-    """([parche normalizado], n_mal_formados). Nunca lanza."""
+    """([parche normalizado], n_mal_formados). Nunca lanza. Cada parche lleva
+    su «seccion»: «estudio» o «antecedentes»."""
     crudos = _crudos(salida)
     if crudos is None:
         return [], 0
@@ -967,7 +1496,7 @@ def parsear(salida: str) -> tuple:
         if not isinstance(c, dict):
             malos += 1
             continue
-        n = _numero_de_parrafo(c.get("parrafo"))
+        sec, n = seccion_y_parrafo(c.get("parrafo"), c.get("seccion"))
         accion = str(c.get("accion") or "").strip().lower()
         tipo = str(c.get("tipo") or "").strip().lower().replace(" ", "_")
         tipo = tipo.replace("jurídico", "juridico").replace("repetición", "repeticion") \
@@ -979,7 +1508,8 @@ def parsear(salida: str) -> tuple:
             malos += 1
             continue
         fuera.append({"parrafo": n, "accion": accion, "tipo": tipo, "texto": texto,
-                      "motivo": " ".join(str(c.get("motivo") or "").split())[:300]})
+                      "motivo": " ".join(str(c.get("motivo") or "").split())[:300],
+                      "seccion": sec})
     return fuera[:MAX_PARCHES], malos
 
 
@@ -1127,12 +1657,60 @@ def _bloque_estudio(bloques_: list) -> str:
     return "\n\n".join(L)
 
 
+def _bloque_antecedentes(bloques_ant: list) -> str:
+    """Los párrafos A. El trámite en este tribunal NO se enseña: es el bloque
+    procesal, que sale por construcción."""
+    L = []
+    for b in bloques_ant:
+        if b["fijo"] == "trámite en este tribunal":
+            continue
+        etiqueta = f"A{b['n']}" + (f" · FIJO ({b['fijo']}): no se toca" if b["fijo"] else "")
+        L.append(f"[{etiqueta}]\n{_recorta(b['texto'], 600) if b['fijo'] else b['texto']}")
+    return "\n\n".join(L)
+
+
+def _seccion_antecedentes(hallazgos_ant: list, extracto_acto: str) -> str:
+    """Lo que se le pide de los antecedentes, en pocas líneas y sin frases
+    modelo (un ejemplo literal en un prompt se copia tal cual)."""
+    hall = "\n".join(f"- {h}" for h in (hallazgos_ant or [])) or "- (ninguno)"
+    return f"""═══ LOS ANTECEDENTES (párrafos A, al final) ═══
+Narran el juicio de origen y lo que resolvió cada instancia. Se cotejan con el extracto de la resolución que va abajo. El trámite ante este tribunal no se te enseña y no se toca.
+Qué buscar en ellos:
+- incongruencia: una fecha, un número de expediente o de toca, un órgano o una parte que no coincide con la resolución.
+- hecho_no_acreditado: se da por cierto lo que sólo afirmó una parte en su demanda, su contestación o su recurso; atribúyelo a quien lo afirmó.
+- repeticion: el mismo hecho contado dos veces.
+- redaccion o extension: oraciones kilométricas, detalle de trámite que no sirve para entender lo que se resuelve.
+Reglas propias de los antecedentes:
+- Sólo fechas, números, nombres y artículos que ya estén en el párrafo o en la resolución, el escrito o las constancias.
+- No cambies lo que cada instancia resolvió ni lo que tuvo por acreditado.
+- No alargues un párrafo más de un 20%, por ningún motivo; al menos seis palabras.
+- eliminar sólo procede, con tipo repeticion, en un párrafo que no dice nada que no diga ya otro párrafo de los antecedentes.
+- Nunca dejes un dato en blanco ni lo sustituyas por una remisión genérica a las constancias o a los autos.
+Hallazgos de los controles automáticos en los antecedentes:
+{hall}
+
+═══ EXTRACTO DE LA RESOLUCIÓN RECLAMADA O RECURRIDA (su principio y su final) ═══
+{extracto_acto or "(no consta)"}
+
+"""
+
+
 def prompt(bloques_: list, criterios, material, resumen_acto: str, resumen_conceptos: str,
-           hallazgos_: list, palabras: int, objetivo: int = TECHO_PALABRAS) -> str:
+           hallazgos_: list, palabras: int, objetivo: int = TECHO_PALABRAS,
+           bloques_ant: list = None, hallazgos_ant: list = None, extracto_acto: str = "") -> str:
     """El encargo del supervisor. Describe la forma de los parches; no trae
-    frases modelo (un ejemplo literal en un prompt se copia tal cual)."""
+    frases modelo (un ejemplo literal en un prompt se copia tal cual). Sin
+    `bloques_ant` el texto es, byte por byte, el de antes del 3-oct-2026."""
     hall = "\n".join(f"- {h}" for h in hallazgos_) or "- (ninguno)"
-    return f"""Eres el secretario proyectista que revisa, antes de pasarlo al magistrado, el ESTUDIO DE FONDO de un proyecto de sentencia de un Tribunal Colegiado de Circuito de México. No lo reescribes: propones correcciones puntuales, párrafo por párrafo, y sólo donde hacen falta.
+    con_ant = bool(bloques_ant and any(b["fijo"] != "trámite en este tribunal" for b in bloques_ant))
+    objeto = "el ESTUDIO DE FONDO y los ANTECEDENTES" if con_ant else "el ESTUDIO DE FONDO"
+    seccion_ant = _seccion_antecedentes(hallazgos_ant, extracto_acto) if con_ant else ""
+    clave_parrafo = ('el número del párrafo: en el estudio, el entero de su etiqueta P; en los antecedentes, '
+                     'la etiqueta entera con su A ("A3").' if con_ant
+                     else "el número del párrafo (el entero de su etiqueta P).")
+    cola_ant = ("\n═══ LOS ANTECEDENTES, POR PÁRRAFOS ═══\n" + _bloque_antecedentes(bloques_ant) + "\n"
+                if con_ant else "")
+    return f"""Eres el secretario proyectista que revisa, antes de pasarlo al magistrado, {objeto} de un proyecto de sentencia de un Tribunal Colegiado de Circuito de México. No lo reescribes: propones correcciones puntuales, párrafo por párrafo, y sólo donde hacen falta.
 
 EL CRITERIO DEL SECRETARIO ES INMUTABLE. El sentido de cada problema ya está decidido; ninguna corrección cambia una calificación (fundado, infundado, inoperante, ineficaz, inatendible, fundado pero insuficiente, innecesario, sin materia) ni el desenlace (conceder o negar el amparo; revocar, confirmar o modificar; reponer el procedimiento; «para efectos»; sobreseer).
 
@@ -1172,9 +1750,9 @@ Ninguna corrección puede citar un registro, una clave de tesis, un expediente o
 - No alargues un párrafo más de un 20%, salvo para corregir un error jurídico o una incongruencia.
 - eliminar sólo procede en un párrafo que no cite nada, no califique y no conteste argumentos, cuando lo que dice ya está dicho en otro.
 
-═══ FORMATO DE LA RESPUESTA ═══
+{seccion_ant}═══ FORMATO DE LA RESPUESTA ═══
 Sólo un objeto JSON con la clave "parches": una lista de objetos con estas claves:
-- "parrafo": el número del párrafo (el entero de su etiqueta P).
+- "parrafo": {clave_parrafo}
 - "accion": "reemplazar" (corrige el contenido), "condensar" (mismo contenido, más corto) o "eliminar".
 - "tipo": uno de error_juridico, incongruencia, hecho_no_acreditado, cita, repeticion, extension, redaccion.
 - "texto": el párrafo nuevo completo; cadena vacía si se elimina.
@@ -1183,7 +1761,7 @@ Si no hay nada que corregir, la lista va vacía.
 
 ═══ EL ESTUDIO, POR PÁRRAFOS ═══
 {_bloque_estudio(bloques_)}
-"""
+{cola_ant}"""
 
 
 # ═══ LAS LLAMADAS ═══════════════════════════════════════════════════════════
@@ -1283,13 +1861,87 @@ async def supervisar(estudio: str, criterios=None, material=None, resumen_acto: 
     modelo). En producción, Gemini y, si no abre, el respaldo por `cliente`.
     `plan` es el plan v4 con que se escribió el estudio (o None): sus
     etiquetas dicen qué calificación corresponde a cada argumento marcado."""
+    nuevo, _a, inf = await _supervisar(estudio, None, criterios, material, resumen_acto,
+                                       resumen_conceptos, fuentes, None, "", cliente, tope_s,
+                                       llamar, plan)
+    return nuevo, inf
+
+
+async def supervisar_con_antecedentes(estudio: str, antecedentes, criterios=None, material=None,
+                                      resumen_acto: str = "", resumen_conceptos: str = "",
+                                      fuentes=None, fuentes_antecedentes=None,
+                                      extracto_acto: str = "", cliente=None, tope_s: float = None,
+                                      llamar=None, plan=None) -> tuple:
+    """(estudio, antecedentes, informe CONTRATO D) en UNA llamada (3-oct-2026).
+
+    `antecedentes`: la lista de párrafos que llevará el proyecto (o una cadena;
+    sale en la misma forma). `fuentes_antecedentes`: los textos que anclan sus
+    parches —el acto, el escrito, las constancias, lo que aportó el
+    secretario—, NUNCA los resúmenes del modelo. `extracto_acto`: lo que del
+    acto ve el revisor (`extracto_del_acto`). Si la llamada falla o vence, los
+    dos salen como estaban. Las correcciones de los antecedentes van en
+    `informe["correcciones"]` con «seccion»: «antecedentes» y su «bloque»
+    («A3»); su detalle, en `informe["antecedentes"]`."""
+    return await _supervisar(estudio, antecedentes, criterios, material, resumen_acto,
+                             resumen_conceptos, fuentes, fuentes_antecedentes, extracto_acto,
+                             cliente, tope_s, llamar, plan)
+
+
+def _revisar_antecedentes(parches: list, bloques_: list, anclas: AnclasAntecedentes) -> tuple:
+    """([parches aprobados], [motivos de descarte]) de los antecedentes. Los
+    reemplazos van primero; las eliminaciones después, contra el texto ya
+    corregido y sin que un párrafo borrado sirva de testigo de otro."""
+    por_n = {b["n"]: b for b in bloques_}
+    textos = {b["n"]: b["texto"] for b in bloques_}
+    motivos, primeros, vistos = [], [], set()
+    for p in parches:
+        if p["parrafo"] in vistos:
+            motivos.append({"parrafo": p["parrafo"], "tipo": p["tipo"], "motivo": "segundo parche al mismo párrafo",
+                            "accion": p["accion"], "texto": p.get("texto", "")})
+            continue
+        vistos.add(p["parrafo"])
+        primeros.append(p)
+    buenos, eliminados = [], set()
+    max_elim = max(1, int(len([b for b in bloques_ if not b["fijo"]]) * MAX_ELIMINAR))
+    for p in [x for x in primeros if x["accion"] != "eliminar"] + \
+             [x for x in primeros if x["accion"] == "eliminar"]:
+        b = por_n.get(p["parrafo"])
+        otros = [t for k, t in textos.items() if k != p["parrafo"] and k not in eliminados]
+        motivo = guardas_antecedente(p, b, anclas, otros)
+        if not motivo and p["accion"] == "eliminar" and len(eliminados) >= max_elim:
+            motivo = "demasiadas eliminaciones en una pasada"
+        if not motivo and p["accion"] != "eliminar" \
+                and " ".join(p["texto"].split()) == " ".join(b["texto"].split()):
+            motivo = "sin cambio"
+        if motivo:
+            motivos.append({"parrafo": p["parrafo"], "tipo": p["tipo"], "motivo": motivo,
+                            "accion": p["accion"], "texto": p.get("texto", "")})
+            continue
+        if p["accion"] == "eliminar":
+            eliminados.add(p["parrafo"])
+        else:
+            textos[p["parrafo"]] = p["texto"]
+        buenos.append(p)
+    buenos.sort(key=lambda x: x["parrafo"])
+    return buenos, motivos
+
+
+async def _supervisar(estudio, antecedentes, criterios, material, resumen_acto, resumen_conceptos,
+                      fuentes, fuentes_antecedentes, extracto_acto, cliente, tope_s, llamar,
+                      plan) -> tuple:
+    """El supervisor entero: (estudio, antecedentes, informe). Sin
+    antecedentes (None) hace exactamente lo de antes del 3-oct-2026."""
     t0 = time.perf_counter()
     tope = float(tope_s or SUPERVISOR_TOPE_S)
     inf = _informe_vacio()
     bl = bloques(estudio)
-    if not [b for b in bl if not b["fijo"]]:
+    ba = bloques_antecedentes(antecedentes) if antecedentes is not None else []
+    ba_vivos = [b for b in ba if not b["fijo"]]
+    if antecedentes is not None:
+        inf["antecedentes"] = {"estado": "sin_cambios", "parrafos": len(ba)}
+    if not [b for b in bl if not b["fijo"]] and not ba_vivos:
         inf["estado"] = "sin_cambios"
-        return estudio, inf
+        return estudio, antecedentes, inf
     try:
         import fase6_estudio as _f6o
         objetivo = max(TECHO_PALABRAS, int(_f6o._objetivo_palabras(material, criterios) or 0)) \
@@ -1299,10 +1951,13 @@ async def supervisar(estudio: str, criterios=None, material=None, resumen_acto: 
     objetivo = min(objetivo, 4000)
     fuentes = [x for x in (fuentes or []) if x] + [resumen_acto or "", resumen_conceptos or ""]
     hall = hallazgos(estudio, bl, fuentes, int(_get(material, "n_planteamientos", 0) or 0), objetivo)
+    fuentes_ant = [str(x) for x in (fuentes_antecedentes or []) if x]
+    hall_a = hallazgos_antecedentes(ba, fuentes_ant) if ba_vivos else []
     import marcas as _mc
     pal_antes = _palabras(_mc.sin_marcas(estudio))
     texto_prompt = prompt(bl, criterios, material, resumen_acto, resumen_conceptos, hall,
-                          pal_antes, objetivo)
+                          pal_antes, objetivo, bloques_ant=ba if ba_vivos else None, hallazgos_ant=hall_a,
+                          extracto_acto=extracto_acto)
     salida, uso, modelo = "", {}, ""
     try:
         if llamar is not None:
@@ -1323,11 +1978,15 @@ async def supervisar(estudio: str, criterios=None, material=None, resumen_acto: 
     except asyncio.TimeoutError:
         inf.update(estado="vencido", modelo=modelo or SUPERVISOR_MODELO,
                    segundos=round(time.perf_counter() - t0, 1))
-        return estudio, inf
+        if "antecedentes" in inf:
+            inf["antecedentes"]["estado"] = "vencido"
+        return estudio, antecedentes, inf
     except Exception as ex:
         inf.update(estado="fallo", modelo=modelo or SUPERVISOR_MODELO, error=type(ex).__name__,
                    segundos=round(time.perf_counter() - t0, 1))
-        return estudio, inf
+        if "antecedentes" in inf:
+            inf["antecedentes"]["estado"] = "fallo"
+        return estudio, antecedentes, inf
     inf["modelo"] = modelo
     inf["uso"] = uso
     _c = coste_usd(uso)
@@ -1338,14 +1997,20 @@ async def supervisar(estudio: str, criterios=None, material=None, resumen_acto: 
     _ileg = salida_legible(salida)
     if _ileg:
         inf.update(estado="fallo", error=_ileg, segundos=round(time.perf_counter() - t0, 1))
-        return estudio, inf
+        if "antecedentes" in inf:
+            inf["antecedentes"]["estado"] = "fallo"
+        return estudio, antecedentes, inf
     parches, malos = parsear(salida)
+    # LOS PARCHES DE CADA SECCIÓN, POR SU CUENTA: un «A3» nunca toca el
+    # párrafo 3 del estudio, y uno del estudio nunca toca los antecedentes.
+    p_est = [p for p in parches if p.get("seccion", "estudio") != "antecedentes"]
+    p_ant = [p for p in parches if p.get("seccion") == "antecedentes"]
     anclas = Anclas(material, fuentes, criterios, plan)
     por_n = {b["n"]: b for b in bl}
     buenos, motivos, vistos = [], [], set()
     max_elim = max(1, int(len([b for b in bl if not b["fijo"]]) * MAX_ELIMINAR))
     n_elim = 0
-    for p in parches:
+    for p in p_est:
         b = por_n.get(p["parrafo"])
         if p["parrafo"] in vistos:
             motivo = "segundo parche al mismo párrafo"
@@ -1386,15 +2051,66 @@ async def supervisar(estudio: str, criterios=None, material=None, resumen_acto: 
         inf["motivos_descarte"].append({"parrafo": 0, "tipo": "incongruencia",
                                         "motivo": "cambiaría el desenlace del estudio: se revierte todo"})
         buenos, nuevo, pal_despues = [], estudio, pal_antes
-    inf["correcciones"] = [{"tipo": p["tipo"], "parrafo": p["parrafo"],
-                            "antes": por_n[p["parrafo"]]["texto"][:400],
-                            "despues": ("" if p["accion"] == "eliminar" else p["texto"][:400]),
-                            "accion": p["accion"], "motivo": p["motivo"]} for p in buenos]
+    correcciones = [{"tipo": p["tipo"], "parrafo": p["parrafo"],
+                     "antes": por_n[p["parrafo"]]["texto"][:400],
+                     "despues": ("" if p["accion"] == "eliminar" else p["texto"][:400]),
+                     "accion": p["accion"], "motivo": p["motivo"]} for p in buenos]
+    # ── LOS ANTECEDENTES ──
+    ante_nuevos = antecedentes
+    if antecedentes is None:
+        # Sin antecedentes enviados, un «A3» no tiene a qué aplicarse.
+        for p in p_ant:
+            inf["descartadas"] += 1
+            inf["motivos_descarte"].append({"parrafo": f"A{p['parrafo']}", "tipo": p["tipo"],
+                                            "motivo": "antecedentes no enviados al revisor"})
+    else:
+        anclas_a = AnclasAntecedentes(fuentes_ant)
+        por_a = {b["n"]: b for b in ba}
+        buenos_a, motivos_a = _revisar_antecedentes(p_ant, ba, anclas_a)
+        pal_a_antes = sum(_palabras(b["texto"]) for b in ba)
+        if buenos_a:
+            ante_nuevos = aplicar_antecedentes(antecedentes, buenos_a, ba)
+        pal_a_despues = sum(_palabras(b["texto"]) for b in bloques_antecedentes(ante_nuevos))
+        n_rev = 0
+        if buenos_a and pal_a_despues < pal_a_antes * PISO_PALABRAS:
+            # TAMPOCO SE COME MEDIO RELATO: se revierte todo lo de los antecedentes.
+            n_rev = len(buenos_a)
+            motivos_a.append({"parrafo": 0, "tipo": "extension",
+                              "motivo": f"dejaría los antecedentes en {pal_a_despues} de {pal_a_antes} "
+                                        f"palabras: se revierte todo", "accion": "", "texto": ""})
+            buenos_a, ante_nuevos, pal_a_despues = [], antecedentes, pal_a_antes
+        # LO QUE EL REVISOR VIO MAL EN LO RESUELTO Y LA MÁQUINA NO PUEDE
+        # CORREGIR SOLA: el sentido de lo que resolvió cada instancia no lo
+        # cambia un parche (guarda dura), pero si el revisor lo acusa como
+        # incongruencia con la resolución, el secretario tiene que saberlo.
+        por_verificar = [{"bloque": f"A{m['parrafo']}", "antes": por_a[m["parrafo"]]["texto"][:240],
+                          "propuesta": str(m.get("texto") or "")[:240]}
+                         for m in motivos_a
+                         if str(m["motivo"]).startswith("cambia lo resuelto") and m["parrafo"] in por_a
+                         and m["tipo"] in _TIPOS_DE_FONDO_ANT][:3]
+        desc_a = len([m for m in motivos_a if m["parrafo"] != 0]) + n_rev
+        inf["antecedentes"].update(
+            estado="aplicado" if buenos_a else "sin_cambios", propuestas=len(p_ant),
+            descartadas=desc_a,
+            motivos_descarte=[{"parrafo": f"A{m['parrafo']}" if m["parrafo"] else 0, "tipo": m["tipo"],
+                               "motivo": m["motivo"]} for m in motivos_a][:30],
+            palabras={"antes": pal_a_antes, "despues": pal_a_despues}, hallazgos=len(hall_a))
+        if por_verificar:
+            inf["antecedentes"]["por_verificar"] = por_verificar
+        inf["descartadas"] += desc_a
+        # EN EL ORDEN DEL DOCUMENTO: los antecedentes van antes que el estudio.
+        # «parrafo» 0 (el contrato D lo reserva al estudio); «bloque» dice cuál.
+        correcciones = [{"tipo": p["tipo"], "parrafo": 0, "seccion": "antecedentes",
+                         "bloque": f"A{p['parrafo']}",
+                         "antes": por_a[p["parrafo"]]["texto"][:400],
+                         "despues": ("" if p["accion"] == "eliminar" else p["texto"][:400]),
+                         "accion": p["accion"], "motivo": p["motivo"]} for p in buenos_a] + correcciones
+    inf["correcciones"] = correcciones
     inf["palabras"] = {"antes": pal_antes, "despues": pal_despues}
     inf["hallazgos"] = len(hall)
-    inf["estado"] = "aplicado" if buenos else "sin_cambios"
+    inf["estado"] = "aplicado" if correcciones else "sin_cambios"
     inf["segundos"] = round(time.perf_counter() - t0, 1)
-    return nuevo, inf
+    return nuevo, ante_nuevos, inf
 
 
 _NOMBRE_TIPO = {"error_juridico": ("error jurídico", "errores jurídicos"),
@@ -1406,21 +2122,36 @@ _NOMBRE_TIPO = {"error_juridico": ("error jurídico", "errores jurídicos"),
                 "redaccion": ("de redacción", "de redacción")}
 
 
+def _cuenta_por_tipo(cor: list) -> str:
+    cuenta = {}
+    for c in cor:
+        cuenta[c["tipo"]] = cuenta.get(c["tipo"], 0) + 1
+    return ", ".join(f"{n} {_NOMBRE_TIPO.get(t, (t, t))[0 if n == 1 else 1]}"
+                     for t, n in sorted(cuenta.items(), key=lambda x: -x[1]))
+
+
 def aviso(inf: dict) -> str:
-    """El aviso corto que ve el secretario («» si no hay nada que decir)."""
+    """El aviso corto que ve el secretario («» si no hay nada que decir). Sin
+    antecedentes revisados, el texto es el de siempre."""
     est = (inf or {}).get("estado")
+    con_ant = isinstance((inf or {}).get("antecedentes"), dict)
     if est == "aplicado":
-        cor = inf.get("correcciones") or []
-        cuenta = {}
-        for c in cor:
-            cuenta[c["tipo"]] = cuenta.get(c["tipo"], 0) + 1
-        partes = [f"{n} {_NOMBRE_TIPO.get(t, (t, t))[0 if n == 1 else 1]}"
-                  for t, n in sorted(cuenta.items(), key=lambda x: -x[1])]
+        todas = inf.get("correcciones") or []
+        cor = [c for c in todas if c.get("seccion") != "antecedentes"]
+        cor_a = [c for c in todas if c.get("seccion") == "antecedentes"]
         pal = inf.get("palabras") or {}
         extra = (f" (de {pal['antes']:,} a {pal['despues']:,} palabras)".replace(",", ".")
                  if pal.get("antes") and pal.get("despues") != pal.get("antes") else "")
-        return (f"El supervisor corrigió {len(cor)} cosa{'s' if len(cor) != 1 else ''} del "
-                f"estudio: {', '.join(partes)}{extra}. Cada cambio está en la ficha del proyecto.")
+        trozos = []
+        if cor:
+            trozos.append(f"{len(cor)} cosa{'s' if len(cor) != 1 else ''} del estudio: "
+                          f"{_cuenta_por_tipo(cor)}{extra}")
+        if cor_a:
+            trozos.append(f"{len(cor_a)} de los antecedentes: {_cuenta_por_tipo(cor_a)}"
+                          if cor else
+                          f"{len(cor_a)} cosa{'s' if len(cor_a) != 1 else ''} de los antecedentes: "
+                          f"{_cuenta_por_tipo(cor_a)}")
+        return f"El supervisor corrigió {'; y '.join(trozos)}. Cada cambio está en la ficha del proyecto."
     if est in ("fallo", "vencido"):
         if est == "vencido":
             por = "se pasó del tiempo"
@@ -1428,8 +2159,24 @@ def aviso(inf: dict) -> str:
             por = "no devolvió una respuesta legible"
         else:
             por = "falló la llamada"
+        if con_ant:
+            return (f"El supervisor no pudo revisar el estudio ni los antecedentes ({por}): salen como "
+                    f"los escribió el redactor.")
         return f"El supervisor no pudo revisar el estudio ({por}): sale como lo escribió el redactor."
     return ""
+
+
+def aviso_por_verificar(inf: dict) -> str:
+    """Lo que el revisor acusó en lo que resolvió una instancia, en los
+    antecedentes, y no se aplicó (la guarda no deja que un parche cambie lo
+    resuelto): el secretario lo coteja. «» si no hay."""
+    pv = (((inf or {}).get("antecedentes") or {}).get("por_verificar")) or []
+    if not pv:
+        return ""
+    cuales = ", ".join(x["bloque"] for x in pv)
+    return (f"ANTECEDENTES POR COTEJAR ({cuales}): el revisor advierte que lo que ahí se dice que "
+            f"resolvió una instancia no coincide con la resolución. No se corrigió solo, porque lo "
+            f"resuelto no lo cambia la máquina: cotéjelo con la resolución antes de firmar.")
 
 
 def _como_texto(a) -> str:
@@ -1454,37 +2201,108 @@ def _plan_de(r):
         return None
 
 
+async def _antecedentes_del_proyecto(r, material, espera_s: float = None) -> tuple:
+    """(antecedentes, síntesis): los párrafos de antecedentes que llevará el
+    proyecto, y el dict de la síntesis moderna del que salen (o None).
+
+    LOS MISMOS QUE TOMA `_terminar` (redactor_adelanto): los de la síntesis
+    moderna si llegó y los trae, y si no, `fases.parrafos_antecedentes()`. La
+    síntesis corre a la par del estudio y casi siempre ya terminó; se la espera
+    con `shield` para que el tope no la cancele (`_terminar` la vuelve a
+    esperar). Si no llegó a tiempo, (None, None): no se revisan."""
+    t = getattr(material, "sintesis", None)
+    sint = None
+    if t is not None:
+        try:
+            sint = await asyncio.wait_for(asyncio.shield(t), timeout=ESPERA_SINTESIS_S
+                                          if espera_s is None else espera_s)
+        except asyncio.TimeoutError:
+            return None, None
+        except Exception:
+            sint = None                       # falló: `_terminar` caerá a las fases
+        if isinstance(sint, dict) and sint.get("antecedentes"):
+            return list(sint["antecedentes"]), sint
+    try:
+        a = list(r.fases.parrafos_antecedentes())
+    except Exception:
+        return None, None
+    return (a or None), (sint if isinstance(sint, dict) else None)
+
+
+def entregar_antecedentes(material, antecedentes: list, sintesis: dict = None) -> None:
+    """Deja los antecedentes corregidos donde `_terminar` los recoge:
+    `material.sintesis`, como una síntesis ya resuelta que conserva lo demás
+    que traía (acto, conceptos). Sin síntesis moderna, sólo trae los
+    antecedentes y lo demás cae a las fases, como cuando la síntesis falla.
+    Se llama desde código asíncrono (el resolver)."""
+    fut = asyncio.get_running_loop().create_future()
+    fut.set_result(dict(sintesis or {}, antecedentes=list(antecedentes)))
+    material.sintesis = fut
+
+
 async def en_el_resolver(cliente, r, criterios, material, estudio: str, meta: dict,
                          avisos: list, contexto: str = "") -> str:
     """Lo que llaman los dos gemelos del resolver tras `_congruencia_apertura`.
     Devuelve el estudio (corregido o como estaba); anota el informe en
-    `meta["supervisor"]` y el aviso en `avisos`. Nunca lanza."""
+    `meta["supervisor"]` y el aviso en `avisos`. Nunca lanza.
+
+    CON LA BANDERA `procedencia_por_tipo` (3-oct-2026) revisa también los
+    antecedentes en la misma llamada, y los corregidos los deja en
+    `material.sintesis` (`entregar_antecedentes`), de donde `_terminar` arma
+    `relleno.antecedentes`. La firma no cambia: el llamador no se entera."""
     if not SUPERVISOR_ACTIVO:
         if isinstance(meta, dict):
             meta["supervisor"] = _informe_vacio("apagado")
         return estudio
     try:
         fases = getattr(r, "fases", None)
-        fuentes = list(getattr(fases, "fuentes", None) or []) + [
+        _fuentes_fases = list(getattr(fases, "fuentes", None) or [])
+        fuentes = _fuentes_fases + [
             _como_texto(getattr(fases, "antecedentes", None)),
             str(getattr(fases, "autos", "") or ""), str(contexto or "")]
-        nuevo, inf = await supervisar(
-            estudio, criterios, material,
-            resumen_acto=str(getattr(fases, "resumen_acto", "") or ""),
-            resumen_conceptos=str(getattr(fases, "resumen_conceptos", "") or ""),
-            fuentes=fuentes, cliente=cliente, plan=_plan_de(r))
+        ante, sint = (None, None)
+        if rige_antecedentes():
+            ante, sint = await _antecedentes_del_proyecto(r, material)
+        if ante:
+            # LO QUE ANCLA LOS ANTECEDENTES: el acto, el escrito, las
+            # constancias y lo que aportó el secretario. Ni los resúmenes del
+            # modelo ni los propios antecedentes.
+            fuentes_ant = [str(x) for x in _fuentes_fases if x] + [
+                str(getattr(fases, "autos", "") or ""), str(contexto or "")]
+            nuevo, ante_n, inf = await supervisar_con_antecedentes(
+                estudio, ante, criterios, material,
+                resumen_acto=str(getattr(fases, "resumen_acto", "") or ""),
+                resumen_conceptos=str(getattr(fases, "resumen_conceptos", "") or ""),
+                fuentes=fuentes, fuentes_antecedentes=fuentes_ant,
+                extracto_acto=extracto_del_acto(str((_fuentes_fases or [""])[0] or ""), ante),
+                cliente=cliente, plan=_plan_de(r))
+            if ante_n != ante:
+                entregar_antecedentes(material, ante_n, sint)
+        else:
+            nuevo, inf = await supervisar(
+                estudio, criterios, material,
+                resumen_acto=str(getattr(fases, "resumen_acto", "") or ""),
+                resumen_conceptos=str(getattr(fases, "resumen_conceptos", "") or ""),
+                fuentes=fuentes, cliente=cliente, plan=_plan_de(r))
         if isinstance(meta, dict):
             meta["supervisor"] = inf
         _av = aviso(inf)
         if _av:
             avisos.append(_av)
+        _av_pv = aviso_por_verificar(inf)
+        if _av_pv:
+            avisos.append(_av_pv)
         # HIGIENE DE REGISTROS: cifras, nunca el texto.
         _u = inf.get("uso") or {}
+        _ia = inf.get("antecedentes") if isinstance(inf.get("antecedentes"), dict) else None
         print(f"   🔎 SUPERVISOR: {inf.get('estado')} · {inf.get('modelo')} · "
               f"{len(inf.get('correcciones') or [])} corrección(es) · "
               f"{inf.get('descartadas')} descartada(s) · {inf.get('segundos')} s · "
               f"entrada {_u.get('entrada', '?')} · razonamiento {_u.get('razonamiento', '?')} · "
-              f"salida {_u.get('salida', '?')}")
+              f"salida {_u.get('salida', '?')}"
+              + (f" · antecedentes {_ia.get('estado')}: "
+                 f"{sum(1 for c in inf.get('correcciones') or [] if c.get('seccion') == 'antecedentes')} "
+                 f"corregido(s), {_ia.get('descartadas', 0)} descartado(s)" if _ia else ""))
         return nuevo
     except Exception as ex:
         print(f"   ⚠️ SUPERVISOR: {type(ex).__name__}")
@@ -1565,6 +2383,13 @@ def texto_para_barrido(relleno, estructura=None) -> str:
                   "oportunidad"):
         _mete(getattr(relleno, campo, None))
     if estructura is not None:
+        # LA EXISTENCIA SÓLO LA LLEVA EL DIRECTO (sexta ronda, 3-oct-2026, C1).
+        # David: en la revisión «ya viene en la sentencia recurrida; no es
+        # usual ni necesario que lo reproduzcamos». En el AR el campo llega
+        # vacío y no aporta nada; su «Procedencia.» (81, fr. I, inciso que
+        # toque) va en `procedencia`. El considerando de los asuntos
+        # relacionados (64 LFPCA, 88 CFPC / 269 CNPCF) lo pone el compositor
+        # al armar el .docx: lo pregunta el barrido final, no éste.
         for campo in ("apertura", "visto", "resultandos", "competencia", "existencia", "procedencia"):
             _mete(getattr(estructura, campo, None))
     return "\n".join(trozos)

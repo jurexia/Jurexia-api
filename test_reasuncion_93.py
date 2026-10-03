@@ -297,7 +297,7 @@ _leg = ta.legitimacion_de("amparo_revision", RECURRENTE, "", "***", papel="terce
 ok("artículo 5o., fracción III" in _leg and "6º" not in _leg and "tercera interesada" in _leg,
    f"legitimación de la tercera: art. 5o., fr. III, no el 6o.: {_leg}")
 ok("5o., fracción II, y 87" in ta.legitimacion_de("amparo_revision", "Director de Ingresos", "", "***", papel="autoridad")
-   and "6º" in ta.legitimacion_de("amparo_revision", QUEJOSA, "", "***"),
+   and "6o." in ta.legitimacion_de("amparo_revision", QUEJOSA, "", "***"),
    "la autoridad por el 5o., fr. II y el 87; la quejosa, como siempre")
 _ps = fs.prompt(tipo_asunto="amparo_revision", expediente="631/2025", quejoso=QUEJOSA, recurrente=RECURRENTE,
                 papel_recurrente="tercero", organo="Juzgado Séptimo de Distrito", estudio="x")

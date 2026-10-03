@@ -102,15 +102,58 @@ def es_moral(nombre: str) -> bool:
     return bool(_RX_MORAL.search(nombre or ""))
 
 
+def _figura_en_prosa(figura: str) -> str:
+    """La figura por la puerta única, `tipos_asunto.figura_en_prosa` (F6); si
+    esa pieza no está, la de antes (todo en minúscula)."""
+    f = " ".join(str(figura or "").split()).strip(" ,;")
+    if not f:
+        return ""
+    try:
+        import tipos_asunto as _ta_f
+        _fp = getattr(_ta_f, "figura_en_prosa", None)
+        if callable(_fp):
+            return " ".join(str(_fp(f) or "").split()) or f
+    except Exception:
+        pass
+    return re.sub(r"(?i)^su\s+", "", f).lower()
+
+
+def _separador(figura: str) -> str:
+    """Entre la figura y el nombre: coma si la figura cita un artículo o pasa de
+    tres palabras; un espacio si no. La regla es una, la de
+    `tipos_asunto._sep_figura`; si esa pieza no está, la misma aquí."""
+    try:
+        import tipos_asunto as _ta_s
+        _sf = getattr(_ta_s, "_sep_figura", None)
+        if callable(_sf):
+            s = _sf(figura)
+            if s in (" ", ", "):
+                return s
+    except Exception:
+        pass
+    return ", " if (re.search(r"art[íi]culo", figura or "", re.I)
+                    or len((figura or "").split()) > 3) else " "
+
+
 def por_conducto(parte: str, representante: str, figura: str = "") -> str:
     """«GDE Trading Company, S.A. de C.V., por conducto de su representante
     legal Alondra Zúñiga Gutiérrez» — la fórmula para el resolutivo cuando se
-    quiere nombrar a quien compareció; sin representante, sólo la parte."""
+    quiere nombrar a quien compareció; sin representante, sólo la parte.
+
+    LA FIGURA POR LA MISMA PUERTA QUE EL RESULTANDO Y LA LEGITIMACIÓN
+    (3-oct-2026, quinta ronda, F6; AD 274 y 456/2025 del banco recompuestos con
+    nombres): aquí se hacía `.lower()` de la figura entera y se pegaba el nombre
+    con un espacio, y el resolutivo firmado decía «por conducto de su autorizado
+    en términos amplios del artículo 12 Pedro Gil Mora» —la cita sin su ley y
+    sin la coma— mientras el resultando del mismo documento decía «…del
+    artículo 12 de la Ley de Amparo, Pedro Gil Mora». Ahora
+    `tipos_asunto.figura_en_prosa` (baja sólo el tramo genérico, completa el
+    «artículo 12» o el «9o.» con su ley) y el mismo separador."""
     p, r = _limpia(parte), _limpia(representante)
     if not r:
         return p
-    f = (figura or "representante legal").strip().lower()
-    return f"{p}, por conducto de su {f} {r}"
+    f = _figura_en_prosa(figura) or "representante legal"
+    return f"{p}, por conducto de su {f}{_separador(f)}{r}"
 
 
 # ═══ LA MISMA PARTE, ESCRITA DE DOS MANERAS (28-sep-2026) ═══════════════════

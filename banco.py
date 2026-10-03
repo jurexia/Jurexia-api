@@ -213,12 +213,29 @@ def sin_acuerdo_ajeno(texto: str, tribunal: str) -> str:
     return _RX_CON_28_2017.sub(r"\1 \2", texto or "")
 
 
-def texto_de(tipo: str, ident: str, datos: dict) -> tuple:
-    """(párrafo listo, marcadores en hueco). Vacío si no hay plantilla."""
+def variante_de(tipo: str, ident: str, variante: str) -> str:
+    """El texto de la variante `variante` del apartado `ident`, o «»."""
+    a = apartado(tipo, ident)
+    for v in ((a.get("variantes") or []) if a else []):
+        if str(v.get("id") or "") == variante:
+            return str(v.get("texto") or v.get("plantilla") or "")
+    return ""
+
+
+def texto_de(tipo: str, ident: str, datos: dict, variante: str = "") -> tuple:
+    """(párrafo listo, marcadores en hueco). Vacío si no hay plantilla.
+
+    LAS VARIANTES TAMBIÉN SE LEEN (3-oct-2026). Sólo se leía `plantilla`, así
+    que la variante `ad-c2-civil` —la existencia con el toca y el expediente
+    por separado, 32 de 86 en el corpus— no salía nunca, y la existencia del
+    amparo directo nombraba el toca como «expediente» (AD_xxii: «los autos del
+    expediente 374/2024», que era el toca). Con `variante` se pide por su id;
+    si el apartado no la tiene, vacío, y quien llama decide.
+    """
     a = apartado(tipo, ident)
     if not a or a.get("generado"):
         return "", []
-    pl = a.get("plantilla") or ""
+    pl = variante_de(tipo, ident, variante) if variante else (a.get("plantilla") or "")
     if not pl.strip():
         return "", []
     relleno, faltan = rellenar(_a_marcadores(_sin_rotulo(pl)), datos)
@@ -272,14 +289,57 @@ def _romano(n: int) -> str:
     return fuera
 
 
-def fraccion_del_acuerdo(tribunal: str) -> str:
-    """«XXII» para un tribunal del Vigésimo Segundo Circuito. Vacío si no consta."""
+_VALOR_ROMANO = {"I": 1, "V": 5, "X": 10, "L": 50, "C": 100}
+
+
+def _de_romano(r: str) -> int:
+    total, mayor = 0, 0
+    for ch in reversed((r or "").upper()):
+        v = _VALOR_ROMANO.get(ch, 0)
+        if not v:
+            return 0
+        total = total - v if v < mayor else total + v
+        mayor = max(mayor, v)
+    return total if _romano(total) == (r or "").upper() else 0
+
+
+# EL CIRCUITO ESCRITO DE TODAS LAS MANERAS (3-oct-2026). `circuito_de` lee el
+# ordinal en letra —«del Vigésimo Segundo Circuito»— y nada más: «Tercer
+# Tribunal Colegiado del XXII Circuito» y «del 22o. Circuito» salían con la
+# fracción del acuerdo en hueco (comprobado: ''). Se leen las tres formas. Y
+# LOS CENTROS AUXILIARES NO TIENEN CIRCUITO: su jurisdicción es la de la región,
+# no la de un punto tercero por circuito; ahí no se deduce fracción, y el hueco
+# con su aviso es lo honesto.
+_RX_CIRCUITO_ROMANO = re.compile(r"\b([IVXL]{1,6})\s+Circuito\b")
+_RX_CIRCUITO_DIGITO = re.compile(r"\b(\d{1,2})\s*(?:o|º|°|er)?\.?\s+Circuito\b", re.I)
+_RX_AUXILIAR = re.compile(r"Centro\s+Auxiliar|auxiliar\s+de\s+la\s+\w+\s+Regi[óo]n", re.I)
+
+
+def numero_de_circuito(tribunal: str) -> int:
+    """El número del circuito del tribunal (1 a 32), o 0 si no consta."""
+    t = " ".join(str(tribunal or "").split())
+    if not t or _RX_AUXILIAR.search(t):
+        return 0
     try:
         from fase_precedente import circuito_de
+        n = circuito_de(t)
+        if n and n.isdigit() and 1 <= int(n) <= 32:
+            return int(n)
     except Exception:
-        return ""
-    n = circuito_de(tribunal or "")
-    return _romano(int(n)) if n and n.isdigit() and 1 <= int(n) <= 32 else ""
+        pass
+    m = _RX_CIRCUITO_ROMANO.search(t)
+    if m and 1 <= _de_romano(m.group(1)) <= 32:
+        return _de_romano(m.group(1))
+    m = _RX_CIRCUITO_DIGITO.search(t)
+    if m and 1 <= int(m.group(1)) <= 32:
+        return int(m.group(1))
+    return 0
+
+
+def fraccion_del_acuerdo(tribunal: str) -> str:
+    """«XXII» para un tribunal del Vigésimo Segundo Circuito. Vacío si no consta."""
+    n = numero_de_circuito(tribunal or "")
+    return _romano(n) if n else ""
 
 
 def rotulo_de(tipo: str, ident: str, por_defecto: str = "") -> str:

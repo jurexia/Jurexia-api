@@ -19,7 +19,19 @@ un doble. Comprueba:
       calificativo tampoco, «endereza» acotado por el plan, condensar no quita
       una respuesta, registros y rubros intactos, «3-4» no es 34, los rótulos
       del guion son fijos, el memo no recuerda fallos, la salida ilegible es
-      «fallo», los antecedentes como texto, X-Supervisor y /taller/proyecto.
+      «fallo», los antecedentes como texto, X-Supervisor y /taller/proyecto;
+ 11 · los ANTECEDENTES (3-oct-2026, bandera `procedencia_por_tipo`): sus
+      párrafos «A», aparte del estudio; el trámite en este tribunal nunca va
+      al prompt; cada guarda con un parche bueno y otro malo (fechas, números,
+      cantidades, nombres, artículos, lo resuelto, el papel de las partes,
+      +20%, seis palabras, la repetición pura, perífrasis, huecos); un doble
+      que mezcla parches buenos y malos de las dos secciones; el piso; la
+      entrega por `material.sintesis` que lee `_terminar`; sin la bandera
+      dada de alta, nada cambia.
+ 12 · la SEXTA RONDA (3-oct-2026): el encargo del revisor no nombra la
+      existencia (C1: el AR ya no la lleva) ni los rótulos viejos de la
+      carátula (C3, C4), y el barrido adelantado sale bien con la existencia
+      vacía del AR y su «Procedencia.».
 
     .venv/bin/python test_supervisor_proyecto.py
 """
@@ -654,6 +666,394 @@ for _pr, _espera in (({"version": 2, "supervisor": {"estado": "aplicado", "corre
     _r = (asyncio.run(_rp) if asyncio.iscoroutine(_rp) else _rp)["proyecto"]
     ok(((_r.get("supervisor") or {}).get("estado")) == _espera and ("supervisor" in _r) == (_espera is not None),
        f"/taller/proyecto {'devuelve' if _espera else 'no inventa'} el supervisor")
+
+print("11 · los antecedentes")
+# EL CASO, CALCADO DEL AR 631/2025 (sus antecedentes reales, recortados): la
+# resolución de apelación y lo que de ella narra el redactor de las fases.
+ACTO_A = ("SENTENCIA de la Primera Sala Civil del Tribunal Superior de Justicia del Estado de Querétaro, "
+          "toca civil 912/2022. RESULTANDO. PRIMERO. Por escrito de diecisiete de agosto de dos mil veinte, "
+          "la Unión de Trabajadores promovió juicio sumario civil contra Carmen Yllanes Gutiérrez. SEGUNDO. El "
+          "veinticuatro de febrero de dos mil veintidós el Juez Quinto de Primera Instancia Civil dictó "
+          "sentencia en la que condenó a la demandada a entregar el inmueble y a pagar seis mil pesos "
+          "mensuales; la demandada afirmó haber pagado las rentas, sin acreditarlo, con apoyo en el artículo "
+          "2294 del Código Civil. TERCERO. Inconforme, la demandada apeló. RESUELVE: PRIMERO. Se confirma la "
+          "sentencia de veinticuatro de febrero de dos mil veintidós. Así lo resolvió la Sala el dieciocho de "
+          "mayo de dos mil veintidós.")
+ANTE = [
+    "Por escrito de diecisiete de agosto de dos mil veinte, la Unión de Trabajadores promovió juicio sumario "
+    "civil contra Carmen Yllanes Gutiérrez.",
+    "El veinticuatro de febrero de dos mil veintidós, el Juez Quinto de Primera Instancia Civil dictó sentencia "
+    "en la que condenó a la demandada a entregar el inmueble y a pagar seis mil pesos mensuales; la demandada "
+    "pagó las rentas.",
+    "Inconforme con esa resolución, la parte demandada interpuso recurso de apelación, que se radicó con el "
+    "número de toca civil 912/2022 del índice de la Primera Sala Civil del Tribunal Superior de Justicia del "
+    "Estado de Querétaro.",
+    "Por resolución de dieciocho de mayo de dos mil veintidós, la Primera Sala Civil confirmó la sentencia "
+    "definitiva dictada en el juicio sumario civil.",
+    "Por resolución de dieciocho de mayo de dos mil veintidós, la Primera Sala Civil confirmó la sentencia "
+    "definitiva dictada en el juicio sumario civil, como se dijo.",
+    "Por auto de Presidencia de tres de junio de dos mil veinticinco, este Tribunal Colegiado registró la "
+    "demanda con el número 123/2025 y la admitió a trámite.",
+]
+BA = S.bloques_antecedentes(ANTE)
+PA = {b["n"]: b for b in BA}
+ok([b["n"] for b in BA] == [1, 2, 3, 4, 5, 6] and [b["indice"] for b in BA] == [0, 1, 2, 3, 4, 5],
+   "seis párrafos A, numerados aparte, con su posición en la lista")
+ok(PA[6]["fijo"] == "trámite en este tribunal" and not any(PA[n]["fijo"] for n in range(1, 6)),
+   "el trámite en este tribunal es fijo; los demás se pueden corregir")
+ok([b["n"] for b in S.bloques_antecedentes("Uno dos tres cuatro cinco seis siete.\n\nOcho nueve diez once doce trece.")]
+   == [1, 2], "llegando como cadena, un renglón con texto es un párrafo")
+
+# EL PARSEO DE LA ETIQUETA
+for _x, _s, _esp in (("A3", None, ("antecedentes", 3)), ("a 12", None, ("antecedentes", 12)),
+                     ("P3", None, ("estudio", 3)), (3, None, ("estudio", 3)),
+                     (2, "antecedentes", ("antecedentes", 2)), ("A3-4", None, ("estudio", 0))):
+    ok(S.seccion_y_parrafo(_x, _s) == _esp, f"etiqueta {_x!r} (sección {_s}) → {_esp}")
+_pp, _ = S.parsear('{"parches": [{"parrafo": "A2", "accion": "condensar", "tipo": "extension", "texto": "a b c d e f"},'
+                   ' {"parrafo": 2, "accion": "condensar", "tipo": "extension", "texto": "a b c d e f"}]}')
+ok([(p["seccion"], p["parrafo"]) for p in _pp] == [("antecedentes", 2), ("estudio", 2)],
+   "«A2» y «2» son párrafos distintos: uno de los antecedentes y otro del estudio")
+
+# LAS SEÑALES QUE LAS GUARDAS COMPARAN
+ok(S.sentido_antecedente("La Sala confirmó la sentencia definitiva.") == {"confirma"}
+   and S.sentido_antecedente("La Sala revocó el auto recurrido.") == {"revoca"},
+   "lo resuelto, en pretérito (como narran los antecedentes)")
+ok(S.sentido_antecedente("La actora no acreditó su acción.") == {"no_acredita"}
+   and S.sentido_antecedente("Declaró que la Unión carecía de legitimación activa.") == {"no_legitimacion"}
+   and S.sentido_antecedente("Tuvo por no presentada la demanda.") == {"no_presentada"},
+   "las negaciones cuentan: «no acreditó», «carecía de legitimación», «por no presentada»")
+ok(S.nombres_de("Inconforme, la Unión de Trabajadores apeló ante la Primera Sala Civil. Pedro Ramírez Soto declaró.")
+   == ["union", "trabajadores", "primera sala civil", "ramirez soto"],
+   "los nombres: tramos con mayúscula, partidos en los conectores y sin la palabra que abre la oración")
+ok(S.numeros_de("toca 912/2022, $2,500.00 y 3.5 km") == {"912", "2022", "250000", "35"}
+   and (4, 8) in S._dias_mes("el ocho de abril siguiente"),
+   "los números sin separadores; las fechas sin año también se leen")
+
+AN_A = S.AnclasAntecedentes([ACTO_A, "Escrito de agravios de la demandada."])
+
+
+def ga(n, accion, texto="", tipo="redaccion", otros=None):
+    return S.guardas_antecedente({"parrafo": n, "accion": accion, "texto": texto, "tipo": tipo}, PA.get(n),
+                                 AN_A, otros)
+
+
+A2_BUENO = ("El veinticuatro de febrero de dos mil veintidós, el Juez Quinto de Primera Instancia Civil dictó "
+            "sentencia en la que condenó a la demandada a entregar el inmueble y a pagar seis mil pesos "
+            "mensuales; la demandada afirmó haber pagado las rentas.")
+ok(ga(2, "reemplazar", A2_BUENO, "hecho_no_acreditado") == "",
+   "atribuir a la demandada lo que sólo afirmó (el pago de las rentas): pasa")
+ok(ga(3, "condensar", "Inconforme, la parte demandada interpuso apelación, radicada con el toca civil 912/2022 "
+                      "de la Primera Sala Civil.", "extension") == "", "condensar conservando los datos: pasa")
+ok(ga(9, "reemplazar", "uno dos tres cuatro cinco seis") == "párrafo inexistente", "párrafo inexistente")
+ok(ga(6, "reemplazar", "Por auto de Presidencia, este Tribunal Colegiado registró la demanda y la admitió.")
+   .startswith("párrafo fijo (trámite"), "el trámite en este tribunal no se toca")
+ok(ga(4, "reemplazar", PA[4]["texto"].replace("dieciocho de mayo", "diecinueve de mayo"), "incongruencia")
+   == "fecha que no consta en el acto, el escrito ni las constancias", "una fecha que no está en las fuentes: fuera")
+ok(ga(4, "reemplazar", "Por resolución del nueve de abril siguiente, la Primera Sala Civil confirmó la sentencia "
+                       "definitiva dictada en el juicio.", "incongruencia")
+   == "fecha que no consta en el acto, el escrito ni las constancias", "una fecha sin año que no consta: fuera")
+ok(ga(3, "condensar", "Inconforme, la parte demandada apeló; se radicó el toca civil 913/2022 de la Primera Sala "
+                      "Civil.", "extension").startswith("número que no consta"), "un número de toca cambiado: fuera")
+ok(ga(2, "reemplazar", A2_BUENO.replace("seis mil pesos", "siete mil pesos"), "incongruencia")
+   .startswith("cantidad que no consta"), "una cantidad en letra cambiada: fuera")
+ok(ga(1, "reemplazar", "Por escrito de diecisiete de agosto de dos mil veinte, la Unión de Trabajadores y Pedro "
+                       "Ramírez promovieron juicio sumario civil contra Carmen Yllanes Gutiérrez.", "incongruencia")
+   == "nombre que no consta en las fuentes («pedro ramirez»)", "una persona que no aparece en ningún papel: fuera")
+ok(ga(2, "reemplazar", A2_BUENO.replace("Juez Quinto", "Juez Cuarto"), "incongruencia")
+   == "nombre que no consta en las fuentes («juez cuarto»)", "«Juez Quinto» por «Juez Cuarto»: fuera")
+ok(ga(4, "reemplazar", "Por resolución de dieciocho de mayo de dos mil veintidós, la Primera Sala Civil confirmó "
+                       "la sentencia con base en el artículo 1796.", "cita").startswith("artículo que no consta"),
+   "un artículo que no está en las fuentes: fuera")
+ok(ga(4, "reemplazar", "Por resolución de dieciocho de mayo de dos mil veintidós, la Primera Sala Civil confirmó "
+                       "la sentencia con base en el artículo 2294.", "cita") == "",
+   "un artículo que sí está en el acto: pasa")
+ok(ga(4, "reemplazar", PA[4]["texto"].replace("confirmó", "revocó"), "incongruencia")
+   == "cambia lo resuelto o lo acreditado (confirma → revoca)",
+   "voltear lo que resolvió la Sala, aun como incongruencia: fuera")
+ok(ga(2, "condensar", "El veinticuatro de febrero de dos mil veintidós, el Juez Quinto de Primera Instancia Civil "
+                      "dictó sentencia; la demandada pagó las rentas.", "extension")
+   .startswith("cambia lo resuelto"), "condensar quitando la condena: fuera")
+ok(ga(3, "reemplazar", PA[3]["texto"].replace("la parte demandada", "la parte actora"), "redaccion")
+   == "nombra una parte que el párrafo no nombraba", "cambiar quién apeló como «redacción»: fuera")
+_largo_a = PA[1]["texto"] + " Lo hizo por su propio derecho y en la vía que estimó procedente."
+ok(ga(1, "reemplazar", _largo_a, "error_juridico").startswith("alarga el párrafo"),
+   "alargar más de un 20%, aun por error jurídico: fuera")
+ok(ga(1, "condensar", "La Unión promovió juicio.", "extension").startswith("párrafo de menos de 6"),
+   "menos de seis palabras: fuera")
+ok(ga(1, "condensar", PA[1]["texto"] + " Sí.", "extension") == "condensar sin acortar", "condensar sin acortar: fuera")
+ok(ga(4, "reemplazar", "Por resolución cuya fecha se advierte de las constancias, la Primera Sala Civil confirmó la "
+                       "sentencia definitiva.", "redaccion")
+   == "sustituye un dato por una remisión genérica a las constancias", "la perífrasis en lugar del dato: fuera")
+ok(ga(4, "reemplazar", "Por resolución de *********, la Primera Sala Civil confirmó la sentencia definitiva "
+                       "dictada en el juicio sumario civil.", "redaccion") == "deja un dato en blanco",
+   "dejar un hueco: fuera")
+ok(ga(4, "reemplazar", "[A4] Por resolución de dieciocho de mayo de dos mil veintidós, la Primera Sala Civil "
+                       "confirmó la sentencia definitiva.", "redaccion") == "marca o etiqueta dentro del texto",
+   "la etiqueta «[A4]» dentro del texto: fuera")
+ok(ga(4, "reemplazar", "La Sala dijo «se confirma en todos sus términos la sentencia del juez de origen» el "
+                       "dieciocho de mayo de dos mil veintidós.", "redaccion")
+   == "transcripción entrecomillada que no consta", "una transcripción que no consta: fuera")
+_otros = [b["texto"] for b in BA if b["n"] != 5]
+ok(ga(5, "eliminar", "", "repeticion", _otros) == "", "eliminar la repetición pura (A5 repite A4): pasa")
+ok(ga(5, "eliminar", "", "extension", _otros) == "eliminar sólo procede por repetición",
+   "eliminar como «extensión»: fuera")
+ok(ga(3, "eliminar", "", "repeticion", [b["texto"] for b in BA if b["n"] != 3])
+   == "eliminar un párrafo que dice algo que ningún otro dice", "eliminar lo que ningún otro dice: fuera")
+ok(S.repite_en(PA[4]["texto"], [PA[4]["texto"].replace("dieciocho", "diecinueve")]) == -1,
+   "no es repetición si el otro no trae la misma fecha")
+_ha = S.hallazgos_antecedentes(S.bloques_antecedentes(
+    ["El cinco de enero de dos mil veinte se presentó la demanda, cuya fecha se advierte de las constancias."]
+    + ANTE), [ACTO_A])
+ok(any(h.startswith("[A1] fecha que no consta") for h in _ha) and any("remisión genérica" in h for h in _ha)
+   and any(h.startswith("[A6] repite") for h in _ha),
+   "los hallazgos de los antecedentes, situados por párrafo A")
+ok(S.extracto_del_acto("x " * 10) == ("x " * 10).strip()
+   and "[…]" in S.extracto_del_acto("palabra " * 3000) and len(S.extracto_del_acto("palabra " * 3000)) < 10500,
+   "el extracto del acto: entero si es corto; principio y final si es largo")
+# EL EXTRACTO VA A DONDE ESTÁN LOS DATOS (medido en el AR 631/2025: el relato
+# del juicio de origen estaba a media sentencia y la cola caía en la firma).
+_acto_largo = ("V I S T O S\nlos\nautos\npara\nresolver. " + "Relleno sin datos del asunto. " * 400
+               + "Antecedentes del acto reclamado. La Sala resolvió el dieciocho de mayo de dos mil veintidós el "
+                 "toca civil 912/2022. " + "Más relleno sin datos. " * 400
+               + "R E S U E L V E ÚNICO. Se niega el amparo. EVIDENCIA CRIPTOGRÁFICA a1b2c3 OCSP 70.6a.66 "
+               + "ab12 " * 300)
+_ex = S.extracto_del_acto(_acto_largo, ANTE)
+ok("toca civil 912/2022" in _ex and "R E S U E L V E ÚNICO. Se niega el amparo." in _ex
+   and "EVIDENCIA" not in _ex and "OCSP" not in _ex and len(_ex) < 11000,
+   "el extracto: los pasajes con las fechas y números de los antecedentes, los resolutivos y sin la firma electrónica")
+ok("V I S T O S los autos" in S.extracto_del_acto(_acto_largo) and "\n" not in S.extracto_del_acto(_acto_largo),
+   "sin antecedentes, el principio, con el espacio del PDF compactado")
+
+# DE PUNTA A PUNTA: un doble que mezcla parches de las dos secciones.
+_sal_a = _json.dumps({"parches": [
+    {"parrafo": "A2", "accion": "reemplazar", "tipo": "hecho_no_acreditado", "texto": A2_BUENO, "motivo": "pago"},
+    {"parrafo": "A4", "accion": "reemplazar", "tipo": "incongruencia",
+     "texto": PA[4]["texto"].replace("confirmó", "revocó"), "motivo": "la sala revocó"},
+    {"parrafo": "A3", "accion": "condensar", "tipo": "extension",
+     "texto": "Inconforme, la parte demandada apeló; se radicó el toca civil 913/2022 de la Primera Sala Civil."},
+    {"parrafo": "A1", "accion": "reemplazar", "tipo": "incongruencia",
+     "texto": "Por escrito de diecisiete de agosto de dos mil veinte, la Unión de Trabajadores y Pedro Ramírez "
+              "promovieron juicio sumario civil contra Carmen Yllanes Gutiérrez."},
+    {"parrafo": "A5", "accion": "eliminar", "tipo": "repeticion", "texto": ""},
+    {"parrafo": "A4", "accion": "eliminar", "tipo": "repeticion", "texto": ""},
+    {"parrafo": "A6", "accion": "reemplazar", "tipo": "redaccion",
+     "texto": "Por auto de Presidencia este Tribunal Colegiado registró y admitió la demanda de amparo."},
+    {"parrafo": 7, "accion": "eliminar", "tipo": "repeticion", "texto": ""}]})
+_ll, _vis_a = _doble(_sal_a)
+n_a, ant_a, inf_a = asyncio.run(S.supervisar_con_antecedentes(
+    ESTUDIO, list(ANTE), CRIT, MATERIAL, "resumen del acto", "resumen de agravios", FUENTES,
+    fuentes_antecedentes=[ACTO_A], extracto_acto=S.extracto_del_acto(ACTO_A), llamar=_ll))
+ok(ant_a == [ANTE[0], A2_BUENO, ANTE[2], ANTE[3], ANTE[5]],
+   "antecedentes: A2 atribuido a quien lo afirmó y A5 (repetición) fuera; lo demás, intacto")
+ok("Esto es, la sola adquisición" not in n_a and n_a.count("⟦") == ESTUDIO.count("⟦"),
+   "el estudio recibe su parche en la misma llamada")
+_ia = inf_a["antecedentes"]
+ok(inf_a["estado"] == "aplicado" and _ia["estado"] == "aplicado" and _ia["propuestas"] == 7
+   and _ia["descartadas"] == 5, f"el informe de los antecedentes: 7 propuestas, 5 descartadas ({_ia})")
+_mot = {m["parrafo"]: m["motivo"] for m in _ia["motivos_descarte"]}
+ok(_mot.get("A3", "").startswith("número que no consta") and _mot.get("A1", "").startswith("nombre que no consta")
+   and _mot.get("A6", "").startswith("párrafo fijo"), "cada descarte con su motivo y su etiqueta A")
+ok(any(m["parrafo"] == "A4" and m["motivo"] == "segundo parche al mismo párrafo" for m in _ia["motivos_descarte"]),
+   "el segundo parche a A4 no entra")
+_cor_a = [c for c in inf_a["correcciones"] if c.get("seccion") == "antecedentes"]
+ok([c["bloque"] for c in _cor_a] == ["A2", "A5"] and all(c["parrafo"] == 0 for c in _cor_a)
+   and inf_a["correcciones"][0].get("seccion") == "antecedentes"
+   and inf_a["correcciones"][-1]["parrafo"] == 7 and "seccion" not in inf_a["correcciones"][-1],
+   "las correcciones de los antecedentes van primero, con su bloque y «parrafo» 0; las del estudio, como siempre")
+ok(inf_a["descartadas"] == 5, "las descartadas del total suman las de los antecedentes")
+ok(_ia.get("por_verificar") and _ia["por_verificar"][0]["bloque"] == "A4"
+   and "confirmó" in _ia["por_verificar"][0]["antes"] and "revocó" in _ia["por_verificar"][0]["propuesta"],
+   "lo que el revisor acusó en lo resuelto queda por cotejar")
+_av_a = S.aviso(inf_a)
+ok(_av_a.startswith("El supervisor corrigió 1 cosa del estudio:") and "2 de los antecedentes" in _av_a,
+   f"el aviso corto cuenta las dos secciones ({_av_a})")
+ok("ANTECEDENTES POR COTEJAR (A4)" in S.aviso_por_verificar(inf_a), "y el aviso de lo que hay que cotejar")
+PA_ = _vis_a["prompt"]
+ok("el ESTUDIO DE FONDO y los ANTECEDENTES" in PA_ and "═══ LOS ANTECEDENTES, POR PÁRRAFOS ═══" in PA_
+   and "[A1]\nPor escrito de diecisiete" in PA_ and "[A5]" in PA_, "el prompt lleva los párrafos A")
+ok("tres de junio de dos mil veinticinco" not in PA_ and "[A6]" not in PA_,
+   "el trámite en este tribunal NUNCA va al prompt")
+ok("EXTRACTO DE LA RESOLUCIÓN" in PA_ and "Se confirma la sentencia de veinticuatro" in PA_,
+   "el extracto del acto va al prompt")
+ok('la etiqueta entera con su A ("A3")' in PA_ and "(el entero de su etiqueta P)." not in PA_,
+   "el formato dice cómo se nombra un párrafo A")
+ok(PA_.index("═══ EL ESTUDIO, POR PÁRRAFOS ═══") < PA_.index("═══ LOS ANTECEDENTES, POR PÁRRAFOS ═══"),
+   "los antecedentes, al final, aparte del estudio")
+ok("advierte de las constancias" not in PA_.split("═══ LOS ANTECEDENTES (párrafos A")[1].split("Hallazgos")[0],
+   "las reglas de los antecedentes describen la forma; no traen la frase a copiar")
+
+# Sin antecedentes enviados, un «A3» no se aplica a nada; el prompt es el de siempre.
+_ll, _vis_s = _doble(_json.dumps({"parches": [{"parrafo": "A3", "accion": "eliminar", "tipo": "repeticion"}]}))
+n_s, i_s = asyncio.run(S.supervisar(ESTUDIO, CRIT, MATERIAL, "", "", FUENTES, llamar=_ll))
+ok(n_s == ESTUDIO and i_s["descartadas"] == 1 and "antecedentes" not in i_s
+   and "ANTECEDENTES" not in _vis_s["prompt"] and "(el entero de su etiqueta P)." in _vis_s["prompt"],
+   "sin antecedentes: el «A3» se descarta, el informe no cambia de forma y el prompt es el de siempre")
+
+# FALLA LA LLAMADA: los dos, como estaban.
+_ll, _ = _doble("", error=RuntimeError("caído"))
+n_f, a_f, i_f = asyncio.run(S.supervisar_con_antecedentes(ESTUDIO, list(ANTE), CRIT, MATERIAL, "", "", FUENTES,
+                                                          fuentes_antecedentes=[ACTO_A], llamar=_ll))
+ok(n_f == ESTUDIO and a_f == ANTE and i_f["estado"] == "fallo" and i_f["antecedentes"]["estado"] == "fallo"
+   and "ni los antecedentes" in S.aviso(i_f), "si falla, estudio y antecedentes como estaban, y el aviso lo dice")
+# EL PISO DE LOS ANTECEDENTES.
+_ll, _ = _doble(_json.dumps({"parches": [
+    {"parrafo": "A1", "accion": "condensar", "tipo": "extension",
+     "texto": "La Unión de Trabajadores promovió juicio sumario civil."},
+    {"parrafo": "A3", "accion": "condensar", "tipo": "extension",
+     "texto": "Inconforme, la parte demandada interpuso recurso de apelación."}]}))
+S.PISO_PALABRAS = 0.95
+try:
+    n_p, a_p, i_p = asyncio.run(S.supervisar_con_antecedentes("SEXTO. Estudio.", list(ANTE), CRIT, MATERIAL, "", "",
+                                                              FUENTES, fuentes_antecedentes=[ACTO_A], llamar=_ll))
+finally:
+    S.PISO_PALABRAS = _piso_ant
+ok(a_p == ANTE and i_p["antecedentes"]["estado"] == "sin_cambios" and i_p["antecedentes"]["descartadas"] == 2
+   and any("se revierte todo" in m["motivo"] for m in i_p["antecedentes"]["motivos_descarte"]),
+   "bajo el piso, se revierte todo lo de los antecedentes")
+ok(i_p["estado"] == "sin_cambios", "y con un estudio sin párrafos corregibles, revisa igual los antecedentes")
+# Los antecedentes como cadena salen como cadena.
+_ll, _ = _doble(_json.dumps({"parches": [{"parrafo": "A5", "accion": "eliminar", "tipo": "repeticion"}]}))
+_, a_c, _ = asyncio.run(S.supervisar_con_antecedentes("SEXTO. Estudio.", "\n\n".join(ANTE), CRIT, MATERIAL, "", "",
+                                                      FUENTES, fuentes_antecedentes=[ACTO_A], llamar=_ll))
+ok(isinstance(a_c, str) and a_c == "\n\n".join(ANTE[:4] + ANTE[5:]),
+   "como cadena, el eliminado se va con su blanco y lo demás queda byte por byte")
+
+# LA BANDERA: sin darla de alta, nada; dada de alta, la de siempre.
+import contexto_taller as _ct
+_band = dict(_ct.BANDERAS_REDISENO)
+_ct.BANDERAS_REDISENO.pop("procedencia_por_tipo", None)
+os.environ["PROCEDENCIA_POR_TIPO"] = "todos"
+ok(S.rige_antecedentes() is False, "sin la bandera dada de alta en contexto_taller, no rige (aunque el entorno diga «todos»)")
+_ct.BANDERAS_REDISENO["procedencia_por_tipo"] = "PROCEDENCIA_POR_TIPO"
+ok(S.rige_antecedentes() is True, "dada de alta y con el entorno en «todos», rige")
+os.environ["PROCEDENCIA_POR_TIPO"] = "0"
+ok(S.rige_antecedentes() is False, "con el entorno en «0», no")
+os.environ.pop("PROCEDENCIA_POR_TIPO", None)
+_ct.BANDERAS_REDISENO.clear()
+_ct.BANDERAS_REDISENO.update(_band)
+
+# EL CAMINO: en_el_resolver revisa los antecedentes que llevará el proyecto y
+# los deja en `material.sintesis`, que es de donde los toma `_terminar`.
+_sal_r = _json.dumps({"parches": [
+    {"parrafo": "A2", "accion": "reemplazar", "tipo": "hecho_no_acreditado", "texto": A2_BUENO, "motivo": "pago"},
+    {"parrafo": "A4", "accion": "reemplazar", "tipo": "incongruencia",
+     "texto": PA[4]["texto"].replace("confirmó", "revocó")}]})
+_orig_gem, _orig_rige, _orig_espera = S._llamar_gemini, S.rige_antecedentes, S.ESPERA_SINTESIS_S
+_vistos_r = {}
+
+
+async def _gem_falso(texto_prompt, tope):
+    _vistos_r["prompt"] = texto_prompt
+    return _sal_r, {"entrada": 10}, "doble"
+S._llamar_gemini = _gem_falso
+S.rige_antecedentes = lambda: True
+
+
+def _r_de():
+    return SN(fases=SN(fuentes=[ACTO_A, "Escrito de agravios."], antecedentes="\n".join(ANTE), autos="",
+                       resumen_acto="", resumen_conceptos="", parrafos_antecedentes=lambda: list(ANTE)),
+              encargo=SN(plan=None))
+
+
+async def _camino(sintesis_de):
+    mat = SN(**dict(vars(MATERIAL)))
+    mat.sintesis = sintesis_de() if sintesis_de else None
+    meta, av = {}, []
+    est = await S.en_el_resolver(None, _r_de(), CRIT, mat, ESTUDIO, meta, av, "")
+    # LO QUE HACE `_terminar` (redactor_adelanto): esperar la síntesis y
+    # tomar de ella los antecedentes, o caer a las fases.
+    _sint = {}
+    if getattr(mat, "sintesis", None) is not None:
+        _sint = await asyncio.wait_for(mat.sintesis, timeout=120) or {}
+    return est, _sint, meta, av
+
+
+async def _sint_moderna():
+    await asyncio.sleep(0.01)
+    return {"antecedentes": list(ANTE), "acto": ["lo resuelto"], "conceptos": ["los agravios"]}
+try:
+    est_r, sint_r, meta_r, av_r = asyncio.run(_camino(lambda: asyncio.ensure_future(_sint_moderna())))
+    ok(sint_r.get("antecedentes") == [ANTE[0], A2_BUENO] + ANTE[2:]
+       and sint_r.get("acto") == ["lo resuelto"] and sint_r.get("conceptos") == ["los agravios"],
+       "síntesis moderna: `_terminar` recibe los antecedentes corregidos y el resto de la síntesis intacto")
+    ok(meta_r["supervisor"]["antecedentes"]["estado"] == "aplicado"
+       and any(a.startswith("El supervisor corrigió") and "antecedentes" in a for a in av_r)
+       and any(a.startswith("ANTECEDENTES POR COTEJAR (A4)") for a in av_r),
+       "el meta lleva el informe de los antecedentes y los avisos llegan")
+    ok("[A1]" in _vistos_r["prompt"] and "Escrito de agravios." not in _vistos_r["prompt"].split("EXTRACTO")[1]
+       .split("═══ FORMATO")[0], "el extracto es el del ACTO, no el del escrito")
+    est_c, sint_c, _, _ = asyncio.run(_camino(None))
+    ok(sint_c == {"antecedentes": [ANTE[0], A2_BUENO] + ANTE[2:]},
+       "formato clásico (sin síntesis): `_terminar` recibe sólo los antecedentes; lo demás cae a las fases")
+    # LA SÍNTESIS QUE NO LLEGA A TIEMPO: no se espera más del tope, no se
+    # cancela (la espera `_terminar`) y sólo se revisa el estudio.
+    S.ESPERA_SINTESIS_S = 0.05
+
+    async def _sint_lenta():
+        await asyncio.sleep(0.3)
+        return {"antecedentes": list(ANTE)}
+
+    async def _camino_lento():
+        mat = SN(**dict(vars(MATERIAL)))
+        tarea = asyncio.ensure_future(_sint_lenta())
+        mat.sintesis = tarea
+        meta = {}
+        await S.en_el_resolver(None, _r_de(), CRIT, mat, ESTUDIO, meta, [], "")
+        return mat.sintesis is tarea, await tarea, meta
+    _misma, _res_l, _meta_l = asyncio.run(_camino_lento())
+    ok(_misma and _res_l == {"antecedentes": ANTE} and "antecedentes" not in _meta_l["supervisor"],
+       "síntesis tardía: no se cancela, no se sustituye y los antecedentes no se revisan")
+    # SIN NADA QUE CORREGIR EN LOS ANTECEDENTES, `material.sintesis` no se toca.
+    _sal_r = _json.dumps({"parches": []})
+
+    async def _camino_igual():
+        mat = SN(**dict(vars(MATERIAL)))
+        mat.sintesis = None
+        await S.en_el_resolver(None, _r_de(), CRIT, mat, ESTUDIO, {}, [], "")
+        return mat.sintesis
+    ok(asyncio.run(_camino_igual()) is None, "sin correcciones, la síntesis queda como estaba")
+finally:
+    S._llamar_gemini, S.rige_antecedentes, S.ESPERA_SINTESIS_S = _orig_gem, _orig_rige, _orig_espera
+# EL ACOPLE CON `_terminar`: si alguien cambia de dónde toma los antecedentes,
+# esta entrega deja de llegar al documento; la prueba lo dice.
+ok('getattr(material, "sintesis", None)' in _ter and '_sint.get("antecedentes")' in _ter,
+   "_terminar sigue tomando los antecedentes de `material.sintesis` (la entrega del supervisor)")
+
+# ═══ 12 · SEXTA RONDA (3-oct-2026): LO QUE DAVID QUITÓ NO SE PIDE DE VUELTA ═══
+# C1: el amparo en revisión ya no lleva existencia («ya viene en la sentencia
+# recurrida»); C3 y C4: la carátula de la queja ya no lleva el órgano y la de la
+# revisión fiscal dice «RECURRENTE:» sin la Sala. El revisor sólo ve el estudio y
+# los antecedentes: sus instrucciones no pueden nombrar ni la existencia ni los
+# rótulos viejos de la carátula —un «falta el considerando de existencia» o un
+# «AUTORIDAD RECURRENTE» en el encargo invitaría a restituirlos—, y el texto que
+# adelanta el barrido sale bien con la existencia vacía del AR.
+print("12 · la sexta ronda: lo que David quitó no se pide de vuelta")
+_RX_QUITADO = re.compile(r"\bexistencia\b|AUTORIDAD\s+RECURRENTE|SALA\s+RESPONSABLE|[ÓO]RGANO\s+QUE\s+DICT[ÓO]|"
+                         r"car[áa]tula", re.I)
+_bl12 = S.bloques(ESTUDIO)
+_P12 = S.prompt(_bl12, CRIT, MATERIAL, "", "", [], 100)
+_P12a = S.prompt(_bl12, CRIT, MATERIAL, "", "", [], 100, bloques_ant=S.bloques_antecedentes(ANTE),
+                 hallazgos_ant=[], extracto_acto="")
+for _n12, _p12 in (("sin antecedentes", _P12), ("con antecedentes", _P12a)):
+    # Las instrucciones: todo menos los párrafos que se le enseñan (el estudio y los antecedentes del asunto).
+    _instr = _p12.split("═══ EL ESTUDIO, POR PÁRRAFOS ═══")[0]
+    _m12 = _RX_QUITADO.search(_instr)
+    ok(_m12 is None, f"el encargo del revisor ({_n12}) no nombra la existencia ni los rótulos viejos de la carátula"
+       + (f" — «{_instr[max(0, _m12.start() - 60):_m12.end() + 60]}»" if _m12 else ""))
+ok("El trámite ante este tribunal no se te enseña y no se toca." in _P12a,
+   "…y le sigue diciendo que el trámite ante este tribunal (donde van la procedencia y los relacionados) no se toca")
+try:
+    import tipos_asunto as _ta12
+    _proc12 = _ta12.procedencia_revision("sentencia")
+except Exception:
+    _proc12 = ("El presente recurso de revisión es procedente, de conformidad con el artículo 81, fracción I, inciso "
+               "e), de la Ley de Amparo, en razón de que se impugna una sentencia dictada en la audiencia constitucional.")
+_est12 = SN(apertura="", visto="V I S T O", resultandos=[{"titulo": "Turno", "texto": "turno"}], competencia="comp",
+            existencia="", procedencia=_proc12)
+_t12 = S.texto_para_barrido(SN(estudio=["uno"]), _est12)
+ok(_t12 == "uno\nV I S T O\nturno\ncomp\n" + _proc12 and "inciso e)" in _t12,
+   "C1: el AR con la existencia vacía y su «Procedencia.» (81, fr. I, inciso e) llega al barrido adelantado sin "
+   "renglones vacíos")
 
 print()
 if FALLOS:

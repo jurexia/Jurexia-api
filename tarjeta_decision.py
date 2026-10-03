@@ -407,6 +407,15 @@ _GENERICOS = {"quejoso": "la parte quejosa",
 
 
 def _rellenar(p: str) -> str:
+    # EL PUNTO QUE CONFIRMA NOMBRA LOS ACTOS (C5, 3-oct-2026): sin ficha, la
+    # remisión genérica («contra» en el sobreseimiento). Sin esto el marcador
+    # {actos_del_amparo} salía como hueco en la tarjeta.
+    if "{actos_del_amparo}" in p:
+        try:
+            import tipos_asunto as _ta_r
+            p = _ta_r.con_actos_del_amparo(p)
+        except Exception:
+            pass
     return re.sub(r"\{(\w+)\}", lambda m: _GENERICOS.get(m.group(1), HUECO), p)
 
 

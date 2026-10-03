@@ -31,7 +31,15 @@ def _parece_autoridad(nombre: str) -> bool:
     vocabulario del cargo, no la forma jurídica: una sociedad anónima nunca
     se llama «Titular de…» ni «Director General de…»."""
     n = (nombre or "").lower()
+    # UNA SOCIEDAD NO ES AUTORIDAD aunque se llame «Administradora…» (3-oct-2026).
+    if re.search(r"\bs\.?\s*a\.?\b|\bs\.?\s*de\s*r\.?\s*l\.?|\ba\.?\s*c\.?\b|\bs\.?\s*c\.?\b|\bsapi\b|\bsas\b", n):
+        return False
     return any(k in n for k in (
+        # LAS UNIDADES DEL SAT (3-oct-2026): «Administración Desconcentrada
+        # Jurídica…» recurre como autoridad y no se reconocía.
+        "administración desconcentrada", "administracion desconcentrada",
+        "administración local", "administración general", "administración central",
+        "subadministración", "subadministracion",
         "titular", "director", "directora", "unidad de", "secretaría", "secretaria de",
         "juzgado", "tribunal", "sala ", "magistrad", "juez", "ayuntamiento", "instituto",
         "comisión", "comision", "fiscal", "procurad", "presidente municipal", "gobernador",
@@ -177,6 +185,17 @@ class Encargo:
     # fundado o infundado a quien lo INTERPUSO. Son dos papeles, y coinciden
     # sólo cuando recurre el propio quejoso. Vacío = coinciden.
     recurrente: str = ""
+    # ═══ EL CARÁCTER CON QUE RECURRE, CUANDO CONSTA EN EL ESCRITO (3-oct-2026) ═
+    # AR 631/2025 de punta a punta: el formulario no dijo quién recurría y el
+    # proyecto salió con «QUEJOSA Y RECURRENTE: Unión de Trabajadores…» y «en su
+    # carácter de parte quejosa», cuando el escrito de revisión lo firmaba la
+    # adquirente del inmueble, «hoy TERCERO INTERESADO». El escrito lo dice; se
+    # lee (`ficha_tramite.leer_escrito`) y el carácter queda FIJO aquí:
+    # «quejoso» | «autoridad» | «tercero». `papel_del_recurrente` lo respeta
+    # en vez de deducirlo del vocabulario del nombre —un «Síndico Municipal» no
+    # casa con ninguna palabra de cargo y salía «tercero»—. Vacío = no consta y
+    # se deduce como siempre. Viaja en la sesión: el otro worker ve el mismo.
+    papel_recurrente: str = ""
     # LA HERRAMIENTA NO ES DE UN TRIBUNAL, ES DE TODOS. Estos tres campos son
     # lo que impide que un secretario de otro circuito firme «Resolución del
     # Tercer Tribunal Colegiado… del Vigésimo Segundo Circuito» sin verlo: en
@@ -230,6 +249,24 @@ class Encargo:
     # `main._taller_inventario_al_encargo` —vacía fuera de la v3/v4 o si no
     # llegó—, antes del plan; `_formato_al_material` la funde con el piso.
     inventario_escrito: list = field(default_factory=list)
+    # ═══ LA FICHA DE TRÁMITE (3-oct-2026, bandera `procedencia_por_tipo`) ══
+    # Los HECHOS procesales del asunto —auto de Presidencia, turno, returno,
+    # Ministerio Público, adhesivo, el acto con su fecha, órgano, toca y
+    # expediente— cada uno con su FUENTE (`ficha_tramite.armar`). De ella
+    # componen el V I S T O y los resultandos `resultandos_por_tipo.componer`
+    # y los considerandos procesales `documento_generado.componer`, sin leer
+    # con regex la prosa de un modelo. VIAJA EN LA SESIÓN (`estado.encargo.
+    # tramite`): con -w 2 el worker que resuelve no es el que leyó el acto, y
+    # sin ella el proyecto volvería a la llamada a ciegas. None = no se armó
+    # (bandera apagada o sesión anterior): el camino de siempre.
+    tramite: Optional[dict] = None
+    # LO QUE ENTRA A LA FICHA ANTES DEL ADELANTO, puesto por `main` en CADA
+    # petición: lo leído del auto de admisión/turno (`ficha_tramite.leer_auto`,
+    # fuente «auto») y lo que el secretario confirmó en el formulario
+    # (`ficha_tramite.de_formulario(tramite_json)`, fuente «secretario», que
+    # manda). No se guardan con la sesión: ya quedaron fundidos en `tramite`.
+    tramite_auto: dict = field(default_factory=dict)
+    tramite_declarado: dict = field(default_factory=dict)
 
 
 @dataclass
@@ -299,6 +336,13 @@ def _registros_ya_estan(aviso: str, material) -> bool:
         return False
     _hay = {str(t.get("registro", "")) for t in (getattr(material, "tesis", None) or [])}
     return all(_r in _hay for _r in _rs)
+
+
+# El aviso del cómputo que da fuera de plazo. Una sola redacción: lo escribe
+# el primer cómputo y, si recurre una autoridad, el que se rehace con su regla.
+AVISO_EXTEMPORANEA = ("EL CÓMPUTO DA EXTEMPORÁNEA. Compruébalo antes de seguir: "
+                      "si es correcto, el asunto no se resuelve en el fondo.")
+
 
 async def generar(cliente, e: Encargo, texto_acto: str, texto_conceptos: str,
                   ruta_salida: str, texto_autos: str = "") -> Resultado:
@@ -412,6 +456,21 @@ async def generar(cliente, e: Encargo, texto_acto: str, texto_conceptos: str,
                 "correcta; si no, comprueba en la ley que rige el acto cómo "
                 "surte efectos la notificación —o usa «Otra regla» y declara "
                 "tú las dos fechas.")
+    # LO AGRARIO EN LA CIUDAD DE MÉXICO SE CUENTA CON EL CÓDIGO NACIONAL
+    # (3-oct-2026). David: «Si va con el Código Nacional, y no el Federal,
+    # entonces hay que adecuar al Código Nacional». El artículo 167 de la Ley
+    # Agraria (DOF 14-11-2025) remite al Código Nacional, que ya opera en la
+    # sede de la Ciudad de México: su notificación personal surte EL MISMO DÍA
+    # (art. 227, fr. I), no al siguiente, y el plazo arranca un día hábil antes.
+    # La «personal» o la «lista» que llegan por omisión se cambian a las suyas
+    # y se avisa; lo elegido a propósito (otra, oficio, electrónica, lfpca…) se
+    # respeta. Fuera de la Ciudad de México no se toca: el considerando la funda
+    # en el 321 del CFPC (`f0.surtimiento_nacional`), con el aviso del
+    # transitorio.
+    _reg_agr, _av_agr = regla_agraria(e, _mat)
+    if _reg_agr:
+        e.regla_surtimiento = _reg_agr
+        avisos.append(_av_agr)
     # EL CERO VIAJA HASTA EL CÓMPUTO. `e.plazo or 15` lo convertía en quince
     # días: el «en cualquier tiempo» que se acababa de declarar se perdía en el
     # camino, y por eso hacía falta corregirlo después escribiendo sobre
@@ -427,19 +486,31 @@ async def generar(cliente, e: Encargo, texto_acto: str, texto_conceptos: str,
     _surtio_manual, _av_surtio = f0.surtio_manual_de(e)
     if _av_surtio:
         avisos.append(_av_surtio)
-    c = f0.computar(e.notificacion, e.presentacion, e.regla_surtimiento,
-                    _plazo_computo, e.responsable,
-                    getattr(e, "dias_inhabiles_extra", None),
-                    # EL TIPO DECIDE SI EL DESCUENTO DE LA RESPONSABLE APLICA:
-                    # sólo donde el escrito se presenta ante ella.
-                    getattr(e, "tipo_asunto", "") or "amparo_directo",
-                    getattr(e, "inhabiles_responsable", "") or None,
-                    surtio_manual=_surtio_manual,
-                    plazo_anios=_anios_plazo)
+
+    # UNA SOLA LLAMADA, CON LA REGLA COMO ÚNICA VARIABLE: si más abajo se sabe
+    # que recurre una autoridad (`regla_de_la_autoridad`), se recomputa con
+    # los mismos datos y sólo otra regla de surtimiento (3-oct-2026).
+    # `deposito` (3-oct-2026, D3): la revisión fiscal por correo se mide con la
+    # fecha en que el oficio se depositó en el Servicio Postal Mexicano
+    # (`deposito_que_cuenta`); la misma puerta que usa la sesión
+    # (`args_de_presentacion`), para que los dos workers cuenten igual.
+    def _computar_con(regla, deposito=None):
+        _pres_c, _kw_dep = args_de_presentacion(e, deposito)
+        _c = f0.computar(e.notificacion, _pres_c, regla,
+                         _plazo_computo, e.responsable,
+                         getattr(e, "dias_inhabiles_extra", None),
+                         # EL TIPO DECIDE SI EL DESCUENTO DE LA RESPONSABLE APLICA:
+                         # sólo donde el escrito se presenta ante ella.
+                         getattr(e, "tipo_asunto", "") or "amparo_directo",
+                         getattr(e, "inhabiles_responsable", "") or None,
+                         surtio_manual=_surtio_manual,
+                         plazo_anios=_anios_plazo, **_kw_dep)
+        return marcar_deposito(_c, deposito, e.presentacion)
+
+    c = _computar_con(e.regla_surtimiento)
     avisos.extend(c.avisos)
     if c.oportuna is False:
-        avisos.append("EL CÓMPUTO DA EXTEMPORÁNEA. Compruébalo antes de seguir: "
-                      "si es correcto, el asunto no se resuelve en el fondo.")
+        avisos.append(AVISO_EXTEMPORANEA)
 
     # ── La autoridad, leída del acto ─────────────────────────────────────
     # No se le pregunta al secretario lo que está en el documento que ya subió.
@@ -517,7 +588,39 @@ async def generar(cliente, e: Encargo, texto_acto: str, texto_conceptos: str,
     # estructura van encadenadas —la segunda necesita la primera— pero las dos
     # juntas siguen corriendo a la vez que las fases de lectura, así que la
     # espera sigue siendo la del más lento y no la suma.
+    #
+    # ═══ CON LA PROCEDENCIA POR TIPO NO SE ESCRIBE NADA A CIEGAS (3-oct-2026) ═
+    # Aun con el acto y las partes delante, `redactar_estructura` escribe el
+    # V I S T O y TODOS los resultandos sin el auto de admisión, sin el de
+    # turno y sin la demanda; y de su prosa se leen luego con regex el
+    # expediente de la existencia, la fecha del resolutivo de la RF y el
+    # inciso del 97. Con la bandera NO SE LLAMA: a la vez que las fases 1-3, el modelo
+    # sólo LEE el acto (`ficha_tramite.leer_acto`, JSON anclado al papel), y
+    # cuando ya están la ficha procesal y las partes se arma la ficha de
+    # trámite; la `Estructura` la compone `resultandos_por_tipo.componer`, sin
+    # modelo, en `_componer_generado`.
+    _por_tipo = (e.modo or "").lower() == "generado" and rige_procedencia_por_tipo()
+    # ═══ QUIÉN RECURRE, DEL ESCRITO, SI EL FORMULARIO NO LO DICE (3-oct-2026) ═
+    # AR 631/2025 de punta a punta: ni «quien promueve» ni «recurrente» venían
+    # en el formulario, y la ficha de partes puso de recurrente a la quejosa
+    # amparada. El escrito de revisión lo decía en su primera línea («…, hoy
+    # TERCERO INTERESADO»). Con la bandera, en los recursos y SÓLO si el
+    # secretario no lo tecleó, se lee del escrito (`ficha_tramite.leer_escrito`,
+    # anclado al papel) a la vez que el acto. Lo tecleado manda siempre.
+    _quien_del_escrito = bool(
+        _por_tipo and e.es_recurso
+        and _tipo_de_encargo(e) != "revision_fiscal"
+        and not str(getattr(e, "quejoso", "") or "").strip()
+        and not str(getattr(e, "recurrente", "") or "").strip())
+
     async def _partes_y_estructura():
+        if _por_tipo:
+            _p, _acto_l, _esc_l = await asyncio.gather(
+                fpartes.fichar(cliente, texto_acto, texto_conceptos, e.tipo_asunto),
+                _leer_acto_tramite(cliente, texto_acto, e, texto_conceptos),
+                (_leer_escrito_tramite(cliente, texto_conceptos, e) if _quien_del_escrito
+                 else asyncio.sleep(0, result=(None, []))))
+            return _p, None, _acto_l, _esc_l
         _p = await fpartes.fichar(cliente, texto_acto, texto_conceptos,
                                   e.tipo_asunto)
         _est = None
@@ -525,7 +628,7 @@ async def generar(cliente, e: Encargo, texto_acto: str, texto_conceptos: str,
             import documento_generado as _dg
             _est = await _dg.redactar_estructura(
                 cliente, _datos_estructura(e, acto=texto_acto, partes=_p))
-        return _p, _est
+        return _p, _est, None, None
 
     # ── EL ORIGEN DEL ACTO, ANTES DE LEER (30-sep-2026) ─────────────────────
     # En amparo directo las fases 1-3 nombran al órgano con
@@ -549,7 +652,7 @@ async def generar(cliente, e: Encargo, texto_acto: str, texto_conceptos: str,
         print(f"   ⚠️ origen del acto sin leer: {type(_eo).__name__}")
 
     with cronometrar("fases1-3+partes+estructura"):
-        f, (partes, estructura_previa) = await asyncio.gather(
+        f, (partes, estructura_previa, _acto_tramite, _escrito_tramite) = await asyncio.gather(
             f123.correr(cliente, texto_acto, texto_conceptos, e.es_recurso,
                         e.tipo_asunto,
                         quejoso=getattr(e, "quejoso", "") or "",
@@ -602,7 +705,19 @@ async def generar(cliente, e: Encargo, texto_acto: str, texto_conceptos: str,
     # además el punto resolutivo del juzgado —a quién amparó— y la ficha: si
     # dice que la quejosa es otra, lo tecleado es la recurrente. Se hace AQUÍ,
     # en la raíz, para que el encargo que se guarda ya lleve los dos papeles.
-    if getattr(e, "es_recurso", False):
+    #
+    # SI EL ESCRITO YA DIJO QUIÉN RECURRE (3-oct-2026, `fijar_quien_recurre`),
+    # los papeles quedan fijados por él y esta separación no se repite: con el
+    # nombre de la quejosa recurrente puesto como «quien promueve», compararlo
+    # con el resolutivo podía volver a partirla en dos.
+    _esc_l, _av_esc = _escrito_tramite or (None, [])
+    _fijado_por_escrito = False
+    if _quien_del_escrito:
+        _fijado_por_escrito = fijar_quien_recurre(e, _esc_l, partes, texto_acto, avisos)
+        for _a in _av_esc:
+            if _a not in avisos:
+                avisos.append(_a)
+    if getattr(e, "es_recurso", False) and not _fijado_por_escrito:
         _q_tecleado = str(getattr(e, "quejoso", "") or "").strip()
         try:
             _res_ad = _resolutivo_del_a_quo(None, texto_acto or "")
@@ -636,6 +751,12 @@ async def generar(cliente, e: Encargo, texto_acto: str, texto_conceptos: str,
                 f"como recurrente en el encargo.")
     if not str(getattr(e, "quejoso", "") or "").strip():
         _leido = str(getattr(partes, "quejoso", "") or "").strip()
+        # LA QUE RECURRE NO ES LA QUEJOSA (3-oct-2026): si el escrito fijó a
+        # otra parte como recurrente, la ficha de partes —que también lee el
+        # escrito— puede dar su nombre como «quejoso». Mejor el hueco a la vista.
+        if _leido and _fijado_por_escrito and _parte_parecida(
+                _leido, str(getattr(e, "recurrente", "") or "")):
+            _leido = ""
         if _leido:
             e.quejoso = _leido
             avisos.insert(0,
@@ -648,6 +769,60 @@ async def generar(cliente, e: Encargo, texto_acto: str, texto_conceptos: str,
                 "NO SE PUDO LEER EL NOMBRE DE QUIEN PROMUEVE de los "
                 "documentos, y no lo tecleaste: la carátula sale con el hueco "
                 "a la vista. Escríbelo.")
+
+    # ── LA FICHA DE TRÁMITE, CON LOS PAPELES YA SEPARADOS (3-oct-2026) ────
+    # AQUÍ Y NO ANTES: quejosa y recurrente se acaban de fijar arriba, y la
+    # ficha procesal que entra a la de trámite los lee del encargo. El
+    # desenlace del a quo (lectura determinista del PDF) se adelanta a este
+    # punto para que la ficha y el resultando del AR digan el mismo verbo que
+    # el resolutivo; sin la bandera se sigue leyendo donde siempre.
+    # SUS AVISOS VIAJAN CON ELLA (`tramite["avisos"]`) y salen en la
+    # `Estructura` que se compone de ella, en el adelanto y en el proyecto.
+    _desenlace_leido = False
+    if _por_tipo:
+        if e.es_recurso:
+            _leer_desenlace_del_a_quo(f, texto_acto)
+            _desenlace_leido = True
+
+    # ── LA AUTORIDAD QUE RECURRE: SURTE AL QUEDAR HECHA (3-oct-2026) ──────
+    # El cómputo de arriba corrió antes de saber QUIÉN recurre: eso se sabe
+    # ahora, con los papeles separados y el resolutivo del juzgado leído. Si
+    # recurre una autoridad en la revisión o en la queja con la regla de los
+    # particulares (la de omisión, «personal», o «lista»), se rehace UNA vez
+    # con la suya —«oficio», art. 31, fr. I— y la regla queda en el encargo:
+    # la sesión la guarda y el worker que resuelva recomputa con ella, no con
+    # la vieja. ANTES DE ARMAR LA FICHA, para que su forma de notificación
+    # diga lo mismo que el cómputo.
+    # SIN BANDERA TAMBIÉN (D2 del integrador, 3-oct-2026): sin ella el párrafo
+    # dejaba «conforme al *********» y la orden de regenerar en el caso
+    # frecuente de la autoridad que recurre la concesión, y la tabla del
+    # cómputo seguía citando la fracción II. Es una corrección, no un diseño.
+    # CON LA BANDERA, ADEMÁS, LA FORMA LEÍDA O DECLARADA (rev_0, Q 24/2026 y
+    # Q 172/2026): si el formulario, el escrito, el auto o el acto dicen que la
+    # notificación fue electrónica, por lista o por oficio y la regla llegó
+    # como la de omisión («personal»), se cuenta con esa forma y se avisa. En
+    # la Q 24 la de omisión daba en tiempo un escrito extemporáneo.
+    _acto_l, _av_acto = _acto_tramite or (None, [])
+    if e.es_recurso:
+        _con_forma = rige_procedencia_por_tipo()
+        _forma, _fuente_forma = (forma_de_notificacion(e, _esc_l, _acto_l)
+                                 if _con_forma else ("", ""))
+        c = _recomputar_para_la_autoridad(e, c, f, partes, texto_acto, avisos, _computar_con,
+                                          forma=_forma, fuente_forma=_fuente_forma,
+                                          por_forma=_con_forma)
+    else:
+        c = _agrario_con_el_codigo_nacional(e, c, avisos, _computar_con, _av_agr,
+                                            *forma_de_notificacion(e, _esc_l, _acto_l))
+
+    if _por_tipo:
+        e.tramite = armar_tramite(e, _acto_l, f, partes, texto_acto, avisos_previos=_av_acto,
+                                  escrito=_esc_l)
+        # ── LA REVISIÓN FISCAL POR CORREO: CUENTA EL DEPÓSITO (D3, 3-oct-2026) ─
+        # RF 2/2025 del banco: el depósito (24-oct-2024) caía dentro del plazo
+        # (9 a 29 de octubre) y la recepción en la Sala (6-nov) fuera; el
+        # proyecto desechaba por extemporáneo un recurso que el engrose
+        # confirmó. La fecha sale de la ficha (por eso aquí, ya armada).
+        c = _recomputar_con_deposito(e, c, avisos, _computar_con)
 
     # ── Fase 7 — el documento ────────────────────────────────────────────
     relleno = ens.Relleno(
@@ -703,30 +878,8 @@ async def generar(cliente, e: Encargo, texto_acto: str, texto_conceptos: str,
     # viaja en el estado de la sesión y el worker que resuelva puede no ser
     # éste. Las dos lecturas son deterministas —un barrido sobre el texto, sin
     # modelo— y las dos las necesita el resolutivo.
-    if e.es_recurso:
-        try:
-            import fase_rama as _fr_a
-            f.resolutivo_recurrida = _fr_a.resolutivo_recurrida(texto_acto or "")
-            # LOS PUNTOS RESOLUTIVOS PRIMERO (28-sep-2026, AR 631/2025): el
-            # recuento de verbos sobre el PDF entero dio «niega» porque la
-            # sentencia narra un amparo ANTERIOR que «negó el amparo»; su
-            # resolutivo decía «ampara y protege». El recuento, sólo si los
-            # puntos resolutivos no se dejan leer.
-            f.resolvio_a_quo = (_fr_a.resolvio_segun_resolutivos(texto_acto or "")
-                                or _fr_a.resolvio_a_quo(texto_acto or "",
-                                                        resolutivo=f.resolutivo_recurrida))
-            import fase_origen as _fo_a
-            _dd = _fo_a.datos_del_documento(texto_acto or "")
-            f.expediente_origen = _dd.get("expediente", "")
-            f.fecha_origen = _dd.get("fecha", "")
-            print(f"   ⚖️ el juzgado {f.resolvio_a_quo or '(no consta)'}"
-                  f" · resolutivo reproducible: "
-                  f"{'sí' if f.resolutivo_recurrida else 'no'}")
-            print(f"   📑 origen leído del PDF: expediente "
-                  f"{f.expediente_origen or '(no consta)'} · fecha "
-                  f"{f.fecha_origen or '(no consta)'}")
-        except Exception as _ex:
-            print(f"   ⚠️ no se pudo leer el desenlace del a quo: {type(_ex).__name__}")
+    if e.es_recurso and not _desenlace_leido:
+        _leer_desenlace_del_a_quo(f, texto_acto)
     if autos:
         print(f"   📁 constancias del expediente: {len(autos)} caracteres")
 
@@ -744,6 +897,37 @@ async def generar(cliente, e: Encargo, texto_acto: str, texto_conceptos: str,
     return Resultado(ruta=ruta, computo=c, fases=f, encargo=e, partes=partes,
                      huecos=ens.huecos_pendientes(ruta), avisos=avisos,
                      estructura=estructura)
+
+
+def _leer_desenlace_del_a_quo(f, texto_acto: str) -> None:
+    """Lo que resolvió el juzgado y el origen, leídos del PDF de la recurrida,
+    colgados de las fases. Sin modelo. Es el bloque que vivía dentro de
+    `generar`, sacado tal cual a una función (3-oct-2026) para poder leerlo
+    ANTES de armar la ficha de trámite cuando rige `procedencia_por_tipo`; sin
+    la bandera se llama en el mismo sitio de siempre."""
+    try:
+        import fase_rama as _fr_a
+        f.resolutivo_recurrida = _fr_a.resolutivo_recurrida(texto_acto or "")
+        # LOS PUNTOS RESOLUTIVOS PRIMERO (28-sep-2026, AR 631/2025): el
+        # recuento de verbos sobre el PDF entero dio «niega» porque la
+        # sentencia narra un amparo ANTERIOR que «negó el amparo»; su
+        # resolutivo decía «ampara y protege». El recuento, sólo si los
+        # puntos resolutivos no se dejan leer.
+        f.resolvio_a_quo = (_fr_a.resolvio_segun_resolutivos(texto_acto or "")
+                            or _fr_a.resolvio_a_quo(texto_acto or "",
+                                                    resolutivo=f.resolutivo_recurrida))
+        import fase_origen as _fo_a
+        _dd = _fo_a.datos_del_documento(texto_acto or "")
+        f.expediente_origen = _dd.get("expediente", "")
+        f.fecha_origen = _dd.get("fecha", "")
+        print(f"   ⚖️ el juzgado {f.resolvio_a_quo or '(no consta)'}"
+              f" · resolutivo reproducible: "
+              f"{'sí' if f.resolutivo_recurrida else 'no'}")
+        print(f"   📑 origen leído del PDF: expediente "
+              f"{f.expediente_origen or '(no consta)'} · fecha "
+              f"{f.fecha_origen or '(no consta)'}")
+    except Exception as _ex:
+        print(f"   ⚠️ no se pudo leer el desenlace del a quo: {type(_ex).__name__}")
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -3399,8 +3583,15 @@ def _organo_recurrido(e: Encargo, partes=None, acto: str = "") -> str:
             return _fr_o.juzgado_de_la_recurrida(acto or "")
         except Exception:
             return ""
+    # SIN EL RENGLÓN DEL ÓRGANO EN LA CARÁTULA NO HAY DUPLICADO QUE EVITAR
+    # (integración, 3-oct-2026, consecuencia de C3 y C4): el leído se callaba
+    # cuando coincidía con lo tecleado porque ése ya salía en el rubro; hoy la
+    # queja y la revisión fiscal no lo llevan y lo tecleado en `responsable` es
+    # la ordenadora del auto de admisión (`tipos_asunto.responsable_es_el_organo`).
+    _sin_renglon = not any(cl == "responsable" for _e, cl, _o in _ta_o.caratula_de(
+        getattr(e, "tipo_asunto", "")))
     if _leido and re.search(r"juzgad|tribunal|sala\b|juez", _leido, re.I) \
-            and not _mismo_nombre(_leido, _tecleado):
+            and (_sin_renglon or not _mismo_nombre(_leido, _tecleado)):
         return _leido
     return ""
 
@@ -3439,6 +3630,12 @@ def _consta_que_recurre_la_quejosa(e: Encargo, partes=None, resolutivo: str = ""
     return _que in ("niega", "sobresee", "sobresee_niega")
 
 
+# Los caracteres que `Encargo.papel_recurrente` puede fijar. El Ministerio
+# Público no: su legitimación (art. 5o., fr. IV) la escribe la ficha de trámite
+# con su propio carácter, y `ficha_procesal` no sabe calificarle el recurso.
+PAPELES_FIJOS = ("quejoso", "autoridad", "tercero")
+
+
 def papel_del_recurrente(e: Encargo, partes=None, resolutivo: str = "") -> str:
     """«quejoso» | «autoridad» | «tercero» | «» — en qué carácter recurre quien
     recurre (28-sep-2026). Vacío fuera de los recursos. Un recurrente que no es
@@ -3459,6 +3656,12 @@ def papel_del_recurrente(e: Encargo, partes=None, resolutivo: str = "") -> str:
     import tipos_asunto as _ta_p
     if _ta_p.normalizar(getattr(e, "tipo_asunto", "")) == "revision_fiscal":
         return "autoridad"
+    # EL CARÁCTER LEÍDO DEL ESCRITO MANDA (3-oct-2026, AR 631/2025): el propio
+    # recurso dice con qué carácter se interpone; el vocabulario del nombre es
+    # una conjetura.
+    _fijo = str(getattr(e, "papel_recurrente", "") or "").strip().lower()
+    if _fijo in PAPELES_FIJOS:
+        return _fijo
     _rec = _recurrente_de(e, partes, resolutivo)
     if not _rec:
         return "quejoso" if _consta_que_recurre_la_quejosa(e, partes, resolutivo) else ""
@@ -3521,6 +3724,1328 @@ def _procedencia_prospera(r, criterios) -> bool:
         return False
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+# LA PROCEDENCIA POR TIPO: EL CABLEADO (3-oct-2026)
+# ═══════════════════════════════════════════════════════════════════════════
+# David: «que los resultandos funcionen en toda la república sin que el
+# secretario deba modificar más… un modelo por tipo que sea fiable y no deje
+# margen de error en el proyecto». Las piezas las escriben `ficha_tramite`
+# (los hechos con su fuente), `resultandos_por_tipo` (la prosa, sin modelo) y
+# `verja_procesal` (la revisión del bloque); aquí sólo se conectan. Se
+# importan DENTRO de cada función: si una falta o revienta, el adelanto no se
+# cae —cae al camino de siempre o al hueco con su aviso, nunca a la memoria—.
+#
+# LA REGLA DEL CAMINO: rige la bandera Y el encargo trae ficha. Una sesión
+# generada antes de encender la bandera no tiene ficha y sigue por donde vino
+# (la llamada de siempre); una que la tiene se recompone de ella en cada
+# documento —es pura y cuesta milisegundos—, también en el worker que no leyó
+# el acto. Un dato que falta sale en HUECO con el aviso que lo nombra: el
+# compositor nunca lo suple con una perífrasis.
+
+def rige_procedencia_por_tipo() -> bool:
+    """¿Rige `procedencia_por_tipo` en esta petición? False si el contexto del
+    taller o la bandera no existen: un worker con código a medias cae al camino
+    de siempre en vez de tumbar el adelanto."""
+    try:
+        import contexto_taller as _ct_pt
+        _rige = getattr(_ct_pt, "rige", None) or getattr(_ct_pt, "rediseno")
+        return bool(_rige("procedencia_por_tipo"))
+    except Exception:
+        return False
+
+
+def _tipo_de_encargo(e) -> str:
+    """La clave del tipo como la entiende la ficha («amparo_revision», no
+    «revision»)."""
+    _t = str(getattr(e, "tipo_asunto", "") or "")
+    try:
+        import tipos_asunto as _ta_t
+        return _ta_t.normalizar(_t) or "amparo_directo"
+    except Exception:
+        return _t or "amparo_directo"
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# EL CÓMPUTO DEL RECURSO DE UNA AUTORIDAD (3-oct-2026, `procedencia_por_tipo`)
+# ═══════════════════════════════════════════════════════════════════════════
+# En el AR del XXII Circuito recurrió el Director de Ingresos y el considerando
+# contó «surtió efectos al día hábil siguiente, conforme al artículo 31,
+# fracción II»: la regla de los PARTICULARES aplicada a una autoridad. A la
+# autoridad se le notifica por oficio y la notificación surte «desde el momento
+# en que hayan quedado legalmente hechas» (art. 31, fr. I, LA); la electrónica,
+# al generarse la constancia de la consulta (fr. III). El desplegable llega
+# casi siempre con la de omisión, «personal», porque quien lo llena aún no ha
+# dicho —ni tiene por qué saber— quién recurre. Es UN DÍA HÁBIL en el arranque
+# del plazo, en el supuesto frecuente de la autoridad que recurre la concesión.
+# Los considerandos ya citan la fracción que corresponde a la regla; lo que
+# faltaba era que el cómputo usara la regla correcta.
+_REGLAS_DE_PARTICULARES = ("personal", "lista")
+# Los guardianes del cómputo (materia laboral, boletín de Querétaro) avisan con
+# esta frase que contaron como personal; si luego se cuenta con la regla de la
+# autoridad, ese aviso ya no es verdad y se quita.
+_AVISO_CONTO_PERSONAL = "El cómputo se hizo con notificación PERSONAL"
+
+
+# De dónde salió la forma de notificación, en la voz del aviso.
+_DE_DONDE_LA_FORMA = {
+    "secretario": "así lo declaraste en «Trámite en este tribunal»",
+    "escrito": "así se lee en el escrito del recurso",
+    "auto": "así se lee en el auto de admisión",
+    "acto": "así se lee en la resolución recurrida",
+}
+
+
+def _plano_min(x) -> str:
+    """Minúsculas, sin tildes y con los espacios colapsados."""
+    import unicodedata as _u
+    t = _u.normalize("NFD", str(x or "").lower())
+    return " ".join("".join(ch for ch in t if _u.category(ch) != "Mn").split())
+
+
+def _forma_normalizada(x) -> str:
+    """«Electrónica», «por lista», «OFICIO»… → electronica | lista | oficio |
+    personal | boletin | «» (lo que no se reconoce no se supone)."""
+    t = _plano_min(x)
+    if not t:
+        return ""
+    for clave, raiz in (("electronica", "electronic"), ("lista", "lista"),
+                        ("oficio", "oficio"), ("boletin", "boletin"),
+                        ("personal", "personal")):
+        if raiz in t:
+            return clave
+    return ""
+
+
+def forma_de_notificacion(e, escrito=None, acto=None) -> tuple:
+    """(forma, fuente) con que se notificó lo recurrido, de la fuente que
+    manda: lo que el secretario declaró en «Trámite en este tribunal»
+    («secretario») > el escrito del recurso («escrito») > el auto de admisión
+    («auto») > la resolución recurrida («acto»). («», «») si ninguna lo dice.
+    Sin modelo: sólo mira lo ya leído."""
+    for fuente, d in (("secretario", getattr(e, "tramite_declarado", None)),
+                      ("escrito", escrito),
+                      ("auto", getattr(e, "tramite_auto", None)),
+                      ("acto", acto)):
+        if isinstance(d, dict):
+            forma = _forma_normalizada(d.get("forma_notificacion"))
+            if forma:
+                return forma, fuente
+    return "", ""
+
+
+def regla_de_la_autoridad(e, papel: str, forma_declarada: str = "",
+                          fuente_forma: str = "secretario") -> tuple:
+    """(regla, aviso) con que se computa el recurso de una AUTORIDAD en el
+    amparo en revisión o en la queja; ("", "") si no hay nada que cambiar.
+
+    SÓLO SI LA REGLA QUE LLEGÓ ES LA DE LOS PARTICULARES: «personal» (la de
+    omisión) o «lista». Lo que el secretario eligió a propósito —«oficio»,
+    «electronica»— y «otra», con la fecha en que él declara que surtió, se
+    respeta. Si la notificación fue electrónica (`forma_declarada`, de la
+    fuente `fuente_forma`: lo declarado o, con la bandera, lo leído), la regla
+    es la de la fracción III; si no, el oficio de la fracción I. Las dos surten
+    el mismo día (cero hábiles): lo que cambia entre ellas es el precepto que
+    se cita, no la fecha."""
+    import tipos_asunto as _ta_r
+    if _ta_r.normalizar(str(getattr(e, "tipo_asunto", "") or "")) not in ("amparo_revision", "queja"):
+        return "", ""
+    if str(papel or "").strip().lower() != "autoridad":
+        return "", ""
+    llego = str(getattr(e, "regla_surtimiento", "") or "").strip().lower()
+    if llego not in _REGLAS_DE_PARTICULARES:
+        return "", ""
+    _desc = getattr(f0.REGLAS_SURTE.get(llego), "descripcion", "") or llego
+    _vieja = (f"notificación {_desc}, que surte al día hábil siguiente (fracción II), "
+              f"la de los particulares")
+    if _forma_normalizada(forma_declarada) == "electronica":
+        _de = _DE_DONDE_LA_FORMA.get(fuente_forma) or _DE_DONDE_LA_FORMA["secretario"]
+        return "electronica", (
+            f"RECURRE UNA AUTORIDAD Y LA NOTIFICACIÓN FUE ELECTRÓNICA ({_de}): EL CÓMPUTO SE "
+            "HIZO CON LA FRACCIÓN III del artículo 31 de la Ley de Amparo —surte efectos al "
+            "generarse la constancia de la consulta—, y no con la regla que venía declarada "
+            f"({_vieja}): el plazo arranca un día hábil antes. Si la constancia dice otra cosa, "
+            "elige «otra regla» con la fecha en que surtió y vuelve a generar.")
+    return "oficio", (
+        "RECURRE UNA AUTORIDAD: EL CÓMPUTO SE HIZO CON LA NOTIFICACIÓN POR OFICIO, que surte "
+        "efectos desde que queda hecha (artículo 31, fracción I, de la Ley de Amparo), y no "
+        f"con la regla que venía declarada ({_vieja}): el plazo arranca un día hábil antes. "
+        "Si a esa autoridad se le notificó por vía electrónica, elige «electrónica» "
+        "(fracción III); si la constancia dice otra cosa, «otra regla» con la fecha en que "
+        "surtió. Y vuelve a generar.")
+
+
+def regla_por_forma(e, papel: str, forma: str, fuente: str = "") -> tuple:
+    """(regla, aviso) cuando la forma de notificación CONSTA (declarada o
+    leída) y la regla llegó como la de omisión, «personal», en la revisión o
+    en la queja (3-oct-2026, D2; rev_0, Q 24/2026, Q 172/2026 y Q 300/2025).
+    («», aviso) si la forma no puede ser la de quien recurre; («», «») si no
+    hay nada que cambiar. La autoridad la decide antes `regla_de_la_autoridad`.
+
+    SÓLO EN LOS RECURSOS DE AMPARO: ahí lo notificado es una resolución del
+    juez de amparo y rige el artículo 31 de la Ley de Amparo. En el amparo
+    directo y en la revisión fiscal la notificación del acto la rige su propia
+    ley, y estas reglas no son las suyas."""
+    import tipos_asunto as _ta_f
+    if _ta_f.normalizar(str(getattr(e, "tipo_asunto", "") or "")) not in ("amparo_revision", "queja"):
+        return "", ""
+    if str(getattr(e, "regla_surtimiento", "") or "").strip().lower() != "personal":
+        return "", ""
+    _forma = _forma_normalizada(forma)
+    _de = _DE_DONDE_LA_FORMA.get(fuente) or "así consta"
+    _omision = "la regla de omisión (notificación personal, que surte al día hábil siguiente)"
+    if _forma == "electronica":
+        return "electronica", (
+            f"LA NOTIFICACIÓN FUE ELECTRÓNICA ({_de}): EL CÓMPUTO SE HIZO CON LA FRACCIÓN III "
+            "del artículo 31 de la Ley de Amparo —surte efectos al generarse la constancia de "
+            f"la consulta—, y no con {_omision}: el plazo arranca un día hábil antes. "
+            "Compruébalo en la constancia de notificación; si dice otra cosa, elige la regla "
+            "que corresponda y vuelve a generar.")
+    if _forma == "lista":
+        return "lista", (
+            f"LA NOTIFICACIÓN FUE POR LISTA ({_de}): el cómputo se hizo con esa forma y así la "
+            "nombra el considerando. Surte al día hábil siguiente, como la personal (artículo "
+            "31, fracción II, de la Ley de Amparo), así que las fechas no cambian. Compruébalo "
+            "en la constancia de notificación.")
+    if _forma == "oficio":
+        _p = str(papel or "").strip().lower()
+        if _p in ("quejoso", "tercero"):
+            _quien = "la parte quejosa" if _p == "quejoso" else "la parte tercera interesada"
+            return "", (
+                f"LA NOTIFICACIÓN CONSTA COMO HECHA POR OFICIO ({_de}), pero quien recurre es "
+                f"{_quien}, y por oficio se notifica a las autoridades: el cómputo siguió con "
+                "la notificación personal. Coteja la constancia de notificación y, si hace "
+                "falta, elige la regla que corresponda y vuelve a generar.")
+        return "oficio", (
+            f"LA NOTIFICACIÓN FUE POR OFICIO ({_de}): EL CÓMPUTO SE HIZO CON LA FRACCIÓN I del "
+            "artículo 31 de la Ley de Amparo —surte efectos desde que queda hecha—, y no con "
+            f"{_omision}: el plazo arranca un día hábil antes. Compruébalo en la constancia de "
+            "notificación.")
+    return "", ""
+
+
+def regla_agraria(e, materia: str = "") -> tuple:
+    """(regla, aviso) con que se computa el amparo directo AGRARIO cuando el
+    colegiado reside en la Ciudad de México (3-oct-2026, guardián de materia);
+    ("", "") si no hay nada que cambiar.
+
+    SÓLO EN EL AMPARO DIRECTO: ahí la notificación del acto la rige su ley (la
+    Agraria y, en lo que no dice, su supletorio, art. 167). En la revisión y en
+    la queja lo notificado es una resolución del juez de amparo (art. 31 LA).
+    SÓLO LO QUE LLEGA POR OMISIÓN: «personal» → `cnpcf_personal` (art. 227, fr.
+    I, del Código Nacional: surte el mismo día) y «lista» → `cnpcf_lista` (art.
+    211: surte al día siguiente, como antes; cambia el precepto). Lo agrario se
+    reconoce por la materia o por la responsable («Tribunal Unitario Agrario…»);
+    la sede, con `f0.sede_cdmx(tribunal, ciudad)` —la misma regla del
+    supletorio de la Ley de Amparo—. Fuera de la Ciudad de México o sin saber
+    la sede, nada: el considerando funda la de siempre en el 321 del CFPC.
+
+    LA DEL CÓDIGO FEDERAL ELEGIDA A PROPÓSITO NO SE TOCA (integración,
+    3-oct-2026): `cfpc_personal` es la clave de quien dice «el 321, de verdad»
+    (el juicio empezó antes de que el Código Nacional rigiera para él); sólo la
+    «personal» y la «lista» GENÉRICAS, las que manda el formulario sin que nadie
+    elija, pasan por aquí (`f0.CNPCF_POR_OMISION`)."""
+    import tipos_asunto as _ta_ag
+    if _ta_ag.normalizar(str(getattr(e, "tipo_asunto", "") or "")) != "amparo_directo":
+        return "", ""
+    llego = str(getattr(e, "regla_surtimiento", "") or "").strip().lower()
+    nueva = f0.CNPCF_POR_OMISION.get(llego, "")
+    if not nueva:
+        return "", ""
+    _resp = str(getattr(e, "responsable", "") or "")
+    _mat = str(materia or getattr(e, "materia", "") or "")
+    if not f0.es_agrario(_mat, _resp):
+        return "", ""
+    if f0.sede_cdmx(getattr(e, "tribunal", "") or "", getattr(e, "ciudad", "") or "") is not True:
+        return "", ""
+    _r = f0.REGLAS_SURTE[nueva]
+    _quien = (f"la responsable, «{' '.join(_resp.split())[:90]}», es un tribunal agrario"
+              if f0.es_agrario("", _resp) else "el asunto está declarado como agrario")
+    # EL TRANSITORIO YA NO VA AQUÍ (revisión de normas y front, 3-oct-2026): lo
+    # dice `f0.aviso_cnpcf_agrario`, que `generar` añade SIEMPRE que se cuente con
+    # el Código Nacional en la Ciudad de México —la regla la ponga este guardián
+    # o la pantalla, que desde el desplegable la propone sola y por eso nunca
+    # pasaba por aquí—, y que el considerando repite con el mismo texto (la
+    # unión de avisos del proyecto lo deja una vez). Este aviso dice sólo qué
+    # cambió y por qué. Y LA SEDE ES REGLA DE LA CASA, NO HECHO DE LA LEY: decía
+    # «donde ya opera el Código Nacional», y para el orden federal el
+    # transitorio Segundo ata el 167 reformado a la declaratoria del Congreso de
+    # la Unión, no a la de la Ciudad de México.
+    _por_que = (f"Se cambió porque {_quien} y este tribunal reside en la Ciudad de México, donde la "
+                "regla del taller aplica el Código Nacional.")
+    if nueva == "cnpcf_personal":
+        return nueva, (
+            "LO AGRARIO EN LA CIUDAD DE MÉXICO SE CUENTA CON EL CÓDIGO NACIONAL: el cómputo se "
+            "hizo con la notificación personal del " + _r.fundamento + " —los términos corren "
+            "desde el día siguiente al de la notificación: surte el mismo día—, y no con la regla "
+            "que venía (notificación personal, surte al día hábil siguiente): el plazo arranca un "
+            "día hábil antes. " + _por_que)
+    return nueva, (
+        "LO AGRARIO EN LA CIUDAD DE MÉXICO SE FUNDA EN EL CÓDIGO NACIONAL: la notificación por "
+        "lista surte al día siguiente de su publicación, conforme al " + _r.fundamento + ". Las "
+        "fechas no cambian; cambia el precepto que cita el considerando. " + _por_que)
+
+
+def regla_agraria_por_forma(e, forma: str, fuente: str = "") -> tuple:
+    """(regla, aviso) cuando el amparo directo agrario se cuenta con la personal
+    del Código Nacional y la forma de notificación que CONSTA es otra; («», «»)
+    si no hay nada que cambiar (revisión AD, 3-oct-2026).
+
+    EN LA CIUDAD DE MÉXICO LA FORMA CAMBIA LA FECHA. `cnpcf_personal` llega sola
+    (la propone la pantalla o la pone el guardián) y surte el mismo día; si la
+    ficha dice que la notificación fue por lista —declarada en la tarjeta o
+    leída—, nada la cambiaba a la del 211, que surte al día siguiente: el plazo
+    arrancaba un día hábil antes y el considerando decía «de manera personal»
+    contra la ficha. Antes de hoy la personal y la lista contaban igual en el
+    amparo directo y la discrepancia era sólo de texto. La electrónica pasa a la
+    del 227, fracción III (mismo día: cambia el precepto). Sólo se toca la
+    personal del Código Nacional: lo demás se eligió a propósito."""
+    import tipos_asunto as _ta_pf
+    if _ta_pf.normalizar(str(getattr(e, "tipo_asunto", "") or "")) != "amparo_directo":
+        return "", ""
+    if str(getattr(e, "regla_surtimiento", "") or "").strip().lower() != "cnpcf_personal":
+        return "", ""
+    _forma = _forma_normalizada(forma)
+    _de = _DE_DONDE_LA_FORMA.get(fuente) or "así consta"
+    if _forma == "lista":
+        return "cnpcf_lista", (
+            f"LA NOTIFICACIÓN FUE POR LISTA ({_de}): EL CÓMPUTO SE HIZO CON EL ARTÍCULO 211 DEL "
+            "CÓDIGO NACIONAL DE PROCEDIMIENTOS CIVILES Y FAMILIARES —la publicación surte al día "
+            "siguiente—, y no con la notificación personal del artículo 227, fracción I (los "
+            "términos corren desde el día siguiente al de la notificación): el plazo arranca un día "
+            "hábil después. Compruébalo en la constancia de notificación.")
+    if _forma == "electronica":
+        return "cnpcf_electronica", (
+            f"LA NOTIFICACIÓN FUE ELECTRÓNICA ({_de}): el cómputo se hizo con el artículo 227, "
+            "fracción III, del Código Nacional de Procedimientos Civiles y Familiares —surte el mismo "
+            "día en que el sistema confirma la recepción— y así la nombra el considerando. Si la "
+            "recepción se confirmó otro día, elige «Otra regla» con esa fecha y vuelve a generar.")
+    return "", ""
+
+
+def _agrario_con_el_codigo_nacional(e, c, avisos: list, computar_con, aviso_guardian: str = "",
+                                    forma: str = "", fuente_forma: str = ""):
+    """El amparo directo agrario contado con el Código Nacional, después de
+    leer los papeles (revisión AD y de normas y front, 3-oct-2026). Devuelve el
+    cómputo (rehecho si la forma lo pide); nunca lanza.
+
+      1. LA FORMA QUE CONSTA (`regla_agraria_por_forma`): con la personal del
+         Código Nacional y la notificación por lista, la del 211 (el plazo
+         arranca un día hábil después); electrónica, la del 227-III. El aviso
+         del guardián, que hablaba de la personal, se quita.
+      2. EL TRANSITORIO, SIEMPRE (`f0.surtimiento_nacional` → «», aviso): la
+         regla del Código Nacional llega sola desde la pantalla y el guardián
+         no la veía; el mismo texto lo repite el considerando.
+      3. EXTEMPORÁNEA CON EL CÓDIGO NACIONAL Y EN TIEMPO CON EL 321
+         (`f0.contraste_cnpcf_agrario`): el aviso con las dos fechas."""
+    try:
+        regla, aviso = regla_agraria_por_forma(e, forma, fuente_forma)
+        if regla:
+            if aviso_guardian:
+                avisos[:] = [a for a in avisos if a != aviso_guardian]
+            _antes = e.regla_surtimiento
+            nuevo = computar_con(regla)
+            _cambiar_computo(
+                e, c, nuevo, avisos, aviso, regla=regla,
+                fuera_de_plazo=(
+                    "CON LA FORMA DE NOTIFICACIÓN QUE CONSTA LA DEMANDA SALE FUERA DE PLAZO, y con la "
+                    "personal del Código Nacional salía en tiempo: el día en que surte la notificación "
+                    "decide la oportunidad. Coteja la constancia de notificación antes de firmar."))
+            print(f"   ⏱️ AGRARIO, FORMA DE NOTIFICACIÓN: cómputo rehecho con «{regla}» (venía «{_antes}»)")
+            c = nuevo
+        _regla = str(getattr(e, "regla_surtimiento", "") or "")
+        if _regla.startswith("cnpcf_"):
+            _pn, _av_cn = f0.surtimiento_nacional(
+                getattr(e, "tipo_asunto", "") or "amparo_directo",
+                str(getattr(e, "materia", "") or ""), str(getattr(e, "responsable", "") or ""),
+                _regla, tribunal=getattr(e, "tribunal", "") or "", ciudad=getattr(e, "ciudad", "") or "")
+            if _av_cn and not _pn and _av_cn not in avisos:
+                avisos.append(_av_cn)
+            if _regla == "cnpcf_personal" and getattr(c, "oportuna", None) is False:
+                _av_x = f0.contraste_cnpcf_agrario(c, computar_con("cfpc_personal"))
+                if _av_x and _av_x not in avisos:
+                    avisos.append(_av_x)
+    except Exception as _ex:
+        print(f"   ⚠️ agrario con el Código Nacional sin revisar: {type(_ex).__name__}: {str(_ex)[:120]}")
+    return c
+
+
+def _cambiar_computo(e, c, nuevo, avisos: list, aviso: str, fuera_de_plazo: str = "",
+                     regla: str = "") -> None:
+    """Pone en `avisos` (en su sitio) el paso del cómputo `c` al `nuevo`: se
+    quitan los del cómputo viejo que el nuevo ya no dice —y el de
+    extemporánea si dejó de serlo—, se añaden los nuevos y `aviso`, que
+    explica el cambio. `fuera_de_plazo`, si el nuevo sale fuera y el viejo no.
+    Con `regla`, la deja en el encargo (la sesión la guarda y el worker que
+    resuelva recomputa con ella) y quita el «se hizo con notificación
+    PERSONAL» de los guardianes, que deja de ser verdad."""
+    if regla:
+        e.regla_surtimiento = regla
+    _nuevos = list(getattr(nuevo, "avisos", None) or [])
+    _caducos = [a for a in (getattr(c, "avisos", None) or []) if a not in _nuevos]
+    if nuevo.oportuna is not False:
+        _caducos.append(AVISO_EXTEMPORANEA)
+    avisos[:] = [a for a in avisos
+                 if a not in _caducos
+                 and not (regla and str(a).startswith(_AVISO_CONTO_PERSONAL))]
+    for a in _nuevos:
+        if a not in avisos:
+            avisos.append(a)
+    if nuevo.oportuna is False and AVISO_EXTEMPORANEA not in avisos:
+        avisos.append(AVISO_EXTEMPORANEA)
+    if aviso:
+        avisos.append(aviso)
+    if fuera_de_plazo and nuevo.oportuna is False and c.oportuna is not False:
+        avisos.append(fuera_de_plazo)
+
+
+def _recomputar_para_la_autoridad(e, c, fases, partes, texto_acto: str, avisos: list,
+                                  computar_con, *, forma: str = "", fuente_forma: str = "",
+                                  por_forma: bool = False):
+    """El cómputo `c` rehecho con la regla que corresponde a quien recurre y
+    a la forma de notificación que consta; `c` tal cual si no hay nada que
+    cambiar. `computar_con(regla)` es el cómputo de `generar` con todos sus
+    datos y sólo la regla como variable.
+
+    1. LA AUTORIDAD QUE RECURRE (`regla_de_la_autoridad`) [siempre desde el
+       3-oct-2026, D2]: oficio (fr. I) o, si la notificación fue
+       electrónica, la fr. III.
+    2. CON LA BANDERA (`por_forma`), LA FORMA QUE CONSTA (`regla_por_forma`):
+       `forma` y `fuente_forma` vienen de `forma_de_notificacion`. Sin la
+       bandera la forma sólo puede venir de lo declarado, que sin ella no
+       llega (main no lo lee).
+
+    EL PAPEL, DE LA MISMA FUENTE QUE LOS CONSIDERANDOS: `papel_del_recurrente`
+    con el resolutivo del juzgado, que es lo que usa `ficha_procesal.armar` y,
+    de ella, la legitimación y la oportunidad del documento. Así el cómputo y
+    el párrafo que lo funda nunca discrepan sobre quién recurre.
+
+    Nunca lanza: si algo falla, el cómputo de antes y los avisos intactos."""
+    try:
+        _papel = papel_del_recurrente(e, partes, _resolutivo_del_a_quo(fases, texto_acto))
+        if por_forma:
+            _forma, _fuente = forma, (fuente_forma or "secretario")
+        else:
+            _forma = str((getattr(e, "tramite_declarado", None) or {}).get("forma_notificacion") or "")
+            _fuente = "secretario"
+        regla, aviso = regla_de_la_autoridad(e, _papel, _forma, _fuente)
+        _de_la_autoridad = bool(regla)
+        if not regla and por_forma and _forma:
+            regla, aviso = regla_por_forma(e, _papel, _forma, _fuente)
+            if not regla:
+                if aviso and aviso not in avisos:
+                    avisos.append(aviso)
+                return c
+        if not regla:
+            return c
+        nuevo = computar_con(regla)
+    except Exception as _ex:
+        print(f"   ⚠️ cómputo del recurso sin rehacer con su regla: "
+              f"{type(_ex).__name__}: {str(_ex)[:120]}")
+        return c
+    _antes = e.regla_surtimiento
+    _cambiar_computo(
+        e, c, nuevo, avisos, aviso, regla=regla,
+        fuera_de_plazo=(
+            "CON LA REGLA DE LA AUTORIDAD EL RECURSO SALE FUERA DE PLAZO, y con la de los "
+            "particulares que venía declarada salía en tiempo: el día en que surte la "
+            "notificación decide la oportunidad. Coteja la constancia de notificación antes "
+            "de firmar." if _de_la_autoridad else
+            "CON LA FORMA DE NOTIFICACIÓN QUE CONSTA EL RECURSO SALE FUERA DE PLAZO, y con la "
+            "regla de omisión (notificación personal) salía en tiempo: el día en que surte la "
+            "notificación decide la oportunidad. Coteja la constancia de notificación antes "
+            "de firmar."))
+    print(f"   ⏱️ {'RECURRE UNA AUTORIDAD' if _de_la_autoridad else 'FORMA DE NOTIFICACIÓN'}: "
+          f"cómputo rehecho con «{regla}» (venía «{_antes}») · "
+          f"{'en tiempo' if nuevo.oportuna else 'EXTEMPORÁNEO' if nuevo.oportuna is False else 'sin plazo'}")
+    return nuevo
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# LA REVISIÓN FISCAL POR CORREO: LA FECHA DEL DEPÓSITO (3-oct-2026, D3)
+# ═══════════════════════════════════════════════════════════════════════════
+# El integrador decidió (D3) medir la oportunidad con la fecha en que el oficio
+# se depositó en el Servicio Postal Mexicano cuando el recurso viajó por
+# correo y consta el depósito: es la práctica medida en los engroses de
+# revisión fiscal del banco (criterio XV.4o.1 A (11a.)). En RF 2/2025 el
+# depósito caía en plazo y la recepción no, y el proyecto desechaba por
+# extemporáneo un recurso que el tribunal confirmó. Va con la bandera: el
+# depósito sólo existe en la ficha de trámite.
+
+# UNA SOLA REGLA PARA EL CORREO (cuarta ronda, 3-oct-2026, E6). En RF 2/2025
+# la ficha traía la vía «responsable» Y el depósito del 24 de octubre: el
+# compositor narraba el depósito («mediante oficio depositado en el Servicio
+# Postal Mexicano…») porque le bastaba la fecha, y aquí se descartaba porque
+# la vía no decía «postal». El documento se contradecía solo: el resultando
+# decía que se depositó en plazo y el considerando desechaba por
+# extemporáneo. Un oficio que viaja por correo TAMBIÉN lo recibe la
+# responsable, así que esa ficha es verosímil. La regla es una
+# (`ficha_tramite.via_postal`): depósito presente y anterior o igual a la
+# presentación ⇒ por correo, diga lo que diga la vía; la usan el compositor,
+# esta puerta y el worker que rehidrata la sesión (main.py).
+def via_postal_de(ficha, presentacion=None) -> bool:
+    """¿El recurso viajó por correo? `ficha_tramite.via_postal(ficha)` con la
+    presentación que se tecleó (la del cómputo) en lugar de la de la ficha,
+    si se da. Mientras esa pieza no exista —o si lanza—, la misma regla aquí:
+    hay depósito y no es posterior a la presentación. Nunca lanza."""
+    if not isinstance(ficha, dict):
+        return False
+    f = dict(ficha)
+    if isinstance(presentacion, _dt.date):
+        f["presentacion"] = presentacion.isoformat()
+    try:
+        import ficha_tramite as _ft
+        _vp = getattr(_ft, "via_postal", None)
+        if callable(_vp):
+            return bool(_vp(f))
+    except Exception as _ex:
+        print(f"   ⚠️ via_postal de la ficha falló; se aplica la misma regla aquí: "
+              f"{type(_ex).__name__}: {str(_ex)[:120]}")
+    dep = _fecha_iso(f.get("deposito_postal"))
+    if dep is None:
+        return False
+    pres = _fecha_iso(f.get("presentacion"))
+    return pres is None or dep <= pres
+
+
+def deposito_que_cuenta(e):
+    """La fecha del depósito postal con que se mide la oportunidad de una
+    revisión fiscal por correo, o None. Sale de la ficha de trámite del
+    encargo (`deposito_postal`) cuando el recurso viajó por correo según la
+    regla única (`via_postal_de`, E6: aunque la vía diga «responsable»); la
+    misma puerta para el adelanto y para la sesión que rehidrata el otro
+    worker. None también si el depósito no es ANTERIOR a la presentación que
+    se tecleó: igual no cambia nada, y posterior es imposible (lo acusa la
+    ficha)."""
+    if _tipo_de_encargo(e) != "revision_fiscal":
+        return None
+    t = getattr(e, "tramite", None)
+    if not isinstance(t, dict):
+        return None
+    dep = _fecha_iso(t.get("deposito_postal"))
+    if dep is None:
+        return None
+    pres = getattr(e, "presentacion", None)
+    if not via_postal_de(t, pres):
+        return None
+    if pres is not None and dep >= pres:
+        return None
+    return dep
+
+
+def _aviso_via_con_deposito(e, dep, avisos) -> str:
+    """El aviso de que la vía de la ficha dice otra cosa y aun así se contó
+    el depósito (E6), o «» si la vía dice «postal» o nada, o si ya lo dijo
+    otra pieza (la validación de la ficha): un aviso por dato (E11)."""
+    t = getattr(e, "tramite", None)
+    if not isinstance(t, dict) or dep is None:
+        return ""
+    via = " ".join(str(t.get("via_presentacion") or "").split())
+    if not via or _plano_min(via) == "postal":
+        return ""
+    _vp = _plano_min(via)
+    for a in list(avisos or []) + list(t.get("avisos") or []):
+        _a = _plano_min(a)
+        if "deposit" in _a and re.search(r"\bvia\b", _a) and _vp in _a:
+            return ""
+    return (f"LA VÍA DE PRESENTACIÓN DE LA FICHA DICE «{via}», PERO CONSTA UN DEPÓSITO POSTAL "
+            f"({f0.fecha_en_letra(dep)}) ANTERIOR A LA RECEPCIÓN: se tomó como enviado por correo "
+            "—un oficio que llega por correo también lo recibe la responsable— y la oportunidad "
+            "se midió con el depósito, igual que lo narra el resultando. Si el oficio no viajó "
+            "por correo, borra la fecha del depósito en «Trámite en este tribunal» y vuelve a "
+            "generar.")
+
+
+def args_de_presentacion(e, deposito=None) -> tuple:
+    """(fecha que va como `presentacion` a `fase0_oportunidad.computar`,
+    kwargs de más). Con `deposito`: si `computar` sabe recibirlo (parámetro
+    `deposito` o `deposito_postal`), la presentación sigue siendo la
+    recepción y el depósito va aparte, para que el párrafo diga las dos; si
+    no, el depósito ocupa el lugar de la presentación, que es la fecha con
+    que se mide la oportunidad. Sin `deposito`, la presentación tecleada."""
+    pres = getattr(e, "presentacion", None)
+    if deposito is None:
+        return pres, {}
+    try:
+        import inspect as _insp
+        _ps = _insp.signature(f0.computar).parameters
+    except Exception:
+        _ps = {}
+    for nombre in ("deposito", "deposito_postal"):
+        if nombre in _ps:
+            return pres, {nombre: deposito}
+    return deposito, {}
+
+
+def marcar_deposito(c, deposito, recepcion=None):
+    """El cómputo con `deposito` (y la `recepcion` en la Sala) colgados si
+    `computar` no los dejó: el párrafo y la sesión pueden saber así que la
+    oportunidad se midió con el depósito. Nunca lanza."""
+    if c is None or deposito is None:
+        return c
+    for k, v in (("deposito", deposito), ("recepcion", recepcion)):
+        if v is not None and getattr(c, k, None) in (None, ""):
+            try:
+                setattr(c, k, v)
+            except Exception:
+                pass
+    return c
+
+
+def _recomputar_con_deposito(e, c, avisos: list, computar_con):
+    """El cómputo `c` medido con el depósito postal (`deposito_que_cuenta`),
+    con su aviso; `c` tal cual si no consta o algo falla (nunca lanza)."""
+    try:
+        if _tipo_de_encargo(e) != "revision_fiscal" or not isinstance(getattr(e, "tramite", None), dict):
+            return c
+        _dep_crudo = _fecha_iso((e.tramite or {}).get("deposito_postal"))
+        _pres = getattr(e, "presentacion", None)
+        if _dep_crudo is not None and _pres is not None and _dep_crudo > _pres:
+            _a = (f"EL DEPÓSITO POSTAL ({f0.fecha_en_letra(_dep_crudo)}) ES POSTERIOR A LA "
+                  f"PRESENTACIÓN QUE TECLEASTE ({f0.fecha_en_letra(_pres)}): no puede ser. La "
+                  "oportunidad se midió con la presentación; corrige la fecha que esté mal y "
+                  "vuelve a generar.")
+            if _a not in avisos:
+                avisos.append(_a)
+            return c
+        dep = deposito_que_cuenta(e)
+        if dep is None:
+            return c
+        nuevo = computar_con(e.regla_surtimiento, deposito=dep)
+    except Exception as _ex:
+        print(f"   ⚠️ cómputo con el depósito postal sin rehacer: {type(_ex).__name__}: {str(_ex)[:120]}")
+        return c
+    # UN SOLO AVISO. Si `computar` recibió el depósito, su propio aviso ya
+    # dice con qué fecha midió y qué pasaba con la recepción (y viaja en
+    # `nuevo.avisos`); éste sólo sale cuando el depósito tuvo que ocupar el
+    # lugar de la presentación (`args_de_presentacion`).
+    _ya_lo_dice = any("DEPOSIT" in _plano_min(a).upper() and "SE MIDIO" in _plano_min(a).upper()
+                      for a in (getattr(nuevo, "avisos", None) or []))
+    aviso = ""
+    if not _ya_lo_dice:
+        aviso = (f"REVISIÓN FISCAL POR CORREO: LA OPORTUNIDAD SE MIDIÓ CON LA FECHA EN QUE EL OFICIO "
+                 f"SE DEPOSITÓ EN EL SERVICIO POSTAL MEXICANO ({f0.fecha_en_letra(dep)}), y no con la "
+                 f"de su recepción ({f0.fecha_en_letra(_pres)}), conforme al criterio XV.4o.1 A "
+                 "(11a.). Compruébalo contra el sobre o la guía postal; si el oficio no viajó por "
+                 "correo, borra la fecha del depósito en «Trámite en este tribunal» y vuelve a "
+                 "generar.")
+        if nuevo.oportuna is not False and c.oportuna is False:
+            aviso += (" CON LA FECHA DE RECEPCIÓN EL RECURSO SALÍA EXTEMPORÁNEO: el depósito "
+                      "decide la oportunidad.")
+    _cambiar_computo(e, c, nuevo, avisos, aviso)
+    # LA VÍA DECÍA OTRA COSA (E6): se contó el depósito por la regla única, y
+    # se dice por qué, una vez (si la validación de la ficha no lo dijo ya).
+    _a_via = _aviso_via_con_deposito(e, dep, avisos)
+    if _a_via:
+        avisos.append(_a_via)
+    print(f"   ⏱️ RF POR CORREO: cómputo con el depósito del {dep.isoformat()} · "
+          f"{'en tiempo' if nuevo.oportuna else 'EXTEMPORÁNEO' if nuevo.oportuna is False else 'sin plazo'}")
+    return nuevo
+
+
+def _con_valor(v) -> bool:
+    """¿Trae dato? Un dict cuenta si alguno de sus valores lo trae."""
+    if v is None:
+        return False
+    if isinstance(v, str):
+        return bool(v.strip())
+    if isinstance(v, dict):
+        return any(_con_valor(x) for x in v.values())
+    if isinstance(v, (list, tuple, set)):
+        return any(_con_valor(x) for x in v)
+    return True
+
+
+def _unir_avisos(*listas) -> list:
+    """Las listas de avisos en orden, sin repetir ninguno."""
+    fuera = []
+    for lista in listas:
+        for a in (lista or []):
+            if a and a not in fuera:
+                fuera.append(a)
+    return fuera
+
+
+def _a_json(x):
+    """Lo que `json` no sabe escribir, en texto: fechas en ISO, conjuntos en
+    lista. La ficha va a la sesión (jsonb) y a la pantalla."""
+    if isinstance(x, (_dt.date, _dt.datetime)):
+        return x.isoformat()
+    if isinstance(x, (set, frozenset, tuple)):
+        return list(x)
+    return str(x)
+
+
+def tramite_serializable(t) -> Optional[dict]:
+    """La ficha de trámite tal como se guarda en `estado.encargo.tramite`:
+    sólo tipos de JSON. None si no es una ficha o no se puede escribir (la
+    sesión se guarda igual, sin ella, y el proyecto vuelve al camino de
+    siempre: mejor eso que un adelanto que no se guarda)."""
+    if not isinstance(t, dict):
+        return None
+    try:
+        import json as _js
+        return _js.loads(_js.dumps(t, ensure_ascii=False, default=_a_json))
+    except Exception:
+        return None
+
+
+def _tomar_ruta(d, ruta: str):
+    """El valor de «acto.fecha» en un dict anidado, o None."""
+    x = d
+    for k in str(ruta or "").split("."):
+        if not isinstance(x, dict) or k not in x:
+            return None
+        x = x[k]
+    return x
+
+
+def _poner_ruta(d: dict, ruta: str, valor) -> None:
+    """Pone `valor` en «acto.fecha» de un dict anidado, creando lo que falte."""
+    partes_r = str(ruta or "").split(".")
+    x = d
+    for k in partes_r[:-1]:
+        if not isinstance(x.get(k), dict):
+            x[k] = {}
+        x = x[k]
+    x[partes_r[-1]] = valor
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# EL CARGO DEL PONENTE VIAJA CON SU NOMBRE (cuarta ronda, 3-oct-2026, E3)
+# ═══════════════════════════════════════════════════════════════════════════
+# AD 128, AD 279, AD 552, RF 4, RF 49 y Q 342 del banco: la carátula decía
+# «MAGISTRADO PONENTE: JENICA CAMPOS JUÁREZ» y el auto de returno decía «a la
+# ponencia a cargo de la magistrada Jenica Campos Juárez». `leer_auto` sí lee
+# el cargo (`turno.titulo` / `returno.titulo`), pero el formulario «Trámite en
+# este tribunal» sólo tiene el nombre: lo que /taller/desde-admision propone y
+# lo que la pantalla pinta al retomar es `a_formulario`, sin cargo; el
+# secretario lo confirma, vuelve como `tramite_json` con fuente «secretario»
+# y el cargo leído se pierde por el camino. Va DENTRO del valor
+# («Magistrada Jenica Campos Juárez»), que es lo que la carátula
+# (`documento_generado._ponente_sin_cargo`) y la prosa del turno ya saben
+# leer. El cargo sólo sale de lo escrito en el auto; nunca del nombre de pila.
+_PONENTES_FORMULARIO = (("ponente_turno", "turno"), ("ponente_returno", "returno"))
+_RX_YA_CON_CARGO = re.compile(
+    r"^\s*(?:(?:el|la)\s+)?(?:magistrad[oa]|secretari[oa]|juez|jueza)\b", re.I)
+_RX_TITULO_PONENTE = re.compile(r"^(?:magistrad[oa]|secretari[oa])\b", re.I)
+
+
+def _grupo_del_ponente(ficha: dict, grupo: str) -> dict:
+    """El dict del turno o del returno; del returno, el ÚLTIMO si viene como
+    lista (como lo lee la carátula)."""
+    g = ficha.get(grupo) if isinstance(ficha, dict) else None
+    if isinstance(g, list):
+        g = next((x for x in reversed(g) if isinstance(x, dict) and x.get("ponente")), None)
+    return g if isinstance(g, dict) else {}
+
+
+def falta_cargo_del_ponente(planas) -> bool:
+    """¿Alguno de los ponentes del formulario trae nombre sin cargo?"""
+    if not isinstance(planas, dict):
+        return False
+    for clave, _g in _PONENTES_FORMULARIO:
+        v = " ".join(str(planas.get(clave) or "").split())
+        if v and not _RX_YA_CON_CARGO.match(v):
+            return True
+    return False
+
+
+def ponentes_con_cargo(planas, ficha, fuente=None) -> dict:
+    """Las claves planas del formulario con el cargo del auto delante del
+    nombre del ponente: «Jenica Campos Juárez» + `returno.titulo`
+    «Magistrada» → «Magistrada Jenica Campos Juárez». Nunca lanza; devuelve
+    una copia.
+
+    No se toca el valor que ya trae un cargo, ni se pega un cargo que no sea
+    de magistrado o de secretario en funciones. EL CARGO Y EL NOMBRE, DE LA
+    MISMA FUENTE: si el secretario tecleó a otra persona y el «Magistrada»
+    era del auto, no se le pega. Con `fuente` (la sub-ficha de una sola
+    fuente en `tramite_para_pantalla`), sólo el cargo de esa fuente —o sin
+    fuente, si el nombre es de ella—."""
+    out = dict(planas) if isinstance(planas, dict) else {}
+    if not isinstance(ficha, dict):
+        return out
+    try:
+        fuentes = ficha.get("fuentes") if isinstance(ficha.get("fuentes"), dict) else {}
+        for clave, grupo in _PONENTES_FORMULARIO:
+            v = " ".join(str(out.get(clave) or "").split())
+            if not v or _RX_YA_CON_CARGO.match(v):
+                continue
+            _g = _grupo_del_ponente(ficha, grupo)
+            tit = " ".join(str(_g.get("titulo") or "").split()).strip(" .,;")
+            if not tit or len(tit) > 90 or not _RX_TITULO_PONENTE.match(tit):
+                continue
+            # EL CARGO ES DE ESA PERSONA: si la ficha nombra a otra (otra
+            # lectura, otro auto), no se pega.
+            _pf, _pv = _plano_min(_g.get("ponente")), _plano_min(v)
+            if _pf and not (_pf.endswith(_pv) or _pv.endswith(_pf)):
+                continue
+            f_t = str(fuentes.get(f"{grupo}.titulo") or "")
+            f_p = str(fuentes.get(f"{grupo}.ponente") or "")
+            if f_t and f_p and f_t != f_p:
+                continue
+            if fuente is not None and (f_t or f_p) != fuente:
+                continue
+            out[clave] = f"{tit[:1].upper()}{tit[1:]} {v}"
+    except Exception as _ex:
+        print(f"   ⚠️ cargo del ponente sin poner: {type(_ex).__name__}: {str(_ex)[:120]}")
+    return out
+
+
+def tramite_para_pantalla(ficha) -> dict:
+    """Lo que la pantalla pinta al RETOMAR un asunto, separado por su fuente
+    (rev_6, 3-oct-2026), con las claves planas del formulario
+    (`ficha_tramite.a_formulario`):
+
+      {"tramite": las claves con SÓLO lo que el secretario confirmó (lo demás «»),
+       "leido":   {clave: valor} de lo que vino del auto, del acto, del escrito
+                  o de la ficha procesal —sin pisar lo del secretario—,
+       "fuentes": {clave: fuente} de cada clave con valor}
+
+    {} si no hay ficha o no se puede convertir. Nunca lanza.
+
+    POR QUÉ. Devolver `a_formulario(ficha)` entero ponía lo leído en la
+    tarjeta como si lo hubiera tecleado él; al volver a generar viajaba en
+    `tramite_json`, `de_formulario` le ponía fuente «secretario» y le ganaba a
+    la relectura. Medido con las funciones reales en un AR: se retomó, se
+    subió el acto correcto (20-ene-2026, Juzgado Segundo, 77/2025) y la ficha
+    conservó 15-ene, Juzgado Primero y 905/2025 como «del secretario», el
+    juzgado sin aviso. Lo leído vuelve como leído: la pantalla lo marca y no
+    lo reenvía mientras él no lo toque."""
+    if not isinstance(ficha, dict):
+        return {}
+    try:
+        import ficha_tramite as _ft
+        completo = _ft.a_formulario(ficha)
+        if not isinstance(completo, dict) or not completo:
+            return {}
+        fuentes = ficha.get("fuentes") if isinstance(ficha.get("fuentes"), dict) else {}
+
+        def _solo(de_esta):
+            sub = {"tipo": ficha.get("tipo")} if ficha.get("tipo") else {}
+            for ruta, fu in fuentes.items():
+                if fu != de_esta:
+                    continue
+                v = _tomar_ruta(ficha, ruta)
+                if v is not None:
+                    _poner_ruta(sub, ruta, v)
+            _f = _ft.a_formulario(sub) if len(sub) > ("tipo" in sub) else {}
+            # EL CARGO DEL PONENTE, DENTRO DE SU VALOR (E3), sólo si es de
+            # esta misma fuente (`ponentes_con_cargo`).
+            return ponentes_con_cargo(_f, ficha, fuente=de_esta) if isinstance(_f, dict) else {}
+
+        # EL CARGO DEL PONENTE (E3, cuarta ronda): el formulario no tiene campo
+        # para él y al retomar se perdía; va dentro del valor del ponente.
+        completo = ponentes_con_cargo(completo, ficha)
+        del_secretario = _solo("secretario")
+        tramite = {k: (str(del_secretario.get(k) or "")) for k in completo}
+        leido = {k: str(v) for k, v in completo.items()
+                 if str(v or "").strip() and not str(del_secretario.get(k) or "").strip()}
+        fuentes_k = {k: "secretario" for k, v in tramite.items() if v.strip()}
+        _otras = []
+        for fu in fuentes.values():
+            if fu != "secretario" and fu not in _otras:
+                _otras.append(fu)
+        _por_fuente = {fu: _solo(fu) for fu in _otras}
+        for k, v in leido.items():
+            fuentes_k[k] = next((fu for fu in _otras if str(_por_fuente[fu].get(k) or "") == v), "")
+        return {"tramite": tramite, "leido": leido, "fuentes": fuentes_k}
+    except Exception as _ex:
+        print(f"   ⚠️ trámite sin separar para la pantalla: {type(_ex).__name__}: {str(_ex)[:120]}")
+        return {}
+
+
+def tramite_de_formulario(texto: str) -> tuple:
+    """Lo que el secretario confirmó en «Trámite en este tribunal»
+    (`tramite_json`, claves planas del formulario), ya en forma de ficha con
+    fuente «secretario» (`ficha_tramite.de_formulario`).
+
+    Devuelve (declarado, error). `error` no vacío = el JSON está mal escrito y
+    hay que contestar 422 ANTES de gastar el OCR. Si lo que falla es la pieza
+    que lo interpreta —un fallo nuestro, no del secretario— no se le bloquea:
+    sale un aviso que lo dice y la ficha se arma con lo leído."""
+    t = str(texto or "").strip()
+    if not t:
+        return {}, ""
+    try:
+        import json as _js
+        form = _js.loads(t)
+    except Exception:
+        return {}, "«tramite_json» no es JSON válido"
+    if not isinstance(form, dict):
+        return {}, "«tramite_json» debe ser un objeto con las claves del formulario"
+    try:
+        import ficha_tramite as _ft
+        # POR HTTP, SÓLO LAS CLAVES DEL FORMULARIO (rev_6, 3-oct-2026). Con
+        # `{"presentacion": "2026-02-05"}` metido en el JSON, el resultando
+        # decía «presentado el cinco de febrero» y la oportunidad contaba con
+        # el tres que se tecleó arriba; con `sentido`, un texto libre se
+        # saltaba el catálogo del §6. Las claves de más quedan para usos
+        # internos explícitos (`de_formulario` directo), no para la pantalla.
+        _claves = tuple(getattr(_ft, "CLAVES_FORMULARIO", ()) or ())
+        _fuera = sorted(str(k) for k in form if _claves and k not in _claves)
+        if _fuera:
+            form = {k: v for k, v in form.items() if k in _claves}
+        d = _ft.de_formulario(form)
+        d = d if isinstance(d, dict) else {}
+        if _fuera:
+            d["avisos"] = _unir_avisos(d.get("avisos"), [
+                "«TRÁMITE EN ESTE TRIBUNAL» TRAÍA CLAVES QUE NO SON DEL FORMULARIO ("
+                + ", ".join(_fuera[:8]) + ("…" if len(_fuera) > 8 else "")
+                + "): no se usaron. Las fechas de notificación y presentación van en la ficha "
+                  "del asunto."])
+        return d, ""
+    except Exception as _ex:
+        print(f"   ⚠️ FICHA DE TRÁMITE: el formulario no se pudo leer "
+              f"({type(_ex).__name__}: {str(_ex)[:120]})")
+        return {"avisos": [
+            "LO QUE CONFIRMASTE EN «TRÁMITE EN ESTE TRIBUNAL» NO SE PUDO LEER "
+            f"({type(_ex).__name__}). Los resultandos salen con lo leído del auto y del "
+            "acto: compruébalos contra lo que tecleaste."]}, ""
+
+
+# UN AUTO DE PRESIDENCIA CABE AQUÍ (rev_6, 3-oct-2026): la lectura crecía al
+# cuadrado con el largo —15 s con un documento de 166 páginas subido como
+# «auto de admisión»— y corría en el bucle de eventos, parando el worker para
+# todos. Se lee el principio, con aviso si se recortó; y main la llama en un
+# hilo (`asyncio.to_thread`).
+TOPE_AUTO = 30000
+
+
+def leer_auto_tramite(texto: str, tipo: str = "") -> dict:
+    """Lo que dice el auto de admisión (o de turno) para la ficha de trámite,
+    SIN modelo (`ficha_tramite.leer_auto`). Nunca lanza: si el auto no trae
+    texto o la lectura falla, un dict con su aviso y nada más. Lee a lo sumo
+    los primeros `TOPE_AUTO` caracteres (con aviso si había más). Pura y sin
+    estado: se puede llamar desde un hilo."""
+    t = str(texto or "").strip()
+    if len(t) < 120:
+        return {"avisos": [
+            "DEL AUTO DE ADMISIÓN QUE SUBISTE NO SALIÓ TEXTO LEGIBLE"
+            + (f" (sólo {len(t)} caracteres)" if t else "")
+            + ": la fecha del auto de Presidencia, el turno y el ponente salen de lo que "
+            "confirmaste en el formulario o en hueco."]}
+    _recorte = []
+    if len(t) > TOPE_AUTO:
+        _recorte = [
+            f"EL AUTO DE ADMISIÓN QUE SUBISTE TRAE {len(t):,} CARACTERES".replace(",", " ")
+            + f": se leyeron sólo los primeros {TOPE_AUTO:,}".replace(",", " ")
+            + ", que es donde va un auto de Presidencia o de turno. Si subiste el expediente "
+            "entero, sube sólo el auto y vuelve a leerlo; si no, comprueba en el formulario la "
+            "fecha del auto, el turno y el ponente."]
+        t = t[:TOPE_AUTO]
+    try:
+        import ficha_tramite as _ft
+        d = _ft.leer_auto(t, tipo or "")
+        d = dict(d) if isinstance(d, dict) else {}
+        if _recorte:
+            d["avisos"] = _unir_avisos(d.get("avisos"), _recorte)
+        return d
+    except Exception as _ex:
+        print(f"   ⚠️ FICHA DE TRÁMITE: el auto no se pudo leer ({type(_ex).__name__}: {str(_ex)[:120]})")
+        return {"avisos": [
+            f"EL AUTO DE ADMISIÓN NO SE PUDO LEER ({type(_ex).__name__}): la fecha del auto "
+            "de Presidencia, el turno y el ponente salen de lo que confirmaste en el "
+            "formulario o en hueco."]}
+
+
+# Lo que se toma del auto de TURNO antes que del de admisión: el turno y el
+# returno. Todo lo demás —el auto de Presidencia, el número, el Ministerio
+# Público, el adhesivo— manda el de admisión.
+_DEL_AUTO_DE_TURNO = ("turno", "returno")
+_LISTAS_DE_FICHA = ("avisos", "fuentes", "fechas_imposibles")
+
+
+def _aviso_dos_autos_de_presidencia(adm, fundido) -> list:
+    """[aviso] si dos autos de Presidencia del expediente dan fechas de
+    admisión DISTINTAS y ninguno se leyó como el que registra (E7, cuarta
+    ronda); [] si no.
+
+    RF 7/2025: el 10 de febrero se radicó el recurso (y se declinó la
+    competencia) y el 15 de mayo se admitió; la ficha sólo tenía el campo de
+    la admisión y el resultando decía que el auto del 15 de mayo «registró el
+    recurso… y lo admitió». Ya hay campo para el registro (`registro.fecha`,
+    «fecha_registro»); si la lectura no los distinguió, aquí se toma el
+    primero como la admisión (como siempre) y se dice, sin adivinar cuál es
+    cuál."""
+    if _con_valor((fundido or {}).get("registro")):
+        return []
+    fechas = []
+    for d in adm or []:
+        f = _fecha_iso(_tomar_ruta(d, "admision.fecha"))
+        if f is not None and f not in fechas:
+            fechas.append(f)
+    if len(fechas) < 2:
+        return []
+    _en_letra = " y ".join(f0.fecha_en_letra(f) for f in fechas[:3])
+    return [f"EN EL EXPEDIENTE HAY {len(fechas)} AUTOS DE PRESIDENCIA CON FECHA DE ADMISIÓN DISTINTA "
+            f"({_en_letra}): se tomó el primero como el que admite. Si uno forma y registra el "
+            "recurso (o lo radica, o pide el informe) y otro lo admite, pon la fecha del primero "
+            "en «Auto de Presidencia que forma y registra» y la del que admite en la del auto de "
+            "admisión («Trámite en este tribunal»), y vuelve a generar."]
+
+
+def fundir_autos(de_admision=(), de_turno=()) -> dict:
+    """Las lecturas (`leer_auto_tramite`) de los autos de admisión y de turno
+    de un expediente de SISE, en una sola: cada campo, de la primera lectura
+    que lo trae —la del auto de turno primero sólo para `turno` y `returno`—,
+    con su fuente; los avisos y las fechas imposibles de todas, sin repetir.
+
+    POR QUÉ POR SEPARADO Y NO PEGADOS. En el camino SISE la depuración ya
+    separó los dos autos (`depurar_expediente`), y leídos juntos la fecha del
+    primero se confundía con la del segundo: el turno saldría fechado el día
+    de la admisión."""
+    adm = [d for d in (de_admision or []) if isinstance(d, dict) and d]
+    tur = [d for d in (de_turno or []) if isinstance(d, dict) and d]
+    claves = []
+    for d in adm + tur:
+        for k in d:
+            if k not in claves and k not in _LISTAS_DE_FICHA:
+                claves.append(k)
+    fuera, fuentes = {}, {}
+    for k in claves:
+        orden = (tur + adm) if k in _DEL_AUTO_DE_TURNO else (adm + tur)
+        for d in orden:
+            if _con_valor(d.get(k)):
+                fuera[k] = d[k]
+                for fk, fv in (d.get("fuentes") or {}).items():
+                    if str(fk).split(".")[0] == k and fk not in fuentes:
+                        fuentes[fk] = fv
+                break
+    if fuentes:
+        fuera["fuentes"] = fuentes
+    _av = _unir_avisos(*[d.get("avisos") for d in adm + tur], _aviso_dos_autos_de_presidencia(adm, fuera))
+    if _av:
+        fuera["avisos"] = _av
+    _fi = _unir_avisos(*[d.get("fechas_imposibles") for d in adm + tur])
+    if _fi:
+        fuera["fechas_imposibles"] = _fi
+    return fuera
+
+
+async def _leer_acto_tramite(cliente, texto_acto: str, e, texto_conceptos: str = "") -> tuple:
+    """(lo leído del acto para la ficha, avisos). Una llamada JSON anclada al
+    papel (`ficha_tramite.leer_acto`), lanzada a la vez que las fases 1-3. Si
+    falla, (None, [aviso]): la ficha se arma sin ella y lo que el acto debía
+    dar —fecha, órgano, toca, expediente— sale en hueco, nunca de memoria.
+
+    LA DEMANDA, SÓLO EN AMPARO DIRECTO. Ahí el escrito que sube el secretario
+    ES la demanda, y de ella salen los derechos que se dicen violados —el
+    resultando que el modelo inventaba u omitía porque nunca la vio— y la
+    ordenadora tal como la señala el quejoso. En un recurso el escrito son
+    los agravios: pasarlo como demanda pondría al lector a buscar la demanda
+    de amparo en el papel equivocado."""
+    _tipo = _tipo_de_encargo(e)
+    try:
+        import ficha_tramite as _ft
+        _kw = {"demanda": texto_conceptos or ""} if (_tipo == "amparo_directo" and texto_conceptos) else {}
+        d = await _ft.leer_acto(cliente, texto_acto or "", _tipo,
+                                str(getattr(e, "numero", "") or ""), **_kw)
+        return (d if isinstance(d, dict) else None), []
+    except Exception as _ex:
+        print(f"   ⚠️ FICHA DE TRÁMITE: el acto no se pudo leer ({type(_ex).__name__}: {str(_ex)[:120]})")
+        return None, [
+            f"LA RESOLUCIÓN RECLAMADA O RECURRIDA NO SE PUDO LEER PARA LOS RESULTANDOS "
+            f"({type(_ex).__name__}): su fecha, el órgano que la dictó, el toca y el expediente "
+            "salen en hueco. Complétalos en «Trámite en este tribunal» y vuelve a generar."]
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# QUIÉN RECURRE, LEÍDO DEL ESCRITO (3-oct-2026, E3 de la prueba de punta a punta)
+# ═══════════════════════════════════════════════════════════════════════════
+# AR 631/2025 con los papeles reales: el formulario no traía ni «quien
+# promueve» ni «recurrente», y el proyecto salió con «QUEJOSA Y RECURRENTE:
+# Unión de Trabajadores…», «en su carácter de parte quejosa» y la legitimación
+# del artículo 6o. El escrito de revisión lo firmaba la adquirente del
+# inmueble como «TERCERO INTERESADO». El escrito es el propio recurso: dice
+# quién lo interpone y con qué carácter. `ficha_tramite.leer_escrito` lo lee
+# (sin modelo primero, anclado al papel); aquí se fijan con ello el
+# recurrente y su papel, con aviso, y SÓLO si el secretario no lo tecleó.
+
+# Lo que la lectura del escrito puede tardar antes de seguir sin ella: es una
+# ayuda, y un proveedor colgado no puede retener el adelanto entero (rev_6).
+TOPE_LEER_ESCRITO = 75  # > ficha_tramite.TOPE_SEGUNDOS_MODELO (60): que no tire lo determinista ya leído
+
+_CARACTER_DEL_ESCRITO = (
+    ("ministerio_publico", r"ministerio\s+publico|fiscalia\s+general\s+de\s+la\s+republica"),
+    ("autoridad", r"\bautoridad"),
+    ("tercero", r"\btercer[oa]\b"),
+    ("quejoso", r"\bquejos[oa]s?\b"),
+)
+_CARACTER_EN_PROSA = {
+    "quejoso": "en su carácter de parte quejosa",
+    "tercero": "en su carácter de parte tercera interesada",
+    "autoridad": "en su carácter de autoridad",
+    "ministerio_publico": "en su carácter de Ministerio Público",
+}
+
+
+def caracter_del_escrito(x) -> str:
+    """«TERCERO INTERESADO», «autoridad responsable», «parte quejosa»… →
+    «tercero» | «autoridad» | «quejoso» | «ministerio_publico» | «» (lo que no
+    se reconoce no se supone)."""
+    t = _plano_min(x).replace("_", " ")
+    if not t:
+        return ""
+    for clave, rx in _CARACTER_DEL_ESCRITO:
+        if re.search(rx, t):
+            return clave
+    return ""
+
+
+async def _leer_escrito_tramite(cliente, texto_escrito: str, e) -> tuple:
+    """(lo leído del escrito del recurso —quién recurre, con qué carácter, su
+    representante y su figura—, avisos). `ficha_tramite.leer_escrito(cliente,
+    texto, tipo)`, con tope de `TOPE_LEER_ESCRITO` segundos. Nunca lanza: si
+    la pieza aún no existe o falla, (None, [aviso]) y el adelanto sigue como
+    antes, leyendo a la quejosa de la sentencia recurrida."""
+    _tipo = _tipo_de_encargo(e)
+    try:
+        import inspect as _insp
+        import ficha_tramite as _ft
+        _leer = getattr(_ft, "leer_escrito", None)
+        if _leer is None:
+            print("   ⚠️ FICHA DE TRÁMITE: ficha_tramite.leer_escrito no existe; "
+                  "quién recurre sale de la sentencia recurrida")
+            return None, []
+        d = _leer(cliente, texto_escrito or "", _tipo)
+        if _insp.isawaitable(d):
+            d = await asyncio.wait_for(d, timeout=TOPE_LEER_ESCRITO)
+        # LA LECTURA QUE CORRIÓ Y NO DIJO NADA es un dict vacío, no la pieza
+        # que falta: `fijar_quien_recurre` avisa que el escrito no lo dice.
+        return (d if isinstance(d, dict) else {}), []
+    except asyncio.TimeoutError:
+        print(f"   ⚠️ FICHA DE TRÁMITE: la lectura del escrito no contestó en {TOPE_LEER_ESCRITO} s")
+        return None, [
+            "NO TECLEASTE QUIÉN RECURRE Y LA LECTURA DEL ESCRITO NO CONTESTÓ A TIEMPO: la "
+            "carátula y la legitimación salen con lo que dice la sentencia recurrida. Escribe "
+            "quién recurre en la ficha del asunto y vuelve a generar."]
+    except Exception as _ex:
+        print(f"   ⚠️ FICHA DE TRÁMITE: el escrito no se pudo leer ({type(_ex).__name__}: {str(_ex)[:120]})")
+        return None, [
+            f"NO TECLEASTE QUIÉN RECURRE Y DEL ESCRITO NO SE PUDO LEER ({type(_ex).__name__}): "
+            "la carátula y la legitimación salen con lo que dice la sentencia recurrida. "
+            "Escribe quién recurre en la ficha del asunto y vuelve a generar."]
+
+
+def fijar_quien_recurre(e, escrito, partes=None, texto_acto: str = "", avisos=None) -> bool:
+    """Fija en el encargo quién recurre y con qué carácter, con lo leído del
+    escrito del recurso (`_leer_escrito_tramite`); True si lo fijó. Pone
+    PRIMERO el aviso «SE LEYÓ DEL ESCRITO QUIÉN RECURRE…». Nunca lanza.
+
+    - Recurre la quejosa: `quejoso` = el nombre del escrito, `recurrente` vacío,
+      `papel_recurrente` «quejoso».
+    - Recurre otra parte (tercero, autoridad, Ministerio Público):
+      `recurrente` = el nombre del escrito y `papel_recurrente` su carácter (el
+      Ministerio Público no: ver `PAPELES_FIJOS`); la quejosa, la que nombra el
+      punto resolutivo del juzgado o, si no, la de la ficha de partes, nunca
+      la misma persona que recurre.
+    - El escrito llama tercero o autoridad a la misma parte a la que el juzgado
+      resolvió en su punto resolutivo: no se fija nada y se avisa (una de las
+      dos lecturas está mal, y no se elige a ciegas)."""
+    avisos = avisos if avisos is not None else []
+    try:
+        if not isinstance(escrito, dict):
+            return False
+        quien =" ".join(str(escrito.get("promovente") or escrito.get("recurrente")
+                             or escrito.get("quien") or "").split()).strip(" ,;")
+        papel = caracter_del_escrito(escrito.get("caracter") or escrito.get("papel"))
+        if not quien or not papel:
+            avisos.insert(0,
+                "NO TECLEASTE QUIÉN RECURRE Y EL ESCRITO NO LO DICE CON CLARIDAD: la carátula y "
+                "la legitimación salen con lo que dice la sentencia recurrida. Escribe quién "
+                "recurre en la ficha del asunto y vuelve a generar.")
+            return False
+        try:
+            import fase_rama as _fr_e
+            _res = _resolutivo_del_a_quo(None, texto_acto or "")
+            _q_res = str(_fr_e.quejoso_del_resolutivo(_res) or "").strip() if _res else ""
+        except Exception:
+            _q_res = ""
+        if papel != "quejoso" and _q_res and _parte_parecida(_q_res, quien):
+            avisos.insert(0,
+                f"EL ESCRITO DEL RECURSO NOMBRA A «{quien[:90]}» "
+                f"{_CARACTER_EN_PROSA[papel].upper()}, PERO ES LA PARTE A LA QUE SE REFIERE EL "
+                f"PUNTO RESOLUTIVO DEL JUZGADO («{_q_res[:90]}»): no se fijó quién recurre. "
+                "Escríbelo en la ficha del asunto y vuelve a generar.")
+            return False
+        _q_de_donde = ""
+        if papel == "quejoso":
+            e.quejoso = quien
+            e.recurrente = ""
+            e.papel_recurrente = "quejoso"
+        else:
+            e.recurrente = quien
+            e.papel_recurrente = papel if papel in PAPELES_FIJOS else ""
+            _q_partes = str(getattr(partes, "quejoso", "") or "").strip()
+            if _q_res and not _parte_parecida(_q_res, quien):
+                e.quejoso, _q_de_donde = _q_res, "del punto resolutivo de la sentencia recurrida"
+            elif _q_partes and not _parte_parecida(_q_partes, quien):
+                e.quejoso, _q_de_donde = _q_partes, "de los documentos"
+        _rep = " ".join(str(escrito.get("representante") or "").split())
+        _fig = " ".join(str(escrito.get("figura_representante") or escrito.get("figura") or "").split())
+        _por = (f", por conducto de su {_fig} {_rep}" if (_rep and _fig)
+                else f", por conducto de {_rep}" if _rep else "")
+        _aviso = (f"SE LEYÓ DEL ESCRITO QUIÉN RECURRE: «{quien[:120]}», {_CARACTER_EN_PROSA[papel]}"
+                  f"{_por}. No lo tecleaste en la ficha del asunto: compruébalo en la carátula y en "
+                  "la legitimación; si recurre otra parte, escríbela como recurrente y vuelve a "
+                  "generar.")
+        if _q_de_donde:
+            _aviso += f" La parte quejosa, «{e.quejoso[:90]}», se leyó {_q_de_donde}."
+        if papel == "ministerio_publico":
+            _aviso += (" La legitimación del Ministerio Público (artículo 5o., fracción IV, de la "
+                       "Ley de Amparo) sale de la ficha de trámite: revísala.")
+        avisos.insert(0, _aviso)
+        print(f"   🧾 QUIÉN RECURRE, DEL ESCRITO: «{quien[:70]}» ({papel})")
+        return True
+    except Exception as _ex:
+        print(f"   ⚠️ quién recurre sin fijar desde el escrito: {type(_ex).__name__}: {str(_ex)[:120]}")
+        return False
+
+
+def _ficha_minima(e) -> dict:
+    """La ficha cuando `ficha_tramite.armar` no se pudo ejecutar: el tipo, el
+    número y la sede, nada más. El compositor la llena de HUECOS con su aviso,
+    que es lo honesto; inventar el resto es justo lo que esta pieza quita."""
+    _sede = {"tribunal": str(getattr(e, "tribunal", "") or ""),
+             "ciudad": str(getattr(e, "ciudad", "") or ""), "circuito": "", "cdmx": False}
+    _formato = 1
+    try:
+        import ficha_tramite as _ft
+        _formato = getattr(_ft, "FORMATO", 1)
+        _s = _ft.sede_de(_sede["tribunal"], _sede["ciudad"])
+        if isinstance(_s, dict):
+            _sede = _s
+    except Exception:
+        pass
+    # LOS RELACIONADOS QUE MARCÓ EL SECRETARIO NO SE PIERDEN (C6, 3-oct-2026):
+    # son un dato suyo, no una lectura que pudo fallar. Sin esto, si `armar`
+    # falla, el rubro, el V I S T O y el considerando de conexidad se caían.
+    _rel = (getattr(e, "tramite_declarado", None) or {}).get("relacionados")
+    _rel = [r for r in _rel if isinstance(r, dict)] if isinstance(_rel, list) else []
+    return {"formato": _formato, "tipo": _tipo_de_encargo(e),
+            "numero": str(getattr(e, "numero", "") or ""),
+            "materia": str(getattr(e, "materia", "") or ""),
+            "sede": _sede, "relacionados": _rel, "avisos": [],
+            "fuentes": {"relacionados": "secretario"} if _rel else {},
+            "fechas_imposibles": []}
+
+
+def armar_tramite(e, acto=None, fases=None, partes=None, texto_acto: str = "",
+                  avisos_previos=(), escrito=None) -> dict:
+    """La ficha de trámite del asunto (§1 de la especificación), con sus
+    avisos dentro. Funde por precedencia —secretario > auto > acto > ficha
+    procesal— en `ficha_tramite.armar`; aquí sólo se le entregan las cuatro
+    fuentes y se garantiza que lo que avisaron la lectura del auto, la del
+    formulario y la del acto llegue al secretario aunque `armar` no lo copie.
+    Nunca lanza: si `armar` falla, la ficha mínima (todo en hueco) y el aviso
+    que lo dice.
+
+    `escrito` (3-oct-2026, E3): lo leído del escrito del recurso
+    (`_leer_escrito_tramite`). Va a `armar(…, escrito=)` —fuente «escrito»,
+    detrás del auto y delante de la ficha procesal— si `armar` lo recibe; si
+    no, sólo sus avisos (el recurrente y su papel ya quedaron en el encargo)."""
+    _fp = None
+    try:
+        import ficha_procesal as _fp_t
+        _fp = _fp_t.armar(e, fases, partes, acto=texto_acto or "")
+    except Exception as _ex:
+        print(f"   ⚠️ FICHA DE TRÁMITE: sin ficha procesal ({type(_ex).__name__})")
+        _fp = None
+
+    def _entrada(d):
+        # Un dict que sólo trae avisos (la lectura que falló) no es una fuente.
+        if not isinstance(d, dict) or not any(k != "avisos" for k in d):
+            return None
+        return d
+
+    _auto = getattr(e, "tramite_auto", None) or {}
+    _decl = getattr(e, "tramite_declarado", None) or {}
+    _fallo = []
+    try:
+        import ficha_tramite as _ft
+        _kw_esc = {}
+        if _entrada(escrito) is not None:
+            try:
+                import inspect as _insp_a
+                if "escrito" in _insp_a.signature(_ft.armar).parameters:
+                    _kw_esc = {"escrito": escrito}
+            except (TypeError, ValueError):
+                _kw_esc = {}
+        ficha = _ft.armar(e, auto=_entrada(_auto), acto=_entrada(acto),
+                          ficha_procesal=_fp or None, partes=partes,
+                          declarado=_entrada(_decl), **_kw_esc)
+        if not isinstance(ficha, dict):
+            raise TypeError(f"armar devolvió {type(ficha).__name__}")
+    except Exception as _ex:
+        print(f"   ⚠️ FICHA DE TRÁMITE: no se pudo armar ({type(_ex).__name__}: {str(_ex)[:160]})")
+        ficha = _ficha_minima(e)
+        _fallo = [f"LA FICHA DE TRÁMITE NO SE PUDO ARMAR ({type(_ex).__name__}): el V I S T O y "
+                  "los resultandos salen con HUECOS en cada dato del trámite. Complétalos en "
+                  "«Trámite en este tribunal» y vuelve a generar, o escríbelos en el documento."]
+    ficha["avisos"] = _unir_avisos(_fallo, ficha.get("avisos"),
+                                   (_auto or {}).get("avisos"), (_decl or {}).get("avisos"),
+                                   (acto or {}).get("avisos") if isinstance(acto, dict) else None,
+                                   (escrito or {}).get("avisos") if isinstance(escrito, dict) else None,
+                                   avisos_previos)
+    _serial = tramite_serializable(ficha)
+    if _serial is None:
+        print("   ⚠️ FICHA DE TRÁMITE: no es serializable; viaja tal cual en memoria")
+        return ficha
+    print(f"   🧾 FICHA DE TRÁMITE: {_tipo_de_encargo(e)} · "
+          f"{len(_serial.get('fuentes') or {})} campos con fuente · "
+          f"{len(_serial.get('avisos') or [])} avisos")
+    return _serial
+
+
+def _compuesto_por_tipo(e, datos: dict) -> tuple:
+    """(lo que devuelve `resultandos_por_tipo.componer`, «») cuando rige la
+    bandera y el encargo trae ficha; (None, «») si no toca; (None, por qué)
+    si el compositor falló."""
+    ficha = getattr(e, "tramite", None)
+    if not isinstance(ficha, dict) or not rige_procedencia_por_tipo():
+        return None, ""
+    try:
+        import resultandos_por_tipo as _rpt
+        # LOS DATOS DE SIEMPRE, SIN LO QUE ÉL MISMO PRODUCE: `procesal` de una
+        # composición anterior no puede volver a entrar como si fuera dato.
+        _d = {k: v for k, v in (datos or {}).items() if k not in ("tramite", "procesal")}
+        res = _rpt.componer(_tipo_de_encargo(e), ficha, _d)
+        if not isinstance(res, dict) or not isinstance(res.get("resultandos"), list):
+            raise TypeError("componer no devolvió {visto, resultandos, avisos, datos_extra}")
+        # EL COMPOSITOR NO LANZA: cuando falla por dentro, o no conoce el
+        # tipo, devuelve el V I S T O y los resultandos VACÍOS con el aviso que
+        # lo explica, para que aquí se caiga al camino viejo. Un documento sin
+        # resultandos no es una composición.
+        if not str(res.get("visto") or "").strip() and not res.get("resultandos"):
+            _por_que = " ".join(str(a) for a in (res.get("avisos") or []))[:300]
+            print(f"   ⚠️ PROCEDENCIA POR TIPO: el compositor no compuso nada ({_por_que[:160]})")
+            return None, _por_que or "no compuso ni el V I S T O ni los resultandos"
+        return res, ""
+    except Exception as _ex:
+        print(f"   ⚠️ PROCEDENCIA POR TIPO: el compositor falló ({type(_ex).__name__}: {str(_ex)[:160]})")
+        return None, f"{type(_ex).__name__}: {str(_ex)[:160]}"
+
+
+def _estructura_de_lo_compuesto(res: dict, ficha: dict):
+    """La `Estructura` de siempre con el V I S T O y los resultandos del
+    compositor. La apertura va vacía (la compone `documento_generado`); la
+    competencia, la existencia y la procedencia también (las ponen el banco y
+    el código con los datos de la ficha, `datos["procesal"]`)."""
+    import documento_generado as _dg_e
+    return _dg_e.Estructura(
+        apertura="", visto=str(res.get("visto") or ""),
+        resultandos=[{"titulo": str(x.get("titulo") or ""), "texto": str(x.get("texto") or "")}
+                     for x in (res.get("resultandos") or []) if isinstance(x, dict)],
+        competencia="", existencia="", procedencia="",
+        # LO QUE EL COMPOSITOR CALLÓ POR REPETIDO NO VUELVE POR LA FICHA (3-oct-2026,
+        # integración, E11): `avisos_repetidos` son los de `validar` que el
+        # compositor ya dijo con su propia clave.
+        avisos=_unir_avisos(res.get("avisos"),
+                            [a for a in ((ficha or {}).get("avisos") or [])
+                             if a not in (res.get("avisos_repetidos") or [])]))
+
+
 def _datos_estructura(e: Encargo, antecedentes: str = "", acto: str = "",
                      partes=None, fases=None) -> dict:
     """Lo que la estructura necesita.
@@ -3579,7 +5104,7 @@ def _datos_estructura(e: Encargo, antecedentes: str = "", acto: str = "",
         _papel_d = papel_del_recurrente(e, partes, _res_aq)
         _organo_d = _organo_recurrido(e, partes, acto)
         _ficha_bloque = ""
-    return {
+    datos = {
         # LA CABEZA DEL ACTO, que es donde se identifica: fecha, órgano,
         # expediente y toca. No el documento entero —eso ya lo leen las fases—
         # sino lo justo para individualizarlo sin adivinar.
@@ -3647,6 +5172,30 @@ def _datos_estructura(e: Encargo, antecedentes: str = "", acto: str = "",
         # párrafos después de que el estudio dijera «se confirma»—.
         "resolvio_declarado": getattr(e, "resolvio_declarado", "") or "",
     }
+    # LA FICHA DE TRÁMITE Y LO QUE DE ELLA SALE PARA LOS CONSIDERANDOS
+    # (3-oct-2026, bandera `procedencia_por_tipo`). `procesal` son los
+    # `datos_extra` del compositor —expediente, toca, fecha y órgano del acto,
+    # inciso del 97, juicio de amparo, sala…— y en `documento_generado.componer`
+    # MANDAN sobre lo que hoy se lee con regex de la prosa de los resultandos.
+    # Sin bandera o sin ficha, las dos claves no existen y todo sigue igual.
+    if isinstance(getattr(e, "tramite", None), dict) and rige_procedencia_por_tipo():
+        datos["tramite"] = e.tramite
+        # EL GÉNERO DE LA PERSONA FÍSICA, SÓLO SI EL PAPEL LO DICE (3-oct-2026):
+        # «la actora Ana…», «el quejoso Juan…». Lo usan el rótulo de la carátula
+        # y la verja; del nombre de pila no se infiere nada.
+        try:
+            import tipos_asunto as _ta_g
+            _papel_g = " ".join(str(x or "") for x in (acto, antecedentes))
+            for _k, _dk in (("quejoso", "genero_quejoso"), ("recurrente", "genero_recurrente")):
+                _g = _ta_g.genero_en_el_papel(str(datos.get(_k) or ""), _papel_g)
+                if _g and not datos.get(_dk):
+                    datos[_dk] = _g
+        except Exception:
+            pass
+        _res_pt, _ = _compuesto_por_tipo(e, datos)
+        if _res_pt is not None:
+            datos["procesal"] = dict(_res_pt.get("datos_extra") or {})
+    return datos
 
 
 def _fecha_iso(x):
@@ -3709,10 +5258,37 @@ async def _componer_generado(cliente, e: Encargo, relleno, computo,
     # Sin ella, el compositor decide por la rama y por el estudio.
     if isinstance(reasuncion, dict):
         datos["reasuncion"] = {k: v for k, v in reasuncion.items() if k != "conceptos"}
+    # ═══ CON LA FICHA DE TRÁMITE, LA ESTRUCTURA SE COMPONE (3-oct-2026) ════
+    # Bandera `procedencia_por_tipo` y encargo con ficha: el V I S T O y los
+    # resultandos los escribe `resultandos_por_tipo.componer`, sin modelo, con
+    # los datos ya completos de ESTA composición (el desenlace del a quo y la
+    # reasunción se acaban de poner). Se recompone siempre, también en el
+    # resolver y en el worker que no leyó el acto: la ficha viaja en la sesión
+    # y componer cuesta milisegundos; reutilizar una estructura en memoria
+    # sería volver a depender de qué worker atiende. Si el compositor falla,
+    # el camino de siempre con un aviso que lo dice: un documento con los
+    # resultandos del modelo y la advertencia delante es mejor que ninguno.
+    est = None
+    _res_pt, _fallo_pt = _compuesto_por_tipo(e, datos)
+    if _res_pt is not None:
+        datos["tramite"] = e.tramite
+        datos["procesal"] = dict(_res_pt.get("datos_extra") or {})
+        est = _estructura_de_lo_compuesto(_res_pt, e.tramite)
+        print(f"   🧾 PROCEDENCIA POR TIPO: V I S T O y {len(est.resultandos)} resultandos "
+              f"compuestos sin modelo · {len(est.avisos)} avisos")
+    elif _fallo_pt:
+        datos.pop("procesal", None)
     # LA ESTRUCTURA SE ESCRIBE UNA VEZ. El resolver recompone el documento
     # entero, y volver a pedirla al modelo son treinta segundos por nada: no
     # depende del estudio ni del criterio, sólo del asunto.
-    est = estructura_previa or await dg.redactar_estructura(cliente, datos)
+    if est is None:
+        est = estructura_previa or await dg.redactar_estructura(cliente, datos)
+    if _fallo_pt:
+        est.avisos = _unir_avisos(
+            [f"LOS RESULTANDOS NO SE PUDIERON COMPONER CON LA FICHA DE TRÁMITE ({_fallo_pt}): "
+             "los escribió el modelo, como antes de este cambio. Coteja cada fecha, número y "
+             "nombre de los resultandos con el auto de admisión y con el acto antes de firmar."],
+            (getattr(e, "tramite", None) or {}).get("avisos"), est.avisos)
 
     # LA SÍNTESIS DE LA PORTADA. Se pide con el estudio YA REDACTADO, no con
     # los datos del asunto: una síntesis escrita antes del estudio resumiría lo

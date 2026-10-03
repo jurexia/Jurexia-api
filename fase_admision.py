@@ -71,11 +71,23 @@ _RX_TRIBUNAL = re.compile(
 # Querétaro, Querétaro» —la palabra final de la razón de cuenta pegada a la
 # ciudad— entraba entera y la carátula habría dicho «Conste Querétaro».
 # «Santiago de Querétaro, Querétaro» sí es el nombre de una ciudad.
+# «VEINTE» Y «PRIMERO» TAMBIÉN SON DÍAS (3-oct-2026). La lista tenía
+# «veinti\w+» pero no «veinte», y un auto «Querétaro, Querétaro, a veinte de
+# enero…» salía sin ciudad; sin ciudad no se sabe si la sede es Ciudad de
+# México, que es lo que decide el código supletorio (`ficha_tramite.sede_de`).
+_DIAS_CIUDAD = (r"(?:uno|primero|dos|tres|cuatro|"
+                r"cinco|seis|siete|ocho|nueve|diez|once|doce|trece|catorce|quince|"
+                r"diecis[éeí]is|diecisiete|dieciocho|diecinueve|veinte|veinti\w+|treinta)")
 _RX_CIUDAD = re.compile(
     r"([A-ZÁÉÍÓÚÑ][\wáéíóúñ]+(?:\s+de\s+[A-ZÁÉÍÓÚÑ][\wáéíóúñ]+)?,\s*"
-    r"[A-ZÁÉÍÓÚÑ][\wáéíóúñ]+),\s+(?:a\s+)?(?:los\s+)?(?:uno|dos|tres|cuatro|"
-    r"cinco|seis|siete|ocho|nueve|diez|once|doce|trece|catorce|quince|"
-    r"diecis[éeí]is|diecisiete|dieciocho|diecinueve|veinti\w+|treinta)\s+de\s+"
+    r"[A-ZÁÉÍÓÚÑ][\wáéíóúñ]+),\s+(?:a\s+)?(?:los\s+)?" + _DIAS_CIUDAD + r"\s+de\s+"
+    r"(?:enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|"
+    r"noviembre|diciembre)", re.I)
+# CIUDAD DE MÉXICO NO LLEVA ESTADO DETRÁS: «Ciudad de México, a quince de…»
+# no casaba con «Ciudad, Estado, a…» y la sede salía vacía (mapa del código,
+# 3-oct-2026). Se prueba sólo si la forma general no encontró nada.
+_RX_CIUDAD_CDMX = re.compile(
+    r"(Ciudad\s+de\s+M[ée]xico),\s+(?:a\s+)?(?:los\s+)?" + _DIAS_CIUDAD + r"\s+de\s+"
     r"(?:enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|"
     r"noviembre|diciembre)", re.I)
 
@@ -158,7 +170,7 @@ def deterministas(texto: str) -> dict:
     m = _RX_TRIBUNAL.search(plano)
     if m:
         fuera["tribunal"] = " ".join(m.group(1).split())
-    m = _RX_CIUDAD.search(plano)
+    m = _RX_CIUDAD.search(plano) or _RX_CIUDAD_CDMX.search(plano)
     if m:
         fuera["ciudad"] = " ".join(m.group(1).split())
     return fuera
@@ -313,8 +325,12 @@ def reconciliar_papeles(ficha: dict, texto: str) -> list:
                "resolutivo de la sentencia recurrida al generar.")]
 
 
-async def leer(cliente, texto: str, tipo: str = "") -> dict:
-    """La ficha que se propone al secretario, con lo que no se pudo leer."""
+async def leer(cliente, texto: str, tipo: str = "", con_tramite: bool = None) -> dict:
+    """La ficha que se propone al secretario, con lo que no se pudo leer.
+
+    `con_tramite`: si la ficha trae además `tramite` —los campos del apartado
+    «Trámite en este tribunal» (claves de `ficha_tramite.CLAVES_FORMULARIO`)—.
+    None = lo decide la bandera `procedencia_por_tipo`."""
     base = deterministas(texto)
     ficha = {k: "" for k in _CAMPOS}
     avisos = []
@@ -383,4 +399,37 @@ async def leer(cliente, texto: str, tipo: str = "") -> dict:
     # La ordenadora es la que va a la carátula; el campo del formulario se
     # llama `responsable` y es el que el resto del sistema consume.
     ficha["responsable"] = ficha.get("responsable_ordenadora", "")
+    # ═══ EL TRÁMITE, DEL MISMO AUTO (3-oct-2026) ═══════════════════════════
+    # David: los resultandos tienen que salir «impecables… si el secretario
+    # introduce el auto de admisión y los datos correctos (fechas)». El auto
+    # que ya se lee aquí dice la fecha del auto de Presidencia, el turno y su
+    # ponente, el Ministerio Público, el adhesivo; hasta ahora se tiraba y los
+    # resultandos de trámite salían de memoria («fecha que se advierte de las
+    # constancias», 76 de 81 proyectos). Se lee SIN MODELO
+    # (`ficha_tramite.leer_auto`: fórmulas fijas) y se propone en el
+    # formulario para que el secretario lo confirme; lo que él confirme vuelve
+    # como `tramite_json` y manda. Va DETRÁS de la ficha de siempre: si algo
+    # falla, la ficha sale igual que antes.
+    # EN UN HILO (tercera ronda, 3-oct-2026, rev_6): el secretario puede subir
+    # el expediente entero como «auto de admisión» y la lectura, aunque ya es
+    # lineal y se acota a `ficha_tramite.TOPE_AUTO`, es CPU que no debe parar
+    # el bucle de eventos de /taller/desde-admision.
+    try:
+        import asyncio as _aio
+        import ficha_tramite as _ft
+        _con = _ft.rige() if con_tramite is None else bool(con_tramite)
+        if _con:
+            _lect = await _aio.to_thread(_ft.leer_auto, texto, ficha.get("tipo_asunto") or tipo)
+            # CUARTA RONDA (3-oct-2026): las 21 claves, con «fecha_registro» (el
+            # auto que forma y registra, si no es el que admite) y el CARGO del
+            # ponente dentro de su valor («Magistrada Jenica Campos Juárez»):
+            # el formulario no tiene campo para el cargo y, sin esto, el que
+            # leyó el auto se perdía al confirmar (AD 128, RF 4, Q 342). Al
+            # volver como `tramite_json`, `de_formulario` lo separa otra vez.
+            ficha["tramite"] = _ft.a_formulario(_lect)
+            for _a in _lect.get("avisos") or []:
+                if _a not in avisos:
+                    avisos.append(_a)
+    except Exception as _ex_t:
+        print(f"   ⚠️ trámite del auto no leído: {type(_ex_t).__name__}")
     return ficha

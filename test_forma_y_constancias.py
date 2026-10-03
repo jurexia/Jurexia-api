@@ -34,12 +34,14 @@ ok(d2["parte"] == "Banco Azteca, S.A." and d2["representante"] == "Juan Pérez L
 d3 = pv.separar("María López García, en representación de Servicios del Bajío, S. de R.L. de C.V.")
 ok(d3["parte"].startswith("Servicios del Bajío"), "«X, en representación de Y»")
 leg = ta.legitimacion_de("amparo_directo", d["parte"], d["representante"], figura=d["figura"], moral=d["moral"])
-ok("por conducto de su representante legal Alondra Zúñiga Gutiérrez, en términos de los artículos 6º y 11" in leg,
-   "la personería se funda en los artículos 6º y 11")
-ok("la persona moral quejosa está legitimada para ello conforme al artículo 5º, fracción I" in leg,
-   "y la legitimación ad causam se predica de la moral, con el 5º, fracción I")
+ok("por conducto de su representante legal Alondra Zúñiga Gutiérrez, en términos de los artículos 6o. y 11" in leg,
+   "la personería se funda en los artículos 6o. y 11")
+ok("la persona moral quejosa está legitimada para ello conforme al artículo 5o., fracción I" in leg,
+   "y la legitimación ad causam se predica de la moral, con el 5o., fracción I")
 ok("Alondra Zúñiga Gutiérrez, quien está legitimad" not in leg, "la persona física ya no «resiente el perjuicio»")
-ok(ta.legitimacion_de("amparo_directo", "Pedro Sánchez Ramírez").count("legitimado") == 1, "sin representante, el molde de siempre")
+# SIN INFERIR EL GÉNERO POR EL NOMBRE (3-oct-2026): la persona física se predica por su figura, «la parte quejosa».
+ok("Pedro Sánchez Ramírez; la parte quejosa está legitimada para ello" in ta.legitimacion_de("amparo_directo", "Pedro Sánchez Ramírez"),
+   "sin representante, la parte quejosa (neutra: el nombre de pila no dice el género)")
 ok(pv.por_conducto(d["parte"], d["representante"], d["figura"]).startswith("GDE Trading Company")
    and "por conducto de su representante legal Alondra" in pv.por_conducto(d["parte"], d["representante"], d["figura"]),
    "el resolutivo ampara a la moral, por conducto de su representante")

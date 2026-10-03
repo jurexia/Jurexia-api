@@ -202,20 +202,18 @@ ESTRUCTURA = {
                         ("Trámite del juicio de amparo indirecto", 38),
                         ("Interposición y trámite del recurso de revisión", 26),
                         ("Turno", 32)],
-        # EL ORDEN Y LA EXISTENCIA, del adelanto que David ajustó a mano.
-        #
-        # Faltaba «Existencia del acto reclamado», que en la revisión NO es el
-        # acto del amparo indirecto sino la SENTENCIA RECURRIDA: se acredita
-        # con el informe justificado del Juzgado de Distrito y con los autos
-        # que lo acompañan. Sin ese considerando el proyecto revisa una
-        # sentencia sin haber dicho antes que consta.
-        #
-        # Y el orden cambia: la existencia va DESPUÉS de la competencia y ANTES
-        # de la legitimación, porque primero se establece que el acto existe y
-        # sólo entonces tiene sentido preguntar si quien recurre está
-        # legitimado y si lo hizo a tiempo.
+        # LA REVISIÓN NO REPRODUCE LA EXISTENCIA; LLEVA LA PROCEDENCIA
+        # (3-oct-2026). David: «el considerando de existencia ya no es
+        # necesario porque ya viene en la sentencia recurrida; no es usual ni
+        # necesario que lo reproduzcamos». Lo había añadido un adelanto suyo
+        # ajustado a mano; los 5 engroses del banco que tienen «Procedencia»
+        # la ponen entre la competencia y la legitimación (PRIMERO
+        # Competencia, SEGUNDO Procedencia, TERCERO Legitimación y
+        # oportunidad). Este orden es el que lee `documento_generado` para
+        # decidir si la procedencia va antes que la legitimación. El texto lo
+        # da `procedencia_revision`. [siempre]
         "considerandos": [("Competencia", 50),
-                          ("Existencia del acto reclamado", 0),
+                          ("Procedencia", 5),
                           ("Legitimación y oportunidad", 33),
                           ("Resolución recurrida y agravios", 27),
                           ("Antecedentes", 0),
@@ -339,8 +337,15 @@ def estructura_de(tipo: str) -> dict:
 # en la revisión, «Turno» a secas.
 RESULTANDOS = {
     "amparo_directo": [
+        # SIN «OFICIALÍA» (3-oct-2026): la demanda de amparo directo se
+        # presenta por conducto de la responsable (art. 176 LA), y pedir la
+        # oficialía sin dársela invitaba a inventarla: «Oficialía de Partes de
+        # este Tribunal» salió en proyectos de octubre. Ni se nombra: un
+        # ejemplo en el prompt, aun en negativo, se copia.
         ("Presentación de la demanda de amparo",
-         "fecha, oficialía, promovente y su carácter. Después INDIVIDUALIZA la "
+         "fecha de presentación por conducto de la autoridad responsable "
+         "(artículo 176 de la Ley de Amparo), promovente y su carácter. "
+         "Después INDIVIDUALIZA la "
          "sentencia reclamada: su FECHA, el órgano que la dictó, el NÚMERO DE "
          "EXPEDIENTE o toca de origen, y qué resolvió. PROHIBIDO escribir «el "
          "acto reclamado precisado en los antecedentes» o cualquier otra "
@@ -354,10 +359,16 @@ RESULTANDOS = {
          "nombre no consta en la ficha de partes ni en el acto, NO ESCRIBAS "
          "este resultando —se omite entero y ya—, pero no lo sustituyas por "
          "una perífrasis, que es afirmar sin decir quién"),
+        # EL MINISTERIO PÚBLICO, SÓLO SI CONSTA (3-oct-2026). Decía «y que el
+        # agente del Ministerio Público adscrito omitió formular pedimento»: una
+        # afirmación por defecto que el modelo escribía sin haber visto la
+        # vista ni el pedimento (71 de 72 proyectos de octubre). Si lo hubo, el
+        # resultando mentía.
         ("Trámite del juicio de amparo",
-         "auto de Presidencia, registro, admisión, vista del artículo 181 de "
-         "la Ley de Amparo, y que el agente del Ministerio Público adscrito "
-         "omitió formular pedimento"),
+         "auto de Presidencia, registro, admisión y vista del artículo 181 de "
+         "la Ley de Amparo. Lo que hizo el agente del Ministerio Público de la "
+         "Federación (si formuló pedimento o no) SÓLO si consta en el material; "
+         "si no consta, no lo menciones"),
         # 28 de 60 en el corpus, y presente en el adelanto real del ADA
         # 448/2025 como QUINTO. Faltaba.
         ("Turno del asunto",
@@ -370,7 +381,7 @@ RESULTANDOS = {
         # sentido: la autoridad responsable y el acto reclamado son los dos
         # datos que se buscan de un vistazo cuando se toma el asunto.
         ("Presentación de la demanda de amparo indirecto",
-         "fecha, oficialía y promovente de la DEMANDA DE AMPARO INDIRECTO —no "
+         "fecha y promovente de la DEMANDA DE AMPARO INDIRECTO —no "
          "del recurso—, cerrando con «en contra de las autoridades y los actos "
          "que a continuación se señalan:». Y ACTO SEGUIDO, en párrafos aparte "
          "y con su rótulo en versales:\n"
@@ -419,7 +430,7 @@ RESULTANDOS = {
     ],
     "revision_fiscal": [
         ("Trámite del juicio contencioso administrativo",
-         "fecha y oficialía de la demanda de nulidad, quién la promovió, qué "
+         "fecha de la demanda de nulidad, quién la promovió, qué "
          "resolución impugnó, y LA SENTENCIA DE LA SALA CON SU FECHA Y SU "
          "SENTIDO. El sentido es OBLIGATORIO y con el verbo: «DECLARÓ LA "
          "NULIDAD», «RECONOCIÓ LA VALIDEZ», «SOBRESEYÓ». Ya lo pedía este "
@@ -428,7 +439,7 @@ RESULTANDOS = {
          "que se está revisando—. Sin ese dato el considerando de procedencia "
          "no puede fundarse y quien lee no sabe qué se revisa"),
         ("Interposición del recurso de revisión fiscal",
-         "fecha, oficialía y autoridad que interpuso el recurso"),
+         "fecha y autoridad que interpuso el recurso"),
         ("Trámite del recurso de revisión fiscal",
          "auto de Presidencia que lo admitió, con su fecha y número"),
         ("Turno",
@@ -437,7 +448,7 @@ RESULTANDOS = {
     ],
     "queja": [
         ("Interposición del recurso de queja",
-         "fecha, oficialía, promovente y su carácter en el juicio de amparo. "
+         "fecha, promovente y su carácter en el juicio de amparo. "
          "Después IDENTIFICA el auto recurrido: fecha, juzgado, número de "
          "juicio y qué proveyó"),
         ("Trámite del recurso",
@@ -543,18 +554,31 @@ COMPETENCIA = {
 # la sentencia de audiencia y la remitida por la SCJN, VI revisión fiscal. El
 # 210 es el que deja al OAJ fijar circuitos y jurisdicción. Es el respaldo: la
 # fórmula que se escribe sale del banco (`banco.texto_de`).
+# LA FRACCIÓN DEL 35 SALE DE LO QUE SE RESUELVE, Y NADIE EMITE OTRA (C2,
+# 3-oct-2026; LOPJF del DOF 20-12-2024, última reforma 28-11-2025, cotejada en
+# el texto descargado): I directo, con el inciso de su materia (a penal; b
+# administrativa, también la agraria; c civil, mercantil y familiar; d
+# laboral); II la revisión «en los casos a que se refiere el artículo 81» que no
+# es la sentencia de audiencia (suspensión, sobreseimiento fuera de audiencia,
+# reposición de constancias); III queja; V la sentencia de audiencia («en los
+# casos a que se refiere el artículo 84») y lo remitido por la SCJN; VI
+# revisión fiscal. La cadena de la revisión callaba el auto de sobreseimiento
+# y la reposición, que también son de la II.
 CADENA_COMPETENCIA = {
     "amparo_directo": (
         "los artículos 103, fracción I, y 107, fracción V, de la Constitución; "
         "33, fracción II, 34 y 170, fracción I, de la Ley de Amparo; y 35, "
-        "fracción I, y 210 de la Ley Orgánica del Poder Judicial de la "
-        "Federación"),
+        "fracción I, con el inciso de la materia (a penal; b administrativa, "
+        "incluida la agraria; c civil, mercantil y familiar; d laboral), y 210 "
+        "de la Ley Orgánica del Poder Judicial de la Federación"),
     "amparo_revision": (
         "los artículos 107, fracción VIII, último párrafo, de la Constitución; "
         "81, fracción I, inciso e), y 84 de la Ley de Amparo; y 35, fracción V, "
         "y 210 de la Ley Orgánica del Poder Judicial de la Federación —si lo "
-        "recurrido es la interlocutoria de suspensión, 81, fracción I, inciso a) "
-        "o b), y 35, fracción II—"),
+        "recurrido no es la sentencia de audiencia, el inciso del 81, fracción "
+        "I, que le toca (a) o b) la interlocutoria de suspensión, c) la "
+        "reposición de constancias, d) el auto que sobreseyó fuera de la "
+        "audiencia) y 35, fracción II—"),
     "queja": (
         "los artículos 103 y 107 de la Constitución; 97, fracción I, de la Ley "
         "de Amparo, con el inciso del supuesto; y 35, fracción III, y 210 de la "
@@ -595,42 +619,254 @@ _RX_MODIFICA_SUSP = re.compile(
     r"(?:modific|revoc)\w*\s+(?:el\s+|la\s+)?(?:acuerdo|auto|interlocutoria|resoluci[óo]n)"
     r"[^.]{0,120}suspensi[óo]n\s+definitiva", re.I)
 _RX_CONSTITUCIONALIDAD = re.compile(
-    r"inconstitucionalidad\s+de\s+(?:la|el|los|las)\s+(?:ley|art[íi]culo|norma|decreto|reglamento)|"
-    r"(?:expedici[óo]n|promulgaci[óo]n|aprobaci[óo]n)[^.]{0,80}(?:ley|decreto|reglamento)", re.I)
+    r"inconstitucionalidad\s+de\s+(?:la|el|los|las)\s+(?:ley|art[íi]culo|norma|decreto|reglamento|c[óo]digo)|"
+    r"(?:expedici[óo]n|promulgaci[óo]n|aprobaci[óo]n|refrendo)[^.]{0,80}"
+    r"(?:ley|decreto|reglamento|c[óo]digo)", re.I)
+# LA NORMA IMPUGNADA SE NOMBRA COMO ACTO (3-oct-2026, AR 208/2025 y 72/2025).
+# Concedido el amparo contra una ley local y recurrido por el Gobernador, el
+# acto reclamado decía «La Ley de Hacienda del Estado de Querétaro, artículos 90
+# y 97» o «el artículo 90 de la Ley…», sin «inconstitucionalidad» ni
+# «expedición», y la competencia salió con la cadena ordinaria y sin aviso de la
+# delegación que los dos engroses citan. Esto se mira en cada ACTO reclamado
+# (la lista de la ficha), al principio: en los antecedentes, «el artículo 16 de
+# la Ley…» es una cita y no un acto. Y el Poder Legislativo entre las
+# autoridades responsables sólo está ahí cuando se reclama una norma.
+_RX_ACTO_ES_NORMA = re.compile(
+    r"^\s*(?:\d+[.)]\s*|[-•·]\s*)?(?:(?:la|el|los|las)\s+)?(?:"
+    r"(?:ley|c[óo]digo|reglamento|decreto|norma\s+general)\b|"
+    r"art[íi]culos?\s+\d+[^.;]{0,80}?\b(?:de|del)\s+(?:la\s+|el\s+)?(?:ley|c[óo]digo|reglamento|decreto)\b)",
+    re.I)
+_RX_LEGISLATIVO = re.compile(
+    r"\bcongreso\b|\blegislatura\b|\bc[áa]mara\s+de\s+(?:diputad[oa]s|senador[ae]s)\b|"
+    r"\bpoder\s+legislativo\b", re.I)
 
 
-def competencia_revision(texto_comp: str, proemio: str, fuente: str = "") -> tuple:
-    """(competencia, avisos) para la revisión, según lo recurrido."""
+# EL AUTO QUE SOBRESEE FUERA DE LA AUDIENCIA (81, fr. I, inciso d) Y LA
+# REPOSICIÓN DE CONSTANCIAS (inciso c) (3-oct-2026). La competencia sólo
+# distinguía la suspensión; esos dos casos se fundaban en el inciso e) —el de
+# la sentencia de audiencia— y en la fracción V del 35, cuando su cadena es la
+# del inciso propio y la fracción II del 35 (oro_AR: «AUTO DE SOBRESEIMIENTO
+# fuera de audiencia: 81, fr. I, inciso d), y 84 LA; 35, fr. II, y 210»). Se
+# reconocen por lo que el auto dice de sí mismo, nunca por una mención de pasada.
+_RX_AUTO_SOBRESEE = re.compile(
+    r"sobrese\w*[^.]{0,160}fuera\s+de\s+(?:la\s+)?audiencia(?:\s+constitucional)?|"
+    r"fuera\s+de\s+(?:la\s+)?audiencia(?:\s+constitucional)?[^.]{0,160}sobrese\w*", re.I)
+_RX_REPOSICION = re.compile(r"incidente\s+de\s+reposici[óo]n\s+de\s+(?:constancias|autos)", re.I)
+
+# Lo que dice el considerando de cada clase de resolución recurrida.
+_CLASE_RECURRIDA = {
+    "interlocutoria_suspension": "una resolución dictada en el incidente de suspensión de un juicio de amparo indirecto",
+    "auto_sobreseimiento": ("un auto que sobreseyó fuera de la audiencia constitucional en un "
+                            "juicio de amparo indirecto"),
+    "reposicion_constancias": ("una resolución dictada en el incidente de reposición de constancias "
+                               "de un juicio de amparo indirecto"),
+}
+
+# LA FRACCIÓN DEL 35 Y EL INCISO DEL 81, EN CUALQUIER GRAFÍA DE LA FÓRMULA (C2,
+# 3-oct-2026). Sólo el 35 de la LEY ORGÁNICA (lo que sigue en la misma cita lo
+# dice), nunca un 135 ni el 35 de otra ley.
+_RX_35_FRACCION_V = re.compile(
+    r"((?<!\d)35,\s*fracci[óo]n\s+)V\b(?=[^;]{0,80}Ley\s+Org[áa]nica)")
+_RX_35_FRACCION_II = re.compile(
+    r"((?<!\d)35,\s*fracci[óo]n\s+)II\b(?=[^;]{0,80}Ley\s+Org[áa]nica)")
+_RX_81_INCISO_E = re.compile(r"((?<!\d)81,\s*fracci[óo]n\s+I,\s*inciso\s+)e\)")
+_RX_81_INCISO_A_D = re.compile(r"(?<!\d)81,\s*fracci[óo]n\s+I,\s*inciso\s+[a-d]\)")
+
+
+# ═══ LA PROCEDENCIA DE LA REVISIÓN (C1, 3-oct-2026) ═══════════════════════
+# David: «el considerando de existencia ya no es necesario porque ya viene en la
+# sentencia recurrida; no es usual ni necesario que lo reproduzcamos». En su
+# lugar, entre la competencia y la legitimación, el apartado que tienen los 5
+# engroses del banco que lo traen (AR 60, 201 y 208/2025 y 307/2024; el 222/2025,
+# en párrafos numerados): «El presente recurso de revisión es procedente, de conformidad con el
+# artículo 81, fracción I, inciso e), de la Ley de Amparo, en razón de que se
+# impugna una sentencia dictada en la audiencia constitucional». El inciso lo
+# decide lo recurrido (`clase_recurrida_de`), cotejado con el texto local del
+# 81, fracción I: a) las que concedan o nieguen la suspensión definitiva; b) las
+# que modifiquen o revoquen el acuerdo en que se conceda o niegue la suspensión
+# definitiva; c) las que decidan el incidente de reposición de constancias de
+# autos; d) las que declaren el sobreseimiento fuera de la audiencia
+# constitucional; e) las sentencias dictadas en la audiencia constitucional.
+_PROCEDENCIA_REVISION = {
+    "a": "la interlocutoria que resolvió sobre la suspensión definitiva",
+    # LOS DOS SUPUESTOS DEL INCISO b) (revisión de normas, 3-oct-2026). El 81-I-b
+    # cubre lo que modifica o revoca el acuerdo de la suspensión definitiva «o
+    # las que nieguen la revocación o modificación de esos autos», y
+    # `_RX_MODIFICA_SUSP` lleva al b) cualquier «modific…/revoc…», también la
+    # que NEGÓ modificar: decir «la resolución que modificó o revocó…» de ésa era
+    # falso. La frase que cubre los dos: «se pronunció sobre la modificación o
+    # revocación…».
+    "b": ("la resolución que se pronunció sobre la modificación o revocación del "
+          "acuerdo en que se concedió o negó la suspensión definitiva"),
+    "c": "la resolución que decidió el incidente de reposición de constancias de autos",
+    "d": "el auto que sobreseyó en el juicio fuera de la audiencia constitucional",
+    "e": "una sentencia dictada en la audiencia constitucional",
+}
+_INCISO_DE_CLASE = {"sentencia": "e", "auto_sobreseimiento": "d",
+                    "reposicion_constancias": "c", "interlocutoria_suspension": "a"}
+
+
+def procedencia_revision(clase: str = "", inciso: str = "") -> str:
+    """El considerando de procedencia del amparo en revisión.
+
+    `clase` como la de `clase_recurrida_de` («» o «sentencia» |
+    «interlocutoria_suspension» | «auto_sobreseimiento» |
+    «reposicion_constancias»); sin clase, la sentencia de audiencia, que es lo
+    que se recurre casi siempre. `inciso` («a» | «b») sólo cuenta en la
+    suspensión: «b» si lo recurrido se pronunció sobre la modificación o la
+    revocación de lo resuelto sobre ella (la concediera o la negara)."""
+    c = (clase or "").strip().lower()
+    i = _INCISO_DE_CLASE.get(c, "e")
+    if c == "interlocutoria_suspension":
+        _i = (inciso or "").strip().lower().strip("()")
+        i = _i if _i in ("a", "b") else "a"
+    return ("El presente recurso de revisión es procedente, de conformidad con el "
+            f"artículo 81, fracción I, inciso {i}), de la Ley de Amparo, en razón de "
+            f"que se impugna {_PROCEDENCIA_REVISION[i]}.")
+
+
+def clase_recurrida_de(proemio: str, clase: str = "") -> str:
+    """«interlocutoria_suspension» | «auto_sobreseimiento» |
+    «reposicion_constancias» | «sentencia» | «» (no se pudo decidir).
+
+    `clase`, si viene (la ficha de trámite la trae del papel o del
+    secretario), manda; si no, el proemio de la recurrida."""
+    c = (clase or "").strip().lower()
+    if c in ("interlocutoria_suspension", "auto_sobreseimiento",
+             "reposicion_constancias", "sentencia"):
+        return c
+    pr = proemio or ""
+    if (pr and _RX_PROEMIO_SUSPENSION.search(pr[:700])
+            and not _RX_AUDIENCIA.search(pr)):
+        return "interlocutoria_suspension"
+    if pr and _RX_REPOSICION.search(pr[:900]):
+        return "reposicion_constancias"
+    # LA SENTENCIA DE AUDIENCIA TAMBIÉN SOBRESEE, y su proemio dice
+    # «audiencia constitucional» sin el «fuera de»: ésa es la del inciso e).
+    _sin_fuera = re.sub(r"fuera\s+de\s+(?:la\s+)?audiencia(?:\s+constitucional)?", " ",
+                        pr[:1500], flags=re.I)
+    if (pr and _RX_AUTO_SOBRESEE.search(pr[:1500])
+            and not _RX_AUDIENCIA.search(_sin_fuera[:900])):
+        return "auto_sobreseimiento"
+    return "sentencia" if pr.strip() else ""
+
+
+def norma_impugnada(fuente: str = "", actos=None, autoridades=None) -> str:
+    """Por qué se tiene por impugnada una norma general, o «»: la fórmula en el
+    texto («inconstitucionalidad de la ley», «expedición y promulgación…»), un
+    acto reclamado que ES una norma («La Ley de Hacienda…, artículos 90 y 97»,
+    «el artículo 90 de la Ley…») o el Poder Legislativo entre las responsables."""
+    if fuente and _RX_CONSTITUCIONALIDAD.search(fuente):
+        return "la demanda o la sentencia la impugnan"
+    _actos = [actos] if isinstance(actos, str) else list(actos or [])
+    for a in _actos:
+        for linea in re.split(r"[\n;]", str(a or "")):
+            if _RX_ACTO_ES_NORMA.search(linea):
+                return "un acto reclamado es una norma general"
+    _auts = [autoridades] if isinstance(autoridades, str) else list(autoridades or [])
+    if any(_RX_LEGISLATIVO.search(str(x or "")) for x in _auts):
+        return "el Poder Legislativo es autoridad responsable"
+    return ""
+
+
+def competencia_revision(texto_comp: str, proemio: str, fuente: str = "",
+                         clase: str = "", actos=None, autoridades=None,
+                         resolvio: str = "", papel: str = "") -> tuple:
+    """(competencia, avisos) para la revisión, según lo recurrido.
+
+    `actos` y `autoridades` (de la ficha: `demanda.actos`, `demanda.autoridades`
+    o `procesal.autoridades`) dejan ver la norma impugnada aunque nadie escriba
+    «inconstitucionalidad» (`norma_impugnada`); `resolvio` (concede|niega|
+    sobresee|mixto) y `papel` (quien recurre) afinan el aviso de la delegación.
+    Se miran SÓLO si llegan por estos parámetros: en `fuente` (prosa de los
+    antecedentes) «el artículo 16 de la Ley…» o «Congreso» son citas, no actos."""
     avisos = []
     t = texto_comp or ""
-    if (proemio and _RX_PROEMIO_SUSPENSION.search(proemio[:700])
-            and not _RX_AUDIENCIA.search(proemio)):
-        inciso = "b" if _RX_MODIFICA_SUSP.search(proemio) else "a"
+    _clase = clase_recurrida_de(proemio, clase)
+    if _clase in ("interlocutoria_suspension", "auto_sobreseimiento", "reposicion_constancias"):
+        if _clase == "interlocutoria_suspension":
+            inciso = "b" if _RX_MODIFICA_SUSP.search(proemio or "") else "a"
+        else:
+            inciso = "d" if _clase == "auto_sobreseimiento" else "c"
         nuevo = t
         nuevo = re.sub(r"una\s+sentencia\s+dictada\s+en\s+un\s+juicio\s+de\s+amparo\s+indirecto",
-                       "una resolución dictada en el incidente de suspensión de un juicio de amparo indirecto",
-                       nuevo, count=1)
+                       _CLASE_RECURRIDA[_clase], nuevo, count=1)
         nuevo = nuevo.replace("81, fracción I, inciso e) y 84",
                               f"81, fracción I, inciso {inciso}), y 84")
+        nuevo = _RX_81_INCISO_E.sub(lambda m: m.group(1) + inciso + ")", nuevo)
         nuevo = nuevo.replace("35, fracción V y 210", "35, fracción II y 210")
+        # LA FRACCIÓN DEL 35 EN CUALQUIER GRAFÍA (C2, 3-oct-2026): la del
+        # banco escribe «35, fracción V y 210», pero otras fórmulas de la mesa
+        # escriben «35, fracción V, de la Ley Orgánica…».
+        nuevo = _RX_35_FRACCION_V.sub(lambda m: m.group(1) + "II", nuevo)
         if nuevo != t:
+            _que = {"interlocutoria_suspension": "LA INTERLOCUTORIA DE SUSPENSIÓN",
+                    "auto_sobreseimiento": "EL AUTO QUE SOBRESEYÓ FUERA DE LA AUDIENCIA CONSTITUCIONAL",
+                    "reposicion_constancias": "LA RESOLUCIÓN DEL INCIDENTE DE REPOSICIÓN DE CONSTANCIAS"}[_clase]
             avisos.append(
-                "LO RECURRIDO ES LA INTERLOCUTORIA DE SUSPENSIÓN: la competencia "
+                f"LO RECURRIDO ES {_que}: la competencia "
                 f"se fundó en el artículo 81, fracción I, inciso {inciso}), de la "
                 "Ley de Amparo y en la fracción II del 35 de la Ley Orgánica, no "
                 "en los de la sentencia de audiencia. Compruébalo.")
             t = nuevo
-    elif fuente and _RX_CONSTITUCIONALIDAD.search(fuente):
-        avisos.append(
-            "SE IMPUGNÓ LA CONSTITUCIONALIDAD DE UNA NORMA. Si el problema "
-            "subsiste en la revisión, este tribunal conoce por DELEGACIÓN de la "
-            "SCJN y la competencia cambia: artículo 83 de la Ley de Amparo en "
-            "relación con el punto cuarto, fracción I, inciso que corresponda, "
-            "del Acuerdo General 2/2025 (12a.) y el punto segundo del 11/2025 "
-            "(12a.), ambos del Pleno de la SCJN (DOF 19 y 22-09-2025), y la "
-            "fracción V del 35 de la Ley Orgánica («remitidos por la Suprema "
-            "Corte»). Si la norma es federal y no hay jurisprudencia, no hay "
-            "delegación: se remite a la SCJN.")
+    else:
+        # LA SENTENCIA DE AUDIENCIA ES LA FRACCIÓN V, TAMBIÉN LA REMITIDA POR LA
+        # SCJN (C2, 3-oct-2026). La variante del banco para la norma impugnada
+        # (delegación) y la fórmula antigua de la mesa escriben «35, fracción
+        # II»; la V del texto vigente cubre la sentencia de audiencia «en los
+        # casos a que se refiere el artículo 84» y lo «remitido por la Suprema
+        # Corte». Sólo si consta que lo recurrido es la sentencia, o si la
+        # propia fórmula cita el inciso e) del 81.
+        if _clase == "sentencia" or (not _clase and _RX_81_INCISO_E.search(t)):
+            _v = _RX_35_FRACCION_II.sub(lambda m: m.group(1) + "V", t)
+            if _v != t:
+                avisos.append(
+                    "LA COMPETENCIA CITABA LA FRACCIÓN II DEL ARTÍCULO 35 DE LA LEY ORGÁNICA "
+                    "para una sentencia dictada en la audiencia constitucional: se cambió a la "
+                    "fracción V, que es la de esa sentencia (y la de lo remitido por la SCJN); la "
+                    "II es la de lo demás que prevé el 81 (suspensión, sobreseimiento fuera de "
+                    "audiencia, reposición de constancias). Compruébalo.")
+                t = _v
+        elif not _clase and _RX_81_INCISO_A_D.search(t):
+            # SIN PROEMIO, LA FÓRMULA MANDA: si ella misma cita el inciso a), b),
+            # c) o d) del 81, la fracción del 35 es la II (la fórmula antigua
+            # de la mesa trae «inciso {inciso})» y la fracción fija).
+            _ii = _RX_35_FRACCION_V.sub(lambda m: m.group(1) + "II", t)
+            if _ii != t:
+                avisos.append(
+                    "LA COMPETENCIA CITABA LA FRACCIÓN V DEL ARTÍCULO 35 DE LA LEY ORGÁNICA con un "
+                    "inciso del 81 que no es el de la sentencia de audiencia: se cambió a la fracción "
+                    "II. Compruébalo.")
+                t = _ii
+        _porque = norma_impugnada(fuente, actos, autoridades)
+        if _porque:
+            _res = (resolvio or "").strip().lower()
+            _pap = (papel or "").strip().lower()
+            # CONCEDIDO Y RECURRIDO POR LA AUTORIDAD, la delegación es lo
+            # esperable (AR 208/2025 y 72/2025: los dos engroses la citan). Y SI
+            # SE RESUELVE SOBRE LA CONSTITUCIONALIDAD DE LA NORMA, EL PROYECTO SE
+            # PUBLICA ANTES (art. 73, segundo párrafo, LA, texto local: «deberán
+            # hacer públicos los proyectos… cuando menos con tres días de
+            # anticipación a la publicación de las listas»; el AR 201/2025 trae su
+            # apartado de publicidad del proyecto).
+            _probable = (" EL JUZGADO CONCEDIÓ EL AMPARO Y RECURRE LA AUTORIDAD: que el "
+                         "problema de constitucionalidad subsista es lo esperable, así que "
+                         "la delegación muy probablemente aplica."
+                         if _res in ("concede", "mixto") and _pap == "autoridad" else "")
+            avisos.append(
+                f"SE IMPUGNÓ LA CONSTITUCIONALIDAD DE UNA NORMA ({_porque}). Si el problema "
+                "subsiste en la revisión, este tribunal conoce por DELEGACIÓN de la "
+                "SCJN y la competencia cambia: artículo 83 de la Ley de Amparo en "
+                "relación con el punto cuarto, fracción I, inciso que corresponda, "
+                "del Acuerdo General 2/2025 (12a.) y el punto segundo del 11/2025 "
+                "(12a.), ambos del Pleno de la SCJN (DOF 19 y 22-09-2025), y la "
+                "fracción V del 35 de la Ley Orgánica («remitidos por la Suprema "
+                "Corte»). Si la norma es federal y no hay jurisprudencia, no hay "
+                "delegación: se remite a la SCJN." + _probable
+                + " Y SI LA SENTENCIA SE PRONUNCIA SOBRE LA CONSTITUCIONALIDAD DE LA NORMA, "
+                  "el proyecto debe hacerse público cuando menos con tres días de "
+                  "anticipación a la publicación de la lista (artículo 73, segundo "
+                  "párrafo, de la Ley de Amparo).")
     return t, avisos
 
 
@@ -729,22 +965,103 @@ CIERRE = {
 }
 
 
-# EL SUPLETORIO DE LA LEY DE AMPARO ES EL CÓDIGO NACIONAL (27-sep-2026). Desde
-# la reforma publicada en el DOF el 13-03-2025, el artículo 2o. de la Ley de
-# Amparo dice: «A falta de disposición expresa se aplicará en forma supletoria
-# el Código Nacional de Procedimientos Civiles y Familiares». La existencia del
-# acto se fundaba en los artículos 129 y 202 del Código Federal —el texto de
-# 2013—. Los equivalentes del Nacional: 312, fracción II (informes de personas
-# funcionarias en ejercicio de sus funciones: el informe justificado), 312,
-# fracción VIII (actuaciones judiciales de toda especie: los autos) y 344 (los
-# documentos públicos hacen prueba plena). Hay criterio de un Pleno Regional
-# (PR.A.C.CS. J/8 K (12a.)) que lo aplica de inmediato y engroses de la casa de
-# 2025 que siguen citando el Federal: si el tribunal decide conservarlo, es esta
-# línea.
-SUPLETORIO_DOCUMENTALES = (
-    "los artículos 312, fracciones II y VIII, y 344 del Código Nacional de "
-    "Procedimientos Civiles y Familiares, de aplicación supletoria a la Ley de "
-    "Amparo conforme a su artículo 2o.")
+# ═══════════════════════════════════════════════════════════════════════════
+# EL SUPLETORIO DE LA LEY DE AMPARO DEPENDE DE LA SEDE (3-oct-2026)
+# ═══════════════════════════════════════════════════════════════════════════
+# El 27-sep-2026 se pasó a toda la república al Código Nacional de
+# Procedimientos Civiles y Familiares —el artículo 2o. de la Ley de Amparo lo
+# nombra desde la reforma del DOF 13-03-2025— y la existencia del acto salió
+# fundada en el CNPCF en 18 de 18 proyectos de octubre. David, 3-oct-2026:
+# «aplicar, por ahora en toda la república, el código federal de procedimientos
+# civiles de manera supletoria a la ley de amparo, salvo en los proyectos de
+# ciudad de mexico donde ya opera el CNPCF». Es lo que firma el corpus: la
+# fórmula del CFPC está en 61 de 86 existencias (banco_formulas_medidas.json:64)
+# y la combinación 129 y 202 es la más estable.
+#
+# SIN «CONFORME A SU ARTÍCULO 2o.» FUERA DE LA CIUDAD DE MÉXICO: el 2o. vigente
+# nombra al CNPCF, así que citarlo para aplicar el CFPC haría que la frase se
+# contradijera a sí misma. En la Ciudad de México, la del Nacional con su 2o.
+# (312, fracciones II y VIII: informes de funcionarios y actuaciones judiciales;
+# 344: prueba plena; 269: hecho notorio; 348: información electrónica —todos
+# verificados contra el texto del CNPCF—).
+_CFPC = "Código Federal de Procedimientos Civiles"
+_CNPCF = "Código Nacional de Procedimientos Civiles y Familiares"
+_COLA_CFPC = f"del {_CFPC}, de aplicación supletoria a la Ley de Amparo"
+_COLA_CNPCF = (f"del {_CNPCF}, de aplicación supletoria a la Ley de Amparo "
+               f"conforme a su artículo 2o.")
+
+# Alias de compatibilidad: la de fuera de la Ciudad de México, que es la regla.
+SUPLETORIO_DOCUMENTALES = f"los artículos 129 y 202 {_COLA_CFPC}"
+
+# UNA SOLA REGLA PARA LA SEDE (3-oct-2026, rev_2). Había dos: ésta dejaba que la
+# ciudad decidiera sola aunque el tribunal fuera del Primer Circuito y no leía
+# «Cd. de México»; `ficha_tramite.sede_de` sí la leía y aplicaba el circuito.
+# Con «Décimo Tribunal Colegiado en Materia Civil del Primer Circuito» y «Cd. de
+# México», la existencia salía con el CFPC y la verja acusaba esa misma fórmula
+# como ajena a la sede: dos sitios que decidían el código por su lado. Ahora es
+# ésta la que deciden todos (`supletorio`, `ficha_tramite.sede_de`, la verja):
+#   · el PRIMER CIRCUITO es la Ciudad de México, escriba lo que escriba la
+#     ciudad (no tiene otra residencia);
+#   · un CENTRO AUXILIAR no es de un circuito: decide su ciudad de residencia;
+#   · sin circuito legible, la ciudad, con todas sus grafías («Ciudad de
+#     México», «CDMX», «Cd. de México», «Cd. México», «Cd. Mx.», «México,
+#     D.F.», «Distrito Federal»);
+#   · un circuito que no es el Primero, fuera de la Ciudad de México.
+_RX_CDMX = re.compile(
+    r"ciudad\s+de\s+m[ée]xico|\bCDMX\b|\bcd\.?\s*(?:de\s+)?m[ée]x(?:ico)?\b(?!\w)|"
+    r"\bcd\.?\s*mx\b\.?|\bM[ée]xico,?\s+D\.?\s*F\.?|distrito\s+federal", re.I)
+_RX_AUXILIAR_SEDE = re.compile(r"centro\s+auxiliar|auxiliar\s+de\s+la\s+\w+\s+regi[óo]n", re.I)
+
+
+def es_cdmx(tribunal: str = "", ciudad: str = "") -> bool | None:
+    """¿Sede en la Ciudad de México? True | False | None (no se puede decidir).
+
+    El Primer Circuito lo es siempre (salvo un Centro Auxiliar, que decide por
+    su ciudad de residencia); sin circuito legible, la ciudad; un circuito
+    distinto del Primero, no."""
+    c = " ".join(str(ciudad or "").split())
+    t = " ".join(str(tribunal or "").split())
+    _aux = bool(_RX_AUXILIAR_SEDE.search(t))
+    n = 0
+    if t and not _aux:
+        try:
+            import banco as _bk_s
+            n = _bk_s.numero_de_circuito(t)
+        except Exception:
+            n = 0
+    if n:
+        return n == 1
+    if c:
+        return bool(_RX_CDMX.search(c))
+    if t and _RX_CDMX.search(t):
+        return True
+    return None
+
+
+def supletorio(tribunal: str = "", ciudad: str = "") -> dict:
+    """Las cadenas del código supletorio de la Ley de Amparo para esta sede.
+
+    {cdmx, codigo, documentales, hecho_notorio, electronica, aviso}. Sin
+    ciudad ni circuito legibles se usa la regla general (CFPC) y `aviso` lo
+    dice: la excepción es la Ciudad de México, y no se afirma sin saberlo."""
+    d = es_cdmx(tribunal, ciudad)
+    aviso = ("" if d is not None else
+             "NO SE PUDO SABER SI LA SEDE ES LA CIUDAD DE MÉXICO (no hay ciudad ni "
+             "circuito legibles): el supletorio de la Ley de Amparo se fundó en el "
+             "Código Federal de Procedimientos Civiles, que es la regla; si el "
+             "tribunal reside en la Ciudad de México, va el Código Nacional de "
+             "Procedimientos Civiles y Familiares.")
+    if d:
+        return {"cdmx": True, "codigo": _CNPCF,
+                "documentales": f"los artículos 312, fracciones II y VIII, y 344 {_COLA_CNPCF}",
+                "hecho_notorio": f"el artículo 269 {_COLA_CNPCF}",
+                "electronica": f"el artículo 348 {_COLA_CNPCF}",
+                "aviso": aviso}
+    return {"cdmx": False, "codigo": _CFPC,
+            "documentales": SUPLETORIO_DOCUMENTALES,
+            "hecho_notorio": f"el artículo 88 {_COLA_CFPC}",
+            "electronica": f"el artículo 210-A {_COLA_CFPC}",
+            "aviso": aviso}
 
 
 # LOS EFECTOS ABREN CON SU FUNDAMENTO Y CUELGAN DE «DEBERÁ:» (27-sep-2026).
@@ -951,8 +1268,14 @@ def cierre_ajeno(tipo: str, texto: str) -> list:
 #
 # Cada fila: (etiqueta, clave de los datos, obligatoria).
 CARATULA = {
+    # EL ADHERENTE TAMBIÉN VA EN EL RUBRO (3-oct-2026, AD 279/2025: «QUEJOSO
+    # PRINCIPAL: … / QUEJOSO ADHERENTE: …»). La ficha traía `adhesivo.quien`, el
+    # resultando, el considerando y el resolutivo segundo lo usaban, y la
+    # carátula lo callaba. Concuerda como la quejosa: «PARTE QUEJOSA ADHERENTE»
+    # cuando el nombre no dice el género. Lo llena `datos["adherente"]`.
     "amparo_directo": [
         ("QUEJOSO", "quejoso", True),
+        ("{QUEJOSO_A} ADHERENTE", "adherente", False),
         ("TERCERO INTERESADO", "tercero", False),
         ("AUTORIDAD RESPONSABLE", "responsable", True),
     ],
@@ -986,12 +1309,46 @@ CARATULA = {
         ("{QUEJOSO_A} Y RECURRENTE", "quejoso", True),
         ("RECURRENTE ADHESIVO", "adherente", False),
     ],
+    # LA QUEJA DICE EL CARÁCTER DE QUIEN RECURRE (3-oct-2026, Q 300/2025). El
+    # rótulo era «RECURRENTE» sobre `quejoso`, y cuando recurrió la tercera
+    # interesada la carátula puso al quejoso como recurrente. Los 8 engroses del
+    # banco dicen el carácter: «QUEJOSO Y RECURRENTE» (4), «RECURRENTE
+    # (QUEJOSA/O)» (3), «TERCERA INTERESADA Y RECURRENTE» (1). Con el mismo
+    # reparto que la revisión (`filas_caratula`): si recurre otra parte, dos
+    # renglones.
+    # Y SIN EL RENGLÓN DEL ÓRGANO (C3, 3-oct-2026). Lo dejaba pendiente la D8;
+    # David: «lo más práctico… que el secretario no tenga que modificar». Ningún
+    # engrose de queja del banco lo lleva (0 de 8), y el órgano ya se nombra en
+    # el V I S T O y en la competencia. La ficha de partes lo sigue rotulando
+    # (`FIGURAS_FUERA_DEL_RUBRO`).
     "queja": [
+        ("{QUEJOSO_A} Y RECURRENTE", "quejoso", True),
+    ],
+    # «RECURRENTE ADHESIVO» (RF 4/2025: «RECURRENTE ADHESIVO: … (ACTORA)»), como
+    # en la revisión.
+    # «RECURRENTE», SIN «AUTORIDAD» NI LA SALA (C4, 3-oct-2026). David: «hay que
+    # quitar autoridades recurrentes y sala»; el banco del tribunal escribe
+    # «REVISIÓN FISCAL: {toca} / RECURRENTE: {recurrente}» en 28 de 28. La Sala
+    # se nombra en el V I S T O y en la competencia.
+    "revision_fiscal": [
         ("RECURRENTE", "quejoso", True),
+        ("RECURRENTE ADHESIVO", "adherente", False),
+        ("PARTE ACTORA", "tercero", False),
+    ],
+}
+
+# EL RUBRO DE ANTES, PARA EL CAMINO SIN LA BANDERA (3-oct-2026). C3 y C4 no son
+# [siempre]: `PROCEDENCIA_POR_TIPO=0` es la palanca para volver atrás, y
+# volver atrás es volver a estas filas (la queja con su órgano; la revisión
+# fiscal con «AUTORIDAD RECURRENTE» y «SALA RESPONSABLE»).
+_CARATULA_SIN_BANDERA = {
+    "queja": [
+        ("{QUEJOSO_A} Y RECURRENTE", "quejoso", True),
         ("ÓRGANO QUE DICTÓ EL AUTO RECURRIDO", "responsable", True),
     ],
     "revision_fiscal": [
         ("AUTORIDAD RECURRENTE", "quejoso", True),
+        ("RECURRENTE ADHESIVO", "adherente", False),
         ("PARTE ACTORA", "tercero", False),
         ("SALA RESPONSABLE", "responsable", True),
     ],
@@ -1027,14 +1384,23 @@ _RX_MASCULINO = re.compile(
 # salía «PARTE TERCERA INTERESADA». El género de una persona moral es el de
 # su sustantivo de cabeza (la unión, la impulsora, el sindicato); si no hay
 # uno conocido, lo de siempre: la forma jurídica, y en la duda el neutro.
+#
+# LA SUCESIÓN Y LA COMUNIDAD SON FEMENINAS; EL EJIDO, MASCULINO (3-oct-2026, AD
+# 335/2025): la carátula decía «PARTE QUEJOSA» de «Sucesión a Bienes de…», y el
+# engrose, «QUEJOSA». Y LA CABEZA EN -DORA NO ES UN NOMBRE DE PILA: «Isadora»,
+# «Teodora» o «Isidora» acaban como «Comercializadora», y una persona física no
+# recibe género por su nombre. Se excluyen los nombres de pila conocidos con
+# esa terminación; la cabeza de empresa (impulsora, constructora…) sigue.
 _RX_CABEZA_FEM = re.compile(
     r"^(?:(?:la|las)\s+)?(?:uni[óo]n|federaci[óo]n|confederaci[óo]n|liga|central|alianza|"
     r"agrupaci[óo]n|c[áa]mara|coalici[óo]n|organizaci[óo]n|asociaci[óo]n|sociedad|cooperativa|"
     r"empresa|instituci[óo]n|comisi[óo]n|secretar[íi]a|direcci[óo]n|sala|junta|unidad|"
-    r"universidad|fundaci[óo]n|inmobiliaria|\w+(?:dora|tora|sora))\b", re.I)
+    r"universidad|fundaci[óo]n|inmobiliaria|sucesi[óo]n|comunidad|"
+    r"(?!(?:is[ai]|t[h]?eo|eu|helio|leo|ama|nido|sal|ten)dora\b)\w+(?:dora|tora|sora))\b", re.I)
 _RX_CABEZA_MASC = re.compile(
     r"^(?:(?:el|los)\s+)?(?:sindicato|instituto|ayuntamiento|municipio|organismo|consejo|banco|"
-    r"tribunal|juzgado|frente|grupo|colegio|comit[ée]|patronato|fideicomiso)\b", re.I)
+    r"tribunal|juzgado|frente|grupo|colegio|comit[ée]|patronato|fideicomiso|ejido|"
+    r"comisariado|n[úu]cleo)\b", re.I)
 # «C.T.M.» (Confederación de Trabajadores de México) y las demás centrales
 # obreras al final del nombre: la afiliación es femenina.
 _RX_CENTRAL_OBRERA = re.compile(r"\bC\.\s*T\.\s*M\.|\bC\.\s*R\.\s*O\.\s*C\.|\bC\.\s*R\.\s*O\.\s*M\.")
@@ -1056,11 +1422,57 @@ def genero_de(nombre: str) -> str:
     return ""
 
 
+# EL CARGO EN MINÚSCULA TAMBIÉN PIERDE EL ARTÍCULO DE LA PROSA (quinta ronda,
+# 3-oct-2026; RF 49/2025 del banco: «AUTORIDAD RECURRENTE: LA TITULAR DE LA
+# UNIDAD JURÍDICA…»). El V I S T O del engrose la escribe «la titular de la
+# Unidad…», con el cargo en minúscula, y el artículo sólo se quitaba ante una
+# mayúscula: «la Jefa…» (RF 7) y «la Titular…» (RF 6/2025) lo perdían y «la
+# titular…» no. Ante un cargo se quita igual y el cargo sube su inicial.
+_RX_CARGO_EN_MINUSCULA = (
+    r"(?:titular|jef[ea]|director|subdirector|delegad|subdelegad|encargad|oficial|fiscal|"
+    r"agente|representante|coordinador|administrador|secretari|subsecretari|gobernador|"
+    r"president|procurador|subprocurador|tesorer|contralor|gerente|juez|magistrad)\w*\b")
+
+
 def sin_articulo_de_prosa(nombre: str) -> str:
     """«la Unión …» → «Unión …» para un renglón de la carátula. Sólo el
     artículo en MINÚSCULA, que es el de la prosa («la quejosa, la Unión…»);
-    el que va en mayúscula es parte del nombre («La Costeña, S.A.»)."""
-    return re.sub(r"^\s*(?:el|la|los|las)\s+(?=[A-ZÁÉÍÓÚÑ])", "", str(nombre or ""))
+    el que va en mayúscula es parte del nombre («La Costeña, S.A.»). Ante un
+    CARGO en minúscula también, y el cargo sube su inicial: «la titular de la
+    Unidad…» → «Titular de la Unidad…» (quinta ronda)."""
+    n = str(nombre or "")
+    m = re.match(r"^\s*(?:el|la|los|las)\s+(?=" + _RX_CARGO_EN_MINUSCULA + ")", n)
+    if m:
+        resto = n[m.end():]
+        return resto[:1].upper() + resto[1:]
+    return re.sub(r"^\s*(?:el|la|los|las)\s+(?=[A-ZÁÉÍÓÚÑ])", "", n)
+
+
+# EL GÉNERO DE UNA PERSONA FÍSICA SE LEE DEL PAPEL, NUNCA DEL NOMBRE (3-oct-2026).
+# «QUEJOSO:» salía en la carátula de 19 quejosas (errores reales): el rótulo del
+# amparo directo era fijo. El nombre de pila no dice el género —y adivinarlo es
+# firmar un error—, pero el expediente sí lo dice cuando nombra a la persona con
+# su artículo: «la actora Ana López…», «el quejoso Juan…», «la señora…». Sólo
+# eso cuenta; si el papel no lo dice, el rótulo va neutro («PARTE QUEJOSA»).
+_RX_ROL_CON_ARTICULO = (r"\b(la|el)\s+(?:parte\s+)?(?:quejos[oa]|actor(?:a)?|demandad[oa]|"
+                        r"recurrente|tercer[oa]\s+interesad[oa]|promovente|apelante|"
+                        r"ciudadan[oa]|reconvencionista|ocursante|accionante)\s*,?\s*")
+
+
+def genero_en_el_papel(nombre: str, texto: str) -> str:
+    """«a», «o» o «» según cómo NOMBRA EL PAPEL a esa persona («la actora X»,
+    «el quejoso X», «la señora X»). Si el papel la nombra de las dos formas, «»."""
+    n = " ".join(str(nombre or "").split())
+    t = " ".join(str(texto or "").split())
+    if len(n) < 5 or not t:
+        return ""
+    nom = re.escape(n[:40]).replace(r"\ ", r"\s+")
+    vistos = set()
+    for m in re.finditer(_RX_ROL_CON_ARTICULO + nom, t, re.I):
+        vistos.add("a" if m.group(1).lower() == "la" else "o")
+    for m in re.finditer(r"\b(se[ñn]ora|se[ñn]or)\s+" + nom, t, re.I):
+        vistos.add("a" if m.group(1).lower().endswith("a") else "o")
+    return vistos.pop() if len(vistos) == 1 else ""
 
 
 def etiqueta_concordada(etiqueta: str, nombre: str) -> str:
@@ -1072,8 +1484,34 @@ def etiqueta_concordada(etiqueta: str, nombre: str) -> str:
     return etiqueta.replace("{QUEJOSO_A}", forma)
 
 
+def _rige_procedencia() -> bool:
+    """¿Rige `procedencia_por_tipo`? False si falta el contexto o la bandera."""
+    try:
+        import contexto_taller as _ct_r
+        _f = getattr(_ct_r, "rige", None)
+        return bool(_f("procedencia_por_tipo")) if callable(_f) else False
+    except Exception:
+        return False
+
+
+# LO QUE LA TERCERA RONDA AÑADIÓ AL RUBRO VA CON LA BANDERA (FIXES_R3: no es
+# [siempre]). Sin ella el catálogo es el de antes para todos sus usos —la
+# carátula del .docx, la hoja del prompt, el formulario (/taller/tipos) y las
+# figuras que se le piden al lector del auto (`fase_admision.prompt`)—: la queja
+# rotula «RECURRENTE» y el amparo directo y la revisión fiscal no traen el
+# renglón del adherente.
+_RUBRO_SIN_BANDERA = {("queja", "{QUEJOSO_A} Y RECURRENTE"): "RECURRENTE"}
+
+
 def caratula_de(tipo: str) -> list:
-    return CARATULA.get(normalizar(tipo), CARATULA["amparo_directo"])
+    t = normalizar(tipo)
+    t = t if t in CARATULA else "amparo_directo"
+    filas = CARATULA[t]
+    if _rige_procedencia():
+        return filas
+    filas = _CARATULA_SIN_BANDERA.get(t, filas)
+    return [(_RUBRO_SIN_BANDERA.get((t, et), et), cl, ob) for et, cl, ob in filas
+            if not (cl == "adherente" and t in ("amparo_directo", "revision_fiscal"))]
 
 
 # LAS FIGURAS QUE EXISTEN EN EL TIPO PERO NO VAN EN EL RUBRO. En la revisión el
@@ -1082,9 +1520,20 @@ def caratula_de(tipo: str) -> list:
 # lleve (0 de 478 en el corpus). Sin esta tabla, quien rotulaba la ficha con
 # `caratula_de` caía al «AUTORIDAD RESPONSABLE» del amparo directo y le ponía
 # ese nombre al juzgado (AR 631/2025).
+# LO MISMO EN LA QUEJA Y LA REVISIÓN FISCAL desde que su rubro no lleva el
+# órgano ni la Sala (C3 y C4, 3-oct-2026): sin estas filas, `fase_partes` le
+# decía al lector del auto que la figura «no existe en este tipo de asunto» y
+# el órgano se quedaba sin leer.
 FIGURAS_FUERA_DEL_RUBRO = {
     "amparo_revision": {
         "responsable": "ÓRGANO RECURRIDO (Juzgado de Distrito que dictó la sentencia recurrida)",
+    },
+    "queja": {
+        "responsable": "ÓRGANO QUE DICTÓ EL AUTO RECURRIDO",
+    },
+    "revision_fiscal": {
+        "responsable": ("SALA QUE DICTÓ LA SENTENCIA RECURRIDA (Tribunal Federal de Justicia "
+                        "Administrativa)"),
     },
 }
 
@@ -1096,6 +1545,53 @@ def etiqueta_de_figura(tipo: str, clave: str, omision: str = "") -> str:
         if cl == clave:
             return et
     return FIGURAS_FUERA_DEL_RUBRO.get(normalizar(tipo), {}).get(clave, omision)
+
+
+# ── LA «RESPONSABLE» DEL FORMULARIO NO ES EL ÓRGANO DE LA QUEJA NI LA SALA ──
+# (integración, 3-oct-2026, consecuencia de C3 y C4). Mientras la carátula de
+# la queja y la de la revisión fiscal llevaban el renglón del órgano o de la
+# Sala (clave «responsable»), el campo `responsable` del formulario ERA ese
+# órgano: lo tecleaba o lo confirmaba el secretario en ese renglón. Sin el
+# renglón, la pantalla sigue mandando en ese campo la «responsable ordenadora»
+# que `fase_admision` lee del auto de admisión —«la que dictó el acto
+# reclamado»—, que en la queja de la fracción I es la autoridad del amparo
+# indirecto y no el juzgado que dictó el auto recurrido. Entonces le ganaba al
+# órgano cuando la ficha no lo traía (el V I S T O y la competencia nombraban a
+# la responsable del acto como quien dictó el auto, y la fracción del 97 se
+# deducía de ella) y, cuando sí lo traía, daba el aviso falso «LA FICHA TRAE
+# DOS ÓRGANOS DISTINTOS». Ahora ese campo sólo cuenta como órgano si TIENE la
+# forma del órgano de ese tipo: en la queja, un órgano de amparo (Juzgado de
+# Distrito, Tribunal Colegiado de Apelación, Tribunal Unitario de Circuito,
+# Centro de Justicia Penal Federal) o cualquiera si la queja es de la fracción
+# II (ahí quien dicta el auto ES la responsable del amparo directo); en la
+# revisión fiscal, una Sala.
+_RX_ORGANO_DE_AMPARO = re.compile(
+    r"(?i)\bju(?:ez|eza|zgado)\b[^;]*?\bde\s+distrito\b(?!\s+judicial)|"
+    r"tribunal\s+colegiado\s+de\s+apelaci|tribunal\s+unitario\s+de\s+circuito|"
+    r"centro\s+de\s+justicia\s+penal\s+federal|\bju(?:ez|eza|zgado)\s+federal")
+
+
+def responsable_es_el_organo(tipo: str, responsable: str, fraccion_97: str = "") -> bool:
+    """¿El campo `responsable` del formulario nombra el órgano que dictó lo
+    recurrido en este tipo? Amparo directo: sí (es la ordenadora). Amparo en
+    revisión: no (el órgano es el juzgado; `responsable` es la del acto). Queja
+    y revisión fiscal: sí si su carátula aún lleva el renglón «responsable»
+    (sin la bandera); si no, sólo con la forma del órgano de ese tipo (ver
+    arriba). `fraccion_97` es la de la ficha («I», «II» o «»)."""
+    t = normalizar(tipo)
+    r = " ".join(str(responsable or "").split())
+    if not r:
+        return False
+    if t == "amparo_directo":
+        return True
+    if t not in ("queja", "revision_fiscal"):
+        return False
+    if any(cl == "responsable" for _e, cl, _o in caratula_de(t)):
+        return True
+    if t == "queja":
+        _fr = str(fraccion_97 or "").upper().replace("FRACCIÓN", "").replace("FR.", "").strip()
+        return _fr == "II" or bool(_RX_ORGANO_DE_AMPARO.search(r))
+    return bool(re.search(r"(?i)\bsala\b", r))
 
 
 # EL CARÁCTER DE QUIEN RECURRE, EN EL RÓTULO (medido: SCR/caratulas_revision.md).
@@ -1117,9 +1613,9 @@ def filas_caratula(tipo: str, datos: dict) -> list:
     otro que la quejosa (`datos["recurrente"]` no vacío, con
     `datos["papel_recurrente"]` = «tercero» | «autoridad»), son dos renglones:
     «QUEJOSA: …» y «{CARÁCTER} Y RECURRENTE: …» (AR 60/2020; el 631 lo
-    recurrió la tercera interesada). En la queja y la revisión fiscal, el
-    renglón de `responsable` lleva `organo_recurrido` cuando se leyó, como
-    antes. La clave del segundo renglón es «recurrente». Las filas vacías y
+    recurrió la tercera interesada). La queja y la revisión fiscal ya no
+    llevan el renglón del órgano (C3 y C4); sin la bandera, que vuelve a su
+    rubro de antes, ese renglón lleva `organo_recurrido` cuando se leyó. La clave del segundo renglón es «recurrente». Las filas vacías y
     no obligatorias no salen."""
     d = dict(datos or {})
     _t = normalizar(tipo)
@@ -1134,15 +1630,116 @@ def filas_caratula(tipo: str, datos: dict) -> list:
     # recurso de otra parte puede ser la recurrente (el 631 guardó a la
     # tercera en «quejoso»): con recurrente aparte sólo cuenta el nombre.
     _fem_q = (bool(d.get("quejoso_moral")) and not _rec) or genero_de(_q) == "a"
+    # CON LA BANDERA, EL RÓTULO DEL QUEJOSO DEL AMPARO DIRECTO CONCUERDA O VA
+    # NEUTRO (3-oct-2026): el género lo da el papel (`genero_quejoso`, ver
+    # `genero_en_el_papel`) o la forma de una persona moral; si nada lo dice,
+    # «PARTE QUEJOSA», nunca «QUEJOSO» por omisión.
+    _rige_pt = False
+    try:
+        import contexto_taller as _ct_c
+        _rige_pt = bool(getattr(_ct_c, "rige", None) and _ct_c.rige("procedencia_por_tipo"))
+    except Exception:
+        _rige_pt = False
+    _g_decl = str(d.get("genero_quejoso") or "").strip().lower()[:1]
+    if _g_decl in ("a", "f"):
+        _fem_q = True
+    # DOS RENGLONES SÓLO SI RECURRE OTRA PARTE (3-oct-2026, Q 300/2025). Antes
+    # bastaba que `recurrente` viniera lleno: si recurría la propia quejosa
+    # salían «QUEJOSA: X» y «RECURRENTE: X», la misma persona dos veces. Otra
+    # parte es la que tiene papel de tercero, autoridad o Ministerio Público,
+    # o —sin papel— la que no es la misma que la quejosa.
+    _papel_rec = str(d.get("papel_recurrente") or "").strip().lower()
+    # LO QUE LA CARÁTULA NO DICE (cuarta ronda, 3-oct-2026, RF 7 y 49/2025): la
+    # numeración y la coletilla de una lista copiada del cuerpo («1) X Y OTROS
+    # (YA MENCIONADOS CON ANTERIORIDAD)», que en el rubro no remiten a nada), y
+    # el prefijo temporal de la Sala («ACTUAL SALA REGIONAL…»).
+    for _k in list(d):
+        if isinstance(d.get(_k), str) and _k in ("quejoso", "recurrente", "tercero", "adherente",
+                                                  "responsable", "organo_recurrido"):
+            d[_k] = sin_coletilla_de_caratula(d[_k], temporal=_k in ("responsable", "organo_recurrido"))
+    _rec = str(d.get("recurrente") or "").strip()
+    _q = str(d.get("quejoso") or "")
+    # VARIAS PERSONAS EN EL RUBRO (E2, cuarta ronda; AD 552/2024: «QUEJOSOS:»).
+    # Con la bandera: «QUEJOSOS»/«QUEJOSAS» si el texto dice el género
+    # (`genero_de_plural`: «ambos», «todas», o el declarado); si no, «PARTE
+    # QUEJOSA», que es neutra. El detector es el único (`es_plural_de_partes`);
+    # lo que el compositor ya decidió y expuso en `datos_extra` manda
+    # («plural_quejoso»; en el amparo directo también «plural», que es el del
+    # promovente; en la revisión y la queja «plural» es el de quien recurre y se
+    # lee SÓLO de `datos["procesal"]`, quinta ronda), en `datos` o en
+    # `datos["procesal"]`.
+    _proc = d.get("procesal") if isinstance(d.get("procesal"), dict) else {}
+
+    def _decidido(*claves):
+        """Lo que decidió el compositor (`datos_extra`), si lo expuso."""
+        for _c in claves:
+            for _src in (d, _proc):
+                if isinstance(_src.get(_c), bool):
+                    return _src.get(_c)
+        return None
+
+    _plural_q = False
+    _g_pl = ""
+    if _rige_pt and _q:
+        _pl_d = _decidido("plural_quejoso", "plural") if _t == "amparo_directo" else _decidido("plural_quejoso")
+        _plural_q = bool(_pl_d) if _pl_d is not None else es_plural_de_partes(_q)
+        _g_pl = genero_de_plural(_q, _g_decl) if _plural_q else ""
+    _plural_rec = False
+    if _rige_pt and _rec:
+        # EL PLURAL DE QUIEN RECURRE ES EL DEL COMPOSITOR, NO EL DEL RUBRO (quinta
+        # ronda, 3-oct-2026; AR 208/2025 del banco: «AUTORIDADES RESPONSABLES Y
+        # RECURRENTE: GOBERNADOR DEL ESTADO DE QUERÉTARO»). El documento copiaba
+        # en `datos["plural"]` el de la QUEJOSA (dos quejosos) y aquí se leía
+        # como el del recurrente: un solo Gobernador salía en plural, y al revés
+        # una quejosa con dos terceros recurrentes salía en singular. El del
+        # recurrente se lee SÓLO de `procesal["plural"]` (los `datos_extra` del
+        # compositor); el de la quejosa, de `plural_quejoso`.
+        _pl_r = _proc.get("plural") if _t in ("amparo_revision", "queja") else None
+        if not isinstance(_pl_r, bool):
+            _pl_r = None
+        _plural_rec = bool(_pl_r) if _pl_r is not None else es_plural_de_partes(_rec)
+    _et_q_plural = {"a": "QUEJOSAS", "o": "QUEJOSOS"}.get(_g_pl, "PARTE QUEJOSA")
+    _otra_parte = False
+    if _rec and not _rige_pt:
+        # SIN LA BANDERA, COMO ANTES (FIXES_R3: no es [siempre]).
+        _otra_parte = True
+    elif _rec:
+        if _papel_rec in ("tercero", "autoridad", "ministerio_publico"):
+            _otra_parte = True
+        elif _papel_rec != "quejoso":
+            try:
+                import promovente as _pv_c
+                _otra_parte = not _pv_c.misma_parte(_q, _rec)
+            except Exception:
+                _otra_parte = " ".join(_q.lower().split()) != " ".join(_rec.lower().split())
     filas = []
     for et, clave, ob in caratula_de(tipo):
         valor = d.get(clave, "")
-        if _rec and clave == "quejoso" and "Y RECURRENTE" in et:
+        # Sólo en el camino nuevo: bandera Y ficha de trámite (una sesión vieja
+        # sigue como estaba).
+        if _rige_pt and d.get("tramite") and _t == "amparo_directo" and clave == "quejoso" and et == "QUEJOSO":
+            if _plural_q:
+                filas.append((_et_q_plural, clave, valor))
+                continue
+            _g = "a" if _fem_q else ("o" if _g_decl in ("o", "m") or genero_de(str(valor or "")) == "o" else "")
+            filas.append(({"a": "QUEJOSA", "o": "QUEJOSO"}.get(_g, "PARTE QUEJOSA"), clave, valor))
+            continue
+        if _otra_parte and clave == "quejoso" and "Y RECURRENTE" in et:
             _et_q = et.replace(" Y RECURRENTE", "")
-            _et_q = ("QUEJOSA" if _fem_q else etiqueta_concordada(_et_q, _q)) \
-                if "{QUEJOSO_A}" in _et_q else _et_q
+            if _plural_q and "{QUEJOSO_A}" in _et_q:
+                _et_q = _et_q_plural
+            else:
+                _et_q = ("QUEJOSA" if _fem_q else etiqueta_concordada(_et_q, _q)) \
+                    if "{QUEJOSO_A}" in _et_q else _et_q
             filas.append((_et_q, "quejoso", valor))
             _papel = str(d.get("papel_recurrente") or "").strip()
+            if _plural_rec:
+                _g_r = genero_de_plural(_rec)
+                _car = _CARACTER_RECURRENTE_PLURAL.get(_papel, {}).get(_g_r, "")
+                filas.append(((f"{_car} Y RECURRENTES" if _g_r else f"{_car} Y RECURRENTE")
+                              if _car else ("RECURRENTES" if _g_r else "PARTE RECURRENTE"),
+                              "recurrente", _rec))
+                continue
             _car = _CARACTER_RECURRENTE.get(_papel, {}).get(genero_de(_rec), "")
             filas.append((f"{_car} Y RECURRENTE" if _car else "RECURRENTE",
                           "recurrente", _rec))
@@ -1153,11 +1750,149 @@ def filas_caratula(tipo: str, datos: dict) -> list:
             continue
         if not (valor or ob):
             continue
-        if "{QUEJOSO_A}" in et and _fem_q:
+        # EL GÉNERO DE LA QUEJOSA ES SUYO: el renglón del adherente («{QUEJOSO_A}
+        # ADHERENTE») concuerda con el nombre del adherente, no con el de ella.
+        if "{QUEJOSO_A}" in et and _plural_q and clave == "quejoso":
+            # «QUEJOSOS Y RECURRENTES» / «PARTE QUEJOSA Y RECURRENTE».
+            _et_p = et.replace("{QUEJOSO_A}", _et_q_plural)
+            if _g_pl:
+                _et_p = _et_p.replace(" Y RECURRENTE", " Y RECURRENTES")
+            filas.append((_et_p, clave, valor))
+            continue
+        if "{QUEJOSO_A}" in et and _fem_q and clave == "quejoso":
             filas.append((et.replace("{QUEJOSO_A}", "QUEJOSA"), clave, valor))
             continue
         filas.append((etiqueta_concordada(et, str(valor or "")), clave, valor))
+    if _rige_pt and _t == "revision_fiscal":
+        filas = _filas_rf_concordadas(filas)
     return filas
+
+
+# ═══ LA CARÁTULA DE LA REVISIÓN FISCAL, CONCORDADA (revisión RF, 3-oct-2026) ═══
+# Tres cosas que el tribunal no escribe y el rubro de C4 sí:
+#   · VARIAS AUTORIDADES RECURREN («RECURRENTES:», RF 33/2024, pareja del AD
+#     469/2024 del banco; 10 de 137 carátulas del corpus): el rótulo iba fijo en
+#     singular.
+#   · LA ACTORA ES LA RECURRENTE ADHESIVA (la adhesiva sólo la interpone quien
+#     obtuvo sentencia favorable): el mismo nombre salía en «RECURRENTE
+#     ADHESIVO:» y en «PARTE ACTORA:». El corpus lo escribe una vez (17 de 17):
+#     el RF 4/2025 del banco, «RECURRENTE ADHESIVO: ***** (ACTORA)».
+#   · MUCHOS ACTORES: «PARTE ACTORA:» copiaba la lista entera (65 nombres en el
+#     RF 7/2025). Con más de dos, el primero «Y OTROS», como el corpus (RF
+#     42/2023); la lista completa va en el resultando del juicio.
+_RX_CABEZA_DE_CARGO = re.compile(r"^(?:(?:el|la|los|las)\s+)?" + _RX_CARGO_EN_MINUSCULA, re.I)
+_RX_CORTE_DE_REPRESENTACION = re.compile(
+    r",?\s+(?:por\s+conducto\s+de|en\s+representaci[óo]n\s+de|representad[oa]s?\s+por)\b", re.I)
+
+
+def varias_autoridades(texto: str) -> bool:
+    """¿El texto nombra a VARIAS autoridades por su cargo («Secretario de
+    Hacienda…, Jefe del Servicio… y Titular de la Administración…»)? Cuenta los
+    tramos que abren con un cargo, antes de «por conducto de» o «en
+    representación de». `es_plural_de_partes` no sirve aquí: un órgano público
+    es una sola parte para él."""
+    n = " ".join(str(texto or "").split())
+    if not n:
+        return False
+    n = _RX_CORTE_DE_REPRESENTACION.split(n, maxsplit=1)[0]
+    tramos = [x.strip() for x in re.split(r",\s*|\s+[yYeE]\s+", n) if x.strip()]
+    return sum(1 for x in tramos if _RX_CABEZA_DE_CARGO.match(x)) >= 2
+
+
+# La coma de «Empresa A, S.A. de C.V.» no separa a dos personas.
+_RX_TRAMO_DE_LISTA = re.compile(
+    r",\s*(?!(?:S\.?\s*A\.?|S\.?\s*C\.?|A\.?\s*C\.?|S\.?\s*de\s|SAPI|SOCIEDAD|Sociedad)\b)|"
+    r"\s+[yYeE]\s+(?=[A-ZÁÉÍÓÚÑ0-9*])")
+_MAS_DE_N_ACTORES = 2
+
+
+def primero_y_otros(lista: str) -> str:
+    """«A, B, C y D» → «A Y OTROS» si nombra a más de dos personas; la lista tal
+    cual si no (o si no se puede partir con seguridad)."""
+    n = " ".join(str(lista or "").split()).strip(" .;,")
+    if not n or not es_plural_de_partes(n):
+        return lista
+    tramos = [x.strip(" .;,") for x in _RX_TRAMO_DE_LISTA.split(n) if x.strip(" .;,")]
+    if len(tramos) <= _MAS_DE_N_ACTORES:
+        return lista
+    return f"{tramos[0]} Y OTROS"
+
+
+def _filas_rf_concordadas(filas: list) -> list:
+    """Las filas de la revisión fiscal con el plural de quien recurre, la actora
+    adhesiva en un solo renglón y la lista de actores recortada (ver arriba)."""
+    adh = next((str(v) for _e, c, v in filas if c == "adherente" and str(v or "").strip()), "")
+    act = next((str(v) for _e, c, v in filas if c == "tercero" and str(v or "").strip()), "")
+    misma = False
+    if adh and act:
+        try:
+            import promovente as _pv_rf
+            misma = _pv_rf.misma_parte(adh, act)
+        except Exception:
+            misma = " ".join(adh.lower().split()) == " ".join(act.lower().split())
+    out = []
+    for et, c, v in filas:
+        if c == "quejoso" and et == "RECURRENTE" and varias_autoridades(str(v or "")):
+            out.append(("RECURRENTES", c, v))
+            continue
+        if c == "adherente" and misma:
+            _g = genero_de(adh)
+            out.append(("RECURRENTE ADHESIVA" if _g == "a" else "RECURRENTE ADHESIVO", c,
+                        f"{str(v).strip().rstrip('.')} ({'ACTOR' if _g == 'o' else 'ACTORA'})"))
+            continue
+        if c == "tercero" and misma:
+            continue
+        if c == "tercero":
+            out.append((et, c, primero_y_otros(str(v or ""))))
+            continue
+        out.append((et, c, v))
+    return out
+
+
+_CARACTER_RECURRENTE_PLURAL = {
+    "tercero": {"a": "TERCERAS INTERESADAS", "o": "TERCEROS INTERESADOS",
+                "": "PARTE TERCERA INTERESADA"},
+    "autoridad": {"a": "AUTORIDADES RESPONSABLES", "o": "AUTORIDADES RESPONSABLES",
+                  "": "AUTORIDADES RESPONSABLES"},
+}
+
+# TODAS LAS NUMERACIONES DE LA LISTA, NO SÓLO LA PRIMERA (quinta ronda,
+# 3-oct-2026; RF 7/2025 del banco: «PARTE ACTORA: PARTE ACTORA, 2) PARTE ACTORA,
+# 3) PARTE ACTORA, … 66) PARTE ACTORA.»). La regex estaba anclada al principio y
+# el renglón quedaba con una lista que empezaba en «2)». La prosa
+# (`resultandos_por_tipo.nombre_en_prosa`) ya las quitaba todas.
+_RX_NUMERACION_INICIAL = re.compile(r"^\s*\d{1,3}\)\s*")
+_RX_NUMERACION_DE_LISTA = re.compile(r"(?<![\w.])\d{1,3}\)\s*")
+_RX_COLETILLA_CARATULA = re.compile(
+    r"\s*\(\s*(?:ya\s+|antes\s+)?(?:mencionad|citad|señalad|precisad|referid)[oa]s?"
+    r"(?:\s+(?:con\s+anterioridad|anteriormente|al\s+rubro|en\s+el\s+rubro))?\s*\)", re.I)
+_RX_PREFIJO_TEMPORAL = re.compile(r"^\s*(?:(?:la|el)\s+)?(?:actual|entonces|otrora|ahora|antes)\s+(?=\S)", re.I)
+# «; POR PROPIO DERECHO» TAMPOCO ES EL NOMBRE (E1; RF 2/2025 del banco: «PARTE
+# ACTORA: … ; POR PROPIO DERECHO.»). Se quita la fórmula, también la de varios
+# («AMBOS POR PROPIO DERECHO»), y la coma que dejaba ante la «Y» del siguiente
+# («X, POR PROPIO DERECHO, Y Z» → «X Y Z»). NO se quita si sigue la
+# representación de otro («X, POR PROPIO DERECHO Y EN REPRESENTACIÓN DE SU MENOR
+# HIJA…»): ahí la fórmula dice quién más es parte.
+_RX_POR_PROPIO_DERECHO = re.compile(
+    r"\s*[,;]\s*(?:(?:amb[oa]s|tod[oa]s)\s+)?por\s+(?:su\s+)?propio\s+derecho\b"
+    r"(?!\s*,?\s+(?:y|e)\s+(?:en\s+|como\s+|por\s+)?(?:representaci|nombre|apoderad|albacea|tutor|"
+    r"su\s|sus\s|de\s))"
+    r"(?:\s*,(?=\s*(?:y|e)\s))?(?:\s*[.;]\s*$)?", re.I)
+
+
+def sin_coletilla_de_caratula(valor: str, temporal: bool = False) -> str:
+    """«1) X, 2) Y Y 3) Z (YA MENCIONADOS CON ANTERIORIDAD); POR PROPIO DERECHO»
+    → «X, Y Y Z»; con `temporal`, «ACTUAL SALA REGIONAL…» → «SALA REGIONAL…».
+    Lo demás, igual."""
+    v = str(valor or "")
+    if not v.strip():
+        return v
+    v2 = _RX_COLETILLA_CARATULA.sub("", _RX_NUMERACION_DE_LISTA.sub("", v))
+    v2 = _RX_POR_PROPIO_DERECHO.sub("", v2)
+    if temporal:
+        v2 = _RX_PREFIJO_TEMPORAL.sub("", v2)
+    v2 = " ".join(v2.split())
+    return v2 or v
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -1405,16 +2140,37 @@ def instancia_actual() -> str:
 COLA_97 = {
     "a": "por el cual se desechó la demanda de amparo",
     "b": "en el que se resolvió sobre la suspensión del acto reclamado",
+    # LOS INCISOS QUE EL LECTOR DE PROSA NO DEDUCE (3-oct-2026) llegan ahora
+    # de la ficha de trámite; su cola dice lo que dice el inciso, sin más.
+    "c": "en el que se resolvió sobre la admisión de fianzas o contrafianzas",
     "d": "en el que se resolvió sobre el carácter de tercero interesado",
     "e": ("por tratarse de una resolución dictada con posterioridad a la "
           "sentencia definitiva en el juicio de amparo indirecto, que no "
           "admite recurso de revisión"),
+    "f": "por el que se decidió el incidente de reclamación de daños y perjuicios",
+    "g": ("por el que se resolvió el incidente por exceso o defecto en la "
+          "ejecución de la suspensión del acto reclamado"),
+    "h": "dictado en el incidente de cumplimiento sustituto de la sentencia de amparo",
+}
+
+# LA FRACCIÓN II: ACTOS DE LA AUTORIDAD RESPONSABLE EN EL AMPARO DIRECTO
+# (3-oct-2026). Sólo se conocía la fracción I, así que una queja contra la Sala
+# que proveyó sobre la suspensión en un amparo directo se fundaba en el inciso
+# b) de la fracción I —la suspensión del amparo INDIRECTO—, con su plazo de dos
+# días cuando el suyo es de cinco (oro_Q: 41 contra 4 en el corpus).
+COLA_97_II = {
+    "a": "por el que se omitió tramitar la demanda de amparo o se tramitó indebidamente",
+    "b": "en el que la autoridad responsable proveyó sobre la suspensión del acto reclamado",
+    "c": "por el que se resolvió el incidente de reclamación de daños y perjuicios",
+    "d": "en el que se resolvió sobre la libertad caucional del quejoso",
 }
 
 
-def cola_97(inciso: str) -> str:
-    """Qué se recurrió, en la redacción que corresponde al inciso."""
-    return COLA_97.get((inciso or "").strip().lower(), "")
+def cola_97(inciso: str, fraccion: str = "I") -> str:
+    """Qué se recurrió, en la redacción que corresponde al inciso (y a la
+    fracción del 97: «I», la de siempre, o «II», amparo directo)."""
+    tabla = COLA_97_II if (fraccion or "").strip().upper() == "II" else COLA_97
+    return tabla.get((inciso or "").strip().lower().rstrip(")"), "")
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -1501,17 +2257,26 @@ RAMAS_REVISION = {
         "fundamento": "artículo 93, fracciones V y VI, de la Ley de Amparo",
         "puntos": [
             "PRIMERO. Se confirma la sentencia recurrida.",
+            # EL ACTO Y LA AUTORIDAD, NOMBRADOS (C5, 3-oct-2026). David: «sí
+            # está bien que se precise… información valiosa para el lector».
+            # {actos_del_amparo} lo llena `punto_del_amparo` con los actos y
+            # las autoridades de la demanda (la ficha); sin ellos, la remisión
+            # de siempre (`ACTOS_DEL_AMPARO_GENERICO`). Y «de la resolución
+            # recurrida» en vez de «de la misma», que con el acto en medio ya
+            # no se sabe a qué remite.
             "SEGUNDO. La Justicia de la Unión no ampara ni protege a {quejoso}, "
-            "respecto de los actos precisados en la resolución recurrida, por "
-            "las razones expuestas en el último considerando de la misma."],
+            "{actos_del_amparo}, por las razones expuestas en el último "
+            "considerando de la resolución recurrida."],
         "frecuencia": "8/62 confirma · 8/62 no ampara ni protege",
     },
     "confirma_concede": {
         "fundamento": "artículo 93, fracciones V y VI, de la Ley de Amparo",
         "puntos": [
             "PRIMERO. Se confirma la sentencia recurrida.",
-            "SEGUNDO. La Justicia de la Unión ampara y protege a {quejoso}, en "
-            "términos del último considerando de la resolución recurrida."],
+            # C5: el acto y la autoridad, como en confirma_niega.
+            "SEGUNDO. La Justicia de la Unión ampara y protege a {quejoso}, "
+            "{actos_del_amparo}, en términos del último considerando de la "
+            "resolución recurrida."],
         "frecuencia": "18/62 ampara y protege",
     },
     "confirma_sobresee": {
@@ -1529,10 +2294,18 @@ RAMAS_REVISION = {
             # ejecuta, y nombrar dos veces distinto el mismo acto es lo que un
             # revisor marca a la primera lectura.
             "PRIMERO. Se confirma la sentencia recurrida.",
+            # SIN ORDINALES DE UNA RESOLUCIÓN AJENA (3-oct-2026, AR 239/2025).
+            # Decía «los actos que quedaron precisados en el considerando
+            # segundo de la resolución que se revisa y por las razones
+            # expuestas en el último considerando de la misma»: dos ordinales de
+            # la sentencia del juzgado que la ficha no conoce. Valen en
+            # Querétaro (el AR 448/2025 los usa), no en toda la república. La
+            # forma de sus hermanas de rama, que remite sin numerar.
+            # C5: el acto y la autoridad, con «contra» (la preposición que
+            # esta rama ya usaba).
             "SEGUNDO. Se sobresee en el presente juicio de amparo, promovido "
-            "por {quejoso}, contra los actos que quedaron precisados en el "
-            "considerando segundo de la resolución que se revisa y por las "
-            "razones expuestas en el último considerando de la misma."],
+            "por {quejoso}, {actos_del_amparo}, por las razones expuestas en "
+            "la resolución recurrida."],
         "frecuencia": "10/62 sobresee",
     },
     # ── EL JUZGADO HIZO LAS DOS COSAS: sobreseyó un acto y resolvió el fondo
@@ -1694,6 +2467,317 @@ RAMAS_REVISION = {
                   "saber si procede confirmar, revocar o modificar."),
     },
 }
+
+
+# ═══ EL PUNTO DEL AMPARO NOMBRA ACTO Y AUTORIDAD (C5, 3-oct-2026) ═══════════
+# David: «sí está bien que se precise… información valiosa para el lector». Las
+# tres ramas que confirman (`confirma_niega`, `confirma_concede`,
+# `confirma_sobresee`) remitían a «los actos precisados en la resolución
+# recurrida», y quien lee el resolutivo se quedaba sin saber contra qué se
+# amparó o se negó. La ficha de trámite ya trae los actos y las autoridades de
+# la demanda de amparo indirecto, anclados al papel, y el primer resultando de
+# la ejecutoria los copia en renglones: el punto los nombra o remite a ESE
+# resultando, que es de esta ejecutoria y sí se puede numerar. Sin ficha (o sin
+# nada útil en ella), la remisión de siempre. Las ramas mixtas y
+# `sin_determinar` no cambian: ahí el reparto de actos lo decide el juzgado.
+ACTOS_DEL_AMPARO_GENERICO = {
+    "respecto de": "respecto de los actos precisados en la resolución recurrida",
+    "contra": "contra los actos precisados en la resolución recurrida",
+}
+
+# Un acto más largo que esto no cabe en un punto resolutivo: se remite al
+# resultando que lo copia.
+_PALABRAS_ACTO_EN_PUNTO = 30
+_RX_SOLO_HUECO = re.compile(r"^[\s*_.…\-–—()\[\]]*$")
+_RX_VINETA_ACTO = re.compile(r"^\s*(?:\d{1,3}[.)]|[a-zA-Z][.)](?=\s)|[-•·])\s*")
+
+
+def _contraer_articulo(t: str) -> str:
+    """«de el» → «del», «a el» → «al» (no ante «el que»). Sólo el artículo en
+    minúscula: «de El Universal» es un nombre propio y se queda."""
+    t = re.sub(r"\ba\s+el\b(?!\s+que\b)", "al", t or "")
+    return re.sub(r"\bde\s+el\b(?!\s+que\b)", "del", t)
+
+
+def _lista_de_textos(x) -> list:
+    if isinstance(x, str):
+        return [x]
+    try:
+        return [v for v in list(x or []) if isinstance(v, str)]
+    except TypeError:
+        return []
+
+
+def _acto_en_punto(a: str) -> str:
+    """El acto como entra en el punto: sin la viñeta, sin el punto final y
+    sin espacios de más; «» si sólo es hueco («*********»)."""
+    t = " ".join(str(a or "").split())
+    t = _RX_VINETA_ACTO.sub("", t, count=1)
+    t = t.strip().rstrip(" .;,:").strip()
+    if not t or _RX_SOLO_HUECO.match(t):
+        return ""
+    if not re.search(r"[^\W\d_]", re.sub(r"\*+", "", t)):
+        return ""
+    return t
+
+
+def _inicial_minuscula(t: str) -> str:
+    """«La resolución…» → «la resolución…». Una sigla o una palabra en
+    versales al principio («SAT», «LA SENTENCIA…») se dejan como vienen, y
+    también el nombre propio de una norma («Ley de Hacienda…»)."""
+    m = re.match(r"\S+", t or "")
+    if not m:
+        return t
+    letras = [c for c in m.group(0) if c.isalpha()]
+    if len(letras) >= 2 and all(c.isupper() for c in letras):
+        return t
+    if _es_nombre_de_norma(t):
+        return t
+    return t[:1].lower() + t[1:]
+
+
+# EL ACTO SIN ARTÍCULO NO SE CITA ASÍ (revisión AR, 3-oct-2026). «consistente en
+# artículo 90 de la Ley…», «consistente en ley de Hacienda…» o «consistente en
+# sentencia de diez de mayo…»: la ficha copia el acto como lo escribe la demanda,
+# a veces sin artículo y con la mayúscula del renglón. Si la primera palabra no
+# es un determinante, se le pone el artículo que le toca; el nombre propio de
+# una norma («Ley», «Código», «Reglamento», «Decreto», «Constitución», «Acuerdo
+# General…») conserva su mayúscula. Si no se sabe qué artículo lleva, se remite
+# al resultando que copia la demanda, que es lo que ya se hacía con los largos.
+_DETERMINANTES_ACTO = {
+    "el", "la", "los", "las", "un", "una", "unos", "unas", "lo", "su", "sus", "este", "esta",
+    "estos", "estas", "ese", "esa", "esos", "esas", "dicho", "dicha", "dichos", "dichas", "al",
+    "del", "todo", "toda", "todos", "todas", "aquel", "aquella", "cualquier", "diversos", "diversas"}
+_NORMAS_CON_NOMBRE = {
+    "ley": "la", "leyes": "las", "código": "el", "codigo": "el", "reglamento": "el",
+    "decreto": "el", "constitución": "la", "constitucion": "la", "acuerdo": "el",
+    "lineamientos": "los", "norma": "la", "reglas": "las", "estatuto": "el"}
+_ARTICULO_DEL_SUSTANTIVO = {
+    "artículo": "el", "articulo": "el", "artículos": "los", "articulos": "los",
+    "sentencia": "la", "resolución": "la", "resolucion": "la", "auto": "el", "autos": "los",
+    "orden": "la", "embargo": "el", "cobro": "el", "pago": "el", "multa": "la", "oficio": "el",
+    "acta": "el", "requerimiento": "el", "negativa": "la", "clausura": "la", "laudo": "el",
+    "fallo": "el", "proveído": "el", "proveido": "el", "providencia": "la", "interlocutoria": "la",
+    "juicio": "el", "procedimiento": "el", "crédito": "el", "credito": "el", "boleta": "la",
+    "remate": "el", "secuestro": "el", "citatorio": "el", "baja": "la", "cese": "el", "retiro": "el",
+    "descuento": "el", "acuerdo": "el", "acuerdos": "los", "actos": "los", "acto": "el",
+    "omisiones": "las", "decreto": "el"}
+_RX_ACUERDO_COMUN = re.compile(r"^acuerdos?\s+(?:de\s+(?:fecha|\d|[a-záéíóú]+\s+de\s+[a-záéíóú]+)|dictad|emitid|pronunciad|que\b)",
+                               re.I)
+
+
+def _es_nombre_de_norma(t: str) -> bool:
+    """¿El texto abre con el nombre propio de una norma («Ley de Hacienda…»,
+    «Código Fiscal…», «Acuerdo General 5/2013…»)? «acuerdo de diez de mayo» es
+    un acto del juzgado, no un nombre."""
+    m = re.match(r"([^\W\d_]+)", t or "")
+    if not m or not m.group(1)[:1].isupper():
+        return False
+    w = m.group(1).lower()
+    if w not in _NORMAS_CON_NOMBRE:
+        return False
+    return not (w.startswith("acuerdo") and _RX_ACUERDO_COMUN.match(t))
+
+
+def _acto_con_articulo(t: str) -> str:
+    """El acto como entra tras «consistente en», con su artículo; «» si no se
+    sabe cuál lleva (quien llama remite al resultando)."""
+    m = re.match(r"([^\W\d_]+)", t or "")
+    if not m:
+        return ""
+    w = m.group(1)
+    wl = w.lower()
+    if wl in _DETERMINANTES_ACTO:
+        return _inicial_minuscula(t)
+    letras = [c for c in w if c.isalpha()]
+    if len(letras) >= 2 and all(c.isupper() for c in letras):
+        return ""                                   # una sigla: no se adivina
+    if _es_nombre_de_norma(t):
+        return f"{_NORMAS_CON_NOMBRE[wl]} {t}"
+    art = _ARTICULO_DEL_SUSTANTIVO.get(wl)
+    if not art:
+        if re.search(r"(?:ci[óo]n|si[óo]n|dad|tad|tud|ez)$", wl):
+            art = "las" if wl.endswith("es") else "la"
+        elif re.search(r"(?:ciones|siones|dades)$", wl):
+            art = "las"
+        elif wl.endswith("miento"):
+            art = "el"
+        elif wl.endswith("mientos"):
+            art = "los"
+    if not art:
+        return ""
+    return f"{art} {t[:1].lower() + t[1:]}"
+
+
+# «DICTADA POR LA AUTORIDAD RESPONSABLE» SOBRA EN EL PUNTO (revisión AR, 3-oct-2026,
+# AR 60/2025): el punto ya nombra a cada autoridad, y con dos la remisión es
+# ambigua. Se quita al citar el acto.
+_RX_POR_LA_RESPONSABLE = re.compile(
+    r"\s+por\s+(?:la\s+(?:propia\s+)?(?:autoridad\s+)?(?:se[ñn]alada\s+como\s+)?responsable|"
+    r"las\s+(?:propias\s+)?(?:autoridades\s+)?responsables|dicha\s+autoridad)(?=[\s,.;:]|$)", re.I)
+
+
+def norma_sin_acto(actos=None, autoridades=None) -> bool:
+    """¿La demanda reclama una norma que la ficha no trae entre los actos? El
+    Poder Legislativo está entre las responsables —sólo está ahí cuando se
+    reclama una norma— y ningún acto es una norma (revisión AR, 3-oct-2026, AR
+    72/2025: el único acto de la ficha era el de aplicación y el punto se lo
+    atribuía a la Legislatura y al Gobernador, cuando el engrose concede contra
+    el artículo 90 de la Ley de Hacienda y su acto de aplicación)."""
+    _auts = _lista_de_textos(autoridades)
+    if not any(_RX_LEGISLATIVO.search(str(a or "")) for a in _auts):
+        return False
+    for a in _lista_de_textos(actos):
+        for linea in re.split(r"[\n;]", str(a or "")):
+            # «La aprobación, expedición y promulgación de la Ley…» (AR 201/2025)
+            # también es la norma, dicha por sus actos legislativos.
+            if _RX_ACTO_ES_NORMA.search(linea) or _RX_CONSTITUCIONALIDAD.search(linea):
+                return False
+    return True
+
+
+def _en_versales(t: str) -> bool:
+    """¿El texto viene entero en mayúsculas (más que una sigla)?"""
+    letras = [c for c in (t or "") if c.isalpha()]
+    return len(letras) >= 8 and all(c.isupper() for c in letras)
+
+
+def _autoridad_en_punto(a: str) -> str:
+    """La autoridad con su artículo y en prosa (`con_articulo_de_organo`);
+    «» si sólo es hueco."""
+    t = " ".join(str(a or "").split()).strip(" .;,:")
+    if not t or _RX_SOLO_HUECO.match(t):
+        return ""
+    try:
+        r = con_articulo_de_organo(t)
+    except Exception:
+        r = t
+    r = " ".join(str(r or t).split())
+    return r if not _RX_SOLO_HUECO.match(r) else ""
+
+
+def _de_cada_autoridad(auts: list) -> str:
+    """«de la Segunda Sala… y del Juzgado Mixto…»: cada una tras su «de», con
+    la contracción. Si alguna trae coma, las separa el punto y coma."""
+    xs = [_contraer_articulo("de " + a) for a in auts]
+    if len(xs) == 1:
+        return xs[0]
+    sep = "; " if any("," in a for a in auts) else ", "
+    return sep.join(xs[:-1]) + " y " + xs[-1]
+
+
+def punto_del_amparo(actos: list, autoridades: list, ordinal: str = "primero",
+                     plural_quejoso: bool = False, preposicion: str = "respecto de") -> str:
+    """Lo que va en {actos_del_amparo} del punto que confirma (C5).
+
+      · un solo acto de hasta 30 palabras: «respecto del acto que reclamó de
+        la Segunda Sala… y del Juzgado Mixto…, consistente en la sentencia…»;
+      · varios actos, o uno más largo: «respecto de los actos que reclamó de
+        …, precisados en el resultando primero de esta ejecutoria»;
+      · sin autoridades: «respecto de los actos precisados en el resultando
+        primero de esta ejecutoria»;
+      · sin actos útiles (vacío o sólo huecos): «», y quien llama pone
+        `ACTOS_DEL_AMPARO_GENERICO[preposicion]`.
+
+    `ordinal` es el del resultando que copia la demanda («primero»);
+    `plural_quejoso`, «reclamaron»; `preposicion`, «respecto de» o «contra»
+    (la del sobreseimiento)."""
+    prep = " ".join(str(preposicion or "").split()) or "respecto de"
+    xs = []
+    for a in _lista_de_textos(actos):
+        x = _acto_en_punto(a)
+        if x and x not in xs:
+            xs.append(x)
+    if not xs:
+        return ""
+    # LA NORMA QUE LA FICHA NO TRAE: nombrar sólo el acto de aplicación y
+    # atribuírselo al Legislativo firma un punto falso. La remisión genérica es
+    # vaga pero cierta; quien llama avisa (`norma_sin_acto`).
+    if norma_sin_acto(xs, autoridades):
+        return ""
+    auts, vistas = [], set()
+    for a in _lista_de_textos(autoridades):
+        x = _autoridad_en_punto(a)
+        k = x.lower()
+        if x and k not in vistas:
+            vistas.add(k)
+            auts.append(x)
+    uno = len(xs) == 1
+    el = "el acto" if uno else "los actos"
+    precisado = "precisado" if uno else "precisados"
+    ordn = " ".join(str(ordinal or "").split()).lower() or "primero"
+    remision = f"{precisado} en el resultando {ordn} de esta ejecutoria"
+    if auts:
+        de = _de_cada_autoridad(auts)
+        verbo = "reclamaron" if plural_quejoso else "reclamó"
+        # UN ACTO EN VERSALES NO SE CITA: «consistente en LA SENTENCIA…» no se
+        # firma, y pasarlo a minúsculas perdería los nombres propios. Se remite
+        # al resultando, que lo copia como viene.
+        _acto_c = ""
+        if (uno and len(xs[0].split()) <= _PALABRAS_ACTO_EN_PUNTO
+                and not _en_versales(xs[0])):
+            _acto_c = _acto_con_articulo(_RX_POR_LA_RESPONSABLE.sub("", xs[0]).strip(" ,;"))
+        if _acto_c:
+            t = f"{prep} el acto que {verbo} {de}, consistente en {_acto_c}"
+        else:
+            t = f"{prep} {el} que {verbo} {de}, {remision}"
+    else:
+        t = f"{prep} {el} {remision}"
+    return _contraer_articulo(t)
+
+
+def preposicion_del_amparo(rama: str = "", punto: str = "") -> str:
+    """«contra» en el sobreseimiento (`confirma_sobresee`, o un punto que dice
+    «Se sobresee»); «respecto de» en las demás."""
+    if (rama or "").strip() == "confirma_sobresee" or re.search(r"\bSe\s+sobresee\b", punto or ""):
+        return "contra"
+    return "respecto de"
+
+
+def con_generico_del_amparo(punto: str, preposicion: str = "") -> str:
+    """El punto con la remisión genérica en lugar de {actos_del_amparo}, y la
+    cola como era antes de C5 (revisión AR, 3-oct-2026). Con el acto nombrado
+    la cola dice «de la resolución recurrida», porque «de la misma» ya no se
+    sabe a qué remite; con la remisión genérica la oración decía dos veces
+    «resolución recurrida» («…respecto de los actos precisados en la
+    resolución recurrida, por las razones expuestas en el último considerando
+    de la resolución recurrida»), y en la que concede aparecía una remisión a
+    los actos que nunca llevó. Sin actos, el punto de siempre:
+      · confirma_niega: «…respecto de los actos precisados en la resolución
+        recurrida, por las razones expuestas en el último considerando de la
+        misma»;
+      · confirma_concede: «…ampara y protege a X, en términos del último
+        considerando de la resolución recurrida»;
+      · confirma_sobresee: «…contra los actos precisados en la resolución
+        recurrida y por las razones expuestas en la misma»."""
+    p = punto or ""
+    if "{actos_del_amparo}" not in p:
+        return p
+    prep = preposicion or preposicion_del_amparo("", p)
+    g = ACTOS_DEL_AMPARO_GENERICO.get(prep) or ACTOS_DEL_AMPARO_GENERICO["respecto de"]
+    p2 = re.sub(r",\s*\{actos_del_amparo\},(\s+en\s+t[ée]rminos\s+del\s+[úu]ltimo\s+considerando)", r",\1", p)
+    if p2 != p:
+        return p2
+    p = p.replace("{actos_del_amparo}, por las razones expuestas en el último considerando de la "
+                  "resolución recurrida", g + ", por las razones expuestas en el último considerando "
+                  "de la misma")
+    p = p.replace("{actos_del_amparo}, por las razones expuestas en la resolución recurrida",
+                  g + " y por las razones expuestas en la misma")
+    return p.replace("{actos_del_amparo}", g)
+
+
+def con_actos_del_amparo(punto: str, actos=None, autoridades=None, ordinal: str = "primero",
+                         plural_quejoso: bool = False, rama: str = "") -> str:
+    """El punto con {actos_del_amparo} ya lleno: `punto_del_amparo` si hay
+    actos útiles; si no, la remisión genérica con la cola de siempre
+    (`con_generico_del_amparo`). Para quien no tiene ficha (la tarjeta de
+    decisión) basta `con_actos_del_amparo(punto)`."""
+    p = punto or ""
+    if "{actos_del_amparo}" not in p:
+        return p
+    prep = preposicion_del_amparo(rama, p)
+    x = punto_del_amparo(actos or [], autoridades or [], ordinal, plural_quejoso, prep)
+    return p.replace("{actos_del_amparo}", x) if x else con_generico_del_amparo(p, prep)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -2938,7 +4022,8 @@ LEY_DE_LA_VIA = {
 # reales: NOMBRE DEL TIPO + MATERIA concordada + número reproduce exacto los
 # cinco. «RECURSO DE QUEJA ADMINISTRATIVO: 143/2026», «AMPARO EN REVISIÓN
 # ADMINISTRATIVA: 17/2025», «REVISIÓN FISCAL: 6/2025», «AMPARO DIRECTO CIVIL:
-# 642/2024», «RECURSO DE QUEJA CIVIL: 233/2025».
+# 642/2024», «RECURSO DE QUEJA CIVIL: 233/2025». (La queja administrativa se
+# corrigió a femenino en la cuarta ronda: ver `_MATERIA_ENCABEZADO`.)
 _ENCABEZADO = {
     "amparo_directo": "AMPARO DIRECTO {materia}: {numero}",
     "amparo_revision": "AMPARO EN REVISIÓN {materia}: {numero}",
@@ -2949,14 +4034,30 @@ _ENCABEZADO = {
 # La materia va concordada con el sustantivo que la precede: «AMPARO DIRECTO
 # CIVIL» pero «AMPARO EN REVISIÓN ADMINISTRATIVA». Escribirla en masculino
 # siempre da «AMPARO EN REVISIÓN ADMINISTRATIVO», que ningún secretario firma.
+#
+# LA QUEJA ES FEMENINA: «RECURSO DE QUEJA ADMINISTRATIVA» (E10, cuarta ronda,
+# 3-oct-2026). El rótulo concuerda con «queja», no con «recurso»: el corpus de
+# quejas del tribunal dice «QUEJA ADMINISTRATIVA» 14 de 14 veces y nunca
+# «ADMINISTRATIVO», y el V I S T O del mismo documento decía «recurso de queja
+# administrativa» bajo un encabezado «RECURSO DE QUEJA ADMINISTRATIVO» (Q
+# 172/2026). Y LO FAMILIAR SE REGISTRA COMO CIVIL: el tribunal es de materias
+# administrativa y civil, y el expediente de un asunto familiar se rotula
+# «CIVIL» (AR 307/2024: «AMPARO EN REVISIÓN CIVIL», y lo mismo los otros
+# familiares del banco, 239 y 448). Sólo en el rótulo: la competencia sigue
+# diciendo «en materia familiar», como el engrose. La materia que llegue en
+# masculino («administrativo», «agrario») también concuerda con el tipo.
 _MATERIA_ENCABEZADO = {
     "amparo_revision": {"administrativa": "ADMINISTRATIVA", "civil": "CIVIL",
-                        "laboral": "LABORAL", "penal": "PENAL"},
-    "queja": {"administrativa": "ADMINISTRATIVO", "civil": "CIVIL",
-              "laboral": "LABORAL", "penal": "PENAL"},
+                        "laboral": "LABORAL", "penal": "PENAL", "familiar": "CIVIL",
+                        "agraria": "AGRARIA"},
+    "queja": {"administrativa": "ADMINISTRATIVA", "civil": "CIVIL",
+              "laboral": "LABORAL", "penal": "PENAL", "familiar": "CIVIL",
+              "agraria": "AGRARIA"},
     "amparo_directo": {"administrativa": "ADMINISTRATIVO", "civil": "CIVIL",
-                       "laboral": "LABORAL", "penal": "PENAL"},
+                       "laboral": "LABORAL", "penal": "PENAL", "familiar": "CIVIL",
+                       "agraria": "AGRARIO"},
 }
+_MATERIA_EN_FEMENINO = {"administrativo": "administrativa", "agrario": "agraria"}
 
 
 # EL APARTADO QUE FIJA LA CUESTIÓN, con el nombre que le da cada vía. Lara
@@ -3010,35 +4111,54 @@ _MATERIA_A_RESOLVER = {
 LEGITIMACION = {
     "amparo_directo": {
         "molde": ("La demanda de amparo fue promovida por {parte}{rep}, quien "
-                  "está legitimad{a} para ello conforme al artículo 5º, "
+                  "está legitimad{a} para ello conforme al artículo 5o., "
                   "fracción I, de la Ley de Amparo, por resentir el perjuicio "
                   "que le causa la sentencia reclamada."),
-        "fundamento": "artículo 5º, fracción I, de la Ley de Amparo"},
+        "fundamento": "artículo 5o., fracción I, de la Ley de Amparo"},
     "amparo_revision": {
         "molde": ("El presente medio de impugnación fue interpuesto por "
                   "{parte}{rep}, quien se encuentra legitimad{a} para "
-                  "interponer el recurso de revisión conforme al artículo 6º "
+                  "interponer el recurso de revisión conforme al artículo 6o. "
                   "de la Ley de Amparo, toda vez que la resolución impugnada "
                   "le resulta desfavorable."),
-        "fundamento": "artículo 6º de la Ley de Amparo"},
+        "fundamento": "artículo 6o. de la Ley de Amparo"},
     "queja": {
         # EL 97 ES LA PROCEDENCIA, NO LA LEGITIMACIÓN (verificación de normas,
         # 27-sep-2026): legitima ser PARTE del juicio de amparo, artículo 5o.,
         # que es como lo funda la variante del banco (qj-c3-quejoso).
+        # CON SU FRACCIÓN (3-oct-2026): la del papel de quien recurre —I la
+        # quejosa, II la autoridad responsable, III la tercera interesada, IV el
+        # Ministerio Público—. «El artículo 5o.» a secas no dice de qué parte se
+        # trata; la variante del banco ya la escribe («5o., fracción I»).
         "molde": ("El recurso fue interpuesto por {parte}{rep}, quien está "
-                  "legitimad{a} para hacerlo en términos del artículo 5o. de la "
-                  "Ley de Amparo, por ser parte en el juicio de amparo en que "
-                  "se dictó el auto recurrido y resultarle desfavorable."),
+                  "legitimad{a} para hacerlo en términos del artículo 5o., "
+                  "fracción {fr}, de la Ley de Amparo, por ser parte en el juicio "
+                  "de amparo en que se dictó el auto recurrido y resultarle "
+                  "desfavorable."),
         "fundamento": "artículo 5o. de la Ley de Amparo"},
     "revision_fiscal": {
         # AQUÍ NO ES «QUIEN RESIENTE EL PERJUICIO»: es la autoridad, y sólo
         # por conducto de su unidad de defensa jurídica. Lo dice el propio 63.
-        "molde": ("El recurso fue interpuesto por {parte}{rep}, autoridad "
-                  "facultada para hacerlo por conducto de la unidad "
-                  "administrativa encargada de su defensa jurídica, en "
-                  "términos del artículo 63 de la Ley Federal de Procedimiento "
-                  "Contencioso Administrativo."),
-        "fundamento": ("artículo 63 de la Ley Federal de Procedimiento "
+        # LA UNIDAD NO ES LA AUTORIDAD DEMANDADA (3-oct-2026). El molde decía
+        # «interpuesto por Administración Desconcentrada Jurídica…, autoridad
+        # facultada para hacerlo por conducto de la unidad administrativa
+        # encargada de su defensa jurídica»: llamaba autoridad demandada a su
+        # propia unidad de defensa, y sin artículo. La fórmula del corpus
+        # (rf-c2, oro_RF): parte legítima por el 63, párrafo primero, porque
+        # recurre la unidad encargada de la defensa jurídica de la autoridad
+        # demandada, a la que la sentencia le resultó adversa.
+        # (Desde la tercera ronda el párrafo lo arma `_legitimacion_rf`, que
+        # distingue la unidad, la propia demandada y lo demás; este molde queda
+        # como la forma de la unidad, que es la del corpus.)
+        "molde": ("El recurso de revisión fiscal fue interpuesto por parte "
+                  "legítima, en términos del artículo 63, párrafo primero, en "
+                  "relación con el 5o., cuarto párrafo, de la Ley Federal de "
+                  "Procedimiento Contencioso Administrativo, pues lo hizo valer "
+                  "{parte}{rep}, en su carácter de unidad administrativa "
+                  "encargada de la defensa jurídica de {autoridad}, a la que la "
+                  "sentencia recurrida le resultó adversa."),
+        "fundamento": ("artículo 63, párrafo primero, en relación con el 5o., "
+                       "cuarto párrafo, de la Ley Federal de Procedimiento "
                        "Contencioso Administrativo")},
 }
 
@@ -3066,12 +4186,394 @@ _LEGITIMACION_REVISION_POR_PAPEL = {
                   "sentencia recurrida afecta directamente el acto que se le "
                   "reclamó."),
         "rep": "en términos del artículo 9o. de la Ley de Amparo"},
+    # LA QUEJOSA QUE RECURRE, CON SU FRACCIÓN (3-oct-2026, AR 60/2025: «acorde
+    # con lo dispuesto en los artículos 5, fracción I y 6 párrafo primero»). El
+    # 6o. solo regula quién PROMUEVE el amparo; ser parte —y por eso poder
+    # recurrir— es el 5o., fracción I. Sólo cuando el papel consta.
+    "quejoso": {
+        "molde": ("El presente medio de impugnación fue interpuesto por "
+                  "{parte}{rep}, quien se encuentra legitimad{a} para "
+                  "interponer el recurso de revisión en su carácter de parte "
+                  "quejosa en el juicio de amparo, conforme a los artículos 5o., "
+                  "fracción I, y 6o. de la Ley de Amparo, toda vez que la "
+                  "resolución impugnada le resulta desfavorable."),
+        "rep": "en términos de los artículos 6o. y 11 de la Ley de Amparo"},
+    # EL PROMULGADOR QUE RECURRE EN EL AMPARO CONTRA NORMAS (E12, cuarta ronda,
+    # 3-oct-2026; AR 208 y 72/2025). El 87, primer párrafo, tiene dos hipótesis:
+    # la sentencia que afecta directamente el acto reclamado de cada autoridad
+    # y, «tratándose de amparo contra normas generales», los titulares de los
+    # órganos del Estado a los que se encomiende su emisión o promulgación
+    # (texto local de la Ley de Amparo). Con la norma impugnada y el Gobernador
+    # o la Legislatura recurriendo, el documento escribía la primera; el engrose
+    # del 208 funda en la segunda («en su carácter de promulgadora»). Lo pide
+    # `legitimacion_de(..., hay_norma=True)`.
+    "autoridad_norma": {
+        "molde": ("El presente medio de impugnación fue interpuesto por "
+                  "{parte}{rep}, quien se encuentra legitimad{a} para "
+                  "interponer el recurso de revisión en su carácter de "
+                  "autoridad responsable, conforme a los artículos 5o., "
+                  "fracción II, y 87, primer párrafo, de la Ley de Amparo, pues "
+                  "tratándose de amparo contra normas generales pueden "
+                  "interponerlo los titulares de los órganos del Estado a los "
+                  "que se encomiende su emisión o promulgación."),
+        "rep": "en términos del artículo 9o. de la Ley de Amparo"},
 }
+
+# Los órganos que emiten o promulgan normas generales (art. 87, primer párrafo,
+# LA). Al principio del nombre: «Secretario Ejecutivo…» no es el Ejecutivo.
+_RX_PROMULGADOR = re.compile(
+    r"^(?:(?:el|la|los|las)\s+)?(?:titular\s+del\s+)?(?:"
+    r"gobernador(?:a)?|(?:poder\s+)?ejecutivo\s+(?:del\s+estado|federal|estatal|local)|"
+    r"poder\s+ejecutivo|presidente\s+de\s+la\s+rep[úu]blica|presidenta\s+de\s+la\s+rep[úu]blica|"
+    r"jef[ea]\s+de\s+gobierno|congreso|legislatura|c[áa]mara\s+de\s+(?:diputad[oa]s|senador[ae]s)|"
+    r"poder\s+legislativo|ayuntamiento|cabildo|presidente\s+municipal|presidenta\s+municipal)\b",
+    re.I)
+
+
+def es_promulgador(nombre: str) -> bool:
+    """¿Es un órgano que emite o promulga normas generales (Gobernador,
+    Legislatura, Congreso, Ejecutivo, Ayuntamiento…)?"""
+    return bool(_RX_PROMULGADOR.search(" ".join(str(nombre or "").split())))
+
+
+# LA PERSONERÍA DE QUIEN ACTÚA POR LA PARTE, POR SU FIGURA Y POR EL PAPEL DE LA
+# PARTE (3-oct-2026, rev_0, rev_2 y rev_3). Todo representante salía «en
+# términos de los artículos 6o. y 11», que son los de quien comparece por la
+# persona quejosa: Q 172/2026 y AR 239/2025 fundaban así a la AUTORIZADA en
+# términos amplios (art. 12: «podrá interponer los recursos que procedan»); la
+# queja del Director de Ingresos, a su DELEGADO (art. 9o.: las autoridades
+# «podrán por medio de oficio acreditar personas delegadas»); y la tercera, con
+# el 6o., que no es suyo (el 11 la nombra). El Ministerio Público no comparece
+# por representante: sin cola.
+_RX_AUTORIZADO = re.compile(r"\bautorizad[oa]s?\b", re.I)
+_RX_DELEGADO = re.compile(r"\bdelegad[oa]s?\b", re.I)
+
+
+# UN ARTÍCULO SIN SU LEY NO SE FIRMA (E9, cuarta ronda, 3-oct-2026; Q 172/2026,
+# Q 300/2025, AR 239 y 60/2025): la figura llegaba «autorizado en términos
+# amplios del artículo 12» y `personeria_de` daba el 12 por citado en cuanto veía
+# «artículo 12», sin mirar de qué ley; salía «del artículo 12, Representante;»
+# en el resultando y en la legitimación. Ahora la personería sólo calla si la
+# figura ya cita la LEY; si cita el 12 o el 9o. sin ella, `figura_en_prosa` la
+# completa con «de la Ley de Amparo» y la cola no se repite.
+_RX_CITA_UNA_LEY = re.compile(
+    r"art[íi]culos?\s+\d+[^;]{0,40}?\b(?:de\s+la\s+(?:Ley|L\.?\s*A\.?\b|LFPCA)|del\s+(?:C[óo]digo|Reglamento))",
+    re.I)
+_RX_ART_12_O_9 = re.compile(r"\bart[íi]culo\s+(?:12|9o?\.?)(?!\d)", re.I)
+# LA FIGURA QUE YA CITA LA LEY DE AMPARO, SEA CUAL SEA (F6, quinta ronda,
+# 3-oct-2026; AD 456 y 274/2025 con nombres de prueba): «apoderado en términos
+# de los artículos 6o. y 11 de la Ley de Amparo» recibía además la cola «en
+# términos de los artículos 6o. y 11…», porque sólo el autorizado y el delegado
+# callaban. Ahora calla cualquiera que ya cite la Ley de Amparo; la cita de
+# OTRA ley («… del artículo 10 de la Ley General de Sociedades Mercantiles») no
+# dice la personería en el amparo y la cola sigue.
+_RX_CITA_LA_LEY_DE_AMPARO = re.compile(
+    r"art[íi]culos?\s+\d+[^;]{0,40}?\bde\s+la\s+(?:Ley\s+de\s+Amparo\b|L\.?\s*A\.?(?!\w))", re.I)
+_RX_YA_DICE_EN_TERMINOS = re.compile(r"\ben\s+t[ée]rminos\b", re.I)
+
+
+def personeria_de(papel: str = "", figura: str = "") -> str:
+    """«en términos del artículo 12 de la Ley de Amparo» (autorizado), «… 9o.…»
+    (autoridad o delegado), «… 11…» (tercero) o «… 6o. y 11…» (quejoso o sin
+    papel). Vacío si la figura ya cita su artículo CON SU LEY («… del artículo
+    12 de la Ley de Amparo») o es el Ministerio Público; «del artículo 12» a
+    secas no cuenta como cita (E9). QUINTA RONDA (F6): vacío también si
+    CUALQUIER figura ya cita la Ley de Amparo; y si la figura ya dice «en
+    términos» sin citar artículo («autorizada en términos amplios», Q
+    172/2026), la cola dice «conforme al artículo 12…», sin repetir la
+    fórmula."""
+    p = (papel or "").strip().lower()
+    f = " ".join(str(figura or "").split())
+    _cita = bool(_RX_CITA_UNA_LEY.search(f))
+    if _RX_CITA_LA_LEY_DE_AMPARO.search(f):
+        return ""
+    if _RX_AUTORIZADO.search(f):
+        cola = "" if _cita else "en términos del artículo 12 de la Ley de Amparo"
+    elif p == "autoridad" or _RX_DELEGADO.search(f):
+        cola = "" if _cita else "en términos del artículo 9o. de la Ley de Amparo"
+    elif p == "ministerio_publico":
+        cola = ""
+    elif p in ("tercero", "tercera", "tercero_interesado"):
+        cola = "en términos del artículo 11 de la Ley de Amparo"
+    else:
+        cola = "en términos de los artículos 6o. y 11 de la Ley de Amparo"
+    if cola and _RX_YA_DICE_EN_TERMINOS.search(f) and not re.search(r"art[íi]culo", f, re.I):
+        cola = "conforme " + _conforme_en_vez_de_en_terminos(cola[len("en términos "):])
+    return cola
+
+
+def _conforme_en_vez_de_en_terminos(x: str) -> str:
+    """«del artículo 12…» → «al artículo 12…»; «de los artículos…» → «a los
+    artículos…» (la contracción de «en términos del» pasada a «conforme al»)."""
+    x = (x or "").strip()
+    if x.startswith("del "):
+        return "al " + x[4:]
+    if x.startswith("de los "):
+        return "a los " + x[7:]
+    if x.startswith("de la "):
+        return "a la " + x[6:]
+    return x
+
+
+# LAS FIGURAS GENÉRICAS van en minúscula («su apoderado legal», «su consejo de
+# administración», corpus AD 552/2024); LOS CARGOS de una autoridad conservan
+# su mayúscula, como en el resultando del mismo documento (rev RF 2, 26 y
+# 6/2026: la legitimación decía «su subdirector de lo Contencioso» y el
+# resultando «su Subdirector de lo Contencioso»: dos grafías del mismo cargo).
+_RX_FIGURA_GENERICA = re.compile(
+    r"^(?:su\s+|el\s+|la\s+)?(?:apoderad[oa]s?|representantes?|autorizad[oa]s?|delegad[oa]s?|"
+    r"albaceas?|mandatari[oa]s?|tutor(?:a|es)?|curador(?:a|es)?|gestor(?:a)?|abogad[oa]s?|"
+    r"asesor(?:a)?|defensor(?:a)?|procurador(?:a)?\s+judicial|administrador(?:a)?\s+[úu]nic[oa]|"
+    r"gerente|consejo\s+de\s+administraci[óo]n|[óo]rgano\s+de\s+representaci[óo]n|"
+    r"presidente\s+del\s+consejo|socio|socia|interventor(?:a)?|liquidador(?:a)?|s[íi]ndic[oa]|"
+    r"madre|padre|progenitor(?:a|es)?|leg[íi]tim[oa]\s+representante)\b",
+    re.I)
+
+
+def figura_en_prosa(figura: str, ley_de_amparo: bool = True) -> str:
+    """«Apoderado Legal» → «apoderado legal»; «autorizado en términos amplios
+    del artículo 12 de la Ley de Amparo» intacto; «Titular de la Unidad de
+    Asuntos Jurídicos» intacto (un cargo conserva su mayúscula).
+
+    LA FIGURA NO SE PASA ENTERA A MINÚSCULAS (rev_3, AR 239/2025: «del artículo
+    12 de la ley de amparo»): en la figura genérica, sólo el tramo del cargo,
+    hasta la primera preposición; lo que sigue —la ley, la unidad, la
+    institución— conserva sus mayúsculas. EL CARGO DE UNA AUTORIDAD NO SE BAJA
+    (cuarta ronda): si llegó en versales se pasa a prosa como órgano
+    («TITULAR DE LA UNIDAD JURÍDICA» → «Titular de la Unidad Jurídica»).
+
+    CON `ley_de_amparo` (el amparo y sus recursos; la revisión fiscal lo apaga),
+    el «artículo 12» o «9o.» sin ley se completa: «… del artículo 12 de la Ley de
+    Amparo» (E9); en el autorizado y el delegado siempre, y en cualquier otra
+    figura cuando la cita la cierra (quinta ronda, F6).
+
+    UNA SOLA PUERTA PARA LA FIGURA (F6, quinta ronda, 3-oct-2026; AD 456 y
+    274/2025 con nombres de prueba): el resultando, la legitimación y el
+    resolutivo la escribían con tres convertidores —«su Apoderado Legal» en uno,
+    «su apoderado legal» en otro, y «del artículo 12 Pedro Gil Mora» sin ley en
+    el resolutivo firmado—. Ésta es la puerta, y `sep_figura` el separador del
+    nombre que la sigue."""
+    f = " ".join(str(figura or "").split()).strip(" ,;")
+    f = re.sub(r"(?i)^su\s+", "", f)
+    if not f:
+        return ""
+    generica = bool(_RX_FIGURA_GENERICA.search(f))
+    if f == f.upper() and any(c.isalpha() for c in f):
+        if generica:
+            f = f.lower()
+            f = re.sub(r"\bley de amparo\b", "Ley de Amparo", f)
+        else:
+            f = sin_articulo_de_prosa(con_articulo_de_organo(f)) or f.lower()
+    elif generica:
+        m = re.search(r"\s(?:de|del|en|para|a)\s", f)
+        f = f.lower() if not m else f[:m.start()].lower() + f[m.start():]
+    f = re.sub(r"(?i)\bley\s+de\s+amparo\b", "Ley de Amparo", f)
+    if ley_de_amparo:
+        m = _RX_ART_12_O_9.search(f)
+        if m and not _RX_CITA_UNA_LEY.search(f) and (
+                _RX_AUTORIZADO.search(f) or _RX_DELEGADO.search(f) or not f[m.end():].strip(" ,.;")):
+            f = f[:m.end()] + " de la Ley de Amparo" + f[m.end():]
+    return " ".join(f.split())
+
+
+# LA ETIQUETA DE ROL QUE VIAJA DENTRO DEL NOMBRE (3-oct-2026, AR 208/2025 y RF
+# 4/2025). Las carátulas del circuito la ponen entre paréntesis —«GOBERNADOR DEL
+# ESTADO DE QUERÉTARO (AUTORIDAD RESPONSABLE)», «… del ISSSTE (DEMANDADA)»— y
+# llegaba a la prosa: «el Gobernador… (autoridad Responsable), en su carácter de
+# autoridad responsable». Se quita y se devuelve el rol, por si el carácter no
+# constaba.
+_RX_ROL_FINAL = re.compile(
+    r"\s*\(\s*(?P<rol>autoridad\s+(?:responsable|demandada)|demandad[oa]|quejos[oa]s?|"
+    r"tercer[oa]s?\s+interesad[oa]s?|tercer[oa]|recurrentes?|actor(?:a|es)?|"
+    r"(?:parte\s+)?(?:quejosa|actora|demandada|recurrente|tercera\s+interesada)|adherente)\s*\)\s*\.?$",
+    re.I)
+
+
+def sin_etiqueta_de_rol(nombre: str) -> tuple:
+    """(nombre sin la etiqueta final de rol, rol en minúsculas o «»)."""
+    n = " ".join(str(nombre or "").split())
+    m = _RX_ROL_FINAL.search(n)
+    if not m:
+        return n, ""
+    return n[:m.start()].rstrip(" ,"), " ".join(m.group("rol").lower().split())
+
+
+# VARIAS PERSONAS EN UN SOLO CAMPO (3-oct-2026, AD 552/2024 y AR 208/2025: «X y
+# Z, ambos de apellidos …» → «promovió», «quien está legitimada»). Se reconoce
+# sin adivinar: «ambos», «todos», «y otros», el punto y coma, o dos o más tramos
+# que tienen forma de nombre (dos palabras con mayúscula) separados por coma o
+# «y». Una persona moral o un órgano nunca es plural por llevar «y» en su
+# nombre («Transportistas y Similares»).
+#
+# UN SOLO DETECTOR, Y LA LISTA SE MIRA ANTES QUE LA SOCIEDAD (E2, cuarta ronda,
+# 3-oct-2026). «X, SOCIEDAD DE PRODUCCIÓN RURAL…, POR CONDUCTO DE SU CONSEJO DE
+# ADMINISTRACIÓN, Y Z, POR PROPIO DERECHO» (AD 552/2024) daba singular porque el
+# campo contenía una sociedad, y el compositor —con su propio detector— decía
+# «promovieron»: el resultando en plural y la legitimación y la carátula en
+# singular, en el mismo documento. Ahora lo EXPRESO decide primero, aunque haya
+# una sociedad: «ambos/todos», «y otros/otras/otra», «coagraviados», el punto y
+# coma, la numeración de una lista («1) …, 2) …») y «, y Nombre» (una coma y
+# luego otra persona, no «, y en representación de…»). Después, como antes: una
+# sociedad, un órgano o una cabeza colectiva son UNA; y dos tramos con forma de
+# nombre, varias. El compositor (`resultandos_por_tipo`) pregunta aquí.
+# «todos/todas» sólo cuando se refiere a las partes («todos de apellido…»,
+# «todas por propio derecho»), no en «en representación de todos sus hijos»; y
+# «codemandado» en singular describe a una persona, no a varias.
+_RX_PLURAL_EXPRESO = re.compile(
+    r"\b(?:ambos|ambas)\b|\b(?:todos|todas)\s+(?:de\s+apellidos?|ellos|ellas|por\s+(?:su\s+)?propio)\b|"
+    r"\by\s+otr[oa]s?\b|\bco(?:agraviad[oa]s|demandad[oa]s|quejos[oa]s|actor(?:es|as)|recurrentes)\b|;",
+    re.I)
+_RX_NUMERACION_LISTA = re.compile(r"(?:^|[\s,;])\d{1,3}\)\s*\S")
+_RX_COMA_Y = re.compile(r",\s+(?:y|e)\s+(\S+)", re.I)
+# Lo que sigue a «, y» o abre un tramo y NO es otra persona: fórmulas de
+# representación, artículos, y los cargos o figuras que se ponen tras el nombre.
+_RX_NO_ES_NOMBRE = re.compile(
+    r"^(?:por|en|a|como|su|sus|quien|quienes|de|del|con|mediante|el|la|los|las|se|ambos|ambas|"
+    r"todos|todas|otr[oa]s?|albaceas?|apoderad[oa]s?|representantes?|autorizad[oa]s?|tutor(?:a|es)?|"
+    r"curador(?:a|es)?|gerente|administrador(?:a)?|socio|socia|presidente|presidenta|vocal|"
+    r"secretari[oa]|tesorer[oa]|consejo|comisariado|menor(?:es)?|hij[oa]s?)\b", re.I)
+_RX_TRAMO_NOMBRE = re.compile(
+    r"^(?:[A-ZÁÉÍÓÚÑ][\wÁÉÍÓÚÑáéíóúñ.'-]*)(?:\s+(?:(?:de|del|la|las|los|y|e|van|von|da|do|dos|das)\s+)?"
+    r"[A-ZÁÉÍÓÚÑ][\wÁÉÍÓÚÑáéíóúñ.'-]*)+$")
+
+
+def _otra_persona_tras_coma_y(n: str) -> bool:
+    """«…, y Juan Pérez» / «…, Y PARTE QUEJOSA» / «…, y *****»: tras la coma y
+    la «y» empieza otra persona (mayúscula o testado, y no una fórmula)."""
+    for m in _RX_COMA_Y.finditer(n):
+        w = m.group(1).strip(",.;:()«»\"'")
+        if not w:
+            continue
+        if w.startswith("*"):
+            return True
+        if w[:1].isupper() and not _RX_NO_ES_NOMBRE.match(w):
+            return True
+    return False
+
+
+def es_plural_de_partes(nombre: str, moral=None) -> bool:
+    """¿El campo nombra a VARIAS personas (quejosos, recurrentes, actores)?
+
+    LA ÚNICA PUERTA (E2): la usan el compositor —que expone el resultado en
+    `datos_extra['plural']`—, la legitimación y la carátula."""
+    n = " ".join(str(nombre or "").split())
+    if not n:
+        return False
+    # LO EXPRESO, ANTES QUE LA SOCIEDAD (AD 552/2024).
+    if _RX_PLURAL_EXPRESO.search(n) or _RX_NUMERACION_LISTA.search(n) or _otra_persona_tras_coma_y(n):
+        return True
+    if moral or es_organo_publico(n) or _RX_SOCIEDAD.search(n) or _RX_CABEZA_COLECTIVO.search(n) \
+            or _RX_CENTRAL_OBRERA.search(n):
+        return False
+    tramos = [x.strip() for x in re.split(r",|\s+[yYeE]\s+", n) if x.strip()]
+    return sum(1 for x in tramos if _RX_TRAMO_NOMBRE.match(x) and not _RX_NO_ES_NOMBRE.match(x)
+               and not es_organo_publico(x)) >= 2
+
+
+# EL GÉNERO DE VARIAS PERSONAS, SÓLO SI EL TEXTO LO DICE (E2). «X y Z, ambos de
+# apellidos…» concuerda en masculino porque el papel escribió «ambos»; «todas de
+# apellido…», en femenino. Nunca por los nombres de pila. «y otra» no dice nada
+# del primero («otra persona»). Lo declarado en la ficha (`genero_quejoso`)
+# manda. Sin dato, «» y la fórmula neutra: «la parte quejosa está legitimada»,
+# «PARTE QUEJOSA».
+_RX_PLURAL_MASC = re.compile(r"\b(?:ambos|todos|los\s+dos|y\s+otros|coagraviados|codemandados|"
+                             r"coquejosos|coactores|corecurrentes)\b", re.I)
+_RX_PLURAL_FEM = re.compile(r"\b(?:ambas|todas|las\s+dos)\b", re.I)
+
+
+def genero_de_plural(nombre: str, declarado: str = "") -> str:
+    """«o», «a» o «» para concordar a VARIAS personas (ver arriba)."""
+    d = (declarado or "").strip().lower()[:1]
+    if d in ("a", "f"):
+        return "a"
+    if d in ("o", "m"):
+        return "o"
+    n = " ".join(str(nombre or "").split())
+    if _RX_PLURAL_MASC.search(n):
+        return "o"
+    if _RX_PLURAL_FEM.search(n):
+        return "a"
+    return ""
+
+
+# EL ARTÍCULO DE LAS CABEZAS COLECTIVAS QUE NO SON SOCIEDADES (3-oct-2026, AD
+# 335/2025 y AR 60/2025: «no ampara ni protege a Sucesión a Bienes de…»,
+# «interpuesto por sucesión intestamentaria…»). La sucesión, la comunidad y la
+# asociación llevan «la»; el ejido, el comisariado y el núcleo de población,
+# «el». Las sociedades mercantiles van sin artículo, como siempre.
+_COLECTIVO_ARTICULO = (
+    (re.compile(r"^(?:sucesi[óo]n|comunidad|asociaci[óo]n)\b", re.I), "la"),
+    (re.compile(r"^(?:ejido|comisariado|n[úu]cleo)\b", re.I), "el"),
+)
+
+
+def con_articulo_de_colectivo(nombre: str) -> str:
+    """«Sucesión a Bienes de X» → «la Sucesión a Bienes de X»; «Ejido San
+    Juan» → «el Ejido San Juan»; lo demás, tal cual."""
+    n = " ".join(str(nombre or "").split())
+    if not n or re.match(r"^(?:el|la|los|las)\s", n, re.I):
+        return n
+    for rx, art in _COLECTIVO_ARTICULO:
+        if rx.match(n):
+            return f"{art} {n[:1].upper()}{n[1:]}"
+    return n
+
+
+# LA FRACCIÓN DEL 5o. POR EL PAPEL DE QUIEN RECURRE LA QUEJA (3-oct-2026).
+_FRACCION_5O = {"quejoso": "I", "quejosa": "I", "autoridad": "II", "tercero": "III",
+                "tercera": "III", "tercero_interesado": "III", "ministerio_publico": "IV",
+                "ministerio público": "IV", "mp": "IV"}
+
+
+def fraccion_5o_de(papel: str = "", recurre_el_quejoso=None) -> str:
+    """«I» | «II» | «III» | «IV» | «» — la fracción del artículo 5o. de quien
+    recurre. Sin papel, la del quejoso SÓLO si consta que recurre el quejoso;
+    si no, vacío: quien llama pone el hueco y el aviso. No se adivina."""
+    f = _FRACCION_5O.get((papel or "").strip().lower(), "")
+    if f:
+        return f
+    return "I" if recurre_el_quejoso else ""
+
+
+# LA PERSONA FÍSICA NO CONCUERDA POR SU NOMBRE (3-oct-2026). «Juan Pérez López,
+# quien está legitimado» / «Ana López Ruiz, quien está legitimado»: el adjetivo
+# tomaba el género por omisión, y con una quejosa salía en masculino (19
+# proyectos de octubre). Su género no se sabe y NO se infiere del nombre de
+# pila; la fórmula neutra ya existía en la rama con representante: «; la parte
+# quejosa está legitimada». Lo colectivo se reconoce por la CABEZA del nombre
+# o por su forma social, nunca por un sufijo —«Isadora» acaba como
+# «Comercializadora»—.
+_RX_CABEZA_COLECTIVO = re.compile(
+    r"^(?:(?:el|la|los|las)\s+)?(?:uni[óo]n|federaci[óo]n|confederaci[óo]n|liga|central|alianza|"
+    r"agrupaci[óo]n|c[áa]mara|coalici[óo]n|organizaci[óo]n|asociaci[óo]n|sociedad|cooperativa|"
+    r"empresa|instituci[óo]n|fundaci[óo]n|universidad|inmobiliaria|comercializadora|constructora|"
+    r"arrendadora|operadora|administradora|distribuidora|sindicato|instituto|organismo|consejo|"
+    r"banco|frente|grupo|colegio|comit[ée]|patronato|fideicomiso|ejido|comunidad|n[úu]cleo|"
+    r"sucesi[óo]n|comisariado)\b", re.I)
+
+
+def es_persona_fisica(nombre: str, moral=None) -> bool:
+    """¿Es (o puede ser) una persona física? Entonces su legitimación se dice
+    con la fórmula neutra. Ante la duda, sí: la neutra es correcta para todos."""
+    n = " ".join(str(nombre or "").split())
+    if not n or es_organo_publico(n):
+        return False
+    if moral is None:
+        try:
+            import promovente as _pv_f
+            moral = _pv_f.es_moral(n)
+        except Exception:
+            moral = False
+    if moral or _RX_SOCIEDAD.search(n) or _RX_CENTRAL_OBRERA.search(n):
+        return False
+    return not _RX_CABEZA_COLECTIVO.search(n)
 
 
 def legitimacion_de(tipo: str, parte: str = "", representante: str = "",
                     hueco: str = "*********", figura: str = "",
-                    moral=None, papel: str = "") -> str:
+                    moral=None, papel: str = "", autoridad_demandada: str = "",
+                    recurre_el_quejoso=None, avisos=None, plural=None, genero: str = "",
+                    hay_norma=None, norma_impugnada=None) -> str:
     """El párrafo de legitimación de esta vía, o cadena vacía si no hay parte.
 
     SIN NOMBRE NO SE ESCRIBE. Un párrafo que dice «la parte está legitimada»
@@ -3087,15 +4589,105 @@ def legitimacion_de(tipo: str, parte: str = "", representante: str = "",
     fundamento; antes el molde pegaba «a través de su representante legal»
     y seguía diciendo «quien está legitimada… por resentir el perjuicio»
     de la persona física.
+
+    LA AUTORIDAD LLEVA SU ARTÍCULO Y CONCUERDA POR SU CARGO (3-oct-2026). En el
+    AR del XXII Circuito salió «interpuesto por Director de Ingresos…, quien se
+    encuentra legitimada»: sin artículo, y en femenino porque
+    `promovente.separar` marca como persona MORAL al Director (el indicador de
+    persona moral es de las sociedades, no de los órganos). Un órgano o un
+    servidor público se nombra con su artículo —«el Director», «la
+    Administración Desconcentrada»— y el adjetivo concuerda con ese artículo.
+    `autoridad_demandada` (sólo revisión fiscal) es la autoridad cuya defensa
+    lleva la unidad que recurre; sin ella, «la autoridad demandada en el
+    juicio de nulidad».
+
+    LA PERSONA FÍSICA, EN NEUTRO (3-oct-2026): «…promovida por Ana López Ruiz;
+    la parte quejosa está legitimada…». Su género no se infiere del nombre.
+    Las morales y los órganos, como estaban: concuerdan por su artículo.
+
+    LA QUEJA, CON LA FRACCIÓN DEL 5o. de quien recurre (`fraccion_5o_de`):
+    `recurre_el_quejoso` decide cuando el papel no consta; si tampoco, la
+    fracción va en hueco y quien llama avisa.
+
+    TERCERA RONDA (3-oct-2026):
+      · la PERSONERÍA por la figura y el papel (`personeria_de`): autorizado,
+        art. 12; autoridad o delegado, 9o.; tercero, 11; quejoso, 6o. y 11. La
+        figura conserva sus mayúsculas fuera del cargo (`figura_en_prosa`) y,
+        si es larga («…del artículo 12 de la Ley de Amparo»), el nombre va tras
+        coma;
+      · el ÓRGANO QUE ES QUEJOSO (IMSS, INFONAVIT, un municipio) es «la persona
+        moral oficial quejosa/recurrente», nunca «la autoridad quejosa»: en el
+        amparo el quejoso no es autoridad (art. 7o.) y sólo es «la autoridad
+        recurrente» quien recurre CON ese papel (rev_4, regresión);
+      · VARIAS PERSONAS (`es_plural_de_partes`): «las personas quejosas están
+        legitimadas… el perjuicio que les causa»; el adjetivo concuerda con
+        «personas», no con los nombres;
+      · la SUCESIÓN, la COMUNIDAD, el EJIDO, con su artículo
+        (`con_articulo_de_colectivo`);
+      · la ETIQUETA DE ROL entre paréntesis y las VERSALES no pasan a la prosa;
+      · la REVISIÓN FISCAL, por `_legitimacion_rf` (la unidad, la propia
+        demandada o ninguna de las dos, con el 5o., cuarto párrafo).
+    CUARTA RONDA (3-oct-2026):
+      · E1: el nombre pasa por la puerta única del compositor
+        (`resultandos_por_tipo.nombre_en_prosa`): las rachas en versales, las
+        fórmulas de representación en minúscula, «la Titular» y el artículo de
+        los colectivos, igual que en el V I S T O del mismo documento;
+      · E2: VARIAS PERSONAS (`es_plural_de_partes`, que ya mira la lista antes
+        que la sociedad; `plural` lo fuerza): si el texto dice su género
+        (`genero_de_plural`: «ambos», «todas»; o `genero` declarado), «quienes
+        están legitimados… les causa»; si no, «; la parte quejosa está
+        legitimada», que es neutra y no infiere nada de los nombres;
+      · E12: la representación DENTRO del nombre («…, a través de su albacea
+        X», «por propio derecho y en representación de…») cuenta como
+        representante: «; la parte recurrente está legitimada» (el «quien» se
+        leía como el albacea); y el representante que ya va en el nombre no se
+        repite;
+      · E12: con `hay_norma` (o `norma_impugnada`, la razón que da la función
+        del mismo nombre; cualquier valor verdadero) y un promulgador que recurre
+        (Gobernador, Legislatura, Congreso…), la hipótesis del 87, primer
+        párrafo, de los titulares de los órganos que emiten o promulgan la norma;
+      · E9: la figura con «artículo 12» o «9o.» sin ley se completa con «de la
+        Ley de Amparo» (`figura_en_prosa`) y la personería no se repite.
+    QUINTA RONDA (3-oct-2026):
+      · F2: la FIGURA SIN NOMBRE no se borra: «, por conducto de su {figura}
+        *********», con su personería y el aviso «FALTA EL NOMBRE DEL
+        REPRESENTANTE (representante)», sólo si se pasa `avisos` (el camino
+        de la ficha; el viejo no los pide y queda igual);
+      · F6: el separador entre la figura y el nombre es `sep_figura`, el mismo
+        del resultando y del resolutivo;
+      · la representación dentro del nombre se reconoce también SIN COMA
+        («la Sucesión… a través de su albacea X», AD 335/2025).
+    `avisos` (opcional): una lista donde dejar lo que el secretario debe
+    comprobar o escribir.
     """
     m = LEGITIMACION.get(normalizar(tipo))
     if not m or not (parte or "").strip():
         return ""
     t = normalizar(tipo)
-    _por_papel = (_LEGITIMACION_REVISION_POR_PAPEL.get((papel or "").strip().lower())
+    _papel = (papel or "").strip().lower()
+    parte, _rol = sin_etiqueta_de_rol(parte)
+    if not _papel and _rol:
+        _papel = ("autoridad" if _rol.startswith("autoridad") else
+                  "tercero" if _rol.startswith("tercer") else
+                  "quejoso" if _rol.startswith(("quejos", "parte quejosa")) else "")
+    if t == "revision_fiscal":
+        _l_rf = _legitimacion_rf(parte, representante, hueco, figura,
+                                 autoridad_demandada, avisos)
+        # VARIAS AUTORIDADES DEMANDADAS, EN PLURAL (revisión RF, 3-oct-2026): «…autoridad
+        # demandada…, a la que la sentencia recurrida le resultó adversa» de tres
+        # autoridades del SAT no concuerda.
+        _dem_rf = autoridad_demandada or (_RX_EN_REPRESENTACION.split(parte or "", maxsplit=1)[-1]
+                                          if _RX_EN_REPRESENTACION.search(parte or "") else parte)
+        return _demandadas_en_plural(_l_rf) if varias_autoridades(_dem_rf) else _l_rf
+    _por_papel = (_LEGITIMACION_REVISION_POR_PAPEL.get(_papel)
                   if t == "amparo_revision" else None)
+    _hay_norma = hay_norma if hay_norma is not None else norma_impugnada
+    if _por_papel and _papel == "autoridad" and _hay_norma and es_promulgador(parte):
+        _por_papel = _LEGITIMACION_REVISION_POR_PAPEL["autoridad_norma"]
     if _por_papel:
         m = _por_papel
+    _es_autoridad = _papel == "autoridad"
+    _organo = _es_autoridad or es_organo_publico(parte)
     if moral is None:
         try:
             import promovente as _pv
@@ -3103,26 +4695,613 @@ def legitimacion_de(tipo: str, parte: str = "", representante: str = "",
         except Exception:
             moral = False
     rep = ""
-    if (representante or "").strip():
-        fig = (figura or "representante legal").strip().lower()
-        if t == "revision_fiscal":
-            rep = f", por conducto de su {fig} {representante.strip()}"
-        elif _por_papel:
-            rep = f", por conducto de su {fig} {representante.strip()}, {_por_papel['rep']}"
+    _rep_n = " ".join(str(representante or "").split())
+    # QUIEN ACTÚA POR SÍ NO SE REPRESENTA A SÍ MISMO (3-oct-2026, Q 261/2025 y Q
+    # 337/2026: la recurrente «por propio derecho y en representación de» sus
+    # menores quedó como su propia representante, y salía «X, por conducto de su
+    # representante legal X»). Y EL REPRESENTANTE QUE YA VA DENTRO DEL NOMBRE
+    # TAMPOCO (Q 342/2025: «la Sucesión…, a través de su albacea X, por conducto
+    # de su representante legal X»).
+    _rep_borrado = False
+    if _rep_n and (misma_autoridad(_rep_n, parte) or _contenido_en(_rep_n, parte)):
+        _rep_n, _rep_borrado = "", True
+    _rep_dentro = bool(_RX_REPRESENTACION_EN_EL_NOMBRE.search(parte))
+    if _rep_n:
+        fig = figura_en_prosa(figura) or "representante legal"
+        _cola = personeria_de(_papel, fig)
+        # F6 (quinta ronda): el separador es el del resultando (`sep_figura`).
+        rep = (f", por conducto de su {fig}{sep_figura(fig)}{_nombre_en_prosa(_rep_n)}"
+               + (f", {_cola}" if _cola else ""))
+    elif not _rep_borrado and isinstance(avisos, list) and _figura_sin_nombre(figura, parte, _rep_dentro):
+        # LA FIGURA SIN NOMBRE NO SE BORRA (F2, quinta ronda, 3-oct-2026; AR
+        # 72/2025 y Q 342/2025 del banco). La ficha traía la figura («delegado»,
+        # «autorizado») y el nombre testado o perdido, y el párrafo callaba la
+        # representación: «fue interpuesto por el Gobernador…» cuando lo
+        # interpuso su delegado con personería del 9o., y «por la Sucesión…, a
+        # través de su albacea…» cuando firmó el autorizado del 12, que es justo
+        # lo que el engrose analiza. Ahora la figura va con el nombre en HUECO, su
+        # personería, y un aviso con la clave del dato. Sólo para quien recibe
+        # los avisos (`avisos`, el camino de la ficha): un hueco sin su aviso no
+        # se escribe, y el camino viejo, que no los pide, queda como estaba.
+        fig = figura_en_prosa(figura)
+        _cola = personeria_de(_papel, fig)
+        rep = (f", por conducto de su {fig}{sep_figura(fig)}{hueco}"
+               + (f", {_cola}" if _cola else ""))
+        _verbo = "promovió" if t == "amparo_directo" else "recurrió"
+        _av_rep = (f"FALTA EL NOMBRE DEL REPRESENTANTE (representante): consta que {_verbo} por "
+                   f"conducto de su {fig}, pero no quién; la legitimación lo deja en HUECO. "
+                   f"Escríbelo en la ficha o en el hueco (está en el escrito y en el auto que "
+                   f"le reconoce la personería).")
+        if _av_rep not in avisos:
+            avisos.append(_av_rep)
+    nombre = parte.strip()
+    if plural is None:
+        _plural = (not _organo) and es_plural_de_partes(nombre, moral)
+    else:
+        _plural = bool(plural) and not _organo
+    _fisica = (not _organo) and es_persona_fisica(nombre, moral)
+    if _organo:
+        nombre = con_articulo_de_organo(nombre)
+        a = "a" if nombre.lower().startswith(("la ", "las ")) else "o"
+    else:
+        nombre = _nombre_en_prosa(nombre, con_articulo=True)
+        a = "a" if (moral or genero_de(parte) == "a") else "o"
+    fr = fraccion_5o_de(_papel, recurre_el_quejoso) or hueco
+    texto = m["molde"].format(parte=nombre, rep=rep, a=a, autoridad="", fr=fr)
+    _rec = t in ("amparo_revision", "queja")
+
+    def _sustituye(sujeto_y_verbo, plural_gram: bool) -> str:
+        """«, quien está legitimada» → lo que se le pase (con «está» o «se
+        encuentra» según el molde); en plural, «les causa», «resultarles»."""
+        out = texto
+        for _v, _vp in (("está", "están"), ("se encuentra", "se encuentran")):
+            for _g in ("a", "o"):
+                out = out.replace(f", quien {_v} legitimad{_g}",
+                                  sujeto_y_verbo(_vp if plural_gram else _v), 1)
+        if plural_gram:
+            for _s, _p in ((" le causa ", " les causa "), (" le resulta ", " les resulta "),
+                           ("resultarle ", "resultarles "), ("por ser parte en", "por ser partes en")):
+                out = out.replace(_s, _p)
+        return out
+
+    if _plural:
+        # VARIAS PERSONAS (E2). El género, sólo si el texto o la ficha lo dicen.
+        g = genero_de_plural(parte, genero)
+        if g and not (rep or _rep_dentro):
+            texto = _sustituye(lambda v: f", quienes {v} legitimad{g}s", True)
+        elif g:
+            _suj = (("los recurrentes" if g == "o" else "las recurrentes") if _rec
+                    else ("los quejosos" if g == "o" else "las quejosas"))
+            texto = _sustituye(lambda v: f"; {_suj} {v} legitimad{g}s", True)
         else:
-            rep = (f", por conducto de su {fig} {representante.strip()}, en "
-                   f"términos de los artículos 6º y 11 de la Ley de Amparo")
-    a = "a" if (moral or genero_de(parte) == "a") else "o"
-    texto = m["molde"].format(parte=parte.strip(), rep=rep, a=a)
-    if rep and t != "revision_fiscal":
+            _suj = "la parte recurrente" if _rec else "la parte quejosa"
+            texto = _sustituye(lambda v: f"; {_suj} {v} legitimada", False)
+    elif rep or _rep_dentro or _fisica:
         # «…, quien está legitimada» ya no puede referirse al representante: se
-        # nombra a la parte por su figura.
-        quien = "la persona moral quejosa" if moral else "la parte quejosa"
-        if t in ("amparo_revision", "queja"):
-            quien = "la persona moral recurrente" if moral else "la parte recurrente"
-        texto = texto.replace(", quien está legitimad", f"; {quien} está legitimad", 1)
-        texto = texto.replace(", quien se encuentra legitimad", f"; {quien} se encuentra legitimad", 1)
+        # nombra a la parte por su figura. Y EL ADJETIVO CONCUERDA CON ESA
+        # FIGURA, que es femenina —«la parte», «la persona moral», «la
+        # autoridad»—, no con el nombre: salía «la parte quejosa está
+        # legitimado» cuando la parte era un hombre con apoderado.
+        quien = ("la persona moral recurrente" if moral else "la parte recurrente") if _rec \
+            else ("la persona moral quejosa" if moral else "la parte quejosa")
+        if _organo:
+            quien = ("la autoridad recurrente" if _es_autoridad else
+                     "la persona moral oficial recurrente" if _rec else
+                     "la persona moral oficial quejosa")
+        texto = _sustituye(lambda v: f"; {quien} {v} legitimada", False)
     return texto
+
+
+# LA REPRESENTACIÓN QUE VIAJA DENTRO DEL NOMBRE (E12): «la Sucesión…, a través de
+# su albacea X», «Ana López, por propio derecho y en representación de su hija».
+# CON COMA O SIN ELLA (quinta ronda, 3-oct-2026; AD 335/2025 del banco): la
+# carátula la escribe «LA SUCESIÓN A BIENES DE X A TRAVÉS DE SU ALBACEA Y», sin
+# coma, y con la coma obligatoria el molde dejaba «…su albacea Y, quien está
+# legitimada», donde el «quien» se lee como el albacea cuando la legitimada es la
+# sucesión: justo lo que E12 vino a evitar en este asunto.
+_RX_REPRESENTACION_EN_EL_NOMBRE = re.compile(
+    r"(?:^|[\s,;])(?:a\s+trav[ée]s|por\s+conducto)\s+de\s+su[s]?\s|"
+    r"\ben\s+(?:su\s+)?representaci[óo]n\s+de",
+    re.I)
+_RX_TRAS_LA_REPRESENTACION = re.compile(
+    r"(?:a\s+trav[ee]s|por\s+conducto)\s+de\s+sus?\s+(\w+)|en\s+(?:su\s+)?representacion\s+de")
+_RX_NO_ES_FIGURA = re.compile(r"propio\s+derecho|^\s*por\s+s[íi]\b|^\s*(?:el|la)\s+mism[oa]\b", re.I)
+
+
+def _figura_sin_nombre(figura: str, parte: str, rep_dentro: bool) -> bool:
+    """¿Se escribe «, por conducto de su {figura} *********» (F2)? Sí, si hay
+    figura y no es la parte misma ni la que ya va dentro del nombre. Con la
+    representación dentro del nombre («…, a través de su albacea X», «por propio
+    derecho y en representación de…»), sólo el AUTORIZADO o el DELEGADO, que son
+    otra persona que actúa en el recurso (arts. 12 y 9o.), y sólo si el nombre no
+    los trae ya (Q 342/2025: la sucesión por su albacea, y firmó el autorizado)."""
+    f = " ".join(str(figura or "").split()).strip(" ,;")
+    f = re.sub(r"(?i)^su\s+", "", f)
+    if not f or _RX_NO_ES_FIGURA.search(f) or misma_autoridad(f, parte):
+        return False
+    if not rep_dentro:
+        return True
+    if not (_RX_AUTORIZADO.search(f) or _RX_DELEGADO.search(f)):
+        return False
+    _cab = (_sin_tildes_min(f).split() or [""])[0][:5]
+    for m in _RX_TRAS_LA_REPRESENTACION.finditer(_sin_tildes_min(parte)):
+        if m.group(1) and m.group(1)[:5] == _cab:
+            return False
+    return True
+
+
+def _contenido_en(corto: str, largo: str) -> bool:
+    """¿El nombre `corto` (dos palabras o más) va entero dentro de `largo`?
+    Sin tildes, mayúsculas ni puntuación: «Juan Ruiz Gómez» dentro de «la
+    Sucesión…, a través de su albacea JUAN RUIZ GÓMEZ»."""
+    c, l_ = _sin_tildes_min(corto), _sin_tildes_min(largo)
+    return len(c.split()) >= 2 and f" {c} " in f" {l_} "
+
+
+# LA LEGITIMACIÓN DE LA REVISIÓN FISCAL (3-oct-2026, rev_5). El molde afirmaba de
+# CUALQUIER promovente que era «unidad administrativa encargada de la defensa
+# jurídica» de la autoridad demandada: de la propia autoridad demandada (RF
+# 21/2025 y 6/2026: «el Jefe del Departamento de Pensiones…, en su carácter de
+# unidad… de la defensa jurídica del Jefe del Departamento de Pensiones») y del
+# Instituto (RF 26/2025). El 63 exige que recurra esa unidad, y el texto se la
+# atribuía a quien no lo es: una afirmación sin dato, como el viejo «el MP omitió
+# formular pedimento». Ahora, tres casos:
+#   · recurre la UNIDAD JURÍDICA (se reconoce por su nombre): la fórmula del
+#     corpus, en representación de la demandada;
+#   · recurre la PROPIA DEMANDADA: «lo hizo valer {la demandada}…, por conducto
+#     de {la figura que firmó}» (RF 6/2026: «por conducto de la Titular de la
+#     Unidad de Asuntos Jurídicos»), y sin figura, HUECO y aviso;
+#   · ninguno de los dos: sin afirmar el carácter (en representación de la
+#     demandada si consta; si no, HUECO), con aviso.
+# Y SE FUNDA ADEMÁS EN EL 5o., CUARTO PÁRRAFO, DE LA LFPCA («La representación
+# de las autoridades corresponderá a las unidades administrativas encargadas de
+# su defensa jurídica», verificado en el texto local): lo citan RF 21, 26 y 49.
+_RX_UNIDAD_JURIDICA = re.compile(
+    r"unidad\s+(?:de\s+)?(?:asuntos\s+)?jur[íi]dic|asuntos\s+jur[íi]dicos|servicios\s+jur[íi]dicos|"
+    r"\blo\s+contencioso\b|defensa\s+jur[íi]dica|administraci[óo]n\s+(?:desconcentrada\s+|central\s+)?"
+    r"(?:de\s+lo\s+contencioso|jur[íi]dica)|direcci[óo]n\s+(?:general\s+)?(?:de\s+)?(?:asuntos\s+)?"
+    r"jur[íi]dic|director[a]?\s+(?:general\s+)?(?:de\s+)?(?:asuntos\s+)?jur[íi]dic|"
+    r"coordinaci[óo]n\s+(?:general\s+)?jur[íi]dica|procuradur[íi]a\s+fiscal|subprocuradur[íi]a|"
+    r"[áa]rea\s+jur[íi]dica|jefatura\s+(?:de\s+)?(?:servicios\s+)?jur[íi]dic", re.I)
+_RX_EN_REPRESENTACION = re.compile(
+    r",?\s+(?:en\s+(?:nombre\s+y\s+)?representaci[óo]n|en\s+nombre)\s+(?:de\s+(?:la|las|los)\s+|del\s+|de\s+)",
+    re.I)
+_FUND_LEGITIMACION_RF = ("en términos del artículo 63, párrafo primero, en relación con el 5o., "
+                         "cuarto párrafo, de la Ley Federal de Procedimiento Contencioso "
+                         "Administrativo")
+
+
+def es_unidad_juridica(nombre: str) -> bool:
+    """¿El nombre es el de la unidad encargada de la defensa jurídica (o de su
+    titular)? Unidad Jurídica, de Asuntos Jurídicos, Subdirección de lo
+    Contencioso, Administración Desconcentrada Jurídica, Procuraduría Fiscal…"""
+    return bool(_RX_UNIDAD_JURIDICA.search(" ".join(str(nombre or "").split())))
+
+
+def _sin_tildes_min(x: str) -> str:
+    import unicodedata as _ud
+    x = "".join(c for c in _ud.normalize("NFD", str(x or "")) if _ud.category(c) != "Mn")
+    x = re.sub(r"[^\w\s]", " ", x.lower())
+    x = re.sub(r"^\s*(?:el|la|los|las)\s+", "", " ".join(x.split()))
+    return x
+
+
+# EL CARGO Y SU ÓRGANO SON LA MISMA AUTORIDAD (E8, cuarta ronda, 3-oct-2026; RF
+# 6/2026: «el Subdelegado de Prestaciones Económicas…, en representación de la
+# Subdelegación de Prestaciones Económicas…», X en representación de X). El
+# engrose usa las dos formas para la misma autoridad —la carátula
+# «SUBDELEGACIÓN», el V I S T O «el Subdelegado»—, y «Titular de la X» es «X».
+# Se comparan con la cabeza del órgano: subdelegado → subdelegación, director →
+# dirección, jefe → jefatura…, y sin el «Titular de» del principio.
+_CARGO_A_ORGANO = (
+    (re.compile(r"^subdelegad[oa]s?\b"), "subdelegacion"),
+    (re.compile(r"^delegad[oa]s?\b"), "delegacion"),
+    (re.compile(r"^subdirector(?:a|es)?\b"), "subdireccion"),
+    (re.compile(r"^director(?:a|es)?\b"), "direccion"),
+    (re.compile(r"^jef[ea]s?\b"), "jefatura"),
+    (re.compile(r"^administrador(?:a|es)?\b"), "administracion"),
+    (re.compile(r"^coordinador(?:a|es)?\b"), "coordinacion"),
+    (re.compile(r"^subprocurador(?:a|es)?\b"), "subprocuraduria"),
+    (re.compile(r"^procurador(?:a|es)?\b"), "procuraduria"),
+    (re.compile(r"^subsecretari[oa]s?\b"), "subsecretaria"),
+    (re.compile(r"^secretari[oa]s?\b"), "secretaria"),
+    (re.compile(r"^tesorer[oa]s?\b"), "tesoreria"),
+    (re.compile(r"^contralor(?:a|es)?\b"), "contraloria"),
+    (re.compile(r"^gerentes?\b"), "gerencia"),
+    (re.compile(r"^(?:presidente|presidenta)\b"), "presidencia"),
+)
+# La adscripción que se añade tras el núcleo del cargo: «… del ISSSTE en
+# Querétaro», «…, Delegación Estatal Querétaro, del Instituto…».
+_RX_ADSCRIPCION = re.compile(
+    r"\s+(?:del|de\s+la|de\s+los|de)\s+(?:instituto|issste|imss|infonavit|delegacion|representacion|"
+    r"oficina|organo\s+de\s+operacion|servicio\s+de\s+administracion\s+tributaria|sat)\b.*$")
+
+
+def _clave_de_autoridad(x: str) -> str:
+    """El nombre sin tildes ni artículo, con «Titular de la X» → «X» y el cargo
+    de la cabeza en su órgano («subdelegado» → «subdelegacion»)."""
+    k = _sin_tildes_min(x)
+    k = re.sub(r"^(?:titular|encargad[oa]\s+del\s+despacho)\s+(?:de\s+la|de\s+los|del|de)\s+", "", k)
+    for rx, org in _CARGO_A_ORGANO:
+        if rx.match(k):
+            k = rx.sub(org, k, count=1)
+            break
+    return k
+
+
+def _nucleo_de_autoridad(x: str) -> str:
+    """El cargo sin su adscripción: hasta la primera coma y sin «del ISSSTE»,
+    «de la Delegación…»; «» si no queda un núcleo de tres palabras o más."""
+    import unicodedata as _ud
+    t = "".join(c for c in _ud.normalize("NFD", str(x or "")) if _ud.category(c) != "Mn").lower()
+    t = re.sub(r"[^\w\s,]", " ", t).split(",")[0]
+    k = _clave_de_autoridad(t)
+    k = _RX_ADSCRIPCION.sub("", k).strip()
+    return k if len(k.split()) >= 3 else ""
+
+
+def misma_autoridad(a: str, b: str) -> bool:
+    """¿Nombran a la misma autoridad? Sin tildes, artículo ni puntuación: igual,
+    o el nombre largo EMPIEZA por el corto (con al menos tres palabras) y sólo
+    le añade su adscripción («Subdelegado de Prestaciones Económicas» y «…del
+    ISSSTE»). Contener no basta: «Titular de la Unidad Jurídica… del Instituto
+    de Seguridad…» contiene al Instituto y no es el Instituto (RF 4/2025).
+
+    E8 (cuarta ronda): el cargo y su órgano cuentan como la misma autoridad
+    («Subdelegado»/«Subdelegación», «Director»/«Dirección», «Jefe»/«Jefatura»,
+    «Titular de la X»/«X»), y también el mismo núcleo con distinta adscripción
+    («Subdelegado de Prestaciones Económicas, Delegación Estatal Querétaro, del
+    ISSSTE» y «Subdelegación de Prestaciones Económicas del ISSSTE en
+    Querétaro»)."""
+    x, y = _sin_tildes_min(a), _sin_tildes_min(b)
+    if not x or not y:
+        return False
+    if x == y:
+        return True
+    corto, largo = (x, y) if len(x) <= len(y) else (y, x)
+    if len(corto.split()) >= 3 and largo.startswith(corto + " "):
+        return True
+    cx, cy = _clave_de_autoridad(a), _clave_de_autoridad(b)
+    if cx == cy:
+        return True
+    corto, largo = (cx, cy) if len(cx) <= len(cy) else (cy, cx)
+    if len(corto.split()) >= 3 and largo.startswith(corto + " "):
+        return True
+    nx, ny = _nucleo_de_autoridad(a), _nucleo_de_autoridad(b)
+    if not (nx and ny):
+        return False
+    corto, largo = (nx, ny) if len(nx) <= len(ny) else (ny, nx)
+    return corto == largo or largo.startswith(corto + " ")
+
+
+def _de_x(x: str) -> str:
+    """«de» + lo que sigue, con la contracción: «del Subdelegado», «de la Sala»."""
+    x = (x or "").strip()
+    if re.match(r"^el\s", x):
+        return "del " + x[3:]
+    return "de " + x
+
+
+# CUARTA RONDA (E8, 3-oct-2026), lo que delataba su propio defecto y se firmaba:
+#   · LA TITULAR QUE FIRMA POR SU UNIDAD NO ES «OTRA PERSONA» (RF 7/2025: «lo
+#     hizo valer la Jefa de la Unidad Jurídica…, por conducto de Representante,
+#     en su carácter de unidad…»). Si la figura es el mismo cargo que encabeza
+#     al promovente, o está contenida en la unidad, quien firmó ES su titular:
+#     «lo hizo valer {nombre}, {cargo}, en representación de {la demandada}»,
+#     la aposición del corpus (RF 2 y 7/2025: «ya que lo promovió X, Jefa de la
+#     Unidad Jurídica…, en representación de la autoridad demandada»);
+#   · un valor TRUNCADO («Titular de la Unidad Jurídica…», la copia del ejemplo
+#     del prompt) no se escribe: fuera, con aviso;
+#   · un representante que es un CARGO («Titular de la Unidad de Asuntos
+#     Jurídicos de la citada delegación», RF 6/2026) es la figura, no un nombre;
+#   · un AUTORIZADO no interpone la revisión fiscal por la autoridad (RF
+#     4/2025): el 5o., quinto párrafo, LFPCA da el autorizado a los particulares
+#     —las autoridades nombran delegados— y el 63 exige a la unidad de defensa
+#     jurídica; se omite del párrafo (el aviso lo da `ficha_tramite.validar`);
+#   · la figura de un cargo conserva su mayúscula y, si pasa de tres palabras,
+#     lleva coma antes del nombre, como en el resultando (`_representacion`).
+_RX_TRUNCADO = re.compile(r"(?:…|\.{3})\s*$")
+_RX_CARGO_DE_PERSONA = re.compile(
+    r"^(?:(?:el|la)\s+)?(?:titular|jef[ea]|director(?:a)?|subdirector(?:a)?|delegad[oa]|"
+    r"subdelegad[oa]|encargad[oa]|coordinador(?:a)?|administrador(?:a)?|gerente|procurador(?:a)?|"
+    r"subprocurador(?:a)?|secretari[oa]|subsecretari[oa]|tesorer[oa]|contralor(?:a)?|"
+    r"consejer[oa]\s+jur[íi]dic[oa])\b", re.I)
+
+
+def _es_cargo(x: str) -> bool:
+    """¿Es un cargo (o una unidad), no el nombre de una persona?"""
+    x = " ".join(str(x or "").split())
+    return bool(x) and (bool(_RX_CARGO_DE_PERSONA.search(x)) or
+                        bool(re.search(r"\bunidad\b|\bdirecci[óo]n\b|\bdepartamento\b", x, re.I)))
+
+
+def sep_figura(fig: str) -> str:
+    """EL SEPARADOR ENTRE LA FIGURA Y EL NOMBRE, UNA SOLA REGLA (F6, quinta
+    ronda, 3-oct-2026; Q 172 y 300 del banco: «su autorizada en términos amplios,
+    Representante, interpuso» en el resultando y «su autorizada en términos
+    amplios Representante, en términos del artículo 12» en la legitimación del
+    mismo documento): coma si la figura cita un artículo o pasa de tres palabras;
+    si no, un espacio («su apoderado legal Juan Ruiz»). La usan el resultando, la
+    legitimación y el resolutivo."""
+    return ", " if (re.search(r"art[íi]culo", fig or "", re.I) or len((fig or "").split()) > 3) else " "
+
+
+_sep_figura = sep_figura
+
+
+def _demandadas_en_plural(t: str) -> str:
+    """La legitimación de la revisión fiscal con las autoridades demandadas en
+    plural (`varias_autoridades`)."""
+    for a, b in (("autoridad demandada en el juicio de nulidad, a la que la sentencia recurrida le "
+                  "resultó adversa", "autoridades demandadas en el juicio de nulidad, a las que la "
+                  "sentencia recurrida les resultó adversa"),
+                 ("la autoridad demandada en el juicio de nulidad", "las autoridades demandadas en el "
+                  "juicio de nulidad"),
+                 ("autoridad demandada en el juicio de nulidad", "autoridades demandadas en el juicio "
+                  "de nulidad"),
+                 (", a la que la sentencia recurrida le resultó adversa",
+                  ", a las que la sentencia recurrida les resultó adversa"),
+                 ("resultó adversa a la autoridad demandada", "resultó adversa a las autoridades "
+                  "demandadas")):
+        t = t.replace(a, b)
+    # Si las que recurren son ellas mismas (no su unidad en su representación),
+    # el verbo también: «pues lo hicieron valer el Secretario…, el Jefe… y el
+    # Titular…, autoridades demandadas…».
+    m = re.search(r"pues lo hizo valer ((?:(?!representaci[óo]n|defensa jur[íi]dica).)+?), autoridades "
+                  r"demandadas en el juicio de nulidad, a las que", t)
+    if m:
+        t = t[:m.start()] + "pues lo hicieron valer " + t[m.start() + len("pues lo hizo valer "):]
+    return t
+
+
+def _legitimacion_rf(parte: str, representante: str = "", hueco: str = "*********",
+                     figura: str = "", autoridad_demandada: str = "", avisos=None) -> str:
+    """El párrafo de legitimación de la revisión fiscal (ver arriba)."""
+    _av = avisos if isinstance(avisos, list) else []
+    unidad = " ".join(str(parte or "").split())
+    aut = " ".join(str(autoridad_demandada or "").split())
+    aut, _ = sin_etiqueta_de_rol(aut)
+    # «X, en representación de Y» en el mismo campo: X recurre, Y es la demandada.
+    m = _RX_EN_REPRESENTACION.search(unidad)
+    if m:
+        _repr = unidad[m.end():].strip(" ,.")
+        unidad = unidad[:m.start()].strip(" ,")
+        if _repr and not aut:
+            aut = sin_etiqueta_de_rol(_repr)[0]
+    unidad, _ = sin_etiqueta_de_rol(unidad)
+    unidad_txt = con_articulo_de_organo(unidad)
+    rep_n = " ".join(str(representante or "").split())
+    fig_cr = " ".join(str(figura or "").split()).strip(" ,;")
+    # LO TRUNCADO NO SE FIRMA.
+    _truncado = False
+    for _clave, _valor in (("representante", rep_n), ("figura_representante", fig_cr)):
+        if _valor and _RX_TRUNCADO.search(_valor):
+            _av.append(
+                f"DATO TRUNCADO ({_clave} = «{_valor}»): termina en puntos suspensivos y no se "
+                f"escribió en la legitimación. Cópialo completo del oficio de interposición.")
+            _truncado = True
+            if _clave == "representante":
+                rep_n = ""
+            else:
+                fig_cr = ""
+    # EL REPRESENTANTE QUE ES UN CARGO ES LA FIGURA (el cargo que se escribió
+    # donde iba el nombre es el de quien firmó: manda sobre la figura).
+    if rep_n and _es_cargo(rep_n):
+        fig_cr, rep_n = rep_n, ""
+    # EL AUTORIZADO NO INTERPONE POR LA AUTORIDAD: no se firma que la unidad
+    # actuó «por conducto de su autorizado». EL AVISO ES DE `ficha_tramite.validar`
+    # (E8, mismo hecho, E11: un aviso por dato), que ya lo dice con la ficha.
+    if fig_cr and _RX_AUTORIZADO.search(fig_cr):
+        fig_cr, rep_n = "", ""
+    fig = figura_en_prosa(fig_cr, ley_de_amparo=False)
+    # LA FIGURA QUE YA ES EL NOMBRE NO SE REPITE (RF 21/2025 del banco: «lo hizo
+    # valer el Titular de la Unidad de Asuntos Jurídicos, por conducto de su
+    # titular de la Unidad de Asuntos Jurídicos»), ni el representante que es el
+    # propio promovente. Y SI HAY NOMBRE, ESA PERSONA ES LA TITULAR (E8).
+    _titular_firma = False
+
+    def _dentro(a_: str, b_: str) -> bool:
+        return len(a_.split()) >= 2 and f" {a_} " in f" {b_} "
+
+    if fig and (misma_autoridad(fig, unidad) or _dentro(_sin_tildes_min(fig), _sin_tildes_min(unidad))
+                or _dentro(_clave_de_autoridad(fig), _clave_de_autoridad(unidad))):
+        fig = ""
+        _titular_firma = bool(rep_n)
+    if rep_n and misma_autoridad(rep_n, unidad):
+        rep_n = ""
+        _titular_firma = False
+    # LA FIGURA QUE SÓLO DICE QUE REPRESENTA A LA DEMANDADA NO ES UN CARGO (banco,
+    # RF 49/2025: «por conducto de su representante de la autoridad demandada»):
+    # se queda el nombre, si lo hay.
+    if fig and re.search(r"autoridad\s+demandada|\brepresentaci[óo]n\b", fig, re.I):
+        fig = ""
+    # SIN FIGURA, EL NOMBRE QUE FIRMA POR UN CARGO («la Jefa de la Unidad
+    # Jurídica…») ES EL DE SU TITULAR: aposición, y aviso si no hubo figura.
+    if rep_n and not fig and not _titular_firma and _RX_CARGO_DE_PERSONA.search(unidad):
+        _titular_firma = True
+        if fig_cr == "" and not _truncado:
+            _av.append(
+                f"FALTA LA FIGURA DE QUIEN FIRMÓ EL OFICIO (figura_representante): se escribió que "
+                f"{rep_n} lo firmó como {sin_articulo_de_prosa(unidad_txt)}. Compruébalo en el oficio "
+                f"de interposición.")
+    rep_txt = _nombre_en_prosa(rep_n) if rep_n else ""
+    _aut_txt = con_articulo_de_organo(aut) if aut else ""
+    autoridad = (f"{_aut_txt}, autoridad demandada en el juicio de nulidad" if _aut_txt
+                 else "la autoridad demandada en el juicio de nulidad")
+    base = f"El recurso de revisión fiscal fue interpuesto por parte legítima, {_FUND_LEGITIMACION_RF}, pues lo hizo valer "
+    # LA PROPIA AUTORIDAD DEMANDADA, por conducto de quien firmó por ella.
+    if aut and misma_autoridad(unidad, aut):
+        if fig:
+            _quien = con_articulo_de_organo(fig_cr) if es_unidad_juridica(fig) else f"su {fig}"
+            if not es_unidad_juridica(fig):
+                _av.append(
+                    f"COMPRUEBA LA LEGITIMACIÓN DE LA REVISIÓN FISCAL: recurre la propia autoridad "
+                    f"demandada por conducto de «{fig}», que no se reconoce como la unidad encargada "
+                    f"de su defensa jurídica (arts. 63, párrafo primero, y 5o., cuarto párrafo, LFPCA).")
+            _por = f", por conducto {_de_x(_quien)}" + (f", {rep_txt}" if rep_txt else "")
+        else:
+            _por = f", por conducto de {hueco}"
+            _av.append(
+                "FALTA LA UNIDAD JURÍDICA QUE FIRMÓ EL OFICIO (art. 63 LFPCA): recurre la propia "
+                "autoridad demandada, y la revisión fiscal sólo la interpone por conducto de la "
+                "unidad administrativa encargada de su defensa jurídica. Escribe en la ficha la "
+                "figura del representante (p. ej., «Titular de la Unidad de Asuntos Jurídicos») "
+                "y su nombre.")
+        return (f"{base}{_aut_txt}, autoridad demandada en el juicio de nulidad, a la que la "
+                f"sentencia recurrida le resultó adversa{_por}.")
+    # LA TITULAR QUE FIRMA POR SU UNIDAD JURÍDICA: la aposición del corpus.
+    if _titular_firma and rep_txt and es_unidad_juridica(unidad):
+        if _RX_CARGO_DE_PERSONA.search(unidad):
+            _cargo = sin_articulo_de_prosa(unidad_txt)
+        else:
+            # «Unidad Jurídica de la Delegación…» con la figura «Titular de la
+            # Unidad Jurídica»: la persona es «Titular de la Unidad Jurídica…».
+            _cab = (fig_cr.split()[:1] or ["Titular"])[0]
+            _cargo = f"{_cab[:1].upper()}{_cab[1:].lower()} {_de_x(unidad_txt)}"
+        return (f"{base}{rep_txt}, {_cargo}, en representación {_de_x(autoridad)}, a la que la "
+                f"sentencia recurrida le resultó adversa.")
+    # Sin nombre, a la unidad no se le añade su propio titular: no dice nada que
+    # el nombre de la unidad no diga.
+    rep = ""
+    if rep_txt:
+        rep = (f", por conducto de su {fig}{_sep_figura(fig)}{rep_txt}" if fig
+               else f", por conducto de {rep_txt}")
+    elif fig and not es_unidad_juridica(unidad):
+        rep = f", por conducto de su {fig}"
+    # LA UNIDAD JURÍDICA: la fórmula del corpus.
+    if es_unidad_juridica(unidad):
+        return (f"{base}{unidad_txt}{rep}, en su carácter de unidad administrativa encargada "
+                f"de la defensa jurídica {_de_x(autoridad)}, a la que la sentencia recurrida "
+                f"le resultó adversa.")
+    if _aut_txt:
+        _av.append(
+            f"COMPRUEBA LA LEGITIMACIÓN DE LA REVISIÓN FISCAL: «{unidad}» no se reconoce como la "
+            f"unidad encargada de la defensa jurídica {_de_x(_aut_txt)} (arts. 63, párrafo primero, y "
+            f"5o., cuarto párrafo, LFPCA). El considerando dice que recurrió en su representación, "
+            f"sin afirmar que sea esa unidad.")
+        return (f"{base}{unidad_txt}{rep}, en representación {_de_x(autoridad)}, a la que la "
+                f"sentencia recurrida le resultó adversa.")
+    _av.append(
+        f"EL CARÁCTER CON QUE RECURRE «{unidad}» VA EN HUECO EN LA LEGITIMACIÓN: la revisión "
+        f"fiscal sólo la interpone la unidad administrativa encargada de la defensa jurídica de "
+        f"la autoridad demandada (arts. 63, párrafo primero, y 5o., cuarto párrafo, LFPCA). "
+        f"Escribe en la ficha la autoridad demandada y, si recurre ella misma, la unidad que "
+        f"firmó el oficio.")
+    return (f"{base}{unidad_txt}{rep}, en su carácter de {hueco}, en el juicio de nulidad en el "
+            f"que la sentencia recurrida resultó adversa a la autoridad demandada.")
+
+
+# LOS ÓRGANOS Y LOS SERVIDORES PÚBLICOS SE NOMBRAN CON SU ARTÍCULO (3-oct-2026).
+# «interpuesto por Director de Ingresos» no es español; «interpuesto por Juan
+# Pérez» sí. Se distingue por la forma del nombre: un cargo o un órgano al
+# frente, y nunca la forma de una sociedad (S.A., S.C., A.C.), que es persona
+# moral privada y va sin artículo.
+_RX_ORGANO_PUBLICO = re.compile(
+    r"^(?:(?:el|la|los|las)\s+)?(?:"
+    r"administraci[óo]n|administrador[a]?|director[a]?|direcci[óo]n|subdirector[a]?|"
+    r"subdirecci[óo]n|titular|jef[ea]|secretar[íi]a|secretari[oa]|subsecretar\w*|"
+    r"procurador[a]?|procuradur[íi]a|fiscal[íi]a|fiscal|juez[a]?|juzgado|tribunal|sala|"
+    r"junta|magistrad[oa]|presidente|presidenta|ayuntamiento|municipio|instituto|"
+    r"comisi[óo]n|unidad|delegad[oa]|delegaci[óo]n|subdelegaci[óo]n|coordinaci[óo]n|"
+    r"coordinador[a]?|gerencia|gerente|tesorer[íi]a|tesorer[oa]|recaudaci[óo]n|"
+    r"recaudador[a]?|oficina|registr[oa]dor[a]?|congreso|gobernador[a]?|gobierno|"
+    r"consejo|servicio\s+de\s+administraci[óo]n|organismo|autoridad|agente|"
+    r"encargad[oa]|actuari[oa]|notari[oa]|polic[íi]a|guardia|ejecutor[a]?|"
+    r"verificador[a]?|inspector[a]?|visitador[a]?|contralor[íi]a|contralor[a]?)\b", re.I)
+_RX_SOCIEDAD = re.compile(r"\bS\.?\s*A\.?\b|\bS\.?\s*C\.?\b|\bA\.?\s*C\.?\b|"
+                          r"\bS\.?\s*de\s*R\.?\s*L\.?\b|\bsociedad\b", re.I)
+
+
+def es_organo_publico(nombre: str) -> bool:
+    """¿El nombre es el de un órgano o un servidor público, no una persona?"""
+    n = " ".join(str(nombre or "").split())
+    return bool(n and _RX_ORGANO_PUBLICO.search(n) and not _RX_SOCIEDAD.search(n))
+
+
+# UN SOLO CONVERTIDOR DE NOMBRES A PROSA (E1, cuarta ronda, 3-oct-2026). El
+# considerando de legitimación pasaba el nombre por sus propias reglas —las
+# versales enteras y nada más— y el V I S T O del mismo documento por las del
+# compositor: «a Través de Su Albacea» en una sección y «a través de su albacea»
+# en otra (Q 342/2025), «el gobernador» y «el Gobernador» (AR 208/2025), «la
+# Titular» que se volvía «el Titular» (RF 4/2025). La puerta es
+# `resultandos_por_tipo.nombre_en_prosa`; si aún no acepta `con_articulo` o no
+# se puede importar, lo de antes (el artículo de los colectivos lo pone
+# `con_articulo_de_colectivo`).
+def _nombre_en_prosa(nombre: str, autoridad: bool = False, con_articulo: bool = False) -> str:
+    n = " ".join(str(nombre or "").split())
+    if not n:
+        return ""
+    try:
+        import resultandos_por_tipo as _rpt_n
+        _f = getattr(_rpt_n, "nombre_en_prosa", None)
+        if callable(_f):
+            try:
+                r = _f(n, autoridad=autoridad, con_articulo=con_articulo)
+            except TypeError:
+                r = _f(n, autoridad=autoridad)
+            r = " ".join(str(r or "").split()) or n
+            return con_articulo_de_colectivo(r) if (con_articulo and not autoridad) else r
+    except Exception:
+        pass
+    return con_articulo_de_colectivo(n) if (con_articulo and not autoridad) else n
+
+
+def con_articulo_de_organo(nombre: str) -> str:
+    """«Director de Ingresos…» → «el Director de Ingresos…». Usa la puerta
+    única del compositor (`resultandos_por_tipo.nombre_en_prosa`, E1), que
+    conserva «la Titular» del papel y pasa las versales a prosa; si no se puede
+    importar, la regla de artículos de `documento_generado._con_articulo`; y si
+    tampoco, el nombre tal cual."""
+    n = " ".join(str(nombre or "").split()).strip(" .,;")
+    n = sin_etiqueta_de_rol(n)[0]
+    if not n:
+        return ""
+    _art = articulo_del_papel(n)
+    _p = _nombre_en_prosa(n, autoridad=True)
+    if re.match(r"(?i)^(?:el|la|los|las)\s", _p or ""):
+        return _con_el_articulo_del_papel(_p, _art)
+    try:
+        import documento_generado as _dg_a
+        # LAS VERSALES DE LA CARÁTULA NO PASAN A LA PROSA (3-oct-2026, AR
+        # 208/2025: «el GOBERNADOR DEL ESTADO DE QUERÉTARO»; RF 2/2025: «lo hizo
+        # valer el JEFA DE LA UNIDAD JURÍDICA…»). `_nombre_de_organo` sólo rehace
+        # lo que viene entero en mayúsculas y respeta romanos y siglas.
+        if n == n.upper() and any(c.isalpha() for c in n):
+            n = _dg_a._nombre_de_organo(n) or n
+        return _con_el_articulo_del_papel(_dg_a._con_articulo(n) or n, _art)
+    except Exception:
+        return n
+
+
+# EL ARTÍCULO DEL PAPEL SE CONSERVA EN LOS CARGOS DE DOBLE GÉNERO (F5, quinta
+# ronda, 3-oct-2026; AD 128/2025 del banco: la ficha trae «la Oficial Mayor y
+# Coordinadora de Recursos Humanos del Municipio de Cadereyta» y el documento
+# decía «el Oficial Mayor»). Titular, Oficial, Fiscal, Agente, Representante,
+# Juez y Encargado no dicen el género por su forma: lo dice el artículo con que
+# el papel los nombra, y sólo ése se firma. Sin artículo en el papel, el
+# masculino genérico de siempre (y el aviso «EL GÉNERO DEL CARGO NO CONSTA»
+# lo da el compositor). Antes sólo «la Titular» se respetaba.
+_CARGO_DOBLE_GENERO = r"(?:titular|oficial|fiscal|agente|representante|juez|encargad[oa])(?:es|s)?\b"
+_RX_CARGO_DOBLE_GENERO = re.compile(r"^\s*(el|la|los|las)\s+(?=" + _CARGO_DOBLE_GENERO + ")", re.I)
+
+
+def articulo_del_papel(crudo: str) -> str:
+    """«la», «el», «las» o «los» si el valor del papel nombra un cargo de doble
+    género con su artículo («la Oficial Mayor», «LA FISCAL GENERAL»); si no,
+    «»."""
+    m = _RX_CARGO_DOBLE_GENERO.match(" ".join(str(crudo or "").split()))
+    return m.group(1).lower() if m else ""
+
+
+def _con_el_articulo_del_papel(prosa: str, art: str) -> str:
+    """La prosa con el artículo del papel (`articulo_del_papel`) cuando el
+    convertidor puso otro ante el mismo cargo."""
+    if not art or not prosa:
+        return prosa
+    m = _RX_CARGO_DOBLE_GENERO.match(prosa)
+    if m and m.group(1).lower() != art:
+        return art + prosa[m.end(1):]
+    return prosa
 
 
 def rotulo_materia_de(tipo: str) -> str:
@@ -3140,9 +5319,199 @@ def encabezado_de(tipo: str, materia: str = "", numero: str = "") -> str:
     plantilla = _ENCABEZADO.get(t)
     if not plantilla:
         return (numero or "").strip()
-    mat = _MATERIA_ENCABEZADO.get(t, {}).get(
-        (materia or "").strip().lower(), (materia or "").strip().upper())
+    _m = (materia or "").strip().lower()
+    _m = _MATERIA_EN_FEMENINO.get(_m, _m)
+    mat = _MATERIA_ENCABEZADO.get(t, {}).get(_m, (materia or "").strip().upper())
     return " ".join(plantilla.format(materia=mat, numero=(numero or "").strip()).split())
+
+
+# ═══ LOS ASUNTOS RELACIONADOS, SÓLO SI EL SECRETARIO LOS MARCA (C6, 3-oct-2026) ═══
+# David: «siempre y cuando haya asuntos relacionados. No vamos a meter conexidad
+# en automático. Hay que habilitar en el taller la opción de con un clic precisar
+# si existen asuntos relacionados y con ello se genera el considerando». Nada de
+# esto se lee de los papeles: la lista la da el secretario en el taller (la
+# ficha la guarda en `relacionados`, fuente «secretario», hasta 4) y de aquí
+# salen tres piezas, todas puras:
+#   · el rubro, «RELACIONADO CON EL AMPARO DIRECTO CIVIL 452/2025.» (AD
+#     456/2025 y 552/2024, Q 24/2026, AD 469/2024 del banco, que lo ponen bajo
+#     el número);
+#   · lo que el V I S T O inserta tras el número («…, relacionado con el amparo
+#     en revisión civil 298/2025, interpuesto por…»);
+#   · el considerando: conexidad si se resuelven en la misma sesión (con el 64
+#     de la LFPCA sólo para el par amparo directo ↔ revisión fiscal, AD
+#     469/2024: «Si el particular interpuso amparo directo contra la misma
+#     resolución o sentencia impugnada mediante el recurso de revisión, el
+#     Tribunal Colegiado de Circuito que conozca del amparo resolverá el citado
+#     recurso, lo cual tendrá lugar en la misma sesión en que decida el
+#     amparo»); hecho notorio si ya se resolvieron (CFPC 88 o CNPCF 269, según
+#     la sede, `supletorio`).
+# LA MATERIA CONCUERDA IGUAL QUE EN EL ENCABEZADO DE ESE TIPO (integración,
+# 3-oct-2026; A1 dudó y el contrato decía «amparo en revisión administrativo»):
+# el renglón «RELACIONADO CON EL AMPARO EN REVISIÓN ADMINISTRATIVA 12/2026» dice
+# lo mismo que diría el encabezado de ese amparo en revisión («AMPARO EN
+# REVISIÓN ADMINISTRATIVA: 12/2026»), y la prosa, lo mismo en minúsculas. Sale
+# de la misma tabla (`_MATERIA_ENCABEZADO`): «amparo directo administrativo»,
+# «amparo en revisión administrativa», «recurso de queja administrativa»; la
+# revisión fiscal no lleva materia. Lo familiar se registra como civil.
+TIPOS_RELACIONADOS = ("amparo_directo", "amparo_revision", "queja", "revision_fiscal")
+ESTADOS_RELACIONADO = ("misma_sesion", "resuelto")
+MAX_RELACIONADOS = 4
+_NOMBRE_RELACIONADO = {
+    "amparo_directo": "amparo directo",
+    "amparo_revision": "amparo en revisión",
+    "queja": "recurso de queja",
+    "revision_fiscal": "recurso de revisión fiscal",
+}
+_RX_NUMERO_RELACIONADO = re.compile(r"^\s*(\d{1,6})\s*/\s*(\d{4})\s*$")
+_RX_NUMERO_EN_TEXTO = re.compile(r"(\d{1,6})\s*/\s*(\d{4})\b")
+
+
+def _materia_en_prosa(tipo: str, materia: str = "") -> str:
+    """La materia concordada con el nombre del asunto como en su encabezado
+    (`encabezado_de`), en minúsculas; «» en la revisión fiscal o sin materia."""
+    t = normalizar(tipo)
+    m = " ".join(str(materia or "").split()).lower()
+    if t == "revision_fiscal" or not m:
+        return ""
+    m = _MATERIA_EN_FEMENINO.get(m, m)
+    if m == "familiar":
+        m = "civil"
+    return _MATERIA_ENCABEZADO.get(t, {}).get(m, m.upper()).lower()
+
+
+def _numero_normalizado(numero) -> str:
+    """«452/2025» si el valor es exactamente un número de asunto; «» si no."""
+    m = _RX_NUMERO_RELACIONADO.match(str(numero or ""))
+    return f"{int(m.group(1))}/{m.group(2)}" if m else ""
+
+
+def relacionados_validos(lista) -> list:
+    """La lista tal como la usan las piezas: tipo conocido, número N/AAAA,
+    estado «misma_sesion» (por omisión) o «resuelto», sin duplicados y hasta
+    `MAX_RELACIONADOS`. Lo que no cumple se queda fuera en silencio (los
+    avisos los da la ficha, `ficha_tramite.de_formulario`)."""
+    out, vistos = [], set()
+    for r in (lista if isinstance(lista, (list, tuple)) else []):
+        if not isinstance(r, dict):
+            continue
+        t = normalizar(str(r.get("tipo") or ""))
+        num = _numero_normalizado(r.get("numero"))
+        if t not in TIPOS_RELACIONADOS or not num or (t, num) in vistos:
+            continue
+        est = str(r.get("estado") or "").strip().lower()
+        vistos.add((t, num))
+        out.append({"tipo": t, "numero": num,
+                    "estado": "resuelto" if est == "resuelto" else "misma_sesion"})
+    return out[:MAX_RELACIONADOS]
+
+
+def relacionado_en_prosa(r: dict, materia: str = "") -> str:
+    """«amparo directo civil 452/2025», «amparo en revisión administrativa
+    12/2026», «recurso de queja administrativa 24/2026», «recurso de revisión
+    fiscal 33/2024». «» si el relacionado no es válido."""
+    v = relacionados_validos([r])
+    if not v:
+        return ""
+    t, num = v[0]["tipo"], v[0]["numero"]
+    return " ".join(f"{_NOMBRE_RELACIONADO[t]} {_materia_en_prosa(t, materia)} {num}".split())
+
+
+def relacionados_en_prosa(lista, materia: str = "") -> str:
+    """«el amparo directo civil 452/2025» / «el amparo directo civil 452/2025
+    y con el recurso de revisión fiscal 33/2024» (tres: «el X, con el Y y con
+    el Z»). Va tras «relacionado con» en el V I S T O."""
+    xs = ["el " + relacionado_en_prosa(r, materia) for r in relacionados_validos(lista)]
+    if not xs:
+        return ""
+    if len(xs) == 1:
+        return xs[0]
+    return ", con ".join(xs[:-1]) + " y con " + xs[-1]
+
+
+def rotulo_relacionados(lista, materia: str = "") -> str:
+    """El renglón del rubro, en versales: «RELACIONADO CON EL AMPARO DIRECTO
+    CIVIL 452/2025.»; «» sin relacionados."""
+    p = relacionados_en_prosa(lista, materia)
+    return f"RELACIONADO CON {p.upper()}." if p else ""
+
+
+def _este_asunto_en_prosa(tipo: str, numero: str, materia: str) -> str:
+    """Cómo se nombra «el presente»: «juicio de amparo directo civil 456/2025»,
+    «amparo en revisión civil 298/2025», «recurso de queja civil 24/2026»,
+    «recurso de revisión fiscal 33/2024»."""
+    t = normalizar(tipo) or "amparo_directo"
+    m = _RX_NUMERO_EN_TEXTO.search(str(numero or ""))
+    num = f"{int(m.group(1))}/{m.group(2)}" if m else ""
+    nombre = {"amparo_directo": "juicio de amparo directo"}.get(t, _NOMBRE_RELACIONADO[t])
+    return " ".join(f"{nombre} {_materia_en_prosa(t, materia)} {num}".split())
+
+
+def _par_del_64(este: str, otro: str) -> bool:
+    """¿Amparo directo y revisión fiscal? Es el único par que funda la misma
+    sesión en el artículo 64 de la LFPCA."""
+    return {este, otro} == {"amparo_directo", "revision_fiscal"}
+
+
+def considerando_relacionados(tipo: str, numero: str, materia: str, lista: list,
+                              hecho_notorio: str) -> tuple:
+    """(rótulo, texto) del considerando de los asuntos relacionados; ("", "")
+    sin lista. Rótulo «Conexidad.» si todos se resuelven en la misma sesión,
+    «Hecho notorio.» si todos ya se resolvieron, «Asuntos relacionados.» si hay
+    de los dos (un párrafo por estado, separados por "\\n"). `hecho_notorio` es
+    `supletorio(tribunal, ciudad)["hecho_notorio"]`; vacío, el de la regla
+    general (CFPC)."""
+    t = normalizar(tipo) or "amparo_directo"
+    m = _RX_NUMERO_EN_TEXTO.search(str(numero or ""))
+    propio = f"{int(m.group(1))}/{m.group(2)}" if m else ""
+    xs = [r for r in relacionados_validos(lista)
+          if not (r["tipo"] == t and r["numero"] == propio)]
+    if not xs:
+        return ("", "")
+    misma = [r for r in xs if r["estado"] == "misma_sesion"]
+    hechos = [r for r in xs if r["estado"] == "resuelto"]
+    rotulo = ("Asuntos relacionados." if (misma and hechos)
+              else "Conexidad." if misma else "Hecho notorio.")
+    este = _este_asunto_en_prosa(t, numero, materia)
+    indice = "del índice de este Tribunal Colegiado de Circuito"
+    parrafos = []
+    if misma:
+        par = [r for r in misma if _par_del_64(t, r["tipo"])]
+        otros = [r for r in misma if r not in par]
+        if par:
+            _ambos = "ambos" if len(par) == 1 else "todos"
+            p = (f"Con vista en la conexión que guarda el presente {este} con "
+                 f"{relacionados_en_prosa(par, materia)}, {_ambos} {indice}, se resuelven "
+                 f"en la misma sesión, con fundamento en el artículo 64 de la Ley Federal de "
+                 f"Procedimiento Contencioso Administrativo, porque en {_ambos} se impugna "
+                 f"la misma sentencia.")
+            if otros:
+                # LOS DEMÁS, CON LA FÓRMULA GENERAL Y EN SU ORACIÓN: el 64 no se
+                # afirma de un par que no es amparo directo ↔ revisión fiscal.
+                p += (f" Asimismo, con vista en la conexión que guarda el presente asunto "
+                      f"con {relacionados_en_prosa(otros, materia)}, también {indice}, se "
+                      f"resuelven en la misma sesión, a fin de evitar el dictado de "
+                      f"resoluciones contradictorias.")
+        else:
+            _ambos = "ambos" if len(otros) == 1 else "todos"
+            p = (f"Con vista en la conexión que guarda el presente {este} con "
+                 f"{relacionados_en_prosa(otros, materia)}, {_ambos} {indice}, se resuelven "
+                 f"en la misma sesión, a fin de evitar el dictado de resoluciones "
+                 f"contradictorias.")
+        parrafos.append(p)
+    if hechos:
+        hn = " ".join(str(hecho_notorio or "").split()) or supletorio()["hecho_notorio"]
+        rels = [relacionado_en_prosa(r, materia) for r in hechos]
+        if len(rels) == 1:
+            p = (f"Se invoca como hecho notorio, en términos de {hn}, la ejecutoria dictada "
+                 f"por este Tribunal Colegiado de Circuito en el {rels[0]}, relacionado con "
+                 f"el presente asunto.")
+        else:
+            _en = ", en el ".join(rels[:-1]) + " y en el " + rels[-1]
+            p = (f"Se invocan como hecho notorio, en términos de {hn}, las ejecutorias "
+                 f"dictadas por este Tribunal Colegiado de Circuito en el {_en}, "
+                 f"relacionados con el presente asunto.")
+        parrafos.append(p)
+    return (rotulo, "\n".join(_contraer_articulo(p) for p in parrafos))
 
 
 def ley_de_la_via(tipo: str, sede_del_acto: str = "",

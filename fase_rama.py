@@ -1095,6 +1095,16 @@ def quejoso_del_resolutivo(texto: str) -> str:
         m = rx.search(t)
         if m:
             q = m.group("q").strip(" ,;:")
+            # Y CUANDO EL NOMBRE CIERRA LA FRASE, EL PUNTO DE LA ABREVIATURA SE
+            # QUEDABA FUERA (3-oct-2026): «…ampara y protege a X, S.A. de C.V.»
+            # daba «…de C.V», porque ese punto es a la vez el de fin de frase.
+            _fin = m.end("q")
+            if t[_fin:_fin + 1] == "." and re.search(r"(?:\b\w\.)+\w$", q):
+                q += "."
+            # EL ARTÍCULO DE LA PROSA NO ES DEL NOMBRE (3-oct-2026): «…protege a
+            # la Unión de Trabajadores…» daba «la Unión…» como quejosa. Sólo en
+            # minúscula: «La Costeña, S.A.» sí lo lleva en su nombre.
+            q = re.sub(r"^(?:la|el|los|las)\s+(?=[A-ZÁÉÍÓÚÑ])", "", q)
             # EL PUNTO DE «A.C.» O «C.T.M.» ES DEL NOMBRE; el de fin de frase, no.
             if q.endswith(".") and not re.search(r"(?:\b\w\.){2,}$", q):
                 q = q[:-1].rstrip()

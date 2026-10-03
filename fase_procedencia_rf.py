@@ -154,18 +154,37 @@ _SUPUESTOS_VI = (
     (re.compile(r"sujetos?\s+obligad[oa]s?|patr[óo]n\s+sustituto|sustituci[óo]n\s+patronal|"
                 r"relaci[óo]n\s+(?:laboral|de\s+trabajo)\s+inexistente", re.I),
      "la determinación de sujetos obligados"),
+    # LAS PENSIONES DEL ISSSTE NO SIEMPRE SE LLAMAN «PENSIÓN» (quinta ronda,
+    # 3-oct-2026; RF 4/2025 del banco: «solicitud de incorporación al sistema de
+    # jubilación previsto en el artículo Décimo Transitorio de la Ley del
+    # ISSSTE…» salía con el supuesto en hueco). La jubilación, el régimen del
+    # Décimo Transitorio, el retiro por edad, la cesantía y la cuota pensionaria
+    # son el mismo supuesto; la guarda del ISSSTE (abajo) sigue. Con la bandera
+    # (`_RX_PENSION_AMPLIADA`); sin ella, «pensión» como antes.
     (re.compile(r"pensi[óo]n", re.I),
      "un aspecto relacionado con pensiones que otorga el Instituto de Seguridad "
      "y Servicios Sociales de los Trabajadores del Estado"),
 )
 
 
-def supuesto_fraccion_vi(texto: str) -> str:
-    """La porción de la fracción VI que se surte, o «» si no se reconoce."""
+_RX_PENSION_AMPLIADA = re.compile(
+    r"pensi[óo]n|jubilaci[óo]n|d[ée]cimo\s+transitorio|retiro\s+por\s+edad|"
+    r"cesant[íi]a|cuota\s+(?:diaria\s+)?pensionaria", re.I)
+
+
+def supuesto_fraccion_vi(texto: str, ampliado=None) -> str:
+    """La porción de la fracción VI que se surte, o «» si no se reconoce.
+    `ampliado` (por omisión, lo que diga la bandera `procedencia_por_tipo`):
+    las pensiones también por jubilación, Décimo Transitorio, retiro, cesantía
+    o cuota pensionaria (quinta ronda)."""
     t = texto or ""
     if not _RX_SEG_SOCIAL.search(t):
         return ""
+    if ampliado is None:
+        ampliado = _rige_procedencia()
     for rx, porcion in _SUPUESTOS_VI:
+        if ampliado and "pensiones" in porcion:
+            rx = _RX_PENSION_AMPLIADA
         if rx.search(t):
             if "pensiones" in porcion and not re.search(r"ISSSTE|Seguridad\s+y\s+Servicios", t, re.I):
                 continue
@@ -209,7 +228,34 @@ def _pesos(x: float) -> str:
     return f"${x:,.2f}"
 
 
-def _parrafo_vi(porcion: str) -> str:
+def _rige_procedencia() -> bool:
+    """¿Rige `procedencia_por_tipo`? False si falta el contexto o la bandera."""
+    try:
+        import contexto_taller as _ct_pf
+        _f = getattr(_ct_pf, "rige", None)
+        return bool(_f("procedencia_por_tipo")) if callable(_f) else False
+    except Exception:
+        return False
+
+
+def _parrafo_vi(porcion: str, nuevo: bool = True) -> str:
+    # LAS PENSIONES DEL ISSSTE NO SON «APORTACIONES» (3-oct-2026, rev_5). La
+    # fracción VI las enumera dentro de la misma oración, pero los 6 engroses del
+    # banco que la usan presentan las pensiones como hipótesis propia (RF
+    # 28/2025: «esa hipótesis normativa prevé la procedencia de la revisión
+    # fiscal en contra de las resoluciones relacionadas con pensiones otorgadas
+    # por el Instituto…»), y llamar «resolución en materia de aportaciones de
+    # seguridad social» a la que niega o calcula una pensión es describir mal lo
+    # resuelto. `nuevo`: con la bandera (en el camino viejo, que reconoce la
+    # fracción por el vocabulario de la sentencia, queda la fórmula de antes).
+    if nuevo and "pensiones" in porcion:
+        return ("El recurso es procedente en términos del artículo 63, fracción VI, "
+                "de la Ley Federal de Procedimiento Contencioso Administrativo, que "
+                "prevé su procedencia contra las resoluciones que versen sobre "
+                "cualquier aspecto relacionado con pensiones que otorga el Instituto "
+                "de Seguridad y Servicios Sociales de los Trabajadores del Estado, "
+                "toda vez que la sentencia recurrida versa sobre un aspecto de esa "
+                "naturaleza.")
     return (f"El recurso es procedente en términos del artículo 63, fracción "
             f"VI, de la Ley Federal de Procedimiento Contencioso Administrativo, "
             f"toda vez que la sentencia recurrida versa sobre una resolución en "
@@ -217,17 +263,266 @@ def _parrafo_vi(porcion: str) -> str:
             f"{'al ' + porcion[3:] if porcion.startswith('el ') else 'a ' + porcion}.")
 
 
+# LA NULIDAD FORMAL Y LA DE FONDO (3-oct-2026, rev_5). En 3 de 8 engroses la
+# procedencia por la fracción VI razona además que la Sala no anuló por vicios
+# formales sino de fondo (RF 28/2025: «de ahí que la nulidad recurrida no es de
+# carácter formal, sino de fondo»), y en 5 de 8 la Sala anuló «para efectos» por
+# falta de fundamentación y motivación, que es justo el caso de riesgo. No se
+# afirma ni se niega: se avisa, porque sólo quien leyó la sentencia lo sabe.
+# En el SENTIDO de la ficha basta «nulidad»; en el TEXTO de la sentencia no,
+# porque todo él dice «juicio de nulidad»: ahí tiene que DECLARARSE.
+_RX_NULIDAD = re.compile(r"\bnulidad\b|\banul[óo]\b", re.I)
+_RX_NULIDAD_DECLARADA = re.compile(
+    r"declar\w*\s+(?:la\s+)?nulidad|nulidad\s+lisa|\banul[óo]\b|"
+    r"nulidad\s+de\s+la\s+resoluci[óo]n\s+impugnada", re.I)
+_RX_PARA_EFECTOS = re.compile(
+    r"nulidad[^.]{0,120}?para\s+(?:determinados\s+|los\s+)?efectos|"
+    r"falta\s+de\s+(?:debida\s+)?(?:fundamentaci[óo]n|motivaci[óo]n)|"
+    r"vicios?\s+(?:formales?|de\s+procedimiento)", re.I)
+
+
+# CON UN DERECHO SUBJETIVO RECONOCIDO, LA NULIDAD ES DE FONDO (quinta ronda,
+# 3-oct-2026; RF 6/2026 del banco: la Sala «declaró la nulidad… para efectos y
+# reconoció el derecho subjetivo al incremento de la cuota pensionaria y al pago
+# retroactivo de las diferencias»). El aviso preguntaba si la nulidad era formal
+# o de fondo cuando el sentido ya lo dice: reconocer al actor la existencia de un
+# derecho subjetivo es la nulidad del artículo 52, fracción V, inciso a), LFPCA
+# (verificado en el texto local), que no es por vicios formales. Sólo se mira el
+# SENTIDO de la ficha: en el texto de la sentencia «derecho subjetivo» aparece
+# también en lo que pidió la actora o en los agravios. EL CONSIDERANDO NO SE
+# TOCA: el engrose de RF 6/2026 no lo razona (3 de 8 sí); el aviso da el
+# fundamento por si el secretario quiere decirlo.
+_RX_DERECHO_SUBJETIVO = re.compile(
+    r"reconoc\w*[^.;]{0,80}?derecho\s+subjetivo|derecho\s+subjetivo[^.;]{0,40}?reconoc\w*", re.I)
+
+
+def reconoce_derecho_subjetivo(sentido: str = "") -> bool:
+    """¿El sentido de la sentencia de la Sala (el de la ficha, o su clave
+    «nulidad_derecho») dice que reconoció un derecho subjetivo?"""
+    s = " ".join(str(sentido or "").split())
+    return s.lower() == "nulidad_derecho" or bool(_RX_DERECHO_SUBJETIVO.search(s))
+
+
+def aviso_nulidad_vi(sentido: str = "", texto: str = "") -> str:
+    """El aviso de nulidad formal o de fondo para la fracción VI, o «». Mira el
+    sentido de la ficha si lo hay; si no, el texto de la sentencia. Con un
+    derecho subjetivo reconocido en el sentido (quinta ronda), el aviso ya no
+    pregunta: dice que la nulidad es de fondo y con qué fundamento."""
+    s = " ".join(str(sentido or "").split())
+    if s and reconoce_derecho_subjetivo(s):
+        return ("PROCEDENCIA POR LA FRACCIÓN VI Y LA SALA RECONOCIÓ UN DERECHO SUBJETIVO: la "
+                "nulidad es de fondo, no por vicios formales —es la del artículo 52, fracción V, "
+                "inciso a), de la Ley Federal de Procedimiento Contencioso Administrativo—. Si "
+                "el considerando debe razonarlo, como algunos engroses («la nulidad decretada no "
+                "es de carácter formal, sino de fondo»), ése es el fundamento. Compruébalo en los "
+                "puntos resolutivos de la sentencia recurrida.")
+    t = s or " ".join(str(texto or "").split())
+    if not t or not (_RX_NULIDAD if s else _RX_NULIDAD_DECLARADA).search(t):
+        return ""
+    _efectos = bool(_RX_PARA_EFECTOS.search(t))
+    return ("PROCEDENCIA POR LA FRACCIÓN VI Y LA SALA DECLARÓ LA NULIDAD"
+            + (" PARA EFECTOS" if _efectos else "") + ": comprueba si la nulidad es de "
+            "fondo o por vicios formales (falta de fundamentación o motivación, vicios del "
+            "procedimiento). Los engroses que fundan la procedencia en esta fracción lo "
+            "razonan («la nulidad decretada no es de carácter formal, sino de fondo»); si "
+            "la nulidad es formal, la procedencia del recurso se discute y conviene "
+            "decirlo en el considerando.")
+
+
+def es_indeterminada(x) -> bool:
+    """¿La cuantía de la ficha es «indeterminada»? (art. 63, fr. II: «o de
+    cuantía indeterminada»)."""
+    return isinstance(x, str) and bool(re.search(r"\bindeterminad[ao]\b", x, re.I))
+
+
+HUECO = "*********"
+_ROMANOS = ("I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X")
+
+
+def fraccion_de(x) -> str:
+    """«I».. «X» de lo que traiga la ficha: «II», «fr. III», «fracción vi», «6»."""
+    t = " ".join(str(x or "").split()).upper()
+    t = re.sub(r"^(?:FR(?:ACCI[ÓO]N)?\.?\s*)", "", t).strip(" .,)")
+    if t.isdigit() and 1 <= int(t) <= 10:
+        return _ROMANOS[int(t) - 1]
+    return t if t in _ROMANOS else ""
+
+
+def cuantia_de_cadena(x) -> float:
+    """«$847,738.77», «847738.77 pesos», «1,234,567» → float; 0.0 si no hay cifra.
+    Es la cuantía que el secretario escribe en la ficha («cuantia»)."""
+    if isinstance(x, (int, float)):
+        return float(x) if x > 0 else 0.0
+    m = re.search(r"\d[\d,]*(?:\.\d+)?", str(x or "").replace(" ", ""))
+    if not m:
+        return 0.0
+    try:
+        v = float(m.group(0).replace(",", ""))
+    except ValueError:
+        return 0.0
+    return v if v > 0 else 0.0
+
+
+# LA FRACCIÓN QUE DICE LA FICHA (3-oct-2026, bandera `procedencia_por_tipo`).
+# El secretario declara en «Trámite en este tribunal» por qué fracción del 63
+# procede —es su decisión, la oficiosa del colegiado— y la cuantía en pesos. La
+# I se motiva con la aritmética de siempre; la II, la III y la VI con su
+# supuesto; las demás, con la fórmula del artículo y el PORQUÉ en hueco, porque
+# ése sólo lo sabe quien leyó la sentencia. Textos de los supuestos, del 63
+# local (leyes/LEYES_FEDERALES).
+SUPUESTO_63 = {
+    "IV": ("se trata de una resolución dictada en materia de la Ley Federal de "
+           "Responsabilidades Administrativas de los Servidores Públicos"),
+    "V": "se trata de una resolución dictada en materia de comercio exterior",
+    "VII": ("se trata de una resolución en la que se declaró el derecho a la "
+            "indemnización, o se condenó al Servicio de Administración Tributaria, en "
+            "términos del artículo 34 de la Ley del Servicio de Administración Tributaria"),
+    "VIII": ("se resuelve sobre la condenación en costas o la indemnización previstas en "
+             "el artículo 6o. de la Ley Federal de Procedimiento Contencioso Administrativo"),
+    "IX": ("se trata de una resolución dictada con motivo de las reclamaciones previstas "
+           "en la Ley Federal de Responsabilidad Patrimonial del Estado"),
+    "X": ("en la sentencia se declaró la nulidad con motivo de la inaplicación de una "
+          "norma general, en ejercicio del control difuso de la constitucionalidad y de "
+          "la convencionalidad"),
+}
+_INCISOS_III = ("a) interpretación de leyes o reglamentos; b) alcance de los elementos "
+                "esenciales de las contribuciones; c) competencia de la autoridad o "
+                "ejercicio de las facultades de comprobación; d) violaciones procesales que "
+                "trasciendan al sentido del fallo; e) violaciones cometidas en las propias "
+                "resoluciones o sentencias; f) las que afecten el interés fiscal de la Federación")
+_RX_SAT = re.compile(r"servicio\s+de\s+administraci[óo]n\s+tributaria|\bSAT\b|"
+                     r"administraci[óo]n\s+(?:desconcentrada|central|general)|"
+                     r"administrador[a]?\s+(?:desconcentrad|central|general)", re.I)
+_RX_SHCP = re.compile(r"secretar[íi]a\s+de\s+hacienda\s+y\s+cr[ée]dito\s+p[úu]blico|\bSHCP\b|"
+                      r"procuradur[íi]a\s+fiscal\s+de\s+la\s+federaci[óo]n", re.I)
+_RX_ENTIDAD = re.compile(r"secretar[íi]a\s+de\s+(?:planeaci[óo]n\s+y\s+)?finanzas|"
+                         r"secretar[íi]a\s+de\s+(?:administraci[óo]n\s+y\s+finanzas|hacienda\s+del\s+estado)|"
+                         r"tesorer[íi]a\s+del\s+estado|direcci[óo]n\s+(?:general\s+)?de\s+ingresos\s+del\s+estado", re.I)
+
+
+def _quien_dicto_iii(autoridad: str) -> str:
+    a = autoridad or ""
+    if _RX_SHCP.search(a):
+        return "la Secretaría de Hacienda y Crédito Público"
+    if _RX_SAT.search(a):
+        return "una autoridad del Servicio de Administración Tributaria"
+    if _RX_ENTIDAD.search(a):
+        return ("una autoridad fiscal de una entidad federativa coordinada en "
+                "ingresos federales")
+    return ""
+
+
+def _parrafo_por_fraccion(fr: str, c: float, porcion_vi: str, autoridad: str,
+                          veces: int, u: float, anio_uma: int, avisos: list,
+                          indeterminada: bool = False, sentido: str = "",
+                          texto: str = "") -> str:
+    """El párrafo de las fracciones II, III, VI y IV-X (la I la escribe `parrafo`).
+    `indeterminada`: la ficha dice «cuantía indeterminada»; `sentido`/`texto`:
+    para el aviso de nulidad formal o de fondo de la fracción VI."""
+    base = (f"El recurso es procedente en términos del artículo 63, fracción {fr}, de la "
+            f"Ley Federal de Procedimiento Contencioso Administrativo")
+    letra = _LETRA_VECES[veces]
+    if fr == "II":
+        t = round(veces * u, 2) if u else 0.0
+        if indeterminada:
+            # «O DE CUANTÍA INDETERMINADA» (art. 63, fr. II): lo que el secretario
+            # declaró se escribe; antes se perdía y se tomaba una cifra de la
+            # prosa o salía el hueco con un aviso que pedía justo ese dato.
+            cuantia = "el asunto es de cuantía indeterminada"
+        elif c and t:
+            cuantia = (f"el asunto es de una cuantía de {_pesos(c)}, inferior a la señalada "
+                       f"en la fracción I de ese precepto —{letra} veces el valor diario de "
+                       f"la Unidad de Medida y Actualización, {_pesos(u)} en {anio_uma}, esto "
+                       f"es, {_pesos(t)}—")
+        else:
+            cuantia = f"el asunto es de cuantía {HUECO}"
+            avisos.append(
+                "PROCEDENCIA POR LA FRACCIÓN II DEL ARTÍCULO 63: la ficha no trae la "
+                "cuantía, y esa fracción exige que sea inferior a la de la fracción I o "
+                "indeterminada. Escribe cuál (la cuantía en «Trámite en este tribunal», o "
+                "«indeterminada» en el hueco).")
+        avisos.append(
+            "PROCEDENCIA POR IMPORTANCIA Y TRASCENDENCIA (art. 63, fr. II, LFPCA): el "
+            "considerando dice que la autoridad recurrente la razonó. COMPRUEBA en el "
+            "escrito de agravios que lo hizo y que el razonamiento basta: si no, el "
+            "recurso se desecha.")
+        return (f"{base}, toda vez que {cuantia} y la autoridad recurrente razonó su "
+                f"importancia y trascendencia, como lo exige esa fracción.")
+    if fr == "III":
+        quien = _quien_dicto_iii(autoridad)
+        if not quien:
+            quien = HUECO
+            avisos.append(
+                "PROCEDENCIA POR LA FRACCIÓN III DEL ARTÍCULO 63: no se reconoció en la "
+                "autoridad que dictó la resolución impugnada a la Secretaría de Hacienda, "
+                "al SAT ni a una autoridad fiscal de una entidad coordinada. Escríbelo.")
+        avisos.append(
+            "PROCEDENCIA POR LA FRACCIÓN III DEL ARTÍCULO 63: el supuesto y su inciso van "
+            f"en HUECO —{_INCISOS_III}—. Escribe cuál se surte y por qué.")
+        return (f"{base}, toda vez que la resolución impugnada en el juicio de nulidad "
+                f"la dictó {quien} y el asunto se refiere a {HUECO}, supuesto del inciso "
+                f"{HUECO}) de esa fracción.")
+    if fr == "VI":
+        _av_nul = aviso_nulidad_vi(sentido, texto)
+        if porcion_vi:
+            avisos.append(
+                "LA PROCEDENCIA SE FUNDÓ EN LA FRACCIÓN VI DEL ARTÍCULO 63, como dice la "
+                f"ficha, en el supuesto que se reconoció en el asunto ({porcion_vi}). "
+                "Compruébalo antes de firmar.")
+            if _av_nul:
+                avisos.append(_av_nul)
+            return _parrafo_vi(porcion_vi)
+        avisos.append(
+            "PROCEDENCIA POR LA FRACCIÓN VI DEL ARTÍCULO 63: no se reconoció cuál de sus "
+            "supuestos se surte —determinación de sujetos obligados, conceptos que "
+            "integran la base de cotización, grado de riesgo para el seguro de riesgos "
+            "del trabajo o pensiones del ISSSTE—. Va en hueco: escríbelo.")
+        if _av_nul:
+            avisos.append(_av_nul)
+        # CON EL SUPUESTO EN HUECO NO SE PRESUPONEN «APORTACIONES» (rev_5): si
+        # lo que se surte son las pensiones del ISSSTE, la frase ya habría
+        # comprometido otra hipótesis antes de que el secretario la escriba.
+        return f"{base}, toda vez que la sentencia recurrida versa sobre {HUECO}."
+    sup = SUPUESTO_63.get(fr)
+    if not sup:
+        return ""
+    avisos.append(
+        f"PROCEDENCIA POR LA FRACCIÓN {fr} DEL ARTÍCULO 63, como dice la ficha: el "
+        f"porqué va en HUECO. Escribe por qué {sup}.")
+    return (f"{base}, que lo admite cuando {sup}, supuesto que se actualiza porque "
+            f"{HUECO}.")
+
+
 def parrafo(texto_fuente: str, anio_resolucion: int = 0, fecha_sentencia=None,
-            fecha_interposicion=None, fecha_notificacion=None) -> tuple:
+            fecha_interposicion=None, fecha_notificacion=None,
+            fraccion: str = "", cuantia=None, autoridad: str = "",
+            sentido: str = "") -> tuple:
     """(párrafo de procedencia, avisos). Cadena vacía si no se puede motivar.
 
     Primero la fracción I (la cuantía contra el umbral de la sentencia
     recurrida); si no alcanza o no se lee, la VI cuando el asunto es de
     aportaciones de seguridad social; si ninguna, vacío y aviso: la fracción
-    que funda la procedencia la decide quien firma, no una fórmula fija."""
+    que funda la procedencia la decide quien firma, no una fórmula fija.
+
+    CON LA FICHA (3-oct-2026, bandera): `fraccion` («I».. «X», la que declaró el
+    secretario) manda y no se cambia por otra en silencio; `cuantia` (la cadena
+    en pesos de la ficha) manda sobre la que se lea de la prosa; `autoridad` es
+    la que dictó la resolución impugnada (fracción III).
+
+    TERCERA RONDA (3-oct-2026, rev_2 y rev_5): `cuantia` «indeterminada» no se
+    sustituye por una cifra de la prosa: la fracción II la escribe y la I avisa
+    que exige cuantía. `sentido` (el de la ficha: «declaró la nulidad…, para
+    determinados efectos») alimenta el aviso de nulidad formal o de fondo de la
+    fracción VI; sin él se mira el texto de la sentencia."""
     avisos = []
-    c = cuantia_de(texto_fuente)
-    porcion_vi = supuesto_fraccion_vi(texto_fuente)
+    fr = fraccion_de(fraccion)
+    _indet = es_indeterminada(cuantia)
+    c_ficha = (cuantia_de_cadena(cuantia) if cuantia not in (None, "") and not _indet else 0.0)
+    c = c_ficha or (0.0 if _indet else cuantia_de(texto_fuente))
+    # EL SENTIDO DE LA FICHA TAMBIÉN DICE EL SUPUESTO (quinta ronda; RF 6/2026: «…y
+    # reconoció el derecho subjetivo al incremento de la cuota pensionaria»). Sólo
+    # llega en el camino nuevo; en el viejo `sentido` es «» y nada cambia.
+    porcion_vi = supuesto_fraccion_vi(" ".join(x for x in (texto_fuente, sentido) if x))
     # LA FECHA QUE DECIDE: la de la sentencia; si no se leyó, la de su
     # notificación, que es posterior —si ésta es anterior a la reforma, aquélla
     # también—.
@@ -262,13 +557,63 @@ def parrafo(texto_fuente: str, anio_resolucion: int = 0, fecha_sentencia=None,
     else:
         anio_uma = int(anio_resolucion or 0)
         u = UMA_DIARIA.get(anio_uma, 0.0)
+    # LA FRACCIÓN QUE DECLARÓ EL SECRETARIO, salvo la II con una cuantía que
+    # alcanza la I: esa fracción exige cuantía inferior, y entonces procede por
+    # la I (se dice en el aviso).
+    if fr and fr != "I":
+        _t2 = round(veces * u, 2) if u else 0.0
+        if fr == "II" and c and _t2 and c > _t2:
+            avisos.append(
+                f"LA FICHA DICE FRACCIÓN II, PERO LA CUANTÍA ({_pesos(c)}) EXCEDE EL UMBRAL "
+                f"DE LA FRACCIÓN I ({_pesos(_t2)}): la II sólo procede con cuantía inferior "
+                f"o indeterminada, así que la procedencia se motivó por la I. Compruébalo.")
+            fr = "I"
+        else:
+            return _parrafo_por_fraccion(fr, c, porcion_vi, autoridad, veces, u,
+                                         anio_uma, avisos, indeterminada=_indet,
+                                         sentido=sentido, texto=texto_fuente), avisos
     if not c:
+        if fr == "I" and _indet:
+            avisos.append(
+                "LA FICHA DICE FRACCIÓN I DEL ARTÍCULO 63 Y CUANTÍA INDETERMINADA: la "
+                "fracción I exige una cuantía que exceda el umbral, así que no puede "
+                "motivarse con una indeterminada; con cuantía indeterminada el supuesto es "
+                "el de la fracción II (importancia y trascendencia, razonadas por la "
+                "autoridad). Corrige la fracción o escribe la cuantía, y vuelve a generar.")
+            return (f"El recurso es procedente en términos del artículo 63, fracción I, de "
+                    f"la Ley Federal de Procedimiento Contencioso Administrativo, toda vez "
+                    f"que el asunto es de una cuantía de {HUECO}, que excede de {letra} "
+                    f"veces el valor diario de la Unidad de Medida y Actualización vigente "
+                    f"al momento de la emisión de la sentencia recurrida."), avisos
+        if fr == "I":
+            avisos.append(
+                "LA FICHA DICE FRACCIÓN I DEL ARTÍCULO 63 Y NO TRAE LA CUANTÍA (ni se "
+                "pudo leer): la comparación contra el umbral va en hueco. Escribe la "
+                "cuantía en «Trámite en este tribunal» y vuelve a generar.")
+            return (f"El recurso es procedente en términos del artículo 63, fracción I, de "
+                    f"la Ley Federal de Procedimiento Contencioso Administrativo, toda vez "
+                    f"que el asunto es de una cuantía de {HUECO}, que excede de {letra} "
+                    f"veces el valor diario de la Unidad de Medida y Actualización vigente "
+                    f"al momento de la emisión de la sentencia recurrida."), avisos
         if porcion_vi:
             avisos.append(
                 "LA PROCEDENCIA SE FUNDÓ EN LA FRACCIÓN VI DEL ARTÍCULO 63 porque "
-                "el asunto es de aportaciones de seguridad social "
-                f"({porcion_vi}). Compruébalo antes de firmar.")
-            return _parrafo_vi(porcion_vi), avisos
+                + (f"se reconoció en el asunto uno de sus supuestos ({porcion_vi}). "
+                   if _rige_procedencia() else
+                   f"el asunto es de aportaciones de seguridad social ({porcion_vi}). ")
+                + "Compruébalo antes de firmar.")
+            _av_nul = aviso_nulidad_vi(sentido, texto_fuente) if _rige_procedencia() else ""
+            if _av_nul:
+                avisos.append(_av_nul)
+            return _parrafo_vi(porcion_vi, _rige_procedencia()), avisos
+        if _indet:
+            avisos.append(
+                "LA FICHA DICE CUANTÍA INDETERMINADA Y NO DICE LA FRACCIÓN DEL ARTÍCULO 63: "
+                "con cuantía indeterminada el supuesto es el de la fracción II (importancia "
+                "y trascendencia, razonadas por la autoridad recurrente) o el de otra "
+                "fracción que no dependa de la cuantía. Escríbela en «Trámite en este "
+                "tribunal» y vuelve a generar.")
+            return "", avisos
         avisos.append(
             "NO SE PUDO LEER LA CUANTÍA DEL CRÉDITO FISCAL ni se reconoció otro "
             "supuesto del artículo 63, así que la procedencia sale con la "
@@ -284,26 +629,36 @@ def parrafo(texto_fuente: str, anio_resolucion: int = 0, fecha_sentencia=None,
 
     t = round(veces * u, 2)
     if c > t:
+        # LA CUANTÍA DE LA FICHA NO SIEMPRE ES UN CRÉDITO FISCAL (una devolución,
+        # una multa, una negativa): se dice con la palabra de la ley, «cuantía».
+        _sobre = (f"el asunto es de una cuantía de {_pesos(c)}, cantidad que"
+                  if c_ficha else
+                  f"el asunto versa sobre una resolución en la que se determinó un "
+                  f"crédito fiscal por {_pesos(c)}, cantidad que")
         p = (f"El recurso es procedente en términos del artículo 63, fracción "
              f"I, de la Ley Federal de Procedimiento Contencioso "
-             f"Administrativo, toda vez que el asunto versa sobre una "
-             f"resolución en la que se determinó un crédito fiscal por "
-             f"{_pesos(c)}, cantidad que excede de {letra} veces "
+             f"Administrativo, toda vez que {_sobre} excede de {letra} veces "
              f"el valor diario de la Unidad de Medida y Actualización vigente "
              f"al momento de la emisión de la sentencia recurrida "
              f"—{_pesos(u)} en {anio_uma}, esto es, {_pesos(t)}—, sin "
              f"que sea necesario que el asunto revista, además, importancia y "
              f"trascendencia.")
         return p, avisos
-    if porcion_vi:
+    if porcion_vi and fr != "I":
         avisos.append(
             f"LA CUANTÍA NO ALCANZA LA FRACCIÓN I ({_pesos(c)} contra "
-            f"{_pesos(t)}) y la procedencia se fundó en la fracción VI, porque el "
-            f"asunto es de aportaciones de seguridad social ({porcion_vi}). "
-            f"Compruébalo antes de firmar.")
-        return _parrafo_vi(porcion_vi), avisos
+            f"{_pesos(t)}) y la procedencia se fundó en la fracción VI, porque "
+            + (f"se reconoció en el asunto uno de sus supuestos ({porcion_vi}). "
+               if _rige_procedencia() else
+               f"el asunto es de aportaciones de seguridad social ({porcion_vi}). ")
+            + "Compruébalo antes de firmar.")
+        _av_nul = aviso_nulidad_vi(sentido, texto_fuente) if _rige_procedencia() else ""
+        if _av_nul:
+            avisos.append(_av_nul)
+        return _parrafo_vi(porcion_vi, _rige_procedencia()), avisos
 
-    p = (f"El crédito fiscal determinado asciende a {_pesos(c)}, cantidad que "
+    p = (f"{'La cuantía del asunto' if c_ficha else 'El crédito fiscal determinado'} "
+         f"asciende a {_pesos(c)}, cantidad que "
          f"NO excede de {letra} veces el valor diario de la Unidad "
          f"de Medida y Actualización vigente al momento de la emisión de la "
          f"sentencia recurrida —{_pesos(u)} en {anio_uma}, esto es, "

@@ -158,6 +158,15 @@ _FIGURAS_PARTES = {
         "responsable": ("el ÓRGANO RECURRIDO: el Juzgado de Distrito que dictó la "
                         "sentencia que se revisa (no la autoridad del acto reclamado)"),
     },
+    # C4 (3-oct-2026): el rubro de la revisión fiscal dice «RECURRENTE» y ya no
+    # lleva la Sala; al lector de partes se le sigue diciendo quién es quién.
+    "revision_fiscal": {
+        "quejoso": ("la AUTORIDAD RECURRENTE: la autoridad demandada en el juicio "
+                    "contencioso administrativo que interpone la revisión fiscal, por "
+                    "conducto de su unidad jurídica"),
+        "responsable": ("la SALA del Tribunal Federal de Justicia Administrativa que "
+                        "dictó la sentencia recurrida"),
+    },
 }
 
 

@@ -333,6 +333,14 @@ BANDERAS_REDISENO = {
     "inoperancia_por_vicio": "INOPERANCIA_POR_VICIO",      # la tesis de la inoperancia, por el vicio concreto
     "supervisor_proyecto": "SUPERVISOR_PROYECTO",          # revisión del proyecto con parches verificados
     "antecedentes_en_prosa": "ANTECEDENTES_EN_PROSA",      # antecedentes sin numerar, en prosa
+    # 3-oct-2026, resultandos y considerandos de procedencia POR TIPO (David:
+    # «que vayan impecables… sin que el secretario deba modificar más»). LOS
+    # DATOS PRIMERO, LA PROSA DESPUÉS: la ficha de trámite (`ficha_tramite`) y
+    # el compositor sin modelo (`resultandos_por_tipo`) sustituyen a la llamada
+    # que escribía a ciegas el V I S T O y los resultandos —en los 10 proyectos
+    # de octubre: responsable mal nombrada 9/9 AD, «se advierte de las
+    # constancias» 76/81, el MP «omitió formular pedimento» sin fuente 71/72—.
+    "procedencia_por_tipo": "PROCEDENCIA_POR_TIPO",
 }
 
 
@@ -341,9 +349,45 @@ BANDERAS_REDISENO = {
 # «claro» acertado 1 de 4, compuerta 0.80): encendida para las cuentas de casa,
 # la tarjeta recomendaría con una certeza que no tiene. Sigue medible: la
 # sesión de evaluación la pide por su nombre, o su variable de entorno la abre.
-OMISION_REDISENO = {"soluciones_por_desenlace": "0"}
+#
+# Y LA QUE NACE ENCENDIDA PARA TODOS (3-oct-2026). David, al dar el visto bueno
+# a los resultandos y considerandos de procedencia por tipo: «empuja para todos
+# los usuarios, no nada más para los de casa». La variable PROCEDENCIA_POR_TIPO
+# («casa» | «0») sigue siendo el freno: con «0» vuelve el camino de siempre sin
+# desplegar nada.
+OMISION_REDISENO = {"soluciones_por_desenlace": "0", "procedencia_por_tipo": "todos"}
 
 
 def rediseno(nombre: str) -> bool:
     """¿Rige este cambio del rediseño en esta petición? (ver BANDERAS_REDISENO)."""
     return bandera(nombre, BANDERAS_REDISENO.get(nombre, ""), OMISION_REDISENO.get(nombre, "casa"))
+
+
+def rige(nombre: str) -> bool:
+    """El mismo `rediseno`, con el nombre que usan las piezas de la procedencia
+    por tipo (3-oct-2026: `ficha_tramite`, `resultandos_por_tipo`,
+    `verja_procesal`, `documento_generado`, el cableado). UNA SOLA PUERTA: dos
+    funciones que decidieran la misma bandera por caminos distintos acabarían
+    diciendo cosas distintas en la misma petición."""
+    return rediseno(nombre)
+
+
+def rige_para(nombre: str, casa: bool = False, pruebas: bool | None = None,
+              evaluacion: dict | None = None) -> bool:
+    """¿Regiría la bandera `nombre` para una cuenta así —de casa o no, de
+    pruebas o no, con esta evaluación—, SIN TOCAR el contexto de esta petición?
+
+    Para las puertas que sólo necesitan SABER si una bandera rige antes de
+    que nadie haya puesto el contexto (3-oct-2026: /taller/desde-admision y
+    /taller/desde-expediente deciden si leen el trámite del auto; el
+    adelanto, si lee el auto antes del OCR). Se evalúa con `poner` + `rige`
+    dentro de una COPIA del contexto: la misma regla, sin duplicarla, y sin
+    dejar puesta una cuenta en la petición. Nunca lanza: si algo falla, False
+    (el camino de siempre)."""
+    def _en_la_copia():
+        poner(casa, evaluacion, pruebas=pruebas)
+        return rige(nombre)
+    try:
+        return bool(contextvars.copy_context().run(_en_la_copia))
+    except Exception:
+        return False

@@ -141,11 +141,15 @@ def fecha_de(resultandos: str) -> str:
     cand = list(_RX_FECHA.finditer(t))
     if not cand:
         return ""
-    if len(cand) == 1:
-        return cand[0].group(1).strip()
-
-    # HAY VARIAS. Sólo vale la que su propia frase declara recurrida; si
-    # ninguna lo dice, o lo dicen dos, se calla.
+    # UNA SOLA CANDIDATA TAMBIÉN TIENE QUE DECIR QUE ES LO RECURRIDO (3-oct-2026).
+    # Se devolvía sin mirar, y en la revisión fiscal de Yucatán la única fecha
+    # pegada a «auto|sentencia» era la del AUTO DE PRESIDENCIA —el resultando
+    # decía «dictó sentencia el trece de marzo», sin el «de» que exige el
+    # patrón—: el resolutivo salió «Se confirma la sentencia de veintidós de
+    # abril», el día en que este tribunal admitió el recurso, sin aviso. Con
+    # una o con varias, la regla es la misma: sólo vale la que su propia frase
+    # declara recurrida; si ninguna lo dice, o lo dicen dos con fechas
+    # distintas, se calla.
     con_marca = []
     for m in cand:
         ini = t.rfind(". ", 0, m.start()) + 1
@@ -160,7 +164,36 @@ def fecha_de(resultandos: str) -> str:
     distintas = {" ".join(x.lower().split()) for x in con_marca}
     if len(distintas) == 1:
         return con_marca[0]
+    if con_marca:
+        return ""
+    # LA CANDIDATA ÚNICA CON EL VERBO DEL AUTO RECURRIDO (D5, 3-oct-2026, rev_4).
+    # La regla de arriba dejó en hueco la procedencia de la queja que main
+    # resolvía bien: «Por auto de trece de marzo de dos mil veinticinco, la
+    # Jueza Tercero de Distrito… desechó de plano la demanda de amparo 742/2025.
+    # Inconforme, … interpuso recurso de queja.» Esa frase no dice «recurrido»,
+    # pero dice lo que el auto RESOLVIÓ. Se acepta si es la única candidata una
+    # vez descartadas las de este tribunal (el auto de Presidencia, el turno, el
+    # registro: RF de Yucatán, «Por auto de Presidencia de veintidós de abril…
+    # se admitió el recurso», sigue sin tomarse).
+    ajenas = []
+    for m in cand:
+        ini = t.rfind(". ", 0, m.start()) + 1
+        fin = t.find(". ", m.end())
+        frase = t[ini:fin if fin > 0 else len(t)]
+        if _RX_DE_ESTE_TRIBUNAL.search(frase):
+            continue
+        ajenas.append((m, frase))
+    if len(ajenas) == 1 and _RX_VERBO_DEL_AUTO.search(ajenas[0][1]):
+        return ajenas[0][0].group(1).strip()
     return ""
+
+
+# Lo que un auto recurrido resuelve (D5) y lo que delata un auto de este tribunal.
+_RX_VERBO_DEL_AUTO = re.compile(
+    r"\b(?:desech[óo]|admiti[óo]|conced[ií][óo]|neg[óo]|tuvo\s+por)\b", re.I)
+_RX_DE_ESTE_TRIBUNAL = re.compile(
+    r"\bpresidencia\b|\beste\s+(?:tribunal|[óo]rgano)\b|\btribunal\s+colegiado\b|"
+    r"\b(?:re)?turn(?:[óoa]|aron|ados?)\b|\bregistr[óo]\s+el\s+recurso\b", re.I)
 
 
 # ═══════════════════════════════════════════════════════════════════════════

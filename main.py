@@ -32242,6 +32242,52 @@ async def admin_uso_colecciones(user_email: str = ""):
     return _uso.informe()
 
 
+def _taller_rige_procedencia(user_email: str, evaluacion=None) -> bool:
+    """¿Rige `procedencia_por_tipo` para esta cuenta? (3-oct-2026)
+
+    SE PREGUNTA SIN PONER EL CONTEXTO (`contexto_taller.rige_para`): estas
+    puertas sólo necesitan saberlo —leer o no el trámite del auto— antes de
+    que el adelanto ponga el contexto de la petición como siempre. Desde el
+    3-oct-2026 la bandera es «todos» por omisión (David, con el visto bueno:
+    «empuja para todos los usuarios, no nada más para los de casa»); con
+    PROCEDENCIA_POR_TIPO=casa vuelve a ser sólo de casa, y entonces sin decir
+    de quién es la cuenta toda cuenta parecería de fuera. Misma regla que
+    `rige`; nunca lanza."""
+    try:
+        import contexto_taller as _ctx_pt
+        return _ctx_pt.rige_para("procedencia_por_tipo", _taller_es_casa(user_email),
+                                 _taller_cuenta_de_pruebas(user_email),
+                                 evaluacion if isinstance(evaluacion, dict) else None)
+    except Exception as _e_pt:
+        print(f"   ⚠️ bandera procedencia_por_tipo sin decidir: {type(_e_pt).__name__}")
+        return False
+
+
+def _taller_nombre_procedencia(numero: str) -> str:
+    """«512-2026 PROCEDENCIA.docx»: el nombre con que se DESCARGA el .docx del
+    adelanto (3-oct-2026). De cara al secretario el producto se llama
+    «resultandos y considerandos de procedencia»; la ruta en disco, el
+    endpoint y las claves internas no cambian."""
+    return f"{str(numero or '').strip().replace('/', '-')} PROCEDENCIA.docx"
+
+
+class _AutosDelExpediente:
+    """Los autos de admisión y de turno de un expediente de SISE, YA LEÍDOS,
+    con la cara de un archivo subido (3-oct-2026). `taller_desde_expediente`
+    los recibe ya separados por la depuración y en texto: volver a pasarlos por
+    el OCR sería pagar dos veces la misma lectura. `taller_adelanto` toma
+    `auto_leido` si lo trae; un `UploadFile` de verdad no lo tiene y se lee
+    como siempre. No es un campo del formulario: por HTTP no se puede mandar."""
+
+    def __init__(self, auto_leido: dict, texto: str = ""):
+        self.auto_leido = auto_leido if isinstance(auto_leido, dict) else {}
+        self.texto = texto or ""
+        self.filename = "autos-del-expediente.txt"
+
+    async def read(self):
+        return self.texto.encode("utf-8")
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 # LA FICHA, LEÍDA DEL AUTO DE ADMISIÓN
 # ═══════════════════════════════════════════════════════════════════════════
@@ -32300,7 +32346,11 @@ async def taller_desde_admision(
     # federal no hay duda (…) esa es la opción que debe desplegarse».
     import fase0_oportunidad as _f0r
     _reglas = _f0r.reglas_para(str(ficha.get("tipo_asunto") or ""),
-                               str(ficha.get("responsable") or ""))
+                               str(ficha.get("responsable") or ""),
+                               # LA SEDE DEL COLEGIADO (C7, 3-oct-2026): en lo agrario
+                               # decide si la omisión es la del Código Nacional.
+                               tribunal=str(ficha.get("tribunal") or ""),
+                               ciudad=str(ficha.get("ciudad") or ""))
     # Y EL ENCABEZADO SE COMPONE, no se pide: tipo + materia + número.
     _encab = ""
     try:
@@ -32313,25 +32363,108 @@ async def taller_desde_admision(
         _encab = ""
     if _encab:
         ficha["encabezado"] = _encab
+    # ═══ EL TRÁMITE EN ESTE TRIBUNAL, LEÍDO DEL MISMO AUTO (3-oct-2026) ═══
+    # David: «disminuyendo el margen de error si el secretario introduce el
+    # auto de admisión y los datos correctos (fechas)». El auto que ya se subió
+    # dice la fecha del auto de Presidencia, el turno y el ponente, si hubo
+    # pedimento del Ministerio Público, el adhesivo… y se tiraba. Va a
+    # `ficha["tramite"]` con las claves planas del formulario
+    # (`ficha_tramite.a_formulario`) para que la pantalla lo proponga en
+    # «Trámite en este tribunal»; lo que el secretario confirme vuelve como
+    # `tramite_json` a /taller/adelanto y manda. Sin modelo: un barrido sobre
+    # el texto que ya está aquí. CON LA BANDERA y sólo con ella: sin
+    # `procedencia_por_tipo` el adelanto no lo usaría, y proponer un apartado
+    # que luego se ignora es pedirle al secretario trabajo que se tira.
+    # «relacionados» sale siempre «» de aquí (sexta ronda, 3-oct-2026): los
+    # asuntos relacionados sólo los marca el secretario, nunca el auto.
+    try:
+        if _taller_rige_procedencia(user_email):
+            import redactor_adelanto as _ra_adm
+            import tipos_asunto as _ta_tr
+            _tipo_tr = _ta_tr.normalizar(str(ficha.get("tipo_asunto") or ""))
+            _leido_tr = None
+            if not (isinstance(ficha.get("tramite"), dict) and ficha.get("tramite")):
+                import ficha_tramite as _ftr
+                # EN UN HILO (rev_6, 3-oct-2026): este endpoint acepta cualquier
+                # PDF de 400 caracteres o más, y un expediente entero subido en
+                # «Tengo el auto de admisión» paraba el worker 15 s para todos.
+                # La lectura además se acota a su principio (`TOPE_AUTO`).
+                _leido_tr = await asyncio.to_thread(_ra_adm.leer_auto_tramite, texto, _tipo_tr)
+                ficha["tramite"] = _ftr.a_formulario(_leido_tr) or {}
+                for _a_tr in (_leido_tr.get("avisos") or []):
+                    ficha.setdefault("avisos", [])
+                    if _a_tr not in ficha["avisos"]:
+                        ficha["avisos"].append(_a_tr)
+            # EL CARGO DEL PONENTE VA CON SU NOMBRE (cuarta ronda, 3-oct-2026,
+            # E3). El auto dice «a la ponencia a cargo de la magistrada Jenica
+            # Campos Juárez» y `leer_auto` lo lee (`returno.titulo`), pero las
+            # claves planas sólo traen el nombre: el secretario confirmaba
+            # «Jenica Campos Juárez», volvía como suyo y la carátula salía
+            # «MAGISTRADO PONENTE» (AD 128, RF 4, Q 342 del banco). Se propone
+            # «Magistrada Jenica Campos Juárez». Si la ficha la armó
+            # `fase_admision` (que no devuelve su lectura), se relee el auto,
+            # en un hilo y sólo cuando hay un ponente sin cargo.
+            try:
+                if _ra_adm.falta_cargo_del_ponente(ficha.get("tramite")):
+                    if _leido_tr is None:
+                        _leido_tr = await asyncio.to_thread(_ra_adm.leer_auto_tramite, texto, _tipo_tr)
+                    ficha["tramite"] = _ra_adm.ponentes_con_cargo(ficha["tramite"], _leido_tr)
+            except Exception as _e_cargo:
+                print(f"   ⚠️ cargo del ponente sin poner: {type(_e_cargo).__name__}: {str(_e_cargo)[:120]}")
+            print(f"   🧾 trámite leído del auto de admisión: "
+                  f"{', '.join(k for k, v in (ficha.get('tramite') or {}).items() if v) or 'nada'}")
+        else:
+            ficha.pop("tramite", None)
+    except Exception as _e_tr:
+        ficha.pop("tramite", None)
+        print(f"   ⚠️ trámite del auto sin leer: {type(_e_tr).__name__}: {str(_e_tr)[:120]}")
     return {"ficha": ficha, "leidos": _leidos,
             "caracteres": len(texto), "avisos": ficha.get("avisos") or [],
             "reglas_surtimiento": _reglas}
 
 
 @app.get("/taller/reglas-surtimiento")
-async def taller_reglas_surtimiento(tipo_asunto: str = "", responsable: str = ""):
+async def taller_reglas_surtimiento(tipo_asunto: str = "", responsable: str = "",
+                                    papel: str = "", tribunal: str = "",
+                                    ciudad: str = ""):
     """Qué reglas de notificación se ofrecen para ESTE asunto.
 
     El desplegable de la pantalla ofrecía siempre las mismas cinco —con la del
     boletín de Querétaro para todos—. La lista vive en `fase0_oportunidad`
-    (una sola) y depende de la ley que rige el acto: para el TFJA, el Boletín
-    Jurisdiccional al tercer día hábil (art. 65 LFPCA) y la personal; para el
-    TJA de Querétaro, su boletín; para otro tribunal estatal, «otra regla»
-    con la fecha declarada, porque su ley dice cómo surte y el catálogo no la
-    trae. Sin costo: no toca modelo ni base.
+    (una sola). EN EL AMPARO DIRECTO Y EN LA REVISIÓN FISCAL depende de la ley
+    que rige el acto: para el TFJA, el Boletín Jurisdiccional al tercer día
+    hábil (art. 65 LFPCA) y la personal; para el TJA de Querétaro, su boletín;
+    para otro tribunal estatal, «otra regla» con la fecha declarada, porque su
+    ley dice cómo surte y el catálogo no la trae.
+
+    EN LA REVISIÓN Y EN LA QUEJA, LAS DEL ARTÍCULO 31 DE LA LEY DE AMPARO, SEA
+    QUIEN SEA LA RESPONSABLE (3-oct-2026; D4 del integrador, sin bandera): lo
+    notificado es una resolución del juez de amparo, no un acto del TFJA ni de
+    un tribunal local, así que esa lista ya no trae el boletín del TFJA ni el
+    de Querétaro aunque la responsable sea una de ellos: personal y lista
+    (fr. II), oficio (fr. I), electrónica (fr. III) y «otra regla». Una sesión
+    vieja de AR o queja guardada con «lfpca_boletin» ya no encuentra su regla
+    en esta lista al reabrir el formulario.
+
+    `papel` (opcional): en qué carácter recurre quien recurre («autoridad»,
+    «quejoso», «tercero»). EN LA REVISIÓN Y EN LA QUEJA DE UNA AUTORIDAD la
+    regla de omisión es «oficio» —surte desde que queda hecha, artículo 31,
+    fracción I— y va primero; sin `papel`, la de omisión es «personal» (y el
+    adelanto la cambia por «oficio», con aviso, cuando resulta que recurre una
+    autoridad). Fuera de esos dos recursos `papel` no cambia nada. Sin costo:
+    no toca modelo ni base.
+
+    `tribunal` y `ciudad` (opcionales, la sede del colegiado; C7, 3-oct-2026):
+    sólo cuentan en lo agrario. Con la sede en la Ciudad de México la regla de
+    omisión es la personal del Código Nacional (art. 227, fr. I); fuera de ella
+    o sin sede, la personal del Código Federal (art. 321, `cfpc_personal`).
     """
     import fase0_oportunidad as _f0r
-    return _f0r.reglas_para(tipo_asunto or "", responsable or "")
+    return _f0r.reglas_para(tipo_asunto or "", responsable or "",
+                            (papel or "").strip().lower(),
+                            # LA SEDE DEL COLEGIADO (C7, 3-oct-2026): en lo agrario,
+                            # Ciudad de México → la personal del Código Nacional.
+                            tribunal=tribunal or "", ciudad=ciudad or "")
 
 
 @app.post("/taller/adelanto")
@@ -32356,6 +32489,13 @@ async def taller_adelanto(
     # la UIF contra la concesión: el amparo se niega a la sociedad, no a la
     # autoridad. Vacío = recurre el propio quejoso.
     recurrente: str = Form(""),
+    # CON QUÉ CARÁCTER RECURRE, si ya se sabe (3-oct-2026, AR 631/2025):
+    # «quejoso», «autoridad» o «tercero». Lo devuelve /taller/contexto-del-asunto
+    # cuando se leyó del escrito; al retomar y regenerar, la pantalla lo
+    # reenvía para que el carácter no se vuelva a deducir del nombre (un
+    # «Síndico Municipal» no trae palabra de cargo y salía «tercero»). Otro
+    # valor o vacío = se deduce como siempre.
+    papel_recurrente: str = Form(""),
     # MAGISTRADO y SECRETARIO: son la ponencia, no el expediente. Se toman del
     # último asunto suyo. Se piden una vez.
     magistrado: str = Form(""),
@@ -32456,6 +32596,29 @@ async def taller_adelanto(
     # {neuns, expedientes, holding_ids, fecha_corte, serie}, "banderas": {…}}.
     # Sólo lo toma una cuenta de casa; viaja con la sesión (ver contexto_taller).
     evaluacion: str = Form(""),
+    # ═══ EL TRÁMITE EN ESTE TRIBUNAL (3-oct-2026, `procedencia_por_tipo`) ══
+    # Lo que el secretario confirmó en el apartado «Trámite en este tribunal»:
+    # JSON con las claves planas de `ficha_tramite.de_formulario` (fecha del
+    # auto de Presidencia, turno y ponente, Ministerio Público, adhesivo,
+    # returno, fecha y órgano del acto, toca/expediente…). Fuente
+    # «secretario»: manda sobre lo leído. Vacío = no confirmó nada. Sin la
+    # bandera se ignora y el adelanto es el de siempre. Las claves que entran
+    # son las de `ficha_tramite.CLAVES_FORMULARIO` (veintiuna desde la cuarta
+    # ronda: `fecha_registro`, el auto de Presidencia que forma y registra
+    # cuando no es el que admite, E7; VEINTIDÓS desde la sexta: «relacionados»,
+    # los asuntos que el secretario marca con un clic —«tipo|numero|estado»
+    # separados por «;»—, de los que salen el considerando de conexidad o de
+    # hecho notorio y el rubro «RELACIONADO CON…»; nunca se leen de los
+    # papeles); el ponente puede traer su cargo delante («Magistrada …», E3).
+    # Ninguna clave se enumera aquí: `tramite_de_formulario` filtra con
+    # CLAVES_FORMULARIO, la sesión guarda la ficha entera y al retomar vuelve
+    # con `tramite_para_pantalla` (`a_formulario`), así que una clave nueva
+    # viaja sola.
+    tramite_json: str = Form(""),
+    # EL AUTO DE ADMISIÓN (y de turno, si van juntos), OPCIONAL. Si viene, se
+    # lee sin modelo (`ficha_tramite.leer_auto`) y se funde en la ficha; lo
+    # del formulario manda. Sin la bandera ni siquiera se lee.
+    admision: Optional[UploadFile] = File(None),
 ):
     """Genera el adelanto y lo devuelve como .docx.
 
@@ -32483,6 +32646,28 @@ async def taller_adelanto(
 
     import redactor_adelanto as _ra
     import tipos_asunto as _ta
+
+    # ═══ LA FICHA DE TRÁMITE: SUS ENTRADAS, ANTES DEL OCR (3-oct-2026) ═════
+    # Con la bandera `procedencia_por_tipo`, lo confirmado en el formulario
+    # se valida AQUÍ —un JSON mal escrito es un 422 antes de pagar el OCR, no
+    # un 500 después— y el auto de admisión entra a la misma lectura en
+    # paralelo que el acto. Sin la bandera, nada de esto corre; y si no llegó
+    # ninguno de los dos campos ni se pregunta (la ficha la arma igual el
+    # redactor con lo que lea del acto, si la bandera rige allí).
+    _rige_pt = False
+    if (tramite_json or "").strip() or (admision is not None and getattr(admision, "filename", "")):
+        _rige_pt = _taller_rige_procedencia(user_email, _ev_pedida)
+    _tramite_declarado = {}
+    if _rige_pt:
+        _tramite_declarado, _mal_tr = _ra.tramite_de_formulario(tramite_json)
+        if _mal_tr:
+            raise HTTPException(422, f"Trámite en este tribunal: {_mal_tr}.")
+    # DEL CAMINO SISE LLEGA YA LEÍDO (`_AutosDelExpediente`); de la pantalla,
+    # como PDF que hay que leer.
+    _auto_ya_leido = getattr(admision, "auto_leido", None) if admision is not None else None
+    _leer_admision = bool(_rige_pt and admision is not None
+                          and getattr(admision, "filename", "")
+                          and not isinstance(_auto_ya_leido, dict))
 
     tmp = tempfile.mkdtemp(prefix="taller_")
     ruta_plantilla = f"{tmp}/plantilla.docx"
@@ -32541,11 +32726,14 @@ async def taller_adelanto(
     # paralelo no cambia una coma del resultado y devuelve la mitad del tiempo.
     import time as _t_ocr
     _t0_ocr = _t_ocr.perf_counter()
-    texto_acto, texto_conceptos, texto_autos = await asyncio.gather(
+    texto_acto, texto_conceptos, texto_autos, texto_admision = await asyncio.gather(
         _extract_text_from_upload(acto),
         _extract_text_from_upload(conceptos),
         (_extract_text_from_upload(constancias)
          if constancias is not None and getattr(constancias, "filename", "")
+         else asyncio.sleep(0, result="")),
+        # EL AUTO DE ADMISIÓN, a la vez (sólo con la bandera y si se subió).
+        (_extract_text_from_upload(admision) if _leer_admision
          else asyncio.sleep(0, result="")))
     print(f"   ⏱️  OCR de los dos documentos: "
           f"{_t_ocr.perf_counter() - _t0_ocr:.1f}s")
@@ -32676,6 +32864,8 @@ async def taller_adelanto(
     encargo = _ra.Encargo(
         numero=numero, encabezado=encabezado, quejoso=quejoso,
         recurrente=(recurrente or "").strip(),
+        papel_recurrente=(_p_r if (_p_r := (papel_recurrente or "").strip().lower())
+                          in _ra.PAPELES_FIJOS else ""),
         magistrado=magistrado, secretario=secretario,
         notificacion=_notif,
         presentacion=_pres,
@@ -32695,6 +32885,20 @@ async def taller_adelanto(
         plantilla=ruta_plantilla,
         surte_efectos=(surte_efectos or "").strip(),
     )
+    # LAS ENTRADAS DE LA FICHA DE TRÁMITE (3-oct-2026): lo leído del auto de
+    # admisión —o ya leído en el camino SISE— y lo que el secretario confirmó.
+    # El redactor las funde con lo que lea del acto (`armar_tramite`).
+    if _rige_pt:
+        if isinstance(_auto_ya_leido, dict):
+            encargo.tramite_auto = _auto_ya_leido
+        elif _leer_admision:
+            # EN UN HILO Y ACOTADA (rev_6, 3-oct-2026): la lectura sin modelo
+            # del auto corría síncrona en el bucle de eventos.
+            encargo.tramite_auto = await asyncio.to_thread(
+                _ra.leer_auto_tramite, texto_admision, _ta.normalizar(tipo_asunto) or tipo_asunto)
+        encargo.tramite_declarado = _tramite_declarado or {}
+        print(f"   🧾 TRÁMITE: auto {'leído' if encargo.tramite_auto else 'no subido'} · "
+              f"{len([k for k in (_tramite_declarado or {}) if k != 'avisos'])} campos confirmados")
     salida = f"{tmp}/{numero.replace('/', '-')} ADELANTO.docx"
     # EL CONTEXTO ANTES DE GENERAR (30-sep-2026). Hasta hoy nada del adelanto
     # dependía de él; el origen del acto sí (banderas `instancia_origen` y
@@ -32759,7 +32963,13 @@ async def taller_adelanto(
     return FileResponse(
         r.ruta,
         media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        filename=salida.split("/")[-1],
+        # EL NOMBRE QUE VE EL SECRETARIO (3-oct-2026). David: «el "adelanto"
+        # —que ahora serán resultandos y considerandos de procedencia, no
+        # adelanto—». Sólo cambia el nombre del archivo que se descarga
+        # (Content-Disposition, «NNN-AAAA PROCEDENCIA.docx»), que es el que
+        # manda sobre el de respaldo de la pantalla; la ruta temporal, el
+        # endpoint y las claves internas siguen llamándose «adelanto».
+        filename=_taller_nombre_procedencia(numero),
         headers={
             # Lo que el secretario tiene que leer ANTES de abrir el documento.
             "X-Oportunidad": "en-tiempo" if r.computo.oportuna else "EXTEMPORANEA",
@@ -36173,6 +36383,10 @@ def _taller_guardar_sesion(email: str, numero: str, r, tmp: str) -> None:
             # worker que resolvía recibía el recurrente vacío —«recurre la
             # propia quejosa»— y los papeles se volvían a confundir.
             "recurrente": getattr(e, "recurrente", "") or "",
+            # Y CON QUÉ CARÁCTER, si se leyó del escrito (3-oct-2026, AR
+            # 631/2025): sin esto el otro worker lo volvería a deducir del
+            # nombre y podría contar y fundar otro papel. Vacío = se deduce.
+            "papel_recurrente": getattr(e, "papel_recurrente", "") or "",
             "plantilla": e.plantilla, "coleccion_estatal": e.coleccion_estatal,
             # LA MATERIA DECLARADA. Decide el silo del RAG y el filtro del
             # sondeo; sin ella en la sesión, el /taller/resolver que caiga en
@@ -36185,6 +36399,14 @@ def _taller_guardar_sesion(email: str, numero: str, r, tmp: str) -> None:
             "tribunal": getattr(e, "tribunal", ""), "ciudad": getattr(e, "ciudad", ""),
             "modo": getattr(e, "modo", "plantilla"),
             "tipo_asunto": getattr(e, "tipo_asunto", "amparo_directo"),
+            # LA FICHA DE TRÁMITE (3-oct-2026, `procedencia_por_tipo`): de ella
+            # se recomponen el V I S T O, los resultandos y los datos de los
+            # considerandos procesales en el proyecto final. Con -w 2 el worker
+            # que resuelve no leyó el acto: sin ella aquí, volvería a la
+            # llamada que escribe los resultandos a ciegas. Sin ficha, la clave
+            # ni se escribe: la fila queda como la de siempre.
+            **({"tramite": _tr_s} if (_tr_s := __import__("redactor_adelanto").tramite_serializable(
+                getattr(e, "tramite", None))) else {}),
         },
         "fases": {
             "antecedentes": r.fases.antecedentes,
@@ -36507,6 +36729,7 @@ def _taller_recuperar_sesion_crudo(email: str, numero: str):
     encargo = _ra.Encargo(
         numero=e["numero"], encabezado=e["encabezado"], quejoso=e["quejoso"],
         recurrente=str(e.get("recurrente", "") or ""),
+        papel_recurrente=str(e.get("papel_recurrente", "") or ""),
         magistrado=e["magistrado"], secretario=e["secretario"],
         notificacion=_d.date.fromisoformat(e["notificacion"]),
         presentacion=_d.date.fromisoformat(e["presentacion"]),
@@ -36521,7 +36744,11 @@ def _taller_recuperar_sesion_crudo(email: str, numero: str):
         modo=e.get("modo", "generado"),
         tipo_asunto=e.get("tipo_asunto", "amparo_directo"),
         plantilla=e["plantilla"], coleccion_estatal=e.get("coleccion_estatal", ""),
-        materia=e.get("materia", ""))
+        materia=e.get("materia", ""),
+        # LA FICHA DE TRÁMITE vuelve con la sesión (3-oct-2026): el resolver
+        # la reutiliza para recomponer los resultandos sin modelo. Las filas
+        # anteriores no la traen → None → el camino de siempre.
+        tramite=(e.get("tramite") if isinstance(e.get("tramite"), dict) else None))
     f = _f123.Fases123()
     for k, v in (est.get("fases") or {}).items():
         setattr(f, k, v)
@@ -36543,7 +36770,18 @@ def _taller_recuperar_sesion_crudo(email: str, numero: str):
     # enero, EXTEMPORÁNEA— con el 10 de diciembre declarado a mano, que da el
     # 19 de enero y en tiempo. La misma puerta que el adelanto.
     import tipos_asunto as _ta_cp
-    computo = _f0.computar(encargo.notificacion, encargo.presentacion,
+    # LA REVISIÓN FISCAL POR CORREO SE MIDE CON EL DEPÓSITO (3-oct-2026, D3):
+    # la misma puerta que el adelanto (`deposito_que_cuenta` sobre la ficha de
+    # trámite guardada y `args_de_presentacion`), o el worker que resuelve
+    # volvería a contar con la recepción y declararía extemporáneo lo que el
+    # adelanto dio en tiempo (RF 2/2025 del banco). Sin ficha, como siempre.
+    # CON LA REGLA ÚNICA DEL CORREO (cuarta ronda, E6): `deposito_que_cuenta`
+    # decide con `ficha_tramite.via_postal` —depósito anterior a la
+    # presentación ⇒ por correo, aunque la vía diga «responsable»—, la misma
+    # que usa el compositor para narrar el depósito en el resultando.
+    _dep_cp = _ra.deposito_que_cuenta(encargo)
+    _pres_cp, _kw_dep_cp = _ra.args_de_presentacion(encargo, _dep_cp)
+    computo = _f0.computar(encargo.notificacion, _pres_cp,
                            encargo.regla_surtimiento, encargo.plazo,
                            encargo.responsable,
                            getattr(encargo, "dias_inhabiles_extra", None),
@@ -36552,7 +36790,9 @@ def _taller_recuperar_sesion_crudo(email: str, numero: str):
                            surtio_manual=_f0.surtio_manual_de(encargo)[0],
                            plazo_anios=_ta_cp.anios_de(
                                getattr(encargo, "tipo_asunto", "") or "amparo_directo",
-                               getattr(encargo, "excepcion_plazo", "") or ""))
+                               getattr(encargo, "excepcion_plazo", "") or ""),
+                           **_kw_dep_cp)
+    computo = _ra.marcar_deposito(computo, _dep_cp, encargo.presentacion)
     resultado = _ra.Resultado(ruta="", computo=computo, fases=f, encargo=encargo,
                               partes=partes, avisos=list(est.get("avisos") or []))
     if isinstance(est.get("evaluacion"), dict):
@@ -37303,6 +37543,13 @@ async def taller_desde_expediente(
     # llegan los números de página, y mandan sobre lo que decidió el módulo.
     acto_paginas: str = Form(""),        # «95-112»
     conceptos_paginas: str = Form(""),   # «5-84»
+    # «TRÁMITE EN ESTE TRIBUNAL» TAMBIÉN EN EL CAMINO SISE (rev_6, 3-oct-2026):
+    # la pantalla pintaba la tarjeta con los pendientes de SISE, pero este
+    # endpoint no la recibía y lo que el secretario confirmaba ahí se tiraba
+    # sin aviso. Las mismas claves que en /taller/adelanto, al que se pasa tal
+    # cual: allí se valida (422 si está mal escrito) y manda sobre lo leído de
+    # los autos. Sin la bandera se ignora, como allí.
+    tramite_json: str = Form(""),
 ):
     """DEL EXPEDIENTE AL CRITERIO, SIN FORMULARIO.
 
@@ -37481,6 +37728,39 @@ async def taller_desde_expediente(
           + ("  (el mismo documento: la sentencia va transcrita dentro)"
              if _mismo else ""))
 
+    # ── LOS AUTOS, A LA FICHA DE TRÁMITE (3-oct-2026) ────────────────────
+    # La depuración ya separó el auto de admisión y el de turno, y aquí sólo
+    # se aprovechaba la fecha de presentación: el texto que dice la fecha del
+    # auto de Presidencia, el turno, el ponente, el Ministerio Público y el
+    # adhesivo —lo que piden los resultandos de trámite— se perdía (mapa del
+    # código, main.py:37489). Se lee cada auto POR SEPARADO, sin modelo
+    # (`ficha_tramite.leer_auto`), se funden (el turno, del de turno) y viajan
+    # ya leídos al adelanto. Sólo con la bandera `procedencia_por_tipo`.
+    _autos_tr = None
+    try:
+        if _taller_rige_procedencia(correo):
+            import redactor_adelanto as _ra_x
+            import tipos_asunto as _ta_x
+            _tipo_x = _ta_x.normalizar(tipo_asunto or _tipo_desde_sise(fila.get("tipo_sise")))
+            _t_adm = [str(s.get("texto") or "") for s in segmentos
+                      if s.get("tipo") == "auto_admision" and str(s.get("texto") or "").strip()]
+            _t_tur = [str(s.get("texto") or "") for s in segmentos
+                      if s.get("tipo") == "auto_turno" and str(s.get("texto") or "").strip()]
+            if _t_adm or _t_tur:
+                # EN HILOS (rev_6, 3-oct-2026): la lectura sin modelo de cada
+                # auto corría síncrona en el bucle de eventos.
+                _lect_x = await asyncio.gather(
+                    *[asyncio.to_thread(_ra_x.leer_auto_tramite, t, _tipo_x)
+                      for t in _t_adm + _t_tur])
+                _autos_tr = _AutosDelExpediente(
+                    _ra_x.fundir_autos(list(_lect_x[:len(_t_adm)]), list(_lect_x[len(_t_adm):])),
+                    "\n\n".join(_t_adm + _t_tur))
+                print(f"   🧾 {numero}: {len(_t_adm)} auto(s) de admisión y {len(_t_tur)} de turno "
+                      f"leídos para la ficha de trámite")
+    except Exception as _e_ax:
+        _autos_tr = None
+        print(f"   ⚠️ autos sin leer para la ficha de trámite: {type(_e_ax).__name__}")
+
     # ── Y SE ENTRA POR EL CAMINO DE SIEMPRE ───────────────────────────────
     # No se duplica el adelanto: se le llama. Todo lo que aprendió —el cómputo,
     # los inhábiles, la rama, el resolutivo leído del PDF— vale igual aquí.
@@ -37497,7 +37777,8 @@ async def taller_desde_expediente(
         tipo_asunto=(tipo_asunto or _tipo_desde_sise(fila.get("tipo_sise"))),
         tribunal=fila.get("organo") or "", ciudad="",
         modo="generado", plantilla=None,
-        acto=_f_acto, conceptos=_f_conceptos, constancias=_f_constancias))
+        acto=_f_acto, conceptos=_f_conceptos, constancias=_f_constancias,
+        admision=_autos_tr, tramite_json=tramite_json or ""))
 
     # LO QUE SE LEYÓ Y DE DÓNDE, DE VUELTA AL SECRETARIO.
     #
@@ -37541,6 +37822,39 @@ async def taller_desde_expediente(
                        "conceptos" if s is _conceptos else "")}
             for s in segmentos]
     return resultado
+
+
+def _taller_tramite_para_pantalla(e) -> dict | None:
+    """Las claves de `encargo` con que la pantalla repinta «Trámite en este
+    tribunal» al retomar un asunto, o None si no rige la bandera, no hay ficha
+    o no se puede convertir. Para que la pantalla no vuelva en blanco:
+
+      "tramite":         las claves planas del formulario con SÓLO lo que el
+                         secretario confirmó (lo demás, «»): lo que la
+                         pantalla reenvía como suyo;
+      "tramite_leido":   {clave: valor} de lo leído del auto, del acto, del
+                         escrito o de la ficha procesal: la pantalla lo
+                         marca («del auto · compruébalo») y NO lo reenvía
+                         mientras el secretario no lo toque;
+      "tramite_fuentes": {clave: fuente} de cada clave con valor.
+
+    LO LEÍDO YA NO VUELVE COMO DEL SECRETARIO (rev_6, 3-oct-2026): devolver
+    la ficha entera hacía que al regenerar lo leído viajara en `tramite_json`
+    con fuente «secretario» y le ganara a la relectura del acto corregido.
+    Ver `redactor_adelanto.tramite_para_pantalla`."""
+    try:
+        import redactor_adelanto as _ra_tp
+        _t = getattr(e, "tramite", None)
+        if not (isinstance(_t, dict) and _ra_tp.rige_procedencia_por_tipo()):
+            return None
+        _p = _ra_tp.tramite_para_pantalla(_t)
+        if not (isinstance(_p, dict) and isinstance(_p.get("tramite"), dict) and _p["tramite"]):
+            return None
+        return {"tramite": _p["tramite"], "tramite_leido": dict(_p.get("leido") or {}),
+                "tramite_fuentes": dict(_p.get("fuentes") or {})}
+    except Exception as _e_tp:
+        print(f"   ⚠️ trámite sin convertir para la pantalla: {type(_e_tp).__name__}")
+        return None
 
 
 def _tipo_desde_sise(t: str) -> str:
@@ -37652,6 +37966,13 @@ def taller_contexto_del_asunto(numero: str, user_email: str):
             "numero": getattr(e, "numero", "") or "",
             "encabezado": getattr(e, "encabezado", "") or "",
             "quejoso": getattr(e, "quejoso", "") or "",
+            # QUIÉN RECURRE Y CON QUÉ CARÁCTER (3-oct-2026, AR 631/2025): si se
+            # separaron los papeles o se leyeron del escrito, `quejoso` es la
+            # quejosa del amparo y quien recurre va aquí. Sin esto, al retomar
+            # un recurso la pantalla ponía a la quejosa en «parte recurrente»
+            # y, al regenerar, el recurso se le atribuía a ella.
+            "recurrente": getattr(e, "recurrente", "") or "",
+            "papel_recurrente": getattr(e, "papel_recurrente", "") or "",
             "responsable": getattr(e, "responsable", "") or "",
             "tribunal": getattr(e, "tribunal", "") or "",
             "ciudad": getattr(e, "ciudad", "") or "",
@@ -37666,6 +37987,12 @@ def taller_contexto_del_asunto(numero: str, user_email: str):
                              if getattr(e, "notificacion", None) else ""),
             "presentacion": (e.presentacion.isoformat()
                              if getattr(e, "presentacion", None) else ""),
+            # «TRÁMITE EN ESTE TRIBUNAL», TAMBIÉN AL RETOMAR (3-oct-2026): la
+            # ficha de trámite con las claves del formulario, separada por su
+            # fuente —`tramite` (lo del secretario), `tramite_leido` y
+            # `tramite_fuentes`—. Sólo con la bandera `procedencia_por_tipo` y
+            # si la sesión la trae.
+            **(_taller_tramite_para_pantalla(e) or {}),
         } if e is not None else None,
         # ═══ LA SUPLENCIA QUE PROPONE EL MOTOR (David, 26-sep-2026) ════════
         # La fracción del artículo 79, a favor de quién y por qué, con lo que
@@ -41556,9 +41883,27 @@ async def taller_estado(user_email: str):
         # Para que la pantalla pueda decirle al del piloto que conserva su plaza
         # en vez de enseñarle un cartel de una fase que ya cerró.
         "del_piloto": _es_del_piloto(user_email),
+        # ═══ SI RIGE LA PROCEDENCIA POR TIPO PARA ESTA CUENTA (3-oct-2026) ═══
+        # La pantalla no conoce la bandera y pintaba SIEMPRE la tarjeta
+        # «Trámite en este tribunal»; con la bandera apagada el adelanto
+        # ignora lo que el secretario teclea ahí, y pedirle trabajo que se tira
+        # es peor que no pedírselo. Con esto la oculta. La misma puerta que
+        # /taller/adelanto y /taller/desde-admision. NUNCA TUMBA EL ESTADO: si
+        # algo falla, False, y la pantalla sigue con el camino de siempre.
+        "procedencia_por_tipo": _taller_estado_procedencia(user_email),
         "aviso": ("Borrador asistido. No es un proyecto firmable: verifique las "
                   "partes, las citas y que estén contestados todos los conceptos."),
     }
+
+
+def _taller_estado_procedencia(user_email: str) -> bool:
+    """`procedencia_por_tipo` para /taller/estado: un bool siempre, nunca
+    lanza (`_taller_rige_procedencia` ya se protege; esto cubre además lo que
+    devuelva o lance por encima)."""
+    try:
+        return bool(_taller_rige_procedencia(user_email))
+    except Exception:
+        return False
 
 
 if __name__ == "__main__":

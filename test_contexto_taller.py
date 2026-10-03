@@ -94,7 +94,16 @@ i_val, i_gen = src.find("_ctx_v.valida(_ev_pedida)"), src.find("r = await _ra.ge
 ok(0 < i_val < i_gen, "el adelanto valida la evaluación antes de generar")
 
 ct.poner(False, {})
-ok(not any(ct.rediseno(k) for k in ct.BANDERAS_REDISENO), "todas las banderas del rediseño, apagadas para los de fuera")
+# C8 (3-oct-2026, David: «empuja para todos los usuarios, no nada más para los
+# de casa»): «procedencia_por_tipo» nace encendida para todos
+# (`OMISION_REDISENO` = «todos»). Antes se comprobaba que TODAS estuvieran
+# apagadas para los de fuera; ahora, todas menos las que nacen para todos, y
+# que ésas sean exactamente esa una.
+_PARA_TODOS = {k for k, v in ct.OMISION_REDISENO.items() if v == "todos"}
+ok(_PARA_TODOS == {"procedencia_por_tipo"}
+   and not any(ct.rediseno(k) for k in ct.BANDERAS_REDISENO if k not in _PARA_TODOS)
+   and all(ct.rediseno(k) for k in _PARA_TODOS),
+   "todas las banderas del rediseño, apagadas para los de fuera, salvo procedencia_por_tipo (C8: para todos)")
 ct.poner(True, {})
 _NACEN = {k for k, v in ct.OMISION_REDISENO.items() if v == "0"}
 ok(all(ct.rediseno(k) for k in ct.BANDERAS_REDISENO if k not in _NACEN), "y encendidas para la casa")
@@ -107,8 +116,9 @@ ok(set(_bk0.BANDERAS_BASE) == set(ct.BANDERAS_REDISENO) and not any(_bk0.BANDERA
 
 print("\n4c · LAS CUENTAS DE PRUEBA (David: «voy a probar en las cuentas de @iurexia.com»)")
 ct.poner(True, {}, pruebas=False)          # jdm.juridico: de casa, NO de pruebas
-ok(not any(ct.rediseno(k) for k in ct.BANDERAS_REDISENO),
-   "su cuenta personal queda como la de cualquier secretario: todas las banderas apagadas")
+ok(not any(ct.rediseno(k) for k in ct.BANDERAS_REDISENO if k not in _PARA_TODOS),
+   "su cuenta personal queda como la de cualquier secretario: todas las banderas apagadas (salvo las que "
+   "nacen para todos, C8)")
 ct.poner(True, {}, pruebas=True)           # una @iurexia.com
 ok(all(ct.rediseno(k) for k in ct.BANDERAS_REDISENO if k not in _NACEN), "en las cuentas de prueba, encendidas")
 ct.poner(True, {"banderas": {"soluciones_por_desenlace": True}}, pruebas=True)

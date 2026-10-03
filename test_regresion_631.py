@@ -1039,9 +1039,18 @@ ok(not any(t.upper().startswith("ÓRGANO RECURRIDO") for t in _ps2[:8])
 _comp = next((t for t in _ps2 if "es competente" in t), "")
 ok("por el Juzgado Séptimo de Distrito" in _comp and "Magistrada" not in _comp,
    f"competencia: dictada por el juzgado de distrito: {_comp[180:330]}")
-_exi = next((t for t in _ps2 if "existencia del acto reclamado" in t.lower()), "")
-ok(not _exi or ("950/2024" in _exi and "2338/2024" not in _exi),
-   f"existencia: el número del amparo, no el del toca: {_exi[:260]}")
+# LA REVISIÓN YA NO REPRODUCE LA EXISTENCIA (C1, 3-oct-2026). David: «el
+# considerando de existencia ya no es necesario porque ya viene en la sentencia
+# recurrida». Esta comprobación exigía «Existencia de la resolución recurrida»
+# con el juicio de amparo 950/2024 y no el toca 2338/2024; ahora, en su sitio,
+# la procedencia con el inciso del 81 que toca a lo recurrido (la sentencia:
+# inciso e), sin existencia y sin el número del toca.
+_proc = next((t for t in _ps2 if t.startswith("SEGUNDO. Procedencia.")), "")
+ok("81, fracción I, inciso e), de la Ley de Amparo, en razón de que se impugna una sentencia dictada en la "
+   "audiencia constitucional." in _proc and "2338/2024" not in _proc
+   and not any("Existencia de la resolución recurrida" in t or "existencia del acto reclamado" in t.lower()
+               for t in _ps2),
+   f"C1: «SEGUNDO. Procedencia.» (81-I-e) en lugar de la existencia de la recurrida: {_proc[:260]}")
 _legb = next((t for t in _ps2 if "legitimad" in t), "")
 ok("Inmobiliaria Ejemplo" in _legb and "5o., fracción III" in _legb and "6º" not in _legb,
    f"legitimación: la de la tercera interesada, no la del quejoso: {_legb[:260]}")
