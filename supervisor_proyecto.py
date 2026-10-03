@@ -87,16 +87,23 @@ SUPERVISOR_RESPALDO_ESFUERZO = os.getenv("SUPERVISOR_RESPALDO_ESFUERZO", "high")
 # ~290 tok/s medidos. «high» o «medium» → thinking_level; un número →
 # thinking_budget. No es bajar el razonamiento de nadie: el supervisor es nuevo
 # y su techo es el que lo deja terminar.
-SUPERVISOR_RAZONAMIENTO = os.getenv("SUPERVISOR_RAZONAMIENTO", "24576")
+#
+# PERO EL PRESUPUESTO NO SE RESPETA (medido el mismo día en el resolver real):
+# con thinking_budget=24576 el modelo pensó 46,270 tokens, se comió los 150 s
+# del tope y en el ADA 103/2025 entregó 0 correcciones. Sobre el mismo estudio
+# del 631: «medium» 56 s y 13 correcciones (2,897 → 2,473 palabras), 8192 53 s
+# y 8, «low» 4 s y 3, «high» 137-213 s y 16. «medium» corrige casi lo mismo que
+# «high» en la cuarta parte del tiempo, y el nivel sí lo respeta.
+SUPERVISOR_RAZONAMIENTO = os.getenv("SUPERVISOR_RAZONAMIENTO", "medium")
 # TEMPERATURA BAJA: corrige, no crea. Google recomienda 1.0 para la familia 3
 # (por debajo, dice, puede entrar en bucles); si se ve que se repite, se sube
 # desde Render sin desplegar.
 SUPERVISOR_TEMPERATURA = float(os.getenv("SUPERVISOR_TEMPERATURA", "0.3"))
 # EL TOPE Y LA SALIDA. La salida va al máximo del modelo (65,536; el
 # razonamiento cuenta dentro) para que los parches nunca se queden sin sitio.
-# El tope, 150 s: ~55% sobre lo esperado con el presupuesto de arriba. Con
-# «high» hay que subirlo a 240 (se midieron 213 s).
-SUPERVISOR_TOPE_S = float(os.getenv("SUPERVISOR_TOPE_S", "150"))
+# El tope, 120 s: el doble de lo medido con «medium» (56 s). Con «high» hay
+# que subirlo a 240 (se midieron 213 s).
+SUPERVISOR_TOPE_S = float(os.getenv("SUPERVISOR_TOPE_S", "120"))
 SUPERVISOR_MAX_SALIDA = int(os.getenv("SUPERVISOR_MAX_SALIDA", "65536"))
 # EL INTERRUPTOR DE EMERGENCIA, aparte de la bandera: si un día el proveedor
 # falla en cadena, se apaga para todos desde Render sin tocar las banderas.
