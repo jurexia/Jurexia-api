@@ -109,7 +109,7 @@ ok("para_tarjeta" not in funciones("deliberacion.py"),
 # ═══════════════════════════════════════════════════════════════════════════
 print("\n3 · LAS PUERTAS DEL SERVIDOR (por el fuente)")
 _main = fuente("main.py")
-_tarj = _main.split("async def taller_tarjeta", 1)[1].split("\n@app.", 1)[0]
+_tarj = _main.split("def taller_tarjeta(numero", 1)[1].split("\n@app.", 1)[0]
 ok("info_de_rama(" in _tarj and "fases=r.fases" in _tarj and "resolutivo_recurrida=" in _tarj,
    "GET /taller/tarjeta: la rama de `info_de_rama` y las fases para buscar los conceptos")
 ok('"conceptos_violacion": bool(' not in _tarj,

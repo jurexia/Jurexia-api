@@ -88,8 +88,41 @@ load_dotenv()
 SUPABASE_URL = os.getenv("SUPABASE_URL", "")
 SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY", "")
 supabase_admin = None
+
+
+class _SupabasePorHilo:
+    """UN CLIENTE DE SUPABASE POR HILO (3-oct-2026, prueba de carga).
+
+    El cliente es síncrono y habla HTTP/2 por UNA conexión. Mientras sólo lo
+    usaba el bucle de eventos, nunca había dos peticiones a la vez. Desde que
+    los sondeos del taller corren en el grupo de hilos de FastAPI (ver «LOS
+    SONDEOS DEL TALLER SON FUNCIONES NORMALES»), varios hilos lo usaban a la vez
+    y la conexión se rompía («ConnectionTerminated»): una lectura fallaba y el
+    sondeo devolvía 404. El hilo principal —el del bucle— conserva el cliente
+    de siempre; cada hilo del grupo crea el suyo la primera vez que lo pide.
+    Todo lo demás (`table`, `rpc`, `storage`…) se delega tal cual."""
+
+    def __init__(self, url: str, clave: str):
+        import threading as _th
+        self._url, self._clave = url, clave
+        self._principal = supabase_create_client(url, clave)
+        self._local = _th.local()
+        self._th = _th
+
+    def _cliente(self):
+        if self._th.current_thread() is self._th.main_thread():
+            return self._principal
+        c = getattr(self._local, "cliente", None)
+        if c is None:
+            c = self._local.cliente = supabase_create_client(self._url, self._clave)
+        return c
+
+    def __getattr__(self, nombre):
+        return getattr(self._cliente(), nombre)
+
+
 if SUPABASE_URL and SUPABASE_SERVICE_KEY:
-    supabase_admin = supabase_create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+    supabase_admin = _SupabasePorHilo(SUPABASE_URL, SUPABASE_SERVICE_KEY)
     print(f"✅ Supabase admin client initialized (quota enforcement ACTIVE)")
 else:
     print(f"⚠️ Supabase admin NOT configured — quota enforcement DISABLED")
@@ -37535,8 +37568,16 @@ def _taller_suplencia_propuesta(r):
         return None
 
 
+# LOS SONDEOS DEL TALLER SON FUNCIONES NORMALES, NO «async» (3-oct-2026,
+# prueba de carga en producción). Estos cinco GET —contexto del asunto, tarjeta,
+# plan, asuntos en curso y proyecto— no esperan nada asíncrono: leen la fila de
+# Supabase con el cliente SÍNCRONO. Declarados «async», cada lectura (hasta 6
+# por sondeo, ~1.1 s de los 1.2 s que tarda) bloqueaba el bucle del trabajador.
+# Con 15 asuntos sondeando cada 4-6 s, /health dejó de contestar en 5 s, Render
+# reinició las dos instancias y cortó lo que estaba en curso (502). Como «def»,
+# FastAPI los corre en su grupo de hilos y el bucle queda libre.
 @app.get("/taller/contexto-del-asunto")
-async def taller_contexto_del_asunto(numero: str, user_email: str):
+def taller_contexto_del_asunto(numero: str, user_email: str):
     """EL ASUNTO, PARA LEERLO ANTES DE DECIDIR NADA.
 
     David, repetidas veces: «primero debe presentarse todo el contexto
@@ -39751,7 +39792,7 @@ def _taller_leer_marcas(email: str, numero: str, claves: tuple) -> dict:
 
 
 @app.get("/taller/tarjeta")
-async def taller_tarjeta(numero: str, user_email: str):
+def taller_tarjeta(numero: str, user_email: str):
     """La tarjeta del problema principal: el principal y por qué, las dos vías
     con el mismo peso —desenlace por código, apoyos verificados contra el
     acervo con su fuerza para este tribunal y su vigencia—, la suerte de cada
@@ -39836,7 +39877,7 @@ async def taller_tarjeta(numero: str, user_email: str):
 # (antirrebote de ~8 s en la pantalla) y lo lee cuando está. Ver
 # `_taller_plan_pedido` y `plan_estudio.py`. Contrato: diag/contrato_paso2.md.
 @app.get("/taller/plan")
-async def taller_plan(numero: str, user_email: str):
+def taller_plan(numero: str, user_email: str):
     """{"estado": "listo"|"en_curso"|"sin_plan"|"fallo", "clave", "plan", "avisos"}
     del ÚLTIMO pedido de esta sesión. La pantalla compara `clave` con la que le
     devolvió /taller/plan/pedir: si no casa, el plan es de otro criterio."""
@@ -41006,7 +41047,7 @@ async def taller_opinion_guardar(
 
 
 @app.get("/taller/proyecto")
-async def taller_proyecto(numero: str, user_email: str):
+def taller_proyecto(numero: str, user_email: str):
     """La ficha del último proyecto del asunto: versión, cuándo, palabras y
     los textos de sus avisos y huecos.
 
@@ -41050,7 +41091,7 @@ async def taller_proyecto(numero: str, user_email: str):
 
 
 @app.get("/taller/en-curso")
-async def taller_en_curso(user_email: str, limite: int = 6):
+def taller_en_curso(user_email: str, limite: int = 6):
     """Los últimos asuntos del secretario, para volver a uno sin rehacerlo."""
     _taller_puerta(user_email)
     if not supabase_admin:

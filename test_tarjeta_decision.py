@@ -633,9 +633,11 @@ ok(td.vacia("calculando", "h")["vias"] == {"propuesta": None, "opuesta": None},
 
 print("\n13 · EL ENDPOINT, SIN IMPORTAR main (se lee el fuente)")
 _src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "main.py"), encoding="utf8").read()
-ok('@app.get("/taller/tarjeta")\nasync def taller_tarjeta(numero: str, user_email: str):' in _src,
-   "GET /taller/tarjeta colgado de taller_tarjeta")
-_cuerpo = _src.split("async def taller_tarjeta", 1)[1].split("\n@app.", 1)[0]
+# (3-oct-2026) El sondeo es «def», no «async def»: lee Supabase con el cliente
+# síncrono y, asíncrono, bloqueaba el bucle bajo carga (ver main.py).
+ok('@app.get("/taller/tarjeta")\ndef taller_tarjeta(numero: str, user_email: str):' in _src,
+   "GET /taller/tarjeta colgado de taller_tarjeta, como función normal (corre en el grupo de hilos)")
+_cuerpo = _src.split("def taller_tarjeta(numero", 1)[1].split("\n@app.", 1)[0]
 # REVISIÓN DEL 28-sep-2026: la marca «tarjeta» reescribía el `estado` entero sin
 # control de versión en cada GET y podía pisar la de la deliberación.
 ok("_taller_puerta(user_email)" in _cuerpo and "_td.armar(" in _cuerpo

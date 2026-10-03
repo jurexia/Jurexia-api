@@ -630,7 +630,7 @@ ok(S._como_texto(["a", "b"]) == "a\nb" and S._como_texto(None) == "", "una lista
 # main.py: X-Supervisor expuesta por CORS y /taller/proyecto con el supervisor.
 _cors = re.search(r"expose_headers=\[(.*?)\]", msrc, re.S)
 ok(_cors is not None and '"X-Supervisor"' in _cors.group(1), "CORS expone X-Supervisor")
-_tp = next(n for n in _marbol.body if isinstance(n, ast.AsyncFunctionDef) and n.name == "taller_proyecto")
+_tp = next(n for n in _marbol.body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name == "taller_proyecto")
 _ns3 = {"_taller_puerta": lambda e: None, "err": str, "print": lambda *a, **k: None}
 
 
@@ -649,7 +649,9 @@ exec(ast.get_source_segment(msrc, _tp), _ns3)
 for _pr, _espera in (({"version": 2, "supervisor": {"estado": "aplicado", "correcciones": []}}, "aplicado"),
                      ({"version": 2}, None)):
     _ns3["supabase_admin"] = SN(table=lambda *_a, _d=[{"estado": {"proyecto": _pr}}]: _Q(_d))
-    _r = asyncio.run(_ns3["taller_proyecto"]("1/2026", "x@y"))["proyecto"]
+    # (3-oct-2026) taller_proyecto es «def»: corre en el grupo de hilos de FastAPI.
+    _rp = _ns3["taller_proyecto"]("1/2026", "x@y")
+    _r = (asyncio.run(_rp) if asyncio.iscoroutine(_rp) else _rp)["proyecto"]
     ok(((_r.get("supervisor") or {}).get("estado")) == _espera and ("supervisor" in _r) == (_espera is not None),
        f"/taller/proyecto {'devuelve' if _espera else 'no inventa'} el supervisor")
 
