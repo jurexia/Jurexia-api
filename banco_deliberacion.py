@@ -79,7 +79,10 @@ BANDERAS_OAJ = {"fuerza_unificada": False, "fuente_tardia_aviso": False, "normas
                 "plan_con_analisis": False, "exclusiones_con_prueba": False, "estados_sesion": False,
                 "soluciones_por_desenlace": False,
                 "revision_semantica": False,
-                "instancia_origen": False, "cumplimiento_ejecutoria": False}
+                "instancia_origen": False, "cumplimiento_ejecutoria": False,
+                "propuesta_por_probabilidad": False, "preguntas_al_secretario": False,
+                "inoperancia_por_vicio": False, "supervisor_proyecto": False,
+                "antecedentes_en_prosa": False}
 
 
 def _fecha_de_neun(neun) -> str:

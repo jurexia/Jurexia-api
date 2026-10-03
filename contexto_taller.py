@@ -327,6 +327,12 @@ BANDERAS_REDISENO = {
     # 30-sep-2026, amparo directo (David: «no siempre hay una sala»):
     "instancia_origen": "INSTANCIA_ORIGEN",          # la responsable se nombra por lo que es; única instancia
     "cumplimiento_ejecutoria": "CUMPLIMIENTO_EJECUTORIA",  # lo vinculado por la ejecutoria, inoperante; sobreseer si todo
+    # 2-oct-2026, «la mejora final del redactor» (David):
+    "propuesta_por_probabilidad": "PROPUESTA_POR_PROBABILIDAD",  # siempre un lado: el que pasa del 50%
+    "preguntas_al_secretario": "PREGUNTAS_AL_SECRETARIO",  # preguntas cortas en vez de constancias; premisas contra el acto
+    "inoperancia_por_vicio": "INOPERANCIA_POR_VICIO",      # la tesis de la inoperancia, por el vicio concreto
+    "supervisor_proyecto": "SUPERVISOR_PROYECTO",          # revisión del proyecto con parches verificados
+    "antecedentes_en_prosa": "ANTECEDENTES_EN_PROSA",      # antecedentes sin numerar, en prosa
 }
 
 

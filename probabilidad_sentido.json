@@ -1,0 +1,18 @@
+{
+  "version": "2026-10-02",
+  "fuente_tasas": "Fichas OAJ del Tercer Tribunal Colegiado en Materias Administrativa y Civil del XXII Circuito (indice_oaj_v2.sqlite, 11,260 asuntos 2017-2026). Sólo cuentan los asuntos decididos: amparo directo ampara / no ampara; revisión y revisión fiscal revoca o modifica / confirma; queja fundada / infundada. Sobreseimientos, desechamientos y sin materia fuera.",
+  "organo_tasas": "Tercer Tribunal Colegiado en Materias Administrativa y Civil del Vigésimo Segundo Circuito",
+  "tasas": {
+    "amparo_directo":  {"prospera": 0.291, "n": 4376},
+    "amparo_revision": {"prospera": 0.236, "n": 3218},
+    "queja":           {"prospera": 0.341, "n": 1500},
+    "revision_fiscal": {"prospera": 0.092, "n": 467}
+  },
+  "fuente_motor": "Banco Kingston con oro auditado sobre los resolutivos (29-sep-2026): 21 amparos directos, etapa con análisis neutral, 63 corridas. El motor votó conceder en 83% de los asuntos concedidos y en 71% de los negados; votó negar en 17% de los concedidos y en 29% de los negados. Su confianza declarada no separaba aciertos de errores (conceder con confianza alta acertó 6 de 27).",
+  "motor": {
+    "lr_prospera": 1.17,
+    "lr_no_prospera": 0.59
+  },
+  "kappa": 3,
+  "peso_tema": 0.5
+}
