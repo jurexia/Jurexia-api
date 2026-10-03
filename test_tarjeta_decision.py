@@ -793,8 +793,15 @@ try:
                          "respuesta": {"formato": 3, "estado": "preguntas", "propuestas": [],
                                        "global": None, "preguntas": [{"id": "P1"}]}},
            "global_propuesta": {"huella": "h", "global": GLOBAL}}
+    # Con la bandera (3-oct-2026): sin ella —al revertirla— la marca «preguntas»
+    # no bloquea la tarjeta y se cae a lo de siempre (la global que vio la pantalla).
+    import contexto_taller as _ct15
+    _ct15.poner(True, {"banderas": {"preguntas_al_secretario": True}}, pruebas=True)
     ok(td.elegir_marcas(_fq, "h")["estado_calculo"] == "sin_propuesta",
        "con preguntas pendientes no hay tarjeta, aunque quede una global de antes")
+    _ct15.poner(False)
+    ok(td.elegir_marcas(_fq, "h")["estado_calculo"] != "sin_propuesta",
+       "sin la bandera, la marca «preguntas» no deja la tarjeta atascada (reversión)")
 finally:
     os.environ.pop("PROPUESTA_POR_PROBABILIDAD", None)
 _f2 = {"propuesta": {"huella": "h", "estado": "listo", "respuesta": dict(RESP)}}

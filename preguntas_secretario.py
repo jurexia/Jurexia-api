@@ -139,20 +139,57 @@ def normalizar_respuesta(x, tipo: str = "si_no"):
     return s[:MAX_RESPUESTA_TEXTO]
 
 
+# LA RESPUESTA SIGUE A SU PREGUNTA AUNQUE EL ANÁLISIS SE REHAGA (3-oct-2026,
+# revisión adversarial). El id de una pregunta hashea el texto del modelo; si el
+# secretario reescribe un problema, el análisis se rehace y los ids cambian, y
+# sus respuestas quedaban huérfanas: las preguntas volvían sin contestar. Cada
+# respuesta guardada lleva además dos ALIAS —la pregunta y la afirmación de la
+# parte, normalizadas— con que se reengancha a la misma pregunta con otro id. Los
+# alias empiezan por «~» y no entran en la firma (no cambian la clave de las
+# propuestas ya guardadas).
+_ALIAS = "~"
+
+
+def _alias_pregunta(texto) -> str:
+    t = _plano(pregunta_cerrada(texto))
+    return f"{_ALIAS}p:{t}" if t else ""
+
+
+def _alias_premisa(afirma) -> str:
+    t = _plano(afirma)
+    return f"{_ALIAS}a:{t}" if t else ""
+
+
 def respuestas_de(guardadas) -> dict:
     """{id: respuesta} desde lo que se guardó (`estado.respuestas`: {"items": [...]},
-    o una lista de {id, respuesta}, o ya un dict)."""
+    o una lista de {id, respuesta}, o ya un dict). De una lista salen también
+    los alias de cada respuesta (ver arriba); el id manda sobre el alias."""
     if isinstance(guardadas, dict) and "items" in guardadas:
         guardadas = guardadas.get("items")
     if isinstance(guardadas, dict):
         return {str(k): v for k, v in guardadas.items() if v not in (None, "")}
-    out = {}
+    out, alias = {}, {}
     for x in guardadas or []:
         if isinstance(x, dict) and x.get("id"):
             v = normalizar_respuesta(x.get("respuesta"), x.get("tipo") or "si_no")
             if v is not None:
                 out[str(x["id"])] = v
+                for k in (_alias_pregunta(x.get("pregunta")), _alias_premisa(x.get("afirma_la_parte"))):
+                    if k:
+                        alias[k] = v
+    for k, v in alias.items():
+        out.setdefault(k, v)
     return out
+
+
+def _respuesta_de(respuestas: dict, pid: str, pregunta: str, afirma: str):
+    """La respuesta de una pregunta: por su id, o por sus alias."""
+    if pid in respuestas:
+        return respuestas[pid]
+    for k in (_alias_pregunta(pregunta), _alias_premisa(afirma)):
+        if k and k in respuestas:
+            return respuestas[k]
+    return None
 
 
 # ═══ DE LAS PREMISAS A LAS PREGUNTAS ═════════════════════════════════════════
@@ -192,7 +229,15 @@ def _problema_de(premisa: dict, analisis: dict, n_problemas: int) -> int:
 
 def _si_no_contesta(premisa: dict) -> str:
     """Lo que supone el motor si nadie contesta: decide la carga de la prueba.
-    La pregunta se formula de modo que «sí» confirme lo que afirma la parte."""
+    La pregunta se formula de modo que «sí» confirme lo que afirma la parte.
+
+    UN HECHO DEL PROCEDIMIENTO NO SE DECIDE POR CARGA (3-oct-2026, revisión
+    adversarial): «que hizo valer la prescripción» lo verifica el tribunal en
+    autos; sin respuesta queda pendiente, no «no demostrado». La carga sólo
+    rige para lo que la parte debía probar en el juicio de origen."""
+    if premisa.get("se_verifica_en") == "autos":
+        return ("Sin respuesta, queda pendiente de verificar en autos: el motor razona con lo que consta y "
+                "lo dice; no lo decide la carga de la prueba.")
     carga = str(premisa.get("carga_de") or "la_parte")
     if carga == "la_parte":
         calif = _txt(premisa.get("si_no"))
@@ -221,6 +266,10 @@ def preguntas_de(analisis, problemas: list, respuestas: dict | None = None,
             continue
         if prem.get("el_acto") != "no_se_pronuncia":
             continue
+        # Una omisión de la propia resolución se comprueba leyéndola: no se le
+        # pregunta al secretario (3-oct-2026).
+        if prem.get("se_verifica_en") == "resolucion":
+            continue
         preg = pregunta_cerrada(prem.get("pregunta"))
         if not preg:
             continue
@@ -233,7 +282,8 @@ def preguntas_de(analisis, problemas: list, respuestas: dict | None = None,
         a, b = _prospera(si_si), _prospera(si_no)
         cambia = a is not None and b is not None and a != b
         tipo = "texto" if str(prem.get("tipo") or "") == "texto" else "si_no"
-        resp = normalizar_respuesta(respuestas.get(pid), tipo) if pid in respuestas else None
+        _r0 = _respuesta_de(respuestas, pid, preg, prem.get("afirma_la_parte"))
+        resp = normalizar_respuesta(_r0, tipo) if _r0 is not None else None
         todas.append({
             "id": pid, "pregunta": preg, "tipo": tipo,
             "para_que": _txt(prem.get("para_que"), 300),
@@ -343,7 +393,7 @@ def separar_bloque(contexto: str) -> tuple:
 def firma(respuestas) -> str:
     """La firma de las respuestas: entra en la clave de la propuesta guardada,
     para no servir la que se calculó antes de contestar."""
-    d = respuestas_de(respuestas)
+    d = {k: v for k, v in respuestas_de(respuestas).items() if not str(k).startswith(_ALIAS)}
     if not d:
         return ""
     base = "|".join(f"{k}={_plano(v)}" for k, v in sorted(d.items()))
@@ -382,13 +432,56 @@ def marca_respuestas(huella: str, previas: list, nuevas: list, preguntas: list, 
                 ignorados.append(pid)
             continue
         v = normalizar_respuesta(x.get("respuesta"), q.get("tipo") or "si_no")
+        # LA RESPUESTA ANTERIOR A LA MISMA PREGUNTA CON OTRO ID (se reenganchó
+        # por alias tras rehacerse el análisis) se sustituye, no se acumula: si
+        # no, el bloque de respuestas diría «sí» y «no» a la misma pregunta.
+        _al = {k for k in (_alias_pregunta(q.get("pregunta")), _alias_premisa(q.get("afirma_la_parte"))) if k}
+        for _old in [k for k, it in items.items() if k != pid and _al & {
+                _alias_pregunta(it.get("pregunta")), _alias_premisa(it.get("afirma_la_parte"))}]:
+            items.pop(_old, None)
         if v is None:
             items.pop(pid, None)
             continue
         items[pid] = {"id": pid, "pregunta": q.get("pregunta", ""), "tipo": q.get("tipo", "si_no"),
                       "problema": q.get("problema", 0), "para_que": q.get("para_que", ""),
+                      "afirma_la_parte": q.get("afirma_la_parte", ""),
                       "respuesta": v, "en": ahora}
     return {"huella": huella, "items": list(items.values()), "firma": firma(list(items.values()))}, ignorados
+
+
+def resellar_tras_corregir(estado: dict, huella_antes: str, huella_nueva: str,
+                           huella_analisis_nueva: str = "") -> list:
+    """CORREGIR EL PROBLEMA NO TIRA LAS RESPUESTAS (3-oct-2026, revisión
+    adversarial). /taller/problema reescribe `estado.huella` (la jerarquía y la
+    pregunta entran en `huella_contraste`) y, con la huella vieja, las
+    respuestas dejaban de leerse —las preguntas volvían sin contestar y el
+    estudio se escribía sin lo que el secretario confirmó— y el análisis se
+    volvía a pagar aunque lo que lee no hubiera cambiado.
+
+    Sobre `estado` (la fila, que el llamador escribe después), en su sitio:
+      · `respuestas`: si eran de ESTE adelanto (huella vieja), pasan a la
+        nueva. Son hechos de autos: no dependen de cómo se formula el problema;
+      · `analisis`: sólo si lo que lee no cambió (`huella_analisis` igual a la
+        recalculada; la jerarquía no entra en ella). Si se reescribió la
+        pregunta, el análisis se rehace y las respuestas se reenganchan por
+        alias (ver `respuestas_de`).
+    Devuelve las claves reselladas. Puro; nunca lanza."""
+    hechas = []
+    try:
+        if not isinstance(estado, dict) or not huella_antes or not huella_nueva or huella_antes == huella_nueva:
+            return hechas
+        m = estado.get(CLAVE_MARCA)
+        if isinstance(m, dict) and m.get("huella") == huella_antes:
+            m["huella"] = huella_nueva
+            hechas.append(CLAVE_MARCA)
+        a = estado.get("analisis")
+        if isinstance(a, dict) and a.get("huella") == huella_antes and huella_analisis_nueva \
+                and a.get("huella_analisis") == huella_analisis_nueva and a.get("estado") == "listo":
+            a["huella"] = huella_nueva
+            hechas.append("analisis")
+    except Exception:
+        pass
+    return hechas
 
 
 def respuesta_preguntas(numero: str, preguntas: list, modelo: str = "", avisos: list | None = None,
@@ -434,20 +527,37 @@ def respuesta_preguntas(numero: str, preguntas: list, modelo: str = "", avisos: 
 # CALIBRADO PARA NO ACUSAR A UNA SENTENCIA BUENA: «la información proporcionada
 # por la autoridad», «lo aportado por la quejosa como prueba» o «los insumos de
 # producción» (revisión fiscal) son legítimos y no se cuentan.
+#
+# 3-oct-2026 (revisión adversarial: «el aviso acusa frases buenas»): tampoco lo
+# que lleva DESTINO o FUENTE PROCESAL —«de lo aportado al juicio no se
+# advierte», «con lo aportado en autos se acredita», «la información
+# proporcionada en respuesta al requerimiento», «la documentación proporcionada
+# a la autoridad fiscalizadora», «el expediente proporcionado al perito»—: son
+# giros normales, sobre todo en la revisión fiscal. La voz de la herramienta es
+# el término suelto o referido a este estudio («el material proporcionado», «la
+# información proporcionada no permite…», «…para este estudio»). La voz del
+# secretario como fuente («aportado por el secretario») la caza su propia
+# expresión, aparte.
+_DESTINO_PROCESAL = (r"(?!\s+(?:por|a|al|ante|como|durante|dentro|mediante|desde"
+                     r"|en\s+(?:respuesta|autos|juicio|el\s+juicio|la\s+audiencia|el\s+procedimiento"
+                     r"|el\s+expediente|la\s+instancia|primera|segunda|la\s+visita|la\s+revisi[oó]n"
+                     r"|el\s+requerimiento|cumplimiento|la\s+diligencia|el\s+sumario|la\s+contestaci[oó]n"
+                     r"|la\s+demanda|el\s+recurso|la\s+etapa|el\s+periodo|el\s+per[ií]odo|el\s+t[eé]rmino)"
+                     r"|en\s+(?:la|el|las|los)\s+(?:quejos|recurrent|tercer|actor|actora|demandad|autoridad"
+                     r"|parte|oferente|trabajador|patr[oó]n|inconforme|promovente))\b)")
 _FRASES_HERRAMIENTA = [
     r"\bmaterial(?:es)?\s+(?:que\s+(?:se\s+)?(?:me\s+)?(?:ha\s+sido\s+|fue\s+)?)?(?:proporcionad|entregad|"
-    r"disponibl|remitid|recibid|facilitad|suministrad)\w*\b(?!\s+por\s)",
+    r"disponibl|remitid|recibid|facilitad|suministrad)\w*\b" + _DESTINO_PROCESAL,
     r"\b(?:no\s+)?obra\s+en\s+(?:el|lo|los)\s+(?:material|proporcionad\w*|insumos|documentos?\s+proporcionad\w*)",
     r"\bconstancias\s+(?:remitidas|proporcionadas|entregadas|aportadas|recibidas|disponibles)\s+"
     r"(?:para|a)\s+(?:este|el\s+presente)\s+(?:estudio|an[aá]lisis|proyecto)",
-    r"\bconstancias\s+(?:proporcionadas|entregadas|disponibles)(?!\s+por\s)",
+    r"\bconstancias\s+(?:proporcionadas|entregadas|disponibles)\b" + _DESTINO_PROCESAL,
     r"\b(?:en|entre|de|con)\s+los\s+insumos(?=\s*[\.,;:)]|\s*$|\s+(?:no\b|proporcionad|entregad|disponibl|"
     r"recibid|del\s+(?:presente\s+)?(?:estudio|proyecto|asunto)|con\s+que\s+se\s+cuenta))",
     r"\blos\s+insumos\s+(?:proporcionad|entregad|disponibl|recibid)\w*",
-    r"\blo\s+aportado\b(?!\s+(?:por|en)\s+(?:la|el|las|los)\s+(?:quejos|recurrent|tercer|actor|actora|"
-    r"demandad|autoridad|parte|oferente|trabajador|patr[oó]n|inconforme|promovente))",
+    r"\blo\s+aportado\b" + _DESTINO_PROCESAL,
     r"\b(?:informaci[oó]n|documentaci[oó]n|texto|textos|documentos?|expediente)\s+(?:que\s+se\s+(?:me\s+)?"
-    r"(?:ha\s+|han\s+)?)?(?:proporcionad|facilitad|suministrad)\w*\b(?!\s+por\s)",
+    r"(?:ha\s+|han\s+)?)?(?:proporcionad|facilitad|suministrad)\w*\b" + _DESTINO_PROCESAL,
     r"\b(?:aportad|proporcionad|remitid|informad)[oa]s?\s+por\s+(?:el|la)\s+secretari[oa]\b",
     r"\b(?:seg[uú]n|conforme\s+a\s+lo\s+que)\s+(?:informa|indica|señala|dice|refiere)\s+(?:el|la)\s+secretari[oa]\b",
     r"\bseg[uú]n\s+(?:informa\s+)?quien\s+firma\b",

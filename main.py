@@ -33383,7 +33383,15 @@ def _taller_marca_es_mia(email: str, numero: str, ficha: str) -> bool:
     return isinstance(m, dict) and m.get("ficha") == ficha
 
 
-async def _taller_preproponer(email: str, numero: str, r, material, forzar: bool = False) -> None:
+def _taller_hash_contexto(contexto: str) -> str:
+    """La huella del contexto que aportó el secretario («» si no hay): entra en
+    la marca de la propuesta calculada con él (3-oct-2026)."""
+    c = " ".join(str(contexto or "").split())
+    return hashlib.sha1(c.encode("utf-8")).hexdigest()[:16] if c else ""
+
+
+async def _taller_preproponer(email: str, numero: str, r, material, forzar: bool = False,
+                              contexto: str = "") -> None:
     """La propuesta de solución, sola, en cuanto la consulta automática deja
     el acervo. Es el mismo núcleo que corre el botón, sin contexto del
     secretario; se guarda entera en `estado.propuesta` (marca + respuesta) y
@@ -33398,8 +33406,18 @@ async def _taller_preproponer(email: str, numero: str, r, material, forzar: bool
     `forzar` (2-oct-2026): la relanza /taller/responder porque el secretario
     contestó las preguntas; la de antes ya no vale aunque la hubiera reclamado
     el botón.
+
+    `contexto` (3-oct-2026, revisión adversarial): lo que el secretario aportó
+    en pantalla, que /taller/responder recibe y pasa aquí. Antes la relanzada
+    corría con «» y el sentido propuesto tras contestar se decidía sin el
+    documento aportado, mientras el estudio sí lo recibía. La marca guarda su
+    huella (`contexto_hash`) para que /taller/proponer la sirva cuando la
+    pantalla la pida con ese mismo contexto. La de fondo (sin contexto) queda
+    como siempre.
     """
     huella = ""
+    contexto = (contexto or "").strip()
+    _ctx_hash = _taller_hash_contexto(contexto)
     try:
         huella = _te.huella_contraste(r)
         if material is None:
@@ -33428,16 +33446,17 @@ async def _taller_preproponer(email: str, numero: str, r, material, forzar: bool
             print(f"   ⚖️ la propuesta de {numero} ya la está calculando el botón: la de fondo no arranca")
             return
         _desde = time.time()
+        _x_ctx = {"contexto_hash": _ctx_hash} if _ctx_hash else {}
         if not _taller_guardar_marca(email, numero, "propuesta", {
-                "huella": huella, "estado": "en_curso", "desde": _desde,
+                "huella": huella, "estado": "en_curso", "desde": _desde, **_x_ctx,
                 **({"ficha": _ficha, "origen": "fondo"} if _unica else {})}, huella):
             return
         ses = {"resultado": r, "material": material, "consultado": True,
                "tmp": "", "ts": time.time()}
         _t0 = time.perf_counter()
         resp = await _taller_con_latido(email, numero, "propuesta", huella, _desde,
-            _taller_proponer_nucleo(email, numero, ses, ""),
-            extra=({"ficha": _ficha, "origen": "fondo"} if _unica else None))
+            _taller_proponer_nucleo(email, numero, ses, contexto),
+            extra=({**({"ficha": _ficha, "origen": "fondo"} if _unica else {}), **_x_ctx} or None))
         resp = json.loads(json.dumps(resp, ensure_ascii=False, default=str))
         _seg = time.perf_counter() - _t0
         if _unica and not _taller_marca_es_mia(email, numero, _ficha):
@@ -33453,6 +33472,11 @@ async def _taller_preproponer(email: str, numero: str, r, material, forzar: bool
             # LA CLAVE CON QUE SE SIRVE LA GUARDADA LLEVA LAS RESPUESTAS.
             _extra_r = {"respuestas_firma": _firma_r0}
             resp["respuestas_firma"] = _firma_r0
+        if _ctx_hash:
+            # Y EL CONTEXTO CON QUE SE CALCULÓ (3-oct-2026): sólo cuando lo
+            # hubo; la de fondo sin contexto guarda la marca de siempre.
+            _extra_r["contexto_hash"] = _ctx_hash
+            resp["contexto_hash"] = _ctx_hash
         if _taller_guardar_marca(email, numero, "propuesta", {
                 "huella": huella, "estado": "listo", "segundos": round(_seg, 1),
                 "respuesta": resp, **_extra_r,
@@ -33476,14 +33500,16 @@ async def _taller_preproponer(email: str, numero: str, r, material, forzar: bool
             # secretario acepta sin tocar. Si toca algo, la clave cambia y la
             # pantalla pide otro. Sólo para quien escribe con la v4 (hoy, las
             # cuentas de casa; ver `_taller_plan_adelantar`).
-            if _taller_plan_adelantar(email):
+            # Con contexto del secretario no se adelanta: el plan se pide con
+            # «» y su clave no casaría con la del resolver (3-oct-2026).
+            if _taller_plan_adelantar(email) and not contexto:
                 _tp = asyncio.ensure_future(
                     _taller_plan_desde_propuesta(email, numero, r, ses, resp))
                 _TALLER_EN_MARCHA.add(_tp)
                 _tp.add_done_callback(_TALLER_EN_MARCHA.discard)
             # Y LA DELIBERACIÓN DEL PRINCIPAL, si su bandera está encendida
             # para esta cuenta (apagada por omisión: ver `deliberacion.py`).
-            _taller_lanzar_deliberacion(email, numero, r, ses, resp)
+            _taller_lanzar_deliberacion(email, numero, r, ses, resp, contexto)
     except Exception as ex:
         print(f"   ⚠️ la propuesta calculada sola de {numero} falló: {err(ex)}")
         if huella:
@@ -33749,7 +33775,14 @@ def _taller_avance(email: str, numero: str) -> dict:
                 # indispensables del secretario. La pantalla lo enseña así.
                 _resp_av = d.get("respuesta") if k == "propuesta" else None
                 if _est == "listo" and isinstance(_resp_av, dict) and _resp_av.get("estado") == "preguntas":
-                    _est = "preguntas"
+                    # SÓLO CON LA BANDERA (3-oct-2026, revisión adversarial): al
+                    # revertirla, esa marca no es una propuesta; «fallo» hace que
+                    # la pantalla ofrezca el botón, y /taller/proponer recalcula.
+                    try:
+                        import preguntas_secretario as _ps_av
+                        _est = "preguntas" if _ps_av.activa() else "fallo"
+                    except Exception:
+                        _est = "fallo"
                 out[k] = {"estado": _est, "segundos": d.get("segundos")}
                 if _est == "preguntas":
                     out[k]["pendientes"] = _resp_av.get("pendientes")
@@ -33965,6 +33998,10 @@ async def taller_responder(
     user_email: str = Form(...),
     # [{"id": "P1a2b3c", "respuesta": "si" | "no" | "no_consta" | texto}]
     respuestas_json: str = Form("[]"),
+    # LO QUE EL SECRETARIO APORTÓ EN PANTALLA (3-oct-2026, revisión
+    # adversarial): la propuesta que se relanza al contestar lo lleva. Opcional:
+    # sin él, como hasta hoy.
+    contexto: str = Form(""),
 ):
     """LAS RESPUESTAS DEL SECRETARIO A LAS PREGUNTAS DEL MOTOR (contrato C).
 
@@ -33972,6 +34009,10 @@ async def taller_responder(
     guardada deja de valer: si ya no queda ninguna indispensable sin contestar,
     se relanza en segundo plano como la de fondo; si aún queda alguna, se
     actualizan las preguntas guardadas sin llamar a ningún modelo.
+
+    `contexto`: lo aportado en pantalla. La relanzada se calcula con él y lo
+    sella en su marca (`contexto_hash`); /taller/proponer la sirve si la
+    pantalla la pide sin contexto o con ese mismo.
 
     Devuelve {"ok": true, "pendientes": int, "propuesta": "en_curso"|"preguntas"}."""
     _taller_puerta(user_email)
@@ -34042,8 +34083,10 @@ async def taller_responder(
         return {"ok": True, "pendientes": 0, "propuesta": "en_curso"}
     _taller_guardar_marca(user_email, numero, "propuesta", {
         "huella": hu, "estado": "en_curso", "desde": _ahora, "latido": _ahora,
-        "origen": "respuestas", "respuestas_firma": marca["firma"]}, hu)
-    _tr = asyncio.ensure_future(_taller_preproponer(user_email, numero, r, material, forzar=True))
+        "origen": "respuestas", "respuestas_firma": marca["firma"],
+        **({"contexto_hash": _taller_hash_contexto(contexto)} if (contexto or "").strip() else {})}, hu)
+    _tr = asyncio.ensure_future(_taller_preproponer(user_email, numero, r, material, forzar=True,
+                                                    contexto=(contexto or "").strip()))
     _TALLER_EN_MARCHA.add(_tr)
     _tr.add_done_callback(_TALLER_EN_MARCHA.discard)
     return {"ok": True, "pendientes": 0, "propuesta": "en_curso"}
@@ -38010,6 +38053,10 @@ async def taller_problema(
     if not ses:
         raise HTTPException(404, "No hay un adelanto reciente de ese expediente.")
     r = ses["resultado"]
+    # LA HUELLA DE ANTES (3-oct-2026): con ella se resellan las respuestas del
+    # secretario y el análisis al reescribir `estado.huella` (ver abajo). Se
+    # toma antes de tocar nada: el problema se corrige en su sitio.
+    _hu_antes = _te.huella_contraste(r)
     probs = list(r.fases.problemas or [])
     if not (0 <= int(indice) < len(probs)):
         raise HTTPException(422, f"No hay problema {indice}: hay {len(probs)}.")
@@ -38057,6 +38104,19 @@ async def taller_problema(
                 _est = _q.data[0].get("estado") or {}
                 _est.setdefault("fases", {})["problemas"] = probs
                 _est["huella"] = _te.huella_contraste(r)
+                # CORREGIR EL PROBLEMA NO TIRA LAS RESPUESTAS NI REPAGA EL
+                # ANÁLISIS (3-oct-2026, revisión adversarial): las respuestas
+                # pasan a la huella nueva, y el análisis también si lo que lee
+                # no cambió (sólo cambió la jerarquía). Sin respuestas ni
+                # análisis guardados (banderas apagadas), no toca nada.
+                try:
+                    import preguntas_secretario as _ps_pb
+                    import analisis_litis as _al_pb
+                    _resell = _ps_pb.resellar_tras_corregir(_est, _hu_antes, _est["huella"], _al_pb.huella(r))
+                    if _resell:
+                        print(f"   ✏️  {numero}: {', '.join(_resell)} pasan a la huella del problema corregido")
+                except Exception as _exr:
+                    print(f"   ⚠️ TALLER: no se pudieron resellar respuestas/análisis: {err(_exr)}")
                 _resp = supabase_admin.table("taller_sesiones") \
                     .update({"estado": _est, "propuestas": []}) \
                     .eq("email", (user_email or "").strip().lower()) \
@@ -39436,16 +39496,29 @@ async def taller_proponer(
     # consulta automática— y vale tal cual si el secretario no aporta
     # contexto: se sirve la guardada, o se espera si aún corre. Con contexto,
     # se calcula con él. Sin marca (sesión anterior, worker caído), se calcula.
+    # CON CONTEXTO, LA GUARDADA SÓLO SI SE CALCULÓ CON ESE MISMO (3-oct-2026):
+    # la relanzada por /taller/responder lleva lo aportado y su huella
+    # (`contexto_hash`); pedirla con ese contexto no la paga dos veces. Sin esa
+    # huella en la marca (banderas apagadas: nadie la escribe), con contexto se
+    # calcula como siempre.
     _previa = None
-    if not (contexto or "").strip() and not _forzar:
+    _ctx_h = _taller_hash_contexto(contexto)
+    if not _forzar:
         try:
             _hu = _te.huella_contraste(ses["resultado"])
-            _doc = await _te.esperar_marca(
-                _hu, lambda: _taller_leer_marca(user_email, numero, "propuesta"),
-                "la propuesta calculada sola", tope=240.0,
-                abandonado=_te.LATIDO_ABANDONADO_S)
-            if _doc and isinstance(_doc.get("respuesta"), dict):
-                _previa = _doc["respuesta"]
+            _leer_p = (lambda: _taller_leer_marca(user_email, numero, "propuesta"))
+            _ir_p = True
+            if _ctx_h:
+                _m_ctx = _leer_p()
+                _ir_p = isinstance(_m_ctx, dict) and _m_ctx.get("huella") == _hu \
+                    and _m_ctx.get("contexto_hash") == _ctx_h
+            if _ir_p:
+                _doc = await _te.esperar_marca(
+                    _hu, _leer_p, "la propuesta calculada sola", tope=240.0,
+                    abandonado=_te.LATIDO_ABANDONADO_S)
+                if _doc and isinstance(_doc.get("respuesta"), dict) \
+                        and (not _ctx_h or _doc.get("contexto_hash") == _ctx_h):
+                    _previa = _doc["respuesta"]
         except Exception as _exc_pp:
             print(f"   ⚠️ no se pudo recoger la propuesta calculada sola: {err(_exc_pp)}")
     # EL FORMATO QUE RIGE EN ESTA PETICIÓN (2-oct-2026): 3 con la mejora final
@@ -39455,6 +39528,19 @@ async def taller_proponer(
     # sirve tal cual: sus preguntas siguen pendientes y la invalida quien
     # guarda las respuestas (/taller/responder).
     _formato_rige = _taller_formato_propuesta()
+    # SIN LA BANDERA, UNA GUARDADA «PREGUNTAS» NO SE SIRVE (3-oct-2026, revisión
+    # adversarial): al revertir «preguntas_al_secretario», el asunto que se
+    # quedó esperando respuestas recibía otra vez sus preguntas, /taller/responder
+    # contestaba 409 y nada lo sacaba de ahí. Se recalcula, como hoy.
+    if _previa is not None and _previa.get("estado") == "preguntas":
+        try:
+            import preguntas_secretario as _ps_rb
+            if not _ps_rb.activa():
+                print(f"   ❓ TALLER: la guardada de {numero} espera preguntas pero la bandera está "
+                      f"apagada: se recalcula")
+                _previa = None
+        except Exception:
+            _previa = None
     if _previa is not None and _previa.get("estado") != "preguntas" \
             and _previa.get("formato") != _formato_rige:
         print(f"   ⚖️ TALLER: la propuesta guardada de {numero} es del formato "

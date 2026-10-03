@@ -1608,6 +1608,15 @@ def clave_de(tarjeta: dict) -> str:
 
 # ═══ QUÉ MARCAS DE LA FILA SE USAN ══════════════════════════════════════════
 
+def _preguntas_activas() -> bool:
+    """¿Rige «preguntas_al_secretario» en esta petición? (nunca lanza)"""
+    try:
+        import preguntas_secretario as _ps
+        return bool(_ps.activa())
+    except Exception:
+        return False
+
+
 def elegir_marcas(fila: dict, huella: str, propuestas_fila=None, ahora=None) -> dict:
     """De las marcas de la fila —propuesta, global_propuesta, contraste,
     deliberacion—, las de ESTE adelanto (misma huella). Devuelve
@@ -1626,8 +1635,12 @@ def elegir_marcas(fila: dict, huella: str, propuestas_fila=None, ahora=None) -> 
     ct = fila.get("contraste") if isinstance(fila.get("contraste"), dict) else {}
     dl = fila.get("deliberacion") if isinstance(fila.get("deliberacion"), dict) else {}
     resp = {}
+    # SÓLO CON LA BANDERA (3-oct-2026, revisión adversarial): al revertir
+    # «preguntas_al_secretario», una marca «preguntas» no es propuesta ni
+    # bloquea la tarjeta; se trata como inválida (cae a lo de siempre) y
+    # /taller/proponer la recalcula.
     if pm.get("huella") == huella and isinstance(pm.get("respuesta"), dict) \
-            and pm["respuesta"].get("estado") == "preguntas":
+            and pm["respuesta"].get("estado") == "preguntas" and _preguntas_activas():
         # Las preguntas al secretario están pendientes: la global guardada,
         # si la hay, es de antes de preguntar y no se enseña.
         return {"estado_calculo": "sin_propuesta", "propuesta": None, "contraste": None,

@@ -66,7 +66,9 @@ ok("await _taller_proponer_nucleo(user_email, numero, ses, contexto)" in handler
 # RECALCULE para medir; sin eso, igual que siempre.
 ok('_taller_leer_marca(user_email, numero, "propuesta")' in handler
    and ('if not (contexto or "").strip():' in handler
-        or 'if not (contexto or "").strip() and not _forzar:' in handler)
+        or 'if not (contexto or "").strip() and not _forzar:' in handler
+        # 3-oct-2026: con contexto, sólo la guardada sellada con ese mismo contexto
+        or ('if not _forzar:' in handler and '_m_ctx.get("contexto_hash") == _ctx_h' in handler))
    and ('return _previa' in handler or 'return _taller_con_aplicado(_previa' in handler),
    "sin contexto sirve la propuesta calculada sola; con contexto, calcula")
 i_pre = m.find("async def _taller_preconsultar(")
@@ -75,7 +77,9 @@ ok(0 < i_pre < m.find("await _taller_preproponer(email, numero, r, material)", i
    "la consulta sola encadena la propuesta sola")
 pp = m[i_pp:m.find("\n\n\ndef _taller_avance(")]
 ok('"estado": "en_curso"' in pp and '"respuesta": resp' in pp and '"estado": "fallo"' in pp
-   and '_taller_proponer_nucleo(email, numero, ses, "")' in pp,
+   and ('_taller_proponer_nucleo(email, numero, ses, "")' in pp
+        # 3-oct-2026: la relanzada por /taller/responder lleva lo aportado; la de fondo, «»
+        or ('_taller_proponer_nucleo(email, numero, ses, contexto)' in pp and 'contexto: str = ""' in pp)),
    "la propuesta sola marca en curso, guarda la respuesta entera al terminar y marca el fallo")
 ok('ses = {"resultado": r, "material": material, "consultado": True,' in pp
    and "_taller_sesion_en_memoria(email, numero, huella, material=material," in pp,

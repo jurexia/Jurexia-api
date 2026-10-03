@@ -75,7 +75,12 @@ VERSION = "analisis-3"
 # pero entrega más (las premisas, la condición «afirmado_por_la_parte») y deja
 # de pedir faltantes abiertos: es otra versión, y la huella lo dice. Con la
 # bandera apagada la versión, el prompt y la huella son los de siempre.
-VERSION_PREGUNTAS = "analisis-4"
+# analisis-5 (3-oct-2026, revisión adversarial): el prompt de las premisas deja
+# fuera las omisiones de la propia resolución y pide `se_verifica_en`; una
+# premisa cuya cita del acto no se halla conserva lo que el modelo declaró. Es
+# otro análisis: la huella lo dice y el guardado con la versión anterior se
+# recalcula.
+VERSION_PREGUNTAS = "analisis-5"
 
 
 def con_premisas() -> bool:
@@ -222,6 +227,10 @@ def _prompt_premisas(q: str, recurrida: str) -> str:
   cita_acto: 10 a 40 palabras LITERALES de {recurrida} o de las constancias donde se pronunció
     ("" si no se pronuncia; NUNCA del escrito de la parte),
   carga_de: a quién toca probar ese hecho: "la_parte" (quien lo afirma), "contraparte" o "autoridad",
+  se_verifica_en: "autos" si es un hecho del procedimiento que consta en el expediente (qué se alegó
+    o se hizo valer, qué se promovió, qué se notificó, qué escrito o prueba se presentó y cuándo): lo
+    verifica el secretario en autos y no se decide por la carga de la prueba; "juicio" si es un hecho
+    que la parte debía probar en el juicio de origen,
   y SÓLO si el_acto es "no_se_pronuncia":
     pregunta: UNA pregunta cerrada y corta para el secretario, que tiene el expediente delante,
       sobre el hecho mismo y no sobre un documento que haya que traer. Se contesta con sí o no,
@@ -234,7 +243,11 @@ def _prompt_premisas(q: str, recurrida: str) -> str:
     si_no: la calificación si no lo confirma,
     para_que: en una línea, qué decide la respuesta.
   No preguntes lo que {recurrida} ya resolvió, lo que no cambia la calificación ni lo que la parte
-  no afirmó. [] si no hay premisas de hecho en disputa."""
+  no afirmó. Que {recurrida} omitió pronunciarse, no valoró una prueba o no estudió un argumento NO
+  es una premisa de hecho: se comprueba leyendo {recurrida}, que tienes delante; no la listes ni la
+  preguntes. Si esa omisión descansa en un hecho del procedimiento (que la parte lo hizo valer, que
+  ofreció la prueba), ése sí es premisa, con se_verifica_en "autos". [] si no hay premisas de hecho
+  en disputa."""
 
 
 def prompt(acto: str, escrito: str, autos: str, segmentos: list, problemas: list,
@@ -778,11 +791,81 @@ def _carga(x) -> str:
     return "la_parte"
 
 
+# DÓNDE SE COMPRUEBA UNA PREMISA (3-oct-2026, revisión adversarial: «"No se
+# pronuncia" y la carga de la prueba deciden en contra de los planteamientos de
+# omisión»). La carga de la prueba sólo decide los hechos que la parte debía
+# probar en el juicio de origen. Dos clases no se deciden por ella:
+#   · "resolucion": la omisión que se atribuye a la propia resolución («la Sala
+#     omitió pronunciarse», «no valoró la pericial»). Su silencio ES la
+#     violación alegada; se comprueba leyéndola, y el motor la tiene delante.
+#   · "autos": un hecho del procedimiento (qué se hizo valer, qué se notificó,
+#     qué escrito se presentó). Lo verifica el tribunal en el expediente; sin
+#     respuesta del secretario queda pendiente, no «no demostrado».
+# Se reconoce la omisión por el VERBO DE ESTUDIO con su sujeto implícito («no
+# valoró», «omitió pronunciarse», «dejó de estudiar»), no por «omitió» suelto:
+# «la autoridad omitió notificarle el crédito» es un hecho del procedimiento.
+VERIFICA_EN = ("juicio", "autos", "resolucion")
+_ESTUDIO = (r"pronunciarse|pronunciar|estudiar|analizar|valorar|atender|examinar|resolver|considerar"
+            r"|tomar\s+en\s+cuenta|ocuparse|dar\s+respuesta|contestar")
+_RX_OMISION = re.compile(
+    r"\b(?:omiti(?:o|eron)\s+(?:" + _ESTUDIO + r")"
+    r"|omiti(?:o|eron)\s+(?:el|su)\s+(?:estudio|analisis|pronunciamiento|valoracion)"
+    r"|dej(?:o|aron)\s+de\s+(?:" + _ESTUDIO + r")"
+    r"|no\s+(?:se\s+)?(?:pronuncio|valoro|estudio|analizo|atendio|examino|considero|resolvio"
+    r"|tomo\s+en\s+cuenta|ocupo|dio\s+respuesta|contesto)\b"
+    r"|no\s+fue(?:ron)?\s+(?:valorad|estudiad|analizad|atendid|examinad|considerad)\w*"
+    r"|omision\s+de\s+(?:estudio|analisis|pronunciamiento|valoracion|valorar|estudiar|analizar|pronunciarse))")
+_RX_PROCESAL = re.compile(
+    r"\b(?:hizo\s+valer|hice\s+valer|hicieron\s+valer|planteo|plantee|promovio|promovi|interpuso|interpuse"
+    r"|ofrecio|ofreci|exhibio|exhibi|presento|presente|notific\w*|emplaz\w*"
+    r"|comparecio|comparecimos|compareci|se\s+admitio|se\s+desecho|alego|alegue|opuso|opuse)\b")
+
+
+def verifica_en(declarado, afirma: str = "") -> str:
+    """«juicio» | «autos» | «resolucion» (ver arriba). Lo que el texto dice
+    manda sobre lo que declaró el modelo cuando es una omisión de la
+    resolución; si el modelo no dijo nada legible, los verbos procesales
+    deciden «autos» y lo demás queda «juicio» (lo de siempre)."""
+    a = _plano_al(afirma)
+    if a and _RX_OMISION.search(a):
+        return "resolucion"
+    s = _plano_al(declarado)
+    if s.startswith(("autos", "expediente", "procedimiento", "constancias")):
+        return "autos"
+    if s.startswith(("resolucion", "acto", "sentencia")):
+        return "resolucion"
+    if s.startswith(("juicio", "origen", "prueba")):
+        return "juicio"
+    if a and _RX_PROCESAL.search(a):
+        return "autos"
+    return "juicio"
+
+
+def decide_la_carga(p: dict) -> bool:
+    """¿Decide la carga de la prueba esta premisa si el secretario no contesta?
+    Sólo un hecho del juicio de origen sobre el que la resolución calla: lo
+    que la resolución declaró (aunque su cita no se hallara) no se decide por
+    carga. Una premisa guardada antes de estos campos se lee como siempre
+    (juicio)."""
+    if not isinstance(p, dict):
+        return False
+    if p.get("el_acto") != "no_se_pronuncia":
+        return False
+    return (p.get("se_verifica_en") or "juicio") == "juicio"
+
+
 def verificar_premisas(lista, T: dict, ids_seg: dict | None = None, ocr: set | None = None) -> list:
     """Las premisas de la parte, comprobadas POR FUENTE (2-oct-2026):
       · cita_escrito se busca SÓLO en el escrito;
       · cita_acto SÓLO en el acto y las constancias, nunca en el escrito; si no
-        se halla, el acto «no se pronuncia» —no se le atribuye lo que no dice—;
+        se halla, la premisa CONSERVA lo que el modelo declaró con
+        `cita_acto_verificada` False (3-oct-2026, revisión adversarial: antes
+        bajaba a «no se pronuncia», y una paráfrasis o una palabra de más
+        convertían «lo tuvo por cierto» en un hecho que decidía la carga de la
+        prueba contra la parte, sin preguntarle a nadie). Sin cita verificada no
+        se cita ni decide por carga: se comprueba en la resolución;
+      · `se_verifica_en` (ver `verifica_en`): una omisión de la propia
+        resolución no lleva pregunta —se comprueba leyéndola—;
       · la pregunta al secretario sólo queda si el acto calla y la afirmación
         de la parte se halló en su escrito (una premisa que la parte no
         escribió no se le pregunta a nadie).
@@ -808,18 +891,21 @@ def verificar_premisas(lista, T: dict, ids_seg: dict | None = None, ocr: set | N
         ce, ce_ok, _, ce_lec = verificar_cita(x.get("cita_escrito"), T, "escrito", solo=("escrito",))
         ca, ca_ok, ca_f, ca_lec = verificar_cita(x.get("cita_acto"), T, "acto", solo=("acto", "constancias"))
         el_acto = _el_acto(x.get("el_acto"))
-        if el_acto != "no_se_pronuncia" and not ca_ok:
-            el_acto = "no_se_pronuncia"
-        if el_acto == "no_se_pronuncia":
+        # LA CITA QUE NO SE HALLA NO VUELVE MUDO AL ACTO (3-oct-2026): se
+        # conserva lo declarado, sin la cita, marcado sin verificar.
+        if el_acto == "no_se_pronuncia" or not ca_ok:
             ca, ca_ok = "", False
         for _c, _l in ((ce, ce_lec), (ca, ca_lec)):
             if _l == "ocr" and ocr is not None and _c:
                 ocr.add(_c)
+        _ver = verifica_en(x.get("se_verifica_en"), afirma)
         p = {"id": fid, "segmento": seg, "problema": prob, "afirma_la_parte": afirma,
              "cita_escrito": ce if ce_ok else "", "cita_escrito_verificada": bool(ce_ok),
              "el_acto": el_acto, "cita_acto": ca, "fuente_acto": ca_f if ca_ok else "",
-             "carga_de": _carga(x.get("carga_de"))}
-        if el_acto == "no_se_pronuncia" and ce_ok and _txt(x.get("pregunta")):
+             "carga_de": _carga(x.get("carga_de")), "se_verifica_en": _ver}
+        if el_acto != "no_se_pronuncia":
+            p["cita_acto_verificada"] = bool(ca_ok)
+        if el_acto == "no_se_pronuncia" and ce_ok and _ver != "resolucion" and _txt(x.get("pregunta")):
             p.update({"pregunta": _txt(x.get("pregunta"), 400),
                       "tipo": "texto" if _plano_al(x.get("tipo")).startswith(("texto", "literal", "textual"))
                       else "si_no",
@@ -945,25 +1031,53 @@ def bloque_propuesta(doc: dict | None) -> str:
     # no sostiene un sentido; un expediente incompleto se dice y baja la
     # confianza, pero el tribunal decide con lo que consta, y el secretario
     # siempre puede pedirle al motor una propuesta (regla de David).
+    # EL CIERRE DE LA REGLA SIGUE AL CONTRATO DE LA PROPUESTA (3-oct-2026,
+    # revisión adversarial): con «propuesta_por_probabilidad» el JSON ya no
+    # tiene «alcanza» y la regla 2 prohíbe dejar el sentido vacío; mencionar
+    # alcanza=false como salida legítima eran dos órdenes contrarias en el
+    # mismo prompt. Sin esa bandera, el texto de siempre.
+    _cierre = ("decide con lo que consta (alcanza=false queda sólo para cuando el acervo no da para "
+               "sostener ningún sentido).")
+    if _por_probabilidad():
+        _cierre = ("decide siempre con lo que consta: si el acervo no respalda el sentido, pon "
+                   "`sostenida`=false y di qué falta.")
     if _prem:
         # LA REGLA DE LAS PREMISAS (2-oct-2026, David: «nunca dar por hecho que
         # lo que se dice en los recursos o conceptos de violación es cierto»).
+        # 3-oct-2026 (revisión adversarial): la carga de la prueba sólo decide
+        # los hechos del juicio de origen —no las omisiones de la resolución ni
+        # los hechos del procedimiento, ni lo que la resolución declaró aunque
+        # su cita no se hallara—, y el hecho se nombra por su contenido y su
+        # fuente: «nombra el H# o la F#» metía en la razón claves internas que
+        # el secretario no ve y que el estudio copiaba a la prosa que se firma.
         L.append("  REGLA: lo que sólo afirma la parte NO es un hecho del asunto: es lo que hay que "
                  "verificar contra lo que la resolución tuvo por acreditado, las constancias y las "
                  "respuestas del secretario. Un hecho que la resolución tuvo por cierto o desestimó se toma "
                  "como ella lo dijo, salvo que el escrito combata esa valoración y demuestre el error. Si la "
-                 "resolución calla y el secretario no contestó, decide la carga de la prueba: quien afirma "
-                 "y no demuestra no prospera en ese punto. Todo fundado que descanse en un hecho nombra el "
-                 "H# o la F# que lo sostiene. Una razón autónoma no combatida sostiene lo resuelto. Decide "
-                 "con lo que consta (alcanza=false queda sólo para cuando el acervo no da para sostener "
-                 "ningún sentido).")
+                 "resolución calla sobre un hecho que la parte debía probar en el juicio y el secretario no "
+                 "contestó, decide la carga de la prueba: quien afirma y no demuestra no prospera en ese "
+                 "punto. Un hecho del procedimiento sin respuesta queda pendiente de verificar en autos; una "
+                 "omisión que se atribuye a la resolución se comprueba leyéndola; y lo que la resolución "
+                 "declaró sin que su cita se hallara se comprueba en ella: ninguno de esos tres se decide por "
+                 "la carga de la prueba. Todo fundado que descanse en un hecho dice cuál es por su contenido "
+                 "y dónde consta (la resolución, una constancia o la respuesta del secretario), sin escribir "
+                 "los identificadores de esta lista (H1, F2, R3…), que el secretario no ve. Una razón "
+                 "autónoma no combatida sostiene lo resuelto. " + _cierre[0].upper() + _cierre[1:])
         return "\n".join(L) + "\n"
     L.append("  REGLA: distingue siempre «no consta en los insumos» de «no acreditado» y de «tenido por "
              "acreditado»; una razón autónoma no combatida sostiene lo resuelto; si falta un insumo "
              "indispensable, dilo en tu razón en vez de suplirlo. Lo que falta en los insumos baja tu "
-             "confianza, pero no te impide proponer: decide con lo que consta (alcanza=false queda sólo "
-             "para cuando el acervo no da para sostener ningún sentido).")
+             "confianza, pero no te impide proponer: " + _cierre)
     return "\n".join(L) + "\n"
+
+
+def _por_probabilidad() -> bool:
+    """¿Rige «propuesta_por_probabilidad» en esta petición? (nunca lanza)"""
+    try:
+        import contexto_taller as _ct
+        return bool(_ct.rediseno("propuesta_por_probabilidad"))
+    except Exception:
+        return False
 
 
 MAX_PREMISAS_BLOQUE = 15
@@ -982,12 +1096,108 @@ def _lineas_premisas(premisas: list) -> list:
                  f"{_TXT_EL_ACTO.get(p.get('el_acto'), _TXT_EL_ACTO['no_se_pronuncia'])}"
                  + (f" ({p.get('fuente_acto') or 'acto'}: «{str(p['cita_acto'])[:220]}»)" if p.get("cita_acto") else ""))
         if p.get("el_acto") != "no_se_pronuncia":
+            # LO DECLARADO SIN CITA HALLADA (3-oct-2026): se dice así, y no se
+            # decide por la carga de la prueba.
+            if p.get("cita_acto_verificada") is False:
+                L.append("       su cita de la resolución NO se halló: es lo que leyó el análisis, no un dato "
+                         "comprobado; compruébalo en la resolución y no decidas este punto por la carga de la "
+                         "prueba")
+            continue
+        if p.get("se_verifica_en") == "resolucion":
+            L.append("       es una omisión que se atribuye a la resolución: se comprueba leyéndola (si no se "
+                     "ocupó del punto, la omisión consta); no la decide la carga de la prueba")
             continue
         r_ = p.get("respuesta")
         if r_ not in (None, ""):
             L.append(f"       respuesta del secretario: {_TXT_RESPUESTA.get(r_, '«' + str(r_)[:600] + '»')}")
+        elif p.get("se_verifica_en") == "autos":
+            L.append("       sin respuesta del secretario: hecho del procedimiento pendiente de verificar en "
+                     "autos; razona con lo que consta y dilo (no lo decide la carga de la prueba)")
         else:
             _c = {"la_parte": "a la parte que lo afirma", "contraparte": "a la contraparte",
                   "autoridad": "a la autoridad"}.get(p.get("carga_de"), "a la parte que lo afirma")
             L.append(f"       sin respuesta del secretario: decide la carga de la prueba, que toca {_c}")
     return L
+
+
+def estado_de_premisa(p: dict) -> str:
+    """Lo que la resolución dijo de la premisa, en una etiqueta corta para otros
+    prompts (el examinador): «lo_tuvo_por_cierto (cita sin verificar)»,
+    «no_se_pronuncia (omisión de la resolución: se comprueba leyéndola)»… Así
+    nadie lee como hecho comprobado lo que el análisis no pudo citar (3-oct-2026)."""
+    if not isinstance(p, dict):
+        return ""
+    e = str(p.get("el_acto") or "no_se_pronuncia")
+    if e != "no_se_pronuncia":
+        return e + (" (cita sin verificar: no decide por carga)" if p.get("cita_acto_verificada") is False else "")
+    v = p.get("se_verifica_en")
+    if v == "resolucion":
+        return e + " (omisión de la resolución: se comprueba leyéndola, no por carga)"
+    if v == "autos":
+        return e + " (hecho del procedimiento: pendiente de verificar en autos, no por carga)"
+    return e
+
+
+# ═══ LOS IDENTIFICADORES INTERNOS FUERA DE LA PROSA (3-oct-2026) ═════════════
+# La regla del análisis pedía «nombra el H# o la F# que lo sostiene» y esos ids
+# —que sólo existen en este bloque— llegaban a la razón que ve el secretario y a
+# la «RAZÓN DEL SECRETARIO» del estudio. La regla ya no lo pide; esto es la red:
+# quita H#, F# y R# sueltos (con sus paréntesis, listas y conectores) de un
+# texto. Puro y determinista. Sólo mayúsculas seguidas de 1-2 cifras (y las «b»
+# de los duplicados), con límite de palabra: «H2O», «art. 14» o «F. 3» no se
+# tocan.
+_ID = r"(?<![\w./-])[HFR]\d{1,2}b*(?![\w/-])"
+_LISTA_IDS = _ID + r"(?:\s*(?:,|;|/|\by\b|\be\b)\s*" + _ID + r")*"
+_RX_IDS_PARENTESIS = re.compile(r"\s*[\(\[]\s*(?:(?:hecho|hechos|premisa|premisas|raz[oó]n|razones)\s+)?"
+                                + _LISTA_IDS + r"\s*[\)\]]")
+_RX_IDS_CONECTOR = re.compile(r",?\s*\b(?:conforme\s+a(?:l)?|seg[uú]n|v[eé]ase|cfr?\.?|ver)\s+"
+                              r"(?:(?:el|la|los|las)\s+)?(?:(?:hecho|hechos|premisa|premisas|raz[oó]n|razones)\s+)?"
+                              + _LISTA_IDS, re.I)
+_RX_IDS_NOMBRADOS = re.compile(r"\b((?:el|la|los|las|este|esta|ese|esa)\s+"
+                               r"(?:hecho|hechos|premisa|premisas|raz[oó]n|razones))\s+" + _LISTA_IDS, re.I)
+_RX_IDS_SUELTOS = re.compile(r"\s*" + _LISTA_IDS)
+
+
+def quitar_ids_internos(texto):
+    """El texto sin los identificadores internos del análisis (H1, F2, R3…).
+    Para las razones de la propuesta (razon, en_contra, alternativa, checklist)
+    antes de servirlas y de armar el criterio. Lo que no es texto vuelve tal cual."""
+    if not isinstance(texto, str) or not texto:
+        return texto
+    if not re.search(_ID, texto):
+        return texto
+    t = _RX_IDS_PARENTESIS.sub("", texto)
+    t = _RX_IDS_CONECTOR.sub("", t)
+    t = _RX_IDS_NOMBRADOS.sub(r"\1", t)
+    t = _RX_IDS_SUELTOS.sub("", t)
+    t = re.sub(r"[ \t]+([,.;:)\]])", r"\1", t)
+    t = re.sub(r"\([ \t]*\)", "", t)
+    t = re.sub(r"[ \t]{2,}", " ", t)
+    t = re.sub(r",\s*([.;:])", r"\1", t)
+    # «Según H1 y F2, procede» no deja una coma huérfana al arranque.
+    t = re.sub(r"^[\s,;:]+", "", t)
+    if t and texto.lstrip()[:1].isupper():
+        t = t[0].upper() + t[1:]
+    return t.strip() if texto.strip() == texto else t
+
+
+def quitar_ids_de_propuesta(obj):
+    """Una COPIA de la propuesta (o de una parte suya: dict, lista o texto) con
+    `quitar_ids_internos` aplicado a todo texto bajo las claves de prosa: razon,
+    razonamiento, en_contra, efecto, criterio, nota, que_falta. No toca ids,
+    registros, sentidos ni claves estructurales."""
+    _PROSA = {"razon", "razonamiento", "en_contra", "efecto", "criterio", "nota", "que_falta",
+              "si_prospera", "si_no_prospera", "por_que"}
+    if isinstance(obj, list):
+        return [quitar_ids_de_propuesta(x) for x in obj]
+    if isinstance(obj, dict):
+        out = {}
+        for k, v in obj.items():
+            if k in _PROSA and isinstance(v, str):
+                out[k] = quitar_ids_internos(v)
+            elif isinstance(v, (dict, list)):
+                out[k] = quitar_ids_de_propuesta(v)
+            else:
+                out[k] = v
+        return out
+    return obj

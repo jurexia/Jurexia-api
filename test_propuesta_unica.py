@@ -39,6 +39,7 @@ def entorno(nucleo):
 
     lanzadas = []
     ns = {"asyncio": asyncio, "time": time, "uuid": uuid, "json": json, "_te": te,
+          "hashlib": __import__("hashlib"),
           "_taller_leer_marca": leer, "_taller_guardar_marca": guardar,
           "_taller_proponer_nucleo": nucleo,
           "_taller_sesion_en_memoria": lambda *a, **k: None,
@@ -46,7 +47,7 @@ def entorno(nucleo):
           "_taller_lanzar_deliberacion": lambda *a, **k: lanzadas.append(a[1]),
           "_TALLER_EN_MARCHA": set(), "err": lambda e: str(e)}
     for f in ("_taller_con_latido", "_taller_propuesta_unica", "_taller_propuesta_reclamada",
-              "_taller_marca_es_mia", "_taller_preproponer"):
+              "_taller_marca_es_mia", "_taller_preproponer", "_taller_hash_contexto"):
         exec(compile(ast.Module(body=[FN[f]], type_ignores=[]), "main.py", "exec"), ns)
     return ns, marcas, escritos, lanzadas
 
