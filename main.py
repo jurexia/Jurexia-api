@@ -35177,6 +35177,24 @@ async def _taller_plan_pedido(email: str, numero: str, r, ses, arm: dict, *,
     `_taller_inv_escrito_para`); sin ella, el piso."""
     import plan_estudio as _pe
     crit = arm["crit"]
+    # LAS TESIS DEL VICIO, TAMBIÉN AQUÍ (revisión adversarial, 3-oct-2026): los
+    # dos gemelos del resolver arman la clave con la COPIA del material que
+    # lleva 1-2 tesis por vicio (`material_con_tesis_del_vicio`), y la huella
+    # del índice entra en la clave. Sin esto el plan adelantado y el pedido
+    # nunca casaban con el del resolver: cada generación volvía a planear
+    # (hasta 120 s) y gastaba otra de las TOPE_CORRIDAS. La suplencia va
+    # EXPLÍCITA —la del formulario; {} en el precálculo—, no la del encargo en
+    # la memoria de este worker; `por_segmento` porque el plan sólo es de la
+    # v4. Sin la bandera, el mismo material y la misma sesión de siempre.
+    try:
+        import redactor_adelanto as _ra_pp
+        _mat_pp = await _ra_pp.material_con_tesis_del_vicio(
+            qdrant_client, _embedding_juris, r, (ses or {}).get("material"), crit,
+            suplencia=dict(suplencia or {}), por_segmento=True)
+        if _mat_pp is not (ses or {}).get("material"):
+            ses = {**ses, "material": _mat_pp}
+    except Exception as _ex_pp:
+        print(f"   ⚠️ PLAN de {numero}: sin las tesis del vicio ({type(_ex_pp).__name__})")
     try:
         ent = _taller_plan_entradas(r, ses, crit, contexto=contexto, suplencia=suplencia,
                                     conceptos_violacion=conceptos_violacion, formato=formato,
@@ -38400,7 +38418,22 @@ async def taller_razonar(
             # (`redactor_adelanto.material_con_tesis_del_vicio`).
             import copy as _copy_r
             import redactor_adelanto as _ra_v
-            _vic_r, _arg_r, _res_v = _ra_v.vicio_y_argumento(r, problema, sentido, directriz)
+            # SIN EL ECO DE LA OTRA VÍA (revisión adversarial, 3-oct-2026): si
+            # el cuadro trae, tal cual, la razón del motor para la vía
+            # contraria, el vicio no se saca de ahí —es un párrafo largo del
+            # motor, no la base del secretario—. Se descarta ANTES, con la
+            # misma función pura que lo descarta más abajo para el prompt.
+            _dir_vic = directriz or ""
+            try:
+                if _dir_vic.strip() and ses.get("global") is not None:
+                    import modos_decision as _md_vic
+                    _d_vic, _eco_vic = _md_vic.razon_de_la_otra_via(
+                        _dir_vic, sentido, ses.get("global"))
+                    if _eco_vic:
+                        _dir_vic = _d_vic or ""
+            except Exception:
+                pass
+            _vic_r, _arg_r, _res_v = _ra_v.vicio_y_argumento(r, problema, sentido, _dir_vic)
             _tec = await _rag.tesis_de_la_calificativa(
                 qdrant_client, _embedding_juris, sentido, problema, 3, vicio=_vic_r,
                 argumento=_arg_r, resolvio=_res_v,

@@ -771,7 +771,7 @@ async def completar_tesis_citadas(qdrant, material, citas: list, tipo_asunto: st
 
 
 async def _buscar(qdrant, coleccion: str, vector: str, v: list[float],
-                  limite: int, filtro=None) -> list[dict]:
+                  limite: int, filtro=None, *, estricto: bool = False) -> list[dict]:
     """Una consulta a Qdrant, tolerante con la colección que falta y RUIDOSA con
     el resto.
 
@@ -780,6 +780,10 @@ async def _buscar(qdrant, coleccion: str, vector: str, v: list[float],
     era que el cliente ya no tiene `.search` —hoy es `query_points`— y quedó
     escondido tras el `except`. Una búsqueda que falla se REGISTRA; sólo el
     estado sin ingestar es un vacío legítimo.
+
+    `estricto` (3-oct-2026): además de registrarla, la VUELVE A LANZAR. Lo usa
+    `tesis_del_vicio`, que necesita distinguir el vacío legítimo del vacío por
+    una caída pasajera para no guardar éste en su caché.
     """
     try:
         r = qdrant.query_points(collection_name=coleccion, query=v,
@@ -795,6 +799,8 @@ async def _buscar(qdrant, coleccion: str, vector: str, v: list[float],
         else:
             log.error("búsqueda fallida en %s/%s: %s: %s",
                       coleccion, vector, type(e).__name__, e)
+            if estricto:
+                raise
         return []
 
 
@@ -2292,12 +2298,35 @@ _VIAS_DEL_RUBRO = (
     ("EN LA REVISION", ("amparo_revision", "revision_fiscal")),
     ("AMPARO INDIRECTO", ("amparo_revision", "queja")),
     ("QUEJA", ("queja",)),
-    ("RECLAMACION", ()),
-    ("APELACION", ()),
-    ("INCONFORMIDAD", ()),
-    ("CONCEPTOS DE ANULACION", ()),
-    ("CONCEPTOS DE IMPUGNACION", ()),
 )
+
+# «LA QUEJA» QUE NO ES EL RECURSO (revisión adversarial, 3-oct-2026): «suplir
+# la deficiencia de la queja», «suplencia de la queja (deficiente)», «queja
+# deficiente» son la SUPLENCIA, frecuente justo en los rubros de inoperancia
+# («…si no se está en el caso de suplir la deficiencia de la queja»). Casaban
+# con el recurso de queja y esas tesis salían aptas sólo para la queja. Se
+# borran del rubro antes de buscar la vía.
+_RX_SUPLENCIA_QUEJA = re.compile(
+    r"\b(?:SUPLENCIA DE LA (?:DEFICIENCIA DE LA )?QUEJA(?: DEFICIENTE)?"
+    r"|DEFICIENCIA DE LA QUEJA|QUEJA DEFICIENTE)\b")
+
+# LAS INSTANCIAS QUE UN COLEGIADO NO RESUELVE —la apelación, la inconformidad,
+# la reclamación, el juicio contencioso con sus conceptos de anulación o de
+# impugnación— excluyen la tesis de TODAS las vías sólo cuando son el escrito
+# que el rubro califica: cuando están en su CABEZA, lo que va antes del primer
+# punto («AGRAVIOS INOPERANTES EN LA APELACIÓN. …»). Mencionadas después son
+# la instancia previa de la que no se hizo valer algo —«CONCEPTOS DE
+# VIOLACIÓN INOPERANTES. TIENEN ESTA CALIDAD SI SE REFIEREN A CUESTIONES NO
+# ADUCIDAS EN LOS AGRAVIOS DEL RECURSO DE APELACIÓN…» (1a./J. 12/2008)— y la
+# tesis es justo la de la novedad en el amparo directo. Antes cualquier
+# mención la tiraba de todas las vías (revisión adversarial, 3-oct-2026).
+_INSTANCIAS_AJENAS = ("APELACION", "INCONFORMIDAD", "RECLAMACION",
+                      "CONCEPTOS DE ANULACION", "CONCEPTOS DE IMPUGNACION")
+
+
+def _llano_rubro(x: str) -> str:
+    r = re.sub(r"[^A-Z0-9 ]", " ", _sin_acentos(x or ""))
+    return " " + " ".join(r.split()) + " "
 
 
 def apta_para_el_recurso(rubro: str, tipo_asunto: str) -> bool:
@@ -2307,10 +2336,12 @@ def apta_para_el_recurso(rubro: str, tipo_asunto: str) -> bool:
     tipo = _ta_v.normalizar(tipo_asunto or "")
     if not tipo:
         return True
-    r = " " + re.sub(r"[^A-Z0-9 ]", " ", _sin_acentos(rubro or "")) + " "
-    r = " ".join(r.split())
+    _crudo = _sin_acentos(rubro or "")
+    cabeza = _RX_SUPLENCIA_QUEJA.sub(" ", _llano_rubro(_crudo.split(".", 1)[0]))
+    if any(re.search(r"\b" + x + r"\b", cabeza) for x in _INSTANCIAS_AJENAS):
+        return False
+    resto = _RX_SUPLENCIA_QUEJA.sub(" ", _llano_rubro(_crudo))
     vistas, sirve = False, set()
-    resto = r
     for clave, tipos in _VIAS_DEL_RUBRO:
         if re.search(r"\b" + clave + r"\b", resto):
             vistas = True
@@ -2380,7 +2411,11 @@ def _termino_del_tipo(rubro: str, tipo_asunto: str) -> bool:
 # Lo que ya se buscó en ESTE worker. Es sólo para no repetir el costo (la
 # pantalla pide la razón cada vez que se marca la calificativa): la respuesta
 # es la misma en los dos workers porque sale de Qdrant y del mismo texto, no
-# de esta caché.
+# de esta caché. SÓLO SE GUARDA LO COMPLETO (revisión adversarial, 3-oct-2026):
+# con Qdrant o el embedding caídos un momento, `_buscar` devolvía [] y aquí se
+# guardaba el vacío (o un pozo a medias, o el orden sin la pertinencia) para
+# siempre en ese worker; el otro, sano, daba otras tesis y la clave del plan
+# dejaba de casar. Lo degradado se sirve en ESA petición y no se guarda.
 _CACHE_VICIO: "_OD_vi" = None
 _CACHE_VICIO_MAX = 64
 
@@ -2421,14 +2456,17 @@ async def tesis_del_vicio(qdrant, embed_juris, vicio: str, *, argumento: str = "
     ordenadas = _CACHE_VICIO.get(llave)
     if ordenadas is None:
         try:
-            ordenadas = await _tesis_del_vicio_sin_cache(
+            ordenadas, completo = await _tesis_del_vicio_sin_cache(
                 qdrant, embed_juris, vicio, consultas, arg, res_, tipo, cliente)
         except Exception as e:
             print(f"   ⚠️ no se pudieron traer las tesis del vicio «{vicio}»: {type(e).__name__}")
             return []
-        _CACHE_VICIO[llave] = ordenadas
-        while len(_CACHE_VICIO) > _CACHE_VICIO_MAX:
-            _CACHE_VICIO.popitem(last=False)
+        if completo:
+            _CACHE_VICIO[llave] = ordenadas
+            while len(_CACHE_VICIO) > _CACHE_VICIO_MAX:
+                _CACHE_VICIO.popitem(last=False)
+        else:
+            print(f"   ⚠️ tesis del vicio «{vicio}»: búsqueda incompleta; no se guarda")
     try:
         import contexto_taller as _ct_v
         ordenadas = _ct_v.filtrar_tesis(ordenadas)
@@ -2445,17 +2483,23 @@ async def tesis_del_vicio(qdrant, embed_juris, vicio: str, *, argumento: str = "
 
 
 async def _tesis_del_vicio_sin_cache(qdrant, embed_juris, vicio, consultas, arg, res_,
-                                     tipo, cliente) -> list:
+                                     tipo, cliente) -> tuple:
+    """(tesis ordenadas, completo). `completo` es falso si falló cualquier
+    formulación, la pertinencia al argumento o el rerank: ese resultado vale
+    para esta petición, pero no se guarda en la caché (3-oct-2026)."""
     from qdrant_client.models import FieldCondition, Filter, MatchAny
+    completo = True
 
     async def _una(c):
         v = await embed_juris(c)
-        return await _buscar(qdrant, COLECCION_JURIS, VECTOR_RUBRO, v, POZO_POR_CONSULTA)
+        return await _buscar(qdrant, COLECCION_JURIS, VECTOR_RUBRO, v, POZO_POR_CONSULTA,
+                             estricto=True)
 
     listas = await asyncio.gather(*[_una(c) for c in consultas], return_exceptions=True)
     puntos, cand, crudos = {}, {}, {}
     for lista in listas:
         if isinstance(lista, Exception):
+            completo = False
             continue
         for j, p in enumerate(lista or []):
             reg = str(p.get("registro") or "").strip()
@@ -2476,7 +2520,7 @@ async def _tesis_del_vicio_sin_cache(qdrant, embed_juris, vicio, consultas, arg,
     cand = {r: t for r, t in cand.items() if t.get("rubro")}
     if not cand:
         print(f"   ⚖️ tesis del vicio «{vicio}»: pozo de {pozo}, ninguna utilizable")
-        return []
+        return [], completo
     # LA PERTINENCIA AL ARGUMENTO: el argumento contra el rubro, sólo entre las
     # del pozo. Pesa el doble que la del vicio: el vicio ya lo garantizó el
     # pozo, y lo que distingue un asunto de otro es el argumento.
@@ -2486,12 +2530,14 @@ async def _tesis_del_vicio_sin_cache(qdrant, embed_juris, vicio, consultas, arg,
             hits = await _buscar(qdrant, COLECCION_JURIS, VECTOR_RUBRO, va, len(cand),
                                  filtro=Filter(must=[FieldCondition(
                                      key="registro",
-                                     match=MatchAny(any=[crudos[r] for r in cand]))]))
+                                     match=MatchAny(any=[crudos[r] for r in cand]))]),
+                                 estricto=True)
             for j, p in enumerate(hits or []):
                 reg = str(p.get("registro") or "").strip()
                 if reg in cand:
                     puntos[reg] = puntos.get(reg, 0.0) + 2.0 / (60 + j)
         except Exception as e:
+            completo = False
             print(f"   ⚠️ tesis del vicio «{vicio}»: sin pertinencia al argumento ({type(e).__name__})")
     for r, t in cand.items():
         if _termino_del_tipo(t.get("rubro", ""), tipo):
@@ -2512,6 +2558,7 @@ async def _tesis_del_vicio_sin_cache(qdrant, embed_juris, vicio, consultas, arg,
                 por_pertinencia = [t["registro"] for t in _elegidas] + [
                     r for r in por_pertinencia if r not in _ya]
         except Exception:
+            completo = False
             print(f"   ⚖️ tesis del vicio «{vicio}»: rerank sin respuesta a tiempo; queda la similitud")
         for t in _doce:
             t.pop("rerank", None)
@@ -2526,4 +2573,4 @@ async def _tesis_del_vicio_sin_cache(qdrant, embed_juris, vicio, consultas, arg,
                                     _epoca_num(cand[r]) < 10, pos[r]))
     print(f"   ⚖️ tesis del vicio «{vicio}»: pozo de {pozo} · {len(sin_vig)} sin vigencia · "
           f"{len(otra_via)} de otro recurso · primeras {', '.join(pertinentes[:3])}")
-    return [cand[r] for r in pertinentes]
+    return [cand[r] for r in pertinentes], completo

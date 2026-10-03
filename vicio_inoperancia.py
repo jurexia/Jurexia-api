@@ -96,11 +96,32 @@ def _llano(x: str) -> str:
 # EL ORDEN IMPORTA: lo específico antes que lo general. «Reitera sin combatir»
 # contiene «no combate»; «fundado pero insuficiente» no es «no combate» aunque
 # diga que subsisten consideraciones.
+#
+# ANCLADAS, NO SUELTAS (revisión adversarial, 3-oct-2026). La razón que llega
+# aquí casi nunca son las dos líneas del secretario: es el párrafo del motor
+# (60-160 palabras) o la razón global del modo acervo, que citan fojas, tocas,
+# claves de tesis y artículos de cualquier ley. Con números sueltos, «foja
+# 171», «el toca 172/2025», «2a./J. 172/2010» o «artículo 182 del Código
+# Fiscal» daban la violación procesal no preparada o el adhesivo; «cuyo rubro
+# y texto se reproducen» o «como lo ha reiterado la Corte», la reiteración; y
+# la excepción de cosa juzgada del juicio natural (tema de FONDO frecuente en
+# lo civil), el amparo previo. Ahora el número sólo cuenta junto a «Ley de
+# Amparo», la reiteración tiene que recaer sobre los conceptos, los agravios o
+# lo planteado, la cosa juzgada tiene que ser la de un amparo y el adhesivo
+# tiene que venir con su límite.
 _PISTAS = (
-    ("cosa_juzgada_amparo_previo", r"cosa juzgada|amparo (?:anterior|previo)|ejecutoria (?:anterior|previa)"
-                                   r"|ya (?:fue|se) (?:decidid|resuelt)\w* en (?:un|el|otro) (?:juicio de )?amparo"),
-    ("procesal_171_172", r"\b17[12]\b|no (?:se )?prepar\w*|preparaci[o]n de la violaci[o]n"),
-    ("adhesivo_fuera_182", r"adhesiv\w*|\b182\b"),
+    ("cosa_juzgada_amparo_previo", r"amparo (?:anterior|previo)|ejecutoria (?:de amparo )?(?:anterior|previa)"
+                                   r"|ya (?:fue|se) (?:decidid|resuelt)\w* en (?:un|el|otro) (?:juicio de )?amparo"
+                                   r"|cosa juzgada[^.;]{0,60}\bamparo\b|\bamparo\b[^.;]{0,60}cosa juzgada"),
+    ("procesal_171_172", r"\bart(?:iculos?|s?\.)\s*17[12]\b[^.;]{0,60}ley de amparo"
+                         r"|\b17[12]\s+(?:y\s+17[12]\s+)?de la ley de amparo"
+                         r"|preparacion de la violacion"
+                         r"|violacion\w* (?:procesal\w*|del procedimiento|al procedimiento)[^.;]{0,60}"
+                         r"no (?:se )?(?:hab\w* )?prepar\w*"
+                         r"|no (?:se )?prepar\w*[^.;]{0,40}violacion\w* (?:procesal|del procedimiento)"),
+    ("adhesivo_fuera_182", r"adhesiv\w*[^.;]{0,80}(?:\b182\b|no (?:lo )?(?:autoriza|permite|procede)|exced\w*"
+                           r"|fuera de (?:lo|los)|ajen\w*)"
+                           r"|\b182\b[^.;]{0,40}ley de amparo"),
     ("deriva_de_desestimado", r"(?:deriva|depende|hace\w* depender)\w* de (?:otros?|aquel\w*|los ya|las ya|lo ya)\b"
                               r"|corre\w* (?:la )?(?:misma )?suerte|(?:de|a) (?:los|las|lo) ya desestimad"),
     ("fundado_insuficiente", r"fundad\w* pero (?:insuficien|inoperan|ineficaz)|aun (?:cuando|siendo|si) (?:fuera |resultara )?fundad"
@@ -110,7 +131,10 @@ _PISTAS = (
                  r"|cuestion\w* no (?:aducid|planteadas?|propuest)\w*"),
     ("falsa_premisa", r"premisa\w* (?:falsa|inexacta|equivocada|erronea|incorrecta)|falsa\w* premisa"
                       r"|parte de (?:un|una) (?:supuesto|premisa)"),
-    ("reitera_sin_combatir", r"reiter\w*|reproduc\w*|repite\w*|transcrib\w* (?:los|lo) (?:conceptos|argumentos)"),
+    ("reitera_sin_combatir", r"(?:reiter|reproduc|repit|repet)\w*[^.;]{0,30}?"
+                             r"(?:conceptos|argumentos|agravios|planteamientos|alegatos"
+                             r"|lo (?:ya )?(?:planteado|alegado|expuesto|dicho|hecho valer|aducido))"
+                             r"|transcrib\w* (?:los|lo) (?:conceptos|argumentos)"),
     ("ataca_accesoria", r"accesori\w*|mayor abundamiento|obiter|secundari\w*|ex abundantia"),
     ("generico", r"generic\w*|dogmatic\w*|\bvag[oa]s?\b|abstract\w*|sin (?:precisar|razonar|explicar)"
                  r"|meras? afirmacion"),
@@ -132,18 +156,25 @@ def vicio_de_texto(texto: str) -> str:
 
 
 def vicio_de(sentido: str, texto: str = "", vicio: str = "") -> str:
-    """El vicio de un criterio: el declarado si es del catálogo; si no, el que
-    nombra su razón; si no, el de la calificativa (la inoperancia a secas,
-    `no_combate`). «» si la calificativa no es de técnica (fundado, infundado,
-    sin materia): para ésas basta el material del caso."""
+    """El vicio de un criterio. Para «inoperante»: el declarado si es del
+    catálogo; si no, el que nombra su razón; si no, la inoperancia a secas
+    (`no_combate`). Las otras calificativas de técnica (inatendible, ineficaz,
+    innecesario, fundado pero insuficiente) SON su vicio. «» si la
+    calificativa no es de técnica (fundado, infundado, sin materia): para ésas
+    basta el material del caso.
+
+    LA CALIFICATIVA NO SE DESPLAZA (revisión adversarial, 3-oct-2026): antes un
+    vicio sacado del texto de la razón ganaba aun sobre «ineficaz» —«artículo
+    172 del Código» la volvía la violación procesal no preparada—. Lo que el
+    secretario calificó como ineficaz se funda con tesis de la ineficacia."""
     s = (sentido or "").strip().lower().replace(" ", "_")
     if s not in CALIFICATIVAS:
         return ""
+    if s != "inoperante":
+        return s
     v = (vicio or "").strip().lower()
     if v in VICIOS:
         return v
-    if s != "inoperante":
-        return s
     return vicio_de_texto(texto) or VICIO_POR_OMISION
 
 
@@ -158,6 +189,24 @@ _IMPEDIMENTO_ANTES = ('Si adviertes un impedimento técnico que llevaría a inop
 # (plan_estudio.RAZONES, «solo_recursos»).
 _SOLO_DIRECTO = ("procesal_171_172", "adhesivo_fuera_182")
 _SOLO_RECURSOS = ("reitera_sin_combatir",)
+
+
+def cabe_en_la_via(vicio: str, tipo_asunto: str = "") -> bool:
+    """¿Este vicio existe en esta vía? La misma partición que `regla_impedimento`:
+    la violación procesal no preparada y el adhesivo, sólo en el amparo
+    directo; la reiteración de la instancia, sólo en los recursos. Sin tipo
+    conocido, sí (3-oct-2026: el vicio DEDUCIDO de la razón no pasaba por aquí
+    y en una revisión fiscal se traían tesis del adhesivo)."""
+    try:
+        import tipos_asunto as _ta
+        t = _ta.normalizar(tipo_asunto or "") or (tipo_asunto or "")
+    except Exception:                                   # pragma: no cover
+        t = tipo_asunto or ""
+    if not t:
+        return True
+    if t == "amparo_directo":
+        return vicio not in _SOLO_RECURSOS
+    return vicio not in _SOLO_DIRECTO
 
 
 def regla_impedimento(tipo_asunto: str = "") -> str:

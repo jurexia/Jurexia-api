@@ -414,11 +414,51 @@ _MAX_PALABRAS_ENTRADA = 30
 _RX_FECHA_EN_AUTOS = _re_ant.compile(r"\bde\s+dos\s+mil\b|\b(?:19|20)\d\d\b", _re_ant.I)
 
 
+# LA LISTA TRANSCRITA NO ES LA NUMERACIÓN DEL MODELO (revisión adversarial,
+# 3-oct-2026). En la sentencia dictada en cumplimiento el prompt pide contar
+# «qué ordenó la ejecutoria, con sus efectos», un párrafo por renglón; si el
+# modelo los transcribe uno por renglón («1. Deje insubsistente…», «2. Dicte
+# otra…»), quitarles el número alteraba la transcripción. Un párrafo que
+# termina en dos puntos o anuncia lo que sigue («para los efectos
+# siguientes», «en los términos siguientes») abre una lista: los párrafos
+# numerados que lo siguen sin interrupción conservan su número. Se decide
+# sólo con el texto que queda, así que aplicarla dos veces (la fuente común y
+# luego el documento) da lo mismo que una. NO abre lista la fórmula de entrada
+# («…relatar los siguientes antecedentes:») ni lo que anuncia los antecedentes
+# o los hechos: lo que sigue ahí es la enumeración del propio modelo, la que
+# David pidió quitar.
+_RX_ANUNCIA_LISTA = _re_ant.compile(
+    r"(?::|\b(?:efectos|t[ée]rminos|lineamientos|puntos|resolutivos|directrices|consideraciones)"
+    r"\s+siguientes\s*[.:]?|\bsiguientes\s+(?:efectos|t[ée]rminos|lineamientos|puntos"
+    r"|resolutivos|directrices)\s*[.:]?)\s*[»\"”']?\s*$", _re_ant.I)
+
+
+_RX_ANUNCIA_ANTECEDENTES = _re_ant.compile(r"\b(?:antecedentes|hechos)\b[^.;]{0,40}$", _re_ant.I)
+
+
+def _abre_lista(parrafo: str) -> bool:
+    t = str(parrafo or "").strip()
+    return (bool(_RX_ANUNCIA_LISTA.search(t))
+            and not _RX_ENTRADA_ANTECEDENTES.match(t)
+            and not _RX_ANUNCIA_ANTECEDENTES.search(t))
+
+
 def sin_numeracion(parrafos) -> list[str]:
-    """Los párrafos de los antecedentes sin el «1. » o «2) » que traiga el modelo."""
+    """Los párrafos de los antecedentes sin el «1. » o «2) » que traiga el
+    modelo, salvo los de una lista transcrita (los efectos de una ejecutoria,
+    unos resolutivos): ésos lo conservan."""
     salida = []
+    en_lista = False
     for p in (parrafos or []):
-        t = _RX_NUMERO_ANTECEDENTE.sub("", str(p or "").strip(), count=1).strip()
+        crudo = str(p or "").strip()
+        if not crudo:
+            continue
+        numerado = bool(_RX_NUMERO_ANTECEDENTE.match(crudo))
+        if not numerado:
+            en_lista = False
+        elif not en_lista and salida and _abre_lista(salida[-1]):
+            en_lista = True
+        t = crudo if en_lista else _RX_NUMERO_ANTECEDENTE.sub("", crudo, count=1).strip()
         if t:
             salida.append(t)
     return salida
