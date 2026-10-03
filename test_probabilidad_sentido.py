@@ -84,11 +84,16 @@ vp = {"sentido": "fundado", "razon": "r"}
 va = {"sentido": "infundado", "razon": "c"}
 d = {"lado": "A", "p_prospera": 0.2, "razon_decisiva": "porque sí",
      "examen": {"A": {"fallas": [{"gravedad": "fatal"}], "solidez": 3}, "B": {"fallas": [], "solidez": 8}}}
-r = ex.decidir(d, True, vp, va)
-ok(r["via"] == "alternativa" and r["lado"] == "no_prospera" and r["p_prospera"] == 0.2 and not r["coincide_con_su_lado"],
-   "la probabilidad manda sobre la letra que eligió (regla del 50.01%)")
+r = ex.decidir({**d, "lado": "B"}, True, vp, va)
+ok(r["via"] == "alternativa" and r["lado"] == "no_prospera" and r["p_prospera"] == 0.2 and r["coincide_con_su_lado"]
+   and not r["incoherente"], "número y letra van juntos: la probabilidad decide (regla del 50.01%)")
 ok(r["fallas"]["propuesta"] == [{"gravedad": "fatal"}] and r["solidez"]["alternativa"] == 8,
    "las fallas de cada vía se devuelven por su nombre, no por la letra")
+# NÚMERO CONTRA LETRA (revisión adversarial, 3-oct-2026): antes mandaba el
+# número; ahora manda la letra y el número se descarta.
+r = ex.decidir(d, True, vp, va)
+ok(r["via"] == "propuesta" and r["lado"] == "prospera" and r["p_prospera"] is None and r["incoherente"],
+   "si el número contradice la letra, manda la letra y no hay número")
 r = ex.decidir({"lado": "B", "p_prospera": 0.9}, False, vp, va)
 ok(r["via"] == "propuesta" and r["lado"] == "prospera", "con la propuesta como B")
 r = ex.decidir({"lado": "B"}, True, vp, va)
@@ -103,9 +108,155 @@ e = ex.explicacion({"p_prospera": 0.2, "lado": "no_prospera", "razon_decisiva": 
 ok("80%" in e and "infundado" in e and "se inclinaba por «fundado»" in e and e.endswith("La razón."),
    f"la explicación: {e[:120]}…")
 _p = ex.prompt("amparo_directo", [{"pregunta": "¿P?"}], vp, va, {}, [], [], "ACTO", "ESCRITO",
-               {"fraccion": "II", "rotulo": "menores", "a_favor_de": "los menores"})
+               {"fraccion": "II", "rotulo": "menores", "a_favor_de": "los menores", "confirmada": True})
 ok("ACTO" in _p and "ESCRITO" in _p and "OPERA la suplencia" in _p and "tasa" not in _p.lower()
    and "estadística" in _p, "el prompt: los dos documentos, la suplencia y ninguna tasa")
+
+print("\n5 · P_PROSPERA EN ESCALA DE 100 (revisión adversarial, 3-oct-2026)")
+# El modelo devolvía 35 (por 35 %) eligiendo la vía que NO prospera: se
+# recortaba a 1.0 y salía la que prospera, al 100 %.
+for _pa in (True, False):
+    _letra_no = "B" if _pa else "A"      # la alternativa (infundado) es la otra letra
+    r = ex.decidir({"lado": _letra_no, "p_prospera": 35}, _pa, vp, va)
+    ok(r["via"] == "alternativa" and r["lado"] == "no_prospera" and r["p_prospera"] == 0.35
+       and not r["incoherente"], f"p=35 con la letra de la que no prospera → 0.35, no prospera (A es propuesta: {_pa})")
+    _letra_si = "A" if _pa else "B"
+    r = ex.decidir({"lado": _letra_si, "p_prospera": 70}, _pa, vp, va)
+    ok(r["via"] == "propuesta" and r["p_prospera"] == 0.7, f"p=70 con su letra → 0.70, no 1.0 (A es propuesta: {_pa})")
+    r = ex.decidir({"lado": _letra_si, "p_prospera": 35}, _pa, vp, va)
+    ok(r["via"] == "propuesta" and r["p_prospera"] is None and r["incoherente"],
+       "p=35 (no prospera) contra la letra de la que prospera: manda la letra, sin número")
+r = ex.decidir({"lado": "B", "p_prospera": 250}, True, vp, va)
+ok(r["via"] == "alternativa" and r["p_prospera"] is None, "p fuera de escala (250): sin número, decide la letra")
+ok(ex.normalizar_p(1) == 1.0 and ex.normalizar_p(0.4) == 0.4 and ex.normalizar_p(-1) is None
+   and ex.normalizar_p("x") is None, "1 es 100 %; negativo o ilegible, sin número")
+e = ex.explicacion(ex.decidir({"lado": "B", "p_prospera": 35}, True, vp, va), "infundado", True, "fundado")
+ok("65%" in e and "100%" not in e, f"la explicación da el 65 % del lado propuesto: {e[:70]}")
+
+print("\n6 · LA SUPLENCIA, COMO HECHO SÓLO SI LA CONFIRMÓ EL SECRETARIO")
+def _pr(sup, tipo="amparo_directo"):
+    return ex.prompt(tipo, [{"pregunta": "¿P?"}], vp, va, {}, [], [], "ACTO", "ESCRITO", sup)
+_auto_vii = {"fraccion": "VII", "rotulo": "fracción VII", "a_favor_de": "la quejosa", "porque": "dice ser pobre",
+             "alternativas": [], "pedida": ""}
+_x = _pr(_auto_vii)
+ok("OPERA la suplencia" not in _x and "TODAVÍA NO HA DECIDIDO" in _x and "no la presumas ni la excluyas" in _x
+   and "fracción VII" in _x, "la VII automática (lo que la parte afirma) es indicio, no «OPERA»")
+_auto_ninguna = {"fraccion": "ninguna", "alternativas": [{"fraccion": "II", "rotulo": "fracción II",
+                                                           "porque": "habla de su hijo"}], "pedida": "II"}
+_x = _pr(_auto_ninguna)
+ok("rige el estricto derecho" not in _x and "NO opera" not in _x and "fracción II" in _x
+   and "la pide expresamente" in _x, "«ninguna» automática no afirma el estricto derecho; alternativas y lo pedido, como dato")
+_x = _pr({"fraccion": "ninguna", "confirmada": True})
+ok("CONFIRMÓ" in _x and "rige el estricto derecho" in _x, "«ninguna» confirmada por el secretario: estricto derecho")
+_x = _pr({"fraccion": "V", "a_favor_de": "la trabajadora", "confirmada": True})
+ok("CONFIRMÓ que en este asunto OPERA" in _x and "la trabajadora" in _x, "la confirmada se dice como hecho")
+_x = _pr({"fraccion": "ninguna"}, "revision_fiscal")
+ok("no es un juicio de amparo" in _x, "revisión fiscal: sin artículo 79, por ley")
+ok("8. La suplencia" not in _pr(None), "sin suplencia, sin regla 8")
+
+print("\n7 · LO QUE VIO EL MOTOR LLEGA AL EXAMINADOR (constancias, aportado, ficha)")
+_x = ex.prompt("amparo_directo", [{"pregunta": "¿P?"}], vp, va, {}, [], [], "ACTO", "ESCRITO", None,
+               autos="CONSTANCIAS QUE OBRAN EN AUTOS: cédula de notificación del 3 de marzo",
+               ficha="Recurre: la quejosa")
+ok("cédula de notificación del 3 de marzo" in _x and "Recurre: la quejosa" in _x,
+   "el prompt lleva las constancias y la ficha")
+ok(_x.index("cédula de notificación") < _x.index("RESOLUCIÓN RECLAMADA O RECURRIDA, ÍNTEGRA"),
+   "en un bloque ANTES de la resolución")
+ok("contra eso también se verifica" in _x, "la regla 3 verifica las premisas también contra ese bloque")
+_sin = ex.prompt("amparo_directo", [{"pregunta": "¿P?"}], vp, va, {}, [], [], "ACTO", "ESCRITO", None)
+ok("CONSTANCIAS DE AUTOS" not in _sin and "contra eso también se verifica" not in _sin,
+   "sin autos ni ficha, ni bloque ni regla extra")
+_largo = "RESPUESTAS DEL SECRETARIO al inicio. " + ("x" * (ex.MAX_AUTOS * 2)) + " LA EJECUTORIA al final."
+_x = ex.prompt("amparo_directo", [], vp, va, {}, [], [], "ACTO", "ESCRITO", None, autos=_largo)
+ok("RESPUESTAS DEL SECRETARIO" in _x and "LA EJECUTORIA al final" in _x and len(_x) < ex.MAX_AUTOS + 30_000,
+   "tope propio, recortado por EN MEDIO: la cabeza y la cola sobreviven")
+
+# EXAMINAR, ENTERO, CON UN CLIENTE FALSO: el prompt que sale lleva los autos.
+import asyncio
+import types as _types
+_ENVIADO = {}
+
+
+class _Modelos:
+    async def generate_content(self, model, contents, config):
+        _ENVIADO["texto"] = contents
+        return _types.SimpleNamespace(
+            text='{"lado": "B", "p_prospera": 35, "razon_decisiva": "La vía B se sostiene porque la vía A '
+                 'no combate la razón autónoma.", "que_lo_cambiaria": "que la A acreditara la notificación"}',
+            usage_metadata=None)
+
+
+ex._gemini = lambda: _types.SimpleNamespace(aio=_types.SimpleNamespace(models=_Modelos()))
+_num = next(f"{n}/2026" for n in range(1, 50) if ex.propuesta_es_a(f"{n}/2026"))
+dec = asyncio.run(ex.examinar(_num, "amparo_directo", [], vp, va, {}, [], [], "ACTO", "ESCRITO", None,
+                              autos="CONSTANCIA APORTADA: acuse de recibo", ficha="FICHA: quejosa recurre"))
+ok("CONSTANCIA APORTADA: acuse de recibo" in _ENVIADO.get("texto", "") and "FICHA: quejosa recurre" in _ENVIADO["texto"],
+   "examinar() pasa los autos y la ficha al prompt")
+ok(dec and dec["via"] == "alternativa" and dec["p_prospera"] == 0.35, "y lee el 35 como 0.35")
+
+print("\n8 · LA RAZÓN DECISIVA NO HABLA DE «VÍA A / VÍA B»")
+ok(dec and "vía A" not in dec["razon_decisiva"] and "vía B" not in dec["razon_decisiva"]
+   and dec["razon_decisiva"].startswith("La vía que se propone se sostiene porque la vía contraria"),
+   f"las letras, por la vía que se propone o la contraria: {dec and dec['razon_decisiva'][:80]}")
+ok(dec and "la vía contraria acreditara" in dec["que_lo_cambiaria"], "también en «qué lo cambiaría»")
+ok("NUNCA por su letra" in _ENVIADO["texto"], "y el prompt pide nombrarlas por su sentido")
+ok(ex.limpiar_letras("El A quo resolvió; A juicio de la Sala, el apartado B del 123 rige.", True, "propuesta")
+   == "El A quo resolvió; A juicio de la Sala, el apartado B del 123 rige.",
+   "la preposición «A», el «A quo» y el «apartado B» no se tocan")
+ok(ex.limpiar_letras("Las vías A y B difieren; del lado B nada.", False, "propuesta")
+   == "Las dos vías difieren; de la vía que se propone nada.", "«las vías A y B» y «del lado B»")
+
+print("\n9 · LO QUE FIJÓ LA EJECUTORIA NO SE VOLTEA (revisión adversarial, 3-oct-2026)")
+def _glob_neg():
+    return {"sentido": "infundado", "razon": "razón del motor", "efecto": "e", "apoyos": ["1"], "confianza": "media",
+            "alternativa": {"sentido": "fundado", "razon": "razón contraria", "efecto": "ec", "apoyos": ["2"]},
+            "checklist": [{"con_propuesta": "a", "con_alternativa": "b"}]}
+g = _glob_neg()
+pr = [{"problema": "P1", "sentido": "inoperante", "razon": "vinculado por la ejecutoria", "apoyos": ["3"],
+       "origen": "ejecutoria", "sentido_propio": "infundado"}]
+info = ps.aplicar(g, pr, [{"pregunta": "P1", "jerarquia": "principal"}],
+                  {"p_prospera": 0.6, "lado": "prospera", "fuente": "examinador"})
+ok(not info["volteada"] and info["fija_ejecutoria"] and g["sentido"] == "infundado" and g["razon"] == "razón del motor",
+   "el examen pedía conceder: la global se queda con el lado del motor")
+ok(pr[0]["sentido"] == "inoperante" and pr[0]["origen"] == "ejecutoria" and pr[0]["razon"] == "vinculado por la ejecutoria",
+   "el principal que fijó la ejecutoria no se toca")
+_pb = info["probabilidad"]
+ok(_pb["lado"] == "no_prospera" and _pb["p_prospera"] is None and _pb["fijada_por"] == "ejecutoria"
+   and _pb["examen_lado"] == "prospera" and _pb["examen_p"] == 0.6 and g["confianza"] == "media",
+   "la probabilidad dice el lado del motor, sin número; lo del examen queda aparte")
+ok(any(a.startswith("EL PRINCIPAL LO FIJA LA EJECUTORIA") and "60%" in a for a in info["avisos"]),
+   "y se avisa")
+g = _glob(); g["alternativa"] = {"sentido": "infundado", "razon": "razón contraria", "efecto": "", "apoyos": ["2"]}
+pr = [{"problema": "P1", "sentido": "inoperante", "razon": "vinculado", "apoyos": ["3"], "origen": "ejecutoria"}]
+info = ps.aplicar(g, pr, [{"pregunta": "P1", "jerarquia": "principal"}], {"p_prospera": 0.3, "lado": "no_prospera"})
+ok(info["volteada"] and not info["fija_ejecutoria"] and g["sentido"] == "infundado" and pr[0]["sentido"] == "inoperante",
+   "si el examen va al lado del principal fijado, el volteo de la global corre y el principal no se toca")
+
+print("\n10 · EL VOLTEO DESDE «SIN MATERIA» SE AVISA")
+g = {"sentido": "sin_materia", "razon": "queda sin materia", "apoyos": [],
+     "alternativa": {"sentido": "fundado", "razon": "se concede", "apoyos": ["2"]}}
+pr = [{"problema": "P1", "sentido": "sin_materia", "razon": "x", "apoyos": []}]
+info = ps.aplicar(g, pr, [{"pregunta": "P1"}], {"p_prospera": None, "lado": "prospera", "explicacion": "E"})
+ok(info["volteada"] and g["sentido"] == "fundado" and any("VOLTEÓ" in a for a in info["avisos"]),
+   "de «sin materia» a «fundado»: es volteo y se avisa")
+
+print("\n11 · LOS AVISOS DE REGISTROS SE REHACEN TRAS EL VOLTEO")
+import fase5_propuesta as f5
+_mat = _types.SimpleNamespace(tesis=[{"registro": "2001111"}])
+g = f5.Global(sentido="fundado", razon="r", apoyos=["2001111"], alcanza=True,
+              alternativa={"sentido": "infundado", "razon": "c", "efecto": "", "apoyos": ["2009999"]})
+props = [f5.Propuesta(problema="P1", sentido="fundado", razon="r", apoyos=["2001111"])]
+avisos = (f5.revisar(props, _mat) + f5.revisar_global(g, _mat) + ["otro aviso"])
+ok(any(a.startswith("La vía alternativa se apoya") and "2009999" in a for a in avisos),
+   "antes del volteo, el inventado es de «la vía alternativa»")
+_ap0 = list(props[0].apoyos)
+ps.aplicar(g, props, [{"pregunta": "P1", "jerarquia": "principal"}], {"p_prospera": 0.2, "lado": "no_prospera"})
+ps.rehacer_avisos_registros(avisos, g, props, _mat, 0, _ap0)
+ok(any(a.startswith("La propuesta del asunto se apoya") and "2009999" in a for a in avisos)
+   and not any(a.startswith("La vía alternativa se apoya") and "2009999" in a for a in avisos),
+   "después, lo lleva «la propuesta del asunto», que es la que se acepta")
+ok(any(a.startswith("La propuesta se apoya en registros") and "2009999" in a for a in avisos)
+   and "otro aviso" in avisos, "el del principal también, y lo demás se queda")
 
 print()
 if FALLOS:

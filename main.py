@@ -38864,6 +38864,14 @@ async def _taller_proponer_nucleo(user_email: str, numero: str, ses: dict,
             for _p, (_s0, _r0) in zip(propuestas, _antes_pp):
                 if _p.sentido != _s0 and not getattr(_p, "sentido_propio", ""):
                     _p.sentido_propio, _p.razon_propia = _s0, _r0
+                # EL SENTIDO LO PUSO LA EJECUTORIA (revisión adversarial,
+                # 3-oct-2026): el volteo del examen de las dos vías
+                # (`probabilidad_sentido.aplicar`) no toca un principal así;
+                # antes lo sobrescribía y el proyecto concedía sobre lo
+                # vinculado con la razón de la inoperancia. `origen` sólo se
+                # serializa con «propuesta_por_probabilidad».
+                if _p.sentido != _s0:
+                    _p.origen = "ejecutoria"
             # El «SIN APOYO» lo escribió la propuesta ANTES de esto: se
             # rehace con los apoyos y sentidos que quedaron.
             _sin_ap = "se propone SIN APOYO del acervo"
@@ -38897,8 +38905,12 @@ async def _taller_proponer_nucleo(user_email: str, numero: str, ses: dict,
     # recalculan los accesorios con el principal ya decidido.
     if _por_prob and glob is not None:
         try:
+            # LO QUE VIO EL MOTOR, TAMBIÉN AL EXAMINADOR (revisión adversarial,
+            # 3-oct-2026): el `contexto` de `_con_autos` —constancias,
+            # lo aportado, respuestas, la ejecutoria— y la ficha procesal.
             await _taller_probabilidad_sentido(r, ses, problemas, propuestas, glob,
-                                               _jer_por_problema, avisos, analisis=_analisis_p)
+                                               _jer_por_problema, avisos, analisis=_analisis_p,
+                                               contexto=contexto, ficha=_taller_ficha_bloque(r))
         except Exception as _eps:
             print(f"   ⚠️ PROBABILIDAD del sentido: no se pudo aplicar: {err(_eps)}")
 
@@ -39245,14 +39257,20 @@ def _taller_filas_del_principal(material, pregunta: str) -> list:
 
 
 async def _taller_probabilidad_sentido(r, ses: dict, problemas: list, propuestas: list,
-                                       glob, jerarquias: dict, avisos: list, analisis=None) -> dict | None:
+                                       glob, jerarquias: dict, avisos: list, analisis=None,
+                                       contexto: str = "", ficha: str = "") -> dict | None:
     """EL LADO DE LA PROPUESTA, POR EXAMEN DE LAS DOS VÍAS (2-oct-2026; ver
     `examinador.py` y `probabilidad_sentido.aplicar`). Pone alrededor lo que
     necesita red: el examen (Gemini, con tope), los precedentes del principal
     —SÓLO para el aviso: no deciden— y, sólo si el lado que gana no tiene
     razón escrita, UNA llamada a `_f5.razonar`. Deja `glob.probabilidad` y los
     avisos. Nada de esto tumba la propuesta: si algo falla, se queda la del
-    motor."""
+    motor.
+
+    `contexto` (ya pasado por `_con_autos`) y `ficha` (la ficha procesal) son
+    lo que vio el motor al escribir las dos vías; el examinador los recibe en
+    un bloque propio con tope (revisión adversarial, 3-oct-2026: verificaba
+    las premisas sin la constancia que el secretario acababa de aportar)."""
     import probabilidad_sentido as _ps
     import fase5_propuesta as _f5p
     import examinador as _ex
@@ -39288,31 +39306,69 @@ async def _taller_probabilidad_sentido(r, ses: dict, problemas: list, propuestas
             print(f"   ⚠️ PRECEDENTES del principal para el aviso: {type(_exc_f).__name__}")
             return []
 
+    def _suplencia_examen() -> dict | None:
+        """La suplencia que recibe el examinador (revisión adversarial, 3-oct-2026).
+
+        La del SECRETARIO si la confirmó (`r.encargo.suplencia`, que deja la
+        generación con `suplencia.leer`), marcada `confirmada`; si no, la propuesta
+        automática (`suplencia.proponer_de`) SIN esa marca, que el examinador lee
+        como indicio —ni la presume ni la excluye—. Antes iba siempre la
+        automática, y el examinador la recibía como hecho: «rige el estricto
+        derecho» por un «ninguna» de no encontrar patrón."""
+        try:
+            import suplencia as _sp_ex
+        except Exception:
+            return None
+        _conf = getattr(getattr(r, "encargo", None), "suplencia", None)
+        if isinstance(_conf, dict) and _conf.get("fraccion") and _conf.get("confirmada") is True:
+            out = dict(_conf)
+            out.setdefault("rotulo", _sp_ex.rotulo(out["fraccion"]))
+            return out
+        try:
+            out = dict(_sp_ex.proponer_de(r) or {})
+        except Exception:
+            return None
+        out.pop("fracciones", None)       # el catálogo de la pantalla no le sirve
+        out["confirmada"] = False
+        return out
+
     async def _examen():
         _alt = getattr(glob, "alternativa", None)
         _alt = _alt if isinstance(_alt, dict) else {}
         _via_p = {"sentido": str(getattr(glob, "sentido", "") or ""), "razon": str(getattr(glob, "razon", "") or ""),
                   "efecto": str(getattr(glob, "efecto", "") or ""), "apoyos": list(getattr(glob, "apoyos", None) or [])}
         _fu = list(getattr(r.fases, "fuentes", []) or []) + ["", ""]
-        _sup = None
-        try:
-            import suplencia as _sp_ex
-            _sup = _sp_ex.proponer_de(r)
-        except Exception:
-            _sup = None
         return await _ex.examinar(
             numero, tipo, [p for p in problemas if isinstance(p, dict)], _via_p, _alt, analisis,
             list(getattr(material, "tesis", None) or []), list(getattr(material, "normas", None) or []),
-            str(_fu[0] or ""), str(_fu[1] or ""), _sup)
+            str(_fu[0] or ""), str(_fu[1] or ""), _suplencia_examen(),
+            autos=str(contexto or ""), ficha=str(ficha or ""))
 
     # EL EXAMEN Y LOS PRECEDENTES, A LA VEZ: no dependen uno del otro.
     dec, filas = await asyncio.gather(_examen(), _precedentes())
     prob = None
     if dec and dec.get("lado") in ("prospera", "no_prospera"):
         prob = {"p_prospera": dec.get("p_prospera"), "lado": dec["lado"], "fuente": "examinador"}
+    _apoyos_pral_antes = (list(getattr(propuestas[i], "apoyos", None) or [])
+                          if 0 <= i < len(propuestas) else [])
+    _sentido_antes = str(getattr(glob, "sentido", "") or "")
     info = _ps.aplicar(glob, propuestas, problemas, prob, jerarquias)
     prob = info.get("probabilidad") or {}
-    if dec:
+    if info.get("volteada") or str(getattr(glob, "sentido", "") or "") != _sentido_antes:
+        # LOS AVISOS DE REGISTROS SE ESCRIBIERON ANTES DEL VOLTEO (revisión
+        # adversarial, 3-oct-2026): se rehacen con lo que quedó.
+        try:
+            _ps.rehacer_avisos_registros(avisos, glob, propuestas, material, i, _apoyos_pral_antes)
+        except Exception as _exc_ar:
+            print(f"   ⚠️ PROBABILIDAD: no se rehicieron los avisos de registros: {type(_exc_ar).__name__}")
+    if dec and info.get("fija_ejecutoria"):
+        # EL EXAMEN NO MANDA SOBRE LO QUE FIJÓ LA EJECUTORIA: se guarda para
+        # la auditoría; la explicación es la de `aplicar`. Su «vía que se
+        # propone» es la que él prefería, no la que se propone: se marca.
+        prob["examen"] = {k: dec.get(k) for k in ("razon_decisiva", "que_lo_cambiaria", "fallas",
+                                                   "jurisprudencia", "solidez", "modelo", "segundos", "tokens")}
+        prob["examen"]["no_aplicado"] = "ejecutoria"
+    elif dec:
         prob["explicacion"] = _ex.explicacion(dec, info.get("sentido") or "", bool(info.get("volteada")),
                                               prob.get("sentido_motor") or "")
         prob["examen"] = {k: dec.get(k) for k in ("razon_decisiva", "que_lo_cambiaria", "fallas",

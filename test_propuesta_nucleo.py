@@ -143,8 +143,14 @@ _EXAMEN = {"dec": None}
 _EXAMINADOS = []
 
 
+_LLAMADAS_EX = []
+
+
 async def _examinar(numero, tipo, problemas, via_p, via_a, *a, **k):
     _EXAMINADOS.append((via_p.get("sentido"), via_a.get("sentido")))
+    # Lo que recibe (revisión adversarial, 3-oct-2026): la suplencia (a[5]),
+    # los autos y la ficha.
+    _LLAMADAS_EX.append({"suplencia": a[5] if len(a) > 5 else None, **k})
     return _EXAMEN["dec"]
 
 
@@ -158,16 +164,20 @@ def _dec(via, p):
             "jurisprudencia": {}, "solidez": {}, "modelo": "falso", "segundos": 0.1, "tokens": {}}
 
 
-def correr(props_glob, espejo=None, banderas=True):
+def correr(props_glob, espejo=None, banderas=True, avisos_motor=None, tesis=None, encargo_extra=None):
     async def _proponer(*a, **k):
         p, g = props_glob
-        return p, g, []
+        return p, g, list(avisos_motor or [])
     f5.proponer = _proponer
     if banderas:
         os.environ["PROPUESTA_POR_PROBABILIDAD"] = "todos"
     else:
         os.environ.pop("PROPUESTA_POR_PROBABILIDAD", None)
     ses = {"resultado": _r(), "material": _material(espejo)}
+    if tesis:
+        ses["material"].tesis = list(tesis)
+    for _k, _v in (encargo_extra or {}).items():
+        setattr(ses["resultado"].encargo, _k, _v)
     try:
         return asyncio.run(main._taller_proponer_nucleo("prueba@iurexia.com", "123/2026", ses, "")), ses
     finally:
@@ -255,6 +265,75 @@ pg[1].alternativa = {"sentido": "", "razon": "", "efecto": "", "apoyos": []}
 resp, _ = correr(pg)
 ok(_RAZONES == [] and resp["global"]["sentido"] == "fundado",
    "se queda la del motor y no se pide ninguna razón")
+
+print("\n4-bis · EL EXAMINADOR VE LO QUE VIO EL MOTOR (revisión adversarial, 3-oct-2026)")
+_con_autos_antes, _ficha_antes = main._con_autos, main._taller_ficha_bloque
+main._con_autos = lambda r, c: "CONSTANCIAS QUE OBRAN EN AUTOS:\ncédula de notificación\n\n" + (c or "")
+main._taller_ficha_bloque = lambda r, *a, **k: "FICHA PROCESAL: recurre la quejosa"
+_LLAMADAS_EX.clear()
+_EXAMEN["dec"] = _dec("propuesta", 0.7)
+try:
+    correr(_propuesta_del_motor())
+finally:
+    main._con_autos, main._taller_ficha_bloque = _con_autos_antes, _ficha_antes
+_ll = _LLAMADAS_EX[-1] if _LLAMADAS_EX else {}
+ok("cédula de notificación" in str(_ll.get("autos")) and "recurre la quejosa" in str(_ll.get("ficha")),
+   "el examinador recibe el contexto de _con_autos y la ficha procesal")
+ok(isinstance(_ll.get("suplencia"), dict) and _ll["suplencia"].get("confirmada") is False
+   and _ll["suplencia"].get("fraccion") == "ninguna" and "fracciones" not in _ll["suplencia"],
+   "sin suplencia del secretario, la automática («ninguna») va SIN confirmar")
+_LLAMADAS_EX.clear()
+correr(_propuesta_del_motor(), encargo_extra={"suplencia": {"fraccion": "V", "a_favor_de": "la trabajadora",
+                                                            "confirmada": True}})
+_ll = _LLAMADAS_EX[-1] if _LLAMADAS_EX else {}
+ok((_ll.get("suplencia") or {}).get("confirmada") is True and _ll["suplencia"]["fraccion"] == "V"
+   and _ll["suplencia"].get("rotulo") == "fracción V", "la que confirmó el secretario va confirmada")
+
+print("\n4-ter · LOS AVISOS DE REGISTROS, REHECHOS TRAS EL VOLTEO")
+_EXAMEN["dec"] = {**_dec("alternativa", 0.2), "lado": "no_prospera"}
+_pg = _propuesta_del_motor()
+_mat_t = [{"registro": "2001111"}]
+_av_m = f5.revisar_global(_pg[1], types.SimpleNamespace(tesis=_mat_t))
+ok(any(a.startswith("La vía alternativa") and "2002222" in a for a in _av_m), "el motor avisa de la alternativa")
+resp, _ = correr(_pg, avisos_motor=_av_m, tesis=_mat_t)
+ok(any(a.startswith("La propuesta del asunto se apoya") and "2002222" in a for a in resp["avisos"])
+   and not any(a.startswith("La vía alternativa se apoya") and "2002222" in a for a in resp["avisos"]),
+   "tras voltear, el registro inventado lo lleva «la propuesta del asunto»")
+
+print("\n4-quater · LO QUE FIJÓ LA EJECUTORIA NO LO VOLTEA EL EXAMEN")
+import contexto_taller as _ctx_t
+import cumplimiento_ejecutoria as _ce_t
+_orig = (_ctx_t.origen, _ce_t.rige, _ce_t.sobreseer_propuesto)
+_ctx_t.origen = lambda: {"clasificacion": {"problemas": [{"pregunta": P1, "vinculacion": "vinculado",
+                                                          "efecto": "que se emplazara de nuevo",
+                                                          "por_que": "la ejecutoria lo resolvió"}]},
+                         "cumplimiento": {"ejecutoria": "AD 1/2025"}}
+_ce_t.rige = lambda: True
+_ce_t.sobreseer_propuesto = lambda o: False
+
+
+def _motor_niega():
+    props, g = _propuesta_del_motor()
+    props[0].sentido, props[0].razon = "infundado", "el actuario se cercioró"
+    g.sentido, g.razon = "infundado", "el actuario se cercioró del domicilio"
+    g.alternativa = {"sentido": "fundado", "razon": "no hubo cercioramiento", "efecto": "", "apoyos": ["2001111"]}
+    return props, g
+
+
+_EXAMEN["dec"] = _dec("alternativa", 0.6)
+_EXAMEN["dec"]["lado"] = "prospera"
+try:
+    resp, ses = correr(_motor_niega())
+finally:
+    _ctx_t.origen, _ce_t.rige, _ce_t.sobreseer_propuesto = _orig
+g, p = resp["global"], resp["propuestas"]
+ok(p[0]["sentido"] == "inoperante" and p[0]["origen"] == "ejecutoria",
+   f"el principal sigue inoperante por lo vinculado ({p[0]['sentido']}, {p[0]['origen']})")
+ok(g["sentido"] == "infundado" and g["probabilidad"]["volteada"] is False
+   and g["probabilidad"]["fijada_por"] == "ejecutoria" and g["probabilidad"]["lado"] == "no_prospera",
+   "la global se queda con el lado del motor: no concede sobre lo vinculado")
+ok(any(a.startswith("EL PRINCIPAL LO FIJA LA EJECUTORIA") for a in resp["avisos"])
+   and not any("VOLTEÓ LA PROPUESTA" in a for a in resp["avisos"]), "se avisa, y no hay aviso de volteo")
 
 print("\n5 · EL ÚLTIMO PROBLEMA YA NO SE CAE EN SILENCIO (MODO ACERVO)")
 import modos_decision as md

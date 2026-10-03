@@ -169,8 +169,10 @@ def aplicar(glob, propuestas: list, problemas: list, prob: dict | None,
     es None o no trae lado, manda el lado que razonó el motor.
 
     Devuelve {probabilidad, principal, volteada, necesita_razon, sentido,
-    avisos}. `necesita_razon`: el lado ganador no tiene razón escrita y main
-    la pide. Nunca lanza por datos raros: lo que no entiende, lo deja."""
+    avisos, fija_ejecutoria}. `necesita_razon`: el lado ganador no tiene razón
+    escrita y main la pide. `fija_ejecutoria`: el principal lo fijó la regla de
+    la ejecutoria (`origen` «ejecutoria») y el examen no lo voltea. Nunca lanza
+    por datos raros: lo que no entiende, lo deja."""
     avisos: list = []
     i = indice_principal(problemas, propuestas, jerarquias)
     pral = propuestas[i] if i >= 0 else None
@@ -187,12 +189,60 @@ def aplicar(glob, propuestas: list, problemas: list, prob: dict | None,
     prob["sentido_motor"] = s_motor
     prob["volteada"] = False
     info = {"probabilidad": prob, "principal": i, "volteada": False,
-            "necesita_razon": False, "sentido": s_glob, "avisos": avisos}
+            "necesita_razon": False, "sentido": s_glob, "avisos": avisos,
+            "fija_ejecutoria": False}
     lado = prob.get("lado")
     if lado not in ("prospera", "no_prospera"):
         return info
     quiere = lado == "prospera"
     v = voto_motor(s_motor) if s_motor else None
+
+    # LO QUE FIJÓ LA EJECUTORIA NO SE VOLTEA (revisión adversarial, 3-oct-2026).
+    # En amparo directo contra una sentencia dictada en cumplimiento, la regla
+    # de la ejecutoria (`cumplimiento_ejecutoria.aplicar`, en main ANTES de
+    # esto) deja el principal «inoperante» por vinculado y main lo marca con
+    # `origen` «ejecutoria». El volteo lo sobrescribía a «fundado» con la razón
+    # de la vía contraria; en el resolver la misma regla lo volvía a
+    # «inoperante», `desenlace.reconciliar` a «fundado», y el proyecto salía
+    # concediendo sobre lo que la ejecutoria dejó firme con la razón de la
+    # inoperancia: resolutivo y estudio incongruentes. Si para voltear hay que
+    # tocar ese principal, no se voltea: se queda el lado del motor y se avisa.
+    # (Si el examen va al lado del principal fijado, el volteo sí corre: no lo
+    # toca.)
+    _vp = voto_motor(s_pral) if s_pral else None
+    if (pral is not None and str(_g(pral, "origen", "") or "") == "ejecutoria"
+            and not (v is not None and bool(v) == quiere)
+            and (_vp is None or bool(_vp) != quiere)):
+        _lado_m = v if v is not None else _vp
+        _pe = prob.get("p_prospera")
+        prob.update({
+            # «motor» porque es su lado (la pantalla sólo conoce examinador,
+            # jurimetria y motor); `fijada_por` dice por qué no mandó el examen.
+            "examen_lado": lado, "examen_p": _pe, "p_prospera": None, "fuente": "motor",
+            "fijada_por": "ejecutoria",
+            "lado": None if _lado_m is None else ("prospera" if _lado_m else "no_prospera"),
+            "explicacion": ("Se propone el lado que razonó el motor: el problema principal lo fijó la "
+                            "ejecutoria que se cumplimenta y el examen de las dos vías no lo voltea.")})
+        info["fija_ejecutoria"] = True
+        _pct = ""
+        if isinstance(_pe, (int, float)):
+            _pct = f" ({int(round((_pe if quiere else 1 - _pe) * 100))}%)"
+        avisos.append(
+            "EL PRINCIPAL LO FIJA LA EJECUTORIA: el examen de las dos vías se inclinaba por que los "
+            f"conceptos o agravios {'prosperen' if quiere else 'no prosperen'}{_pct}, pero no voltea lo que "
+            f"la ejecutoria dejó vinculado: se queda el lado del motor («{s_motor.replace('_', ' ')}»). "
+            "Si la ejecutoria no vinculaba ese punto, corrígelo en «De dónde viene lo reclamado».")
+        if not s_glob and s_pral:
+            # La global cuelga del principal, como cuando el motor ya estaba
+            # del lado que gana.
+            _s(glob, "sentido", s_pral)
+            _s(glob, "razon", str(_g(pral, "razon", "") or ""))
+            _s(glob, "apoyos", list(_g(pral, "apoyos", None) or []))
+            if not str(_g(glob, "problema_que_decide", "") or "").strip():
+                _s(glob, "problema_que_decide", str(_g(pral, "problema", "") or ""))
+        info["sentido"] = str(_g(glob, "sentido", "") or "")
+        _s(glob, "alcanza", bool(info["sentido"]))
+        return info
 
     # LA CONFIANZA QUE SE ENSEÑA SALE DEL NÚMERO; la del modelo se guarda.
     _p = prob.get("p_prospera")
@@ -252,7 +302,11 @@ def aplicar(glob, propuestas: list, problemas: list, prob: dict | None,
         _intercambiar_checklist(_g(glob, "checklist", None) or [])
     if not str(_g(glob, "problema_que_decide", "") or "").strip() and pral is not None:
         _s(glob, "problema_que_decide", str(_g(pral, "problema", "") or ""))
-    volteada = v is not None
+    # TODO CAMBIO DE SENTIDO SOBRE UNO QUE EL MOTOR SÍ ESCRIBIÓ ES UN VOLTEO
+    # (revisión adversarial, 3-oct-2026): desde un global «sin materia»
+    # (`prospera` None) se pasaba a «fundado» sin aviso ni la línea «el motor
+    # leía…». Sólo sin ningún sentido del motor es «el motor no propuso».
+    volteada = bool(s_motor)
     prob["volteada"] = volteada
     info["volteada"] = volteada
     info["sentido"] = nuevo["sentido"]
@@ -278,3 +332,65 @@ def aplicar(glob, propuestas: list, problemas: list, prob: dict | None,
         avisos.append("El motor no propuso ningún sentido; se propone el más probable según el examen: "
                       + str(prob.get("explicacion", "")))
     return info
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# LOS AVISOS DE REGISTROS, REHECHOS TRAS EL VOLTEO (revisión adversarial,
+# 3-oct-2026). `fase5_propuesta.proponer` los escribe ANTES del volteo:
+# «La propuesta del asunto se apoya en registros que NO están…», «La vía
+# alternativa se apoya…», el de cada problema y el «SIN APOYO». Al voltear, los
+# apoyos de la alternativa pasan a la propuesta —la que se acepta de un botón—
+# y el aviso seguía diciendo «la vía alternativa»: el secretario creía limpia
+# la propuesta que llevaba el registro inventado. Se rehacen con lo que quedó,
+# como ya se hacía tras la regla de la ejecutoria.
+# ═══════════════════════════════════════════════════════════════════════════
+
+_PREF_GLOBAL = ("La propuesta del asunto se apoya en registros que NO",
+                "La vía alternativa se apoya en registros que NO")
+_PREF_PROBLEMA = "La propuesta se apoya en registros que NO están en el acervo:"
+_SIN_APOYO = "se propone SIN APOYO del acervo"
+
+
+def rehacer_avisos_registros(avisos: list, glob, propuestas: list, material, i: int = -1,
+                             apoyos_previos: list | None = None) -> None:
+    """EN SITIO: quita los avisos de registros que se escribieron antes del
+    volteo y los vuelve a calcular con la global y las propuestas de ahora.
+    `i`/`apoyos_previos`: el principal y los apoyos que tenía antes (su aviso
+    por problema se identifica por esos registros)."""
+    try:
+        import fase5_propuesta as _f5
+    except Exception:
+        return
+    validos = {str(t.get("registro", "")) for t in (getattr(material, "tesis", None) or [])
+               if isinstance(t, dict)}
+
+    def _inventados(apoyos) -> list:
+        out = []
+        for a in apoyos or []:
+            m = _f5._RX_CIFRA_REGISTRO.search(str(a))
+            if m and m.group(1) not in validos:
+                out.append(str(a))
+        return out
+
+    nuevos = [a for a in avisos if not str(a).startswith(_PREF_GLOBAL) and _SIN_APOYO not in str(a)]
+    pral = propuestas[i] if 0 <= i < len(propuestas or []) else None
+    if pral is not None:
+        viejos = _inventados(apoyos_previos)
+        if viejos:
+            for k, a in enumerate(nuevos):
+                if str(a).startswith(_PREF_PROBLEMA) and str(viejos) in str(a):
+                    del nuevos[k]
+                    break
+        ahora = _inventados(_g(pral, "apoyos", None))
+        if ahora and _g(pral, "alcanza", True):
+            nuevos.append(f"{_PREF_PROBLEMA} {ahora}. No se citan hasta comprobarlos en el Semanario.")
+    if _g(glob, "alcanza", False):
+        try:
+            nuevos.extend(_f5.revisar_global(glob, material))
+        except Exception:
+            pass
+    nuevos.extend(
+        f"«{_g(p, 'sentido', '')}» {_SIN_APOYO}. Una propuesta sin fundamento es una opinión: "
+        f"compruébala antes de aceptarla."
+        for p in propuestas or [] if _g(p, "alcanza", False) and not (_g(p, "apoyos", None) or []))
+    avisos[:] = nuevos

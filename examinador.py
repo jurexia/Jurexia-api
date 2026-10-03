@@ -51,6 +51,13 @@ TOPE_S = float(os.getenv("EXAMINADOR_TOPE_S", "150") or 150)
 PENSAMIENTO = (os.getenv("EXAMINADOR_PENSAMIENTO", "high") or "high").strip().lower()
 MAX_ACTO = 320_000
 MAX_ESCRITO = 220_000
+# LO QUE VIO EL MOTOR Y EL EXAMINADOR NO (revisión adversarial, 3-oct-2026):
+# las constancias de autos, lo aportado con «Aportar y proponer», las
+# respuestas del secretario y el bloque de la ejecutoria (todo armado por
+# `main._con_autos`) más la ficha procesal. Tope PROPIO, para que unos autos
+# enormes no se coman el presupuesto de la resolución y del escrito.
+MAX_AUTOS = int(os.getenv("EXAMINADOR_MAX_AUTOS", "120000") or 120_000)
+MAX_FICHA = 20_000
 MAX_SALIDA = 24_000
 VERSION = "examinador-1"
 
@@ -135,25 +142,125 @@ def _bloque_normas(normas: list) -> str:
                      for n in (normas or [])[:25] if isinstance(n, dict)) or "(sin normas)"
 
 
-def _regla_suplencia(suplencia: dict | None) -> str:
+def _sin_amparo(tipo: str) -> bool:
+    """¿El asunto no es juicio de amparo (revisión fiscal)? Ahí no hay artículo
+    79 y el estricto derecho es un hecho de la ley, no una presunción."""
+    try:
+        import tipos_asunto as _ta
+        t = _ta.normalizar(tipo or "") or ""
+    except Exception:
+        t = ""
+    t = t or "_".join(str(tipo or "").lower().replace("ó", "o").split())
+    return t == "revision_fiscal"
+
+
+def _rotulo(fr: str) -> str:
+    try:
+        import suplencia as _sp
+        return _sp.rotulo(fr) or fr
+    except Exception:
+        return fr
+
+
+def _regla_suplencia(suplencia: dict | None, tipo: str = "") -> str:
+    """La regla 8 del prompt: la suplencia de la queja, DICHA COMO HECHO SÓLO SI
+    EL SECRETARIO LA CONFIRMÓ (revisión adversarial, 3-oct-2026).
+
+    Antes se le daba al examinador `suplencia.proponer_de(r)` —la propuesta
+    determinista, que el secretario aún no ha visto— como si fuera la decisión:
+    una VII inferida de lo que la parte AFIRMA de sí misma («soy de escasos
+    recursos») llegaba como «OPERA la suplencia», y un «ninguna» por no
+    encontrar patrón llegaba como «rige el estricto derecho» en un familiar
+    con un menor que los patrones no vieron. La suplencia es un umbral que
+    decide él (`suplencia.py`): sin su confirmación es un INDICIO, ni se
+    presume ni se excluye. `suplencia["confirmada"] is True` es la marca: la
+    pone main sólo con la del secretario (`r.encargo.suplencia`)."""
     sp = suplencia if isinstance(suplencia, dict) else {}
     fr = str(sp.get("fraccion") or "").strip()
-    if fr and fr != "ninguna":
-        dato = (f"En este asunto OPERA la suplencia de la queja: {sp.get('rotulo') or fr}, a favor de "
-                f"{sp.get('a_favor_de') or 'quien promueve'}.")
-    elif fr == "ninguna":
-        dato = "En este asunto NO opera la suplencia de la queja: rige el estricto derecho."
-    else:
-        return ""
-    return ("\n8. La suplencia de la queja (artículo 79 de la Ley de Amparo). " + dato + "\n"
-            "   Donde opera, la deficiencia del planteamiento o que no se combata una consideración no lo vuelve\n"
+    cola = ("\n   Donde opera, la deficiencia del planteamiento o que no se combata una consideración no lo vuelve\n"
             "   inoperante: el tribunal examina de oficio la legalidad de lo resuelto en perjuicio de esa parte. Pero la\n"
             "   suplencia no crea pruebas ni releva de probar los hechos que a esa parte le tocaba acreditar. Donde no\n"
             "   opera, sólo se examina lo que se planteó y como se planteó.")
+    cab = "\n8. La suplencia de la queja (artículo 79 de la Ley de Amparo). "
+    if _sin_amparo(tipo):
+        # No es juicio de amparo: no hay 79 que decidir (`suplencia.proponer`).
+        return (cab + "Este asunto no es un juicio de amparo: el artículo 79 no rige y se examina en "
+                "estricto derecho, sólo lo que se planteó y como se planteó.")
+    if not fr:
+        return ""
+    if sp.get("confirmada") is True:
+        if fr != "ninguna":
+            dato = (f"El secretario CONFIRMÓ que en este asunto OPERA la suplencia de la queja: "
+                    f"{sp.get('rotulo') or _rotulo(fr)}, a favor de {sp.get('a_favor_de') or 'quien promueve'}.")
+        else:
+            dato = ("El secretario CONFIRMÓ que en este asunto NO opera la suplencia de la queja: rige el "
+                    "estricto derecho.")
+        return cab + dato + cola
+    # SIN CONFIRMAR: la propuesta automática, sus alternativas y lo que pide
+    # la parte, como indicios. «Ninguna» automática NO es «estricto derecho».
+    ind = []
+    if fr != "ninguna":
+        ind.append(f"la propuesta automática apunta a la {sp.get('rotulo') or _rotulo(fr)}"
+                   + (f" ({_t(sp.get('porque'), 300)})" if sp.get("porque") else ""))
+    else:
+        ind.append("la propuesta automática no encontró en el texto ningún supuesto (eso NO afirma el "
+                   "estricto derecho: la I y la VI no se leen desde el texto, y la II o la VII dependen de "
+                   "hechos que el patrón puede no ver)")
+    alts = [a for a in (sp.get("alternativas") or []) if isinstance(a, dict) and a.get("fraccion")]
+    if alts:
+        ind.append("también podría operar la " + "; la ".join(
+            f"{a.get('rotulo') or _rotulo(str(a.get('fraccion')))}"
+            + (f" ({_t(a.get('porque'), 200)})" if a.get("porque") else "") for a in alts[:4]))
+    ped = str(sp.get("pedida") or "").strip()
+    if ped and ped != "ninguna":
+        ind.append(f"la parte la pide expresamente ({_rotulo(ped)}); que la pida no la acredita")
+    return (cab + "El secretario TODAVÍA NO HA DECIDIDO si opera la suplencia de la queja: no la "
+            "presumas ni la excluyas. Indicios, no hechos del asunto: " + "; ".join(ind) + ".\n"
+            "   Si la suerte de una vía depende de que opere o no la suplencia, dilo en «razon_decisiva» y en\n"
+            "   «que_lo_cambiaria» en lugar de darla por cierta." + cola)
+
+
+def _recortar(texto: str, n: int) -> str:
+    """Recorta por EL MEDIO, no por la cola: `_con_autos` pone delante las
+    respuestas del secretario y detrás de los autos lo aportado y el bloque
+    de la ejecutoria; cortar por la cola los perdería con autos largos."""
+    texto = str(texto or "")
+    if len(texto) <= n:
+        return texto
+    cabeza = int(n * 0.6)
+    cola = n - cabeza
+    return (texto[:cabeza] + f"\n[… se omiten {len(texto) - n} caracteres de en medio …]\n"
+            + texto[-cola:])
+
+
+def _bloque_autos(autos: str, ficha: str) -> str:
+    """El bloque de lo que vio el motor y no está en la resolución ni en el
+    escrito («» si no hay nada). Va ANTES de la resolución."""
+    autos, ficha = str(autos or "").strip(), str(ficha or "").strip()
+    if not (autos or ficha):
+        return ""
+    partes = ["CONSTANCIAS DE AUTOS, LO APORTADO AL EXPEDIENTE, LAS RESPUESTAS DEL SECRETARIO Y LA FICHA "
+              "PROCESAL (lo mismo que tuvo delante quien escribió las dos vías; las premisas de hecho se "
+              "verifican también contra esto, y lo que aquí consta no se tiene por «no acreditado»):"]
+    if ficha:
+        partes.append("FICHA PROCESAL:\n<<<\n" + _recortar(ficha, MAX_FICHA) + "\n>>>")
+    if autos:
+        partes.append("<<<\n" + _recortar(autos, MAX_AUTOS) + "\n>>>")
+    return "\n".join(partes) + "\n\n"
 
 
 def prompt(tipo: str, problemas: list, via_a: dict, via_b: dict, analisis, tesis: list, normas: list,
-           acto: str, escrito: str, suplencia: dict | None = None) -> str:
+           acto: str, escrito: str, suplencia: dict | None = None, autos: str = "", ficha: str = "") -> str:
+    """El prompt del examinador. `autos` es el contexto que armó `main._con_autos`
+    (constancias, lo aportado, respuestas del secretario, la ejecutoria) y
+    `ficha` la ficha procesal: lo que vio el motor al escribir las vías
+    (revisión adversarial, 3-oct-2026). Sin ellos, el prompt es el de antes."""
+    bloque_autos = _bloque_autos(autos, ficha)
+    # LA REGLA 3 VERIFICABA LAS PREMISAS SÓLO CONTRA LA RESOLUCIÓN: la
+    # constancia de notificación que el secretario aportó no existía para el
+    # examinador, que tachaba «premisa no acreditada» lo que obraba en autos.
+    regla3_autos = (" También consta lo que obra en el bloque de constancias de autos, lo aportado y las\n"
+                    "   respuestas del secretario: contra eso también se verifica." if bloque_autos else "")
     tesis_por_reg = {_reg(t.get("registro")): t for t in (tesis or []) if isinstance(t, dict)}
     citadas = {_reg(x) for v in (via_a, via_b) for x in (v.get("apoyos") or [])}
     probs = "\n".join(f"  {i}. [{p.get('jerarquia', '')}] {_t(p.get('pregunta'), 300)}"
@@ -171,7 +278,7 @@ CÓMO SE EXAMINA (en este orden, y con el mismo rigor para las dos vías):
    ya dicho sin atacar la respuesta, genérico o dogmático, o que parte de una premisa falsa, es inoperante.
 3. Las premisas de hecho: lo que la parte AFIRMA en su escrito no es un hecho del asunto. Se verifica contra lo
    que la resolución tuvo por acreditado, lo que valoró y lo que consta en ella. Si la resolución lo desmiente o
-   no lo tiene por probado y la carga era de quien lo afirma, la premisa no está acreditada.
+   no lo tiene por probado y la carga era de quien lo afirma, la premisa no está acreditada.{regla3_autos}
 4. El derecho aplicable: el requisito legal expreso manda. Una lectura protectora, pro persona o de interpretación
    conforme no suprime un requisito que la ley exige ni sustituye la prueba que faltó.
 5. La trascendencia: que la parte tenga un punto no basta. Una omisión, un error de valoración o un vicio formal
@@ -181,7 +288,7 @@ CÓMO SE EXAMINA (en este orden, y con el mismo rigor para las dos vías):
    por el TEMA, si aplica por ANALOGÍA o si NO APLICA (y por qué). Una jurisprudencia obligatoria que resuelve el
    supuesto pesa más que una tesis aislada; una que sólo comparte palabras no resuelve nada.
 7. Los accesorios no arrastran: un planteamiento accesorio débil no hace prosperar el asunto si el principal no
-   prospera, salvo que por sí solo dé un beneficio propio.{_regla_suplencia(suplencia)}
+   prospera, salvo que por sí solo dé un beneficio propio.{_regla_suplencia(suplencia, tipo)}
 
 Al final, tu probabilidad de que los conceptos o agravios prosperen (de 0 a 1). Es tu juicio jurídico sobre ESTE
 asunto, no una estadística. Si dudas, comprométete igual con el lado que te parezca más probable: el secretario
@@ -203,7 +310,7 @@ JURISPRUDENCIA DEL ACERVO (las citadas por las vías llevan su texto):
 NORMAS DEL ACERVO:
 {_bloque_normas(normas)}
 
-RESOLUCIÓN RECLAMADA O RECURRIDA, ÍNTEGRA:
+{bloque_autos}RESOLUCIÓN RECLAMADA O RECURRIDA, ÍNTEGRA:
 <<<
 {str(acto or '')[:MAX_ACTO]}
 >>>
@@ -212,6 +319,10 @@ ESCRITO DE CONCEPTOS DE VIOLACIÓN O AGRAVIOS, ÍNTEGRO:
 <<<
 {str(escrito or '')[:MAX_ESCRITO]}
 >>>
+
+En «razon_decisiva» y «que_lo_cambiaria» nombra cada vía POR SU SENTIDO («la que declara fundados los
+conceptos», «la que los niega por inoperantes»), NUNCA por su letra: quien lo lee no ve las letras A y B.
+«p_prospera» va de 0 a 1 (0.35, no 35) y tiene que ir con el «lado» que eliges.
 
 Devuelve SÓLO un JSON con esta forma:
 {{"razones_torales": [{{"afirma": "<qué sostiene el fallo>", "autonoma": true, "combatida": true}}],
@@ -250,26 +361,107 @@ def propuesta_es_a(numero: str) -> bool:
     return int(hashlib.sha1(str(numero or "").encode("utf-8")).hexdigest(), 16) % 2 == 0
 
 
+def normalizar_p(x) -> float | None:
+    """`p_prospera` a la escala de 0 a 1 (revisión adversarial, 3-oct-2026).
+
+    El modelo puede devolver el porcentaje (35 por 0.35: el mismo JSON le pide
+    `solidez` de 0 a 10). Antes se recortaba a [0, 1] y un 35 se volvía 1.0:
+    100 % a CONCEDER, el sesgo que el examinador vino a corregir. Entre 1 y 100
+    se lee como porcentaje; por encima de 100, o negativo, o no numérico, no
+    hay número (None) y decide la letra."""
+    try:
+        p = float(x)
+    except (TypeError, ValueError):
+        return None
+    if p != p or p < 0:  # NaN o negativo
+        return None
+    if p > 100:
+        return None
+    if p > 1:
+        p = p / 100.0
+    return round(p, 4)
+
+
+# LAS LETRAS A/B NO LAS VE EL SECRETARIO (revisión adversarial, 3-oct-2026): el
+# orden sale del hash del número y es relativo a la propuesta del motor ANTES
+# del volteo; la pantalla dice «Te propongo» y «¿O resolverías en sentido
+# opuesto?». Una razón que dice «la vía B se sostiene» se lee al revés en la
+# mitad de los asuntos. Se sustituyen por código, además de pedírselo al
+# modelo. Sólo con un sustantivo o artículo delante: una «A» suelta es la
+# preposición, y «apartado B» del artículo 123 es derecho, no una vía.
+_ARTICULO = {"la": "la", "el": "la", "del": "de la", "al": "a la", "una": "una", "esta": "esta",
+             "esa": "esa", "otra": "otra"}
+_RX_AMBAS = re.compile(r"\b(?:(las|Las)\s+)?(v[íi]as|V[íi]as|proyectos|Proyectos|opciones|Opciones)\s+"
+                       r"[«\"']?A[»\"']?\s+y\s+[«\"']?B[»\"']?(?![\w])")
+_RX_LETRA = re.compile(
+    r"(?<![\w])(?:(la|La|el|El|del|Del|al|Al|una|Una|esta|Esta|esa|Esa|otra|Otra)\s+)?"
+    r"(?:(v[íi]a|V[íi]a|lado|Lado|proyecto|Proyecto|opci[óo]n|Opci[óo]n|postura|Postura|soluci[óo]n|Soluci[óo]n)\s+)?"
+    r"([«\"'(]?)([AB])([»\"')]?)(?![\w])(?!\s+qu(?:o|em)\b)")  # «el A quo» es latín, no una vía
+
+
+def limpiar_letras(texto: str, propuesta_a: bool, via_ganadora: str) -> str:
+    """«vía A / vía B» → «la vía que se propone» / «la vía contraria», según
+    qué vía ganó el examen (`via_ganadora`: «propuesta» | «alternativa», en
+    términos del motor) y qué letra llevaba la propuesta del motor."""
+    if not texto:
+        return texto or ""
+
+    def _nombre(letra: str) -> str:
+        via_letra = "propuesta" if (letra == "A") == bool(propuesta_a) else "alternativa"
+        return "vía que se propone" if via_letra == via_ganadora else "vía contraria"
+
+    def _ambas(m):
+        return ("Las" if (m.group(1) or "").startswith("L") else "las") + " dos vías"
+
+    def _una(m):
+        art, sust, abre, letra, cierra = m.groups()
+        if not (art or sust):
+            # «A» suelta: la preposición, no una vía. Sólo entre comillas o
+            # paréntesis («B», (A)) es inequívocamente la letra de una vía.
+            if not (abre and cierra):
+                return m.group(0)
+            nombre = f"la {_nombre(letra)}"
+            return f"({nombre})" if abre == "(" else nombre
+        mayus = (art or sust or "")[:1].isupper()
+        a = _ARTICULO.get((art or "la").lower(), "la")
+        a = a[:1].upper() + a[1:] if mayus else a
+        return f"{a} {_nombre(letra)}"
+
+    texto = _RX_AMBAS.sub(_ambas, texto)
+    return _RX_LETRA.sub(_una, texto)
+
+
 def decidir(d: dict, propuesta_a: bool, via_propuesta: dict, via_alternativa: dict) -> dict | None:
     """De la salida del modelo a la decisión: qué vía gana, con qué probabilidad
-    de que prospere. La probabilidad manda (regla del 50.01%); si no la trae o
-    no se lee, manda el lado que eligió. Ninguna de las dos → None."""
+    de que prospere. La probabilidad manda (regla del 50.01%) cuando va con la
+    letra; si no la trae o no se lee, manda el lado que eligió. Ninguna de las
+    dos → None.
+
+    SI EL NÚMERO CONTRADICE LA LETRA (revisión adversarial, 3-oct-2026), manda
+    la LETRA y el número se descarta (`p_prospera` None, `incoherente` True).
+    Por qué la letra y no el motor: la letra es la elección explícita y es la
+    que razonan `razon_decisiva` y el examen de cada vía (escritos por letra);
+    el número es el campo que se equivoca de escala o de sentido. Dejar que
+    mande el motor tiraría un examen cuyo razonamiento sí es coherente."""
     if not isinstance(d, dict):
         return None
     lado = str(d.get("lado") or "").strip().upper()
     via_lado = None
     if lado in ("A", "B"):
         via_lado = "propuesta" if (lado == "A") == propuesta_a else "alternativa"
-    try:
-        p = float(d.get("p_prospera"))
-        p = min(max(p, 0.0), 1.0)
-    except (TypeError, ValueError):
-        p = None
+    p = normalizar_p(d.get("p_prospera"))
     sp = prospera(via_propuesta.get("sentido"))
     sa = prospera(via_alternativa.get("sentido"))
+    via_p = None
     if p is not None and sp is not None and sa is not None and sp != sa and p != 0.5:
         quiere = p > 0.5
-        via = "propuesta" if sp == quiere else "alternativa"
+        via_p = "propuesta" if sp == quiere else "alternativa"
+    incoherente = bool(via_p and via_lado and via_p != via_lado)
+    if incoherente:
+        print(f"   ⚖️ EXAMINADOR: p_prospera={p} contradice la letra «{lado}»; manda la letra, sin número")
+        via, p = via_lado, None
+    elif via_p:
+        via = via_p
     elif via_lado:
         via = via_lado
     else:
@@ -278,22 +470,38 @@ def decidir(d: dict, propuesta_a: bool, via_propuesta: dict, via_alternativa: di
     ex = d.get("examen") if isinstance(d.get("examen"), dict) else {}
     ex_p = ex.get("A" if propuesta_a else "B") or {}
     ex_a = ex.get("B" if propuesta_a else "A") or {}
+
+    def _limpio(x, n):
+        return limpiar_letras(_t(x, n), propuesta_a, via)
+
+    def _fallas(lst):
+        out = []
+        for f in [f for f in (lst or []) if isinstance(f, dict)][:8]:
+            f = dict(f)
+            if f.get("explicacion"):
+                f["explicacion"] = limpiar_letras(str(f["explicacion"]), propuesta_a, via)
+            out.append(f)
+        return out
+
     return {"via": via, "p_prospera": p, "lado": ("prospera" if sv else "no_prospera") if sv is not None else None,
-            "razon_decisiva": _t(d.get("razon_decisiva"), 1200),
-            "que_lo_cambiaria": _t(d.get("que_lo_cambiaria"), 400),
-            "fallas": {"propuesta": [f for f in (ex_p.get("fallas") or []) if isinstance(f, dict)][:8],
-                       "alternativa": [f for f in (ex_a.get("fallas") or []) if isinstance(f, dict)][:8]},
+            "razon_decisiva": _limpio(d.get("razon_decisiva"), 1200),
+            "que_lo_cambiaria": _limpio(d.get("que_lo_cambiaria"), 400),
+            "fallas": {"propuesta": _fallas(ex_p.get("fallas")),
+                       "alternativa": _fallas(ex_a.get("fallas"))},
             "jurisprudencia": {"propuesta": [j for j in (ex_p.get("jurisprudencia") or []) if isinstance(j, dict)][:8],
                                "alternativa": [j for j in (ex_a.get("jurisprudencia") or []) if isinstance(j, dict)][:8]},
             "solidez": {"propuesta": ex_p.get("solidez"), "alternativa": ex_a.get("solidez")},
-            "coincide_con_su_lado": (via_lado is None or via_lado == via)}
+            "coincide_con_su_lado": (via_lado is None or via_lado == via),
+            "incoherente": incoherente}
 
 
 async def examinar(numero: str, tipo: str, problemas: list, via_propuesta: dict, via_alternativa: dict,
                    analisis, tesis: list, normas: list, acto: str, escrito: str,
-                   suplencia: dict | None = None, tope_s: float | None = None) -> dict | None:
+                   suplencia: dict | None = None, tope_s: float | None = None,
+                   autos: str = "", ficha: str = "") -> dict | None:
     """La decisión del examinador entre las dos vías, o None (sin clave, sin
-    las dos vías, falla o vence). Nunca lanza."""
+    las dos vías, falla o vence). Nunca lanza. `autos` y `ficha`: lo que vio el
+    motor (ver `prompt`)."""
     t0 = time.time()
     try:
         if not (str(via_propuesta.get("sentido") or "").strip() and str(via_alternativa.get("sentido") or "").strip()):
@@ -303,7 +511,8 @@ async def examinar(numero: str, tipo: str, problemas: list, via_propuesta: dict,
             return None
         a_es_p = propuesta_es_a(numero)
         va, vb = (via_propuesta, via_alternativa) if a_es_p else (via_alternativa, via_propuesta)
-        texto = prompt(tipo, problemas, va, vb, analisis, tesis, normas, acto, escrito, suplencia)
+        texto = prompt(tipo, problemas, va, vb, analisis, tesis, normas, acto, escrito, suplencia,
+                       autos=autos, ficha=ficha)
         from google.genai import types as gt
         cfg = gt.GenerateContentConfig(
             temperature=0.2, response_mime_type="application/json", max_output_tokens=MAX_SALIDA,
