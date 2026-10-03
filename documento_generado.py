@@ -5306,14 +5306,39 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
 
     if antecedentes:
         def _antecedentes(p):
+            # EN PROSA, SIN NÚMEROS (2-oct-2026, David: «debemos quitar la
+            # enumeración de antecedentes»; bandera `antecedentes_en_prosa`).
+            # Esto REVIERTE la numeración de abajo, y a sabiendas: su razón era
+            # que el estudio remite a ellos por su número, pero el estudio nunca
+            # los recibe —`fase6_estudio.prompt_estudio` sólo lee el resumen del
+            # acto y el de los conceptos— y la moderna ya prohíbe remitir por
+            # número, así que no hay remisión escrita por la máquina que romper.
+            # El número que traiga el modelo se LIMPIA (regex estrecha: 1-2
+            # dígitos con punto o paréntesis al abrir el párrafo; no toca «15 de
+            # marzo…» ni los efectos numerados, que van en otro apartado). Y UNA
+            # sola fórmula de entrada: el prompt ya no la pide, y si el modelo
+            # la escribe sola se borra; si la fundió con el primer hecho, se
+            # queda la suya y el documento no añade la propia.
+            import contexto_taller as _ct_ant
+            if _ct_ant.rediseno("antecedentes_en_prosa"):
+                import fases123_resumenes as _fr_ant
+                _ps = antecedentes.split("\n") if isinstance(antecedentes, str) else antecedentes
+                _ps, _trae_entrada = _fr_ant.antecedentes_en_prosa(_ps)
+                if not _trae_entrada:
+                    _texto_en(p,
+                              "Previo al análisis de los planteamientos que se proponen, "
+                              "es menester relatar los hechos relevantes del asunto.")
+                for x in _ps:
+                    parrafo_con_citas(doc, x, notas)
+                return
             _texto_en(p,
                       "Previo al análisis de los planteamientos que se proponen, "
                       "es menester relatar los hechos relevantes del asunto.")
-            # NUMERADOS. Así los ajustó David —1 a 19 en el adelanto del
-            # 410/2026— y no es cosmética: el estudio remite a ellos («como se
-            # dijo en el antecedente 7») y sin número esa remisión obliga a
-            # contar párrafos. El número se pone aquí y no se le pide al
-            # modelo, que ya lleva bastantes reglas.
+            # NUMERADOS, con la bandera apagada. Así los ajustó David —1 a 19
+            # en el adelanto del 410/2026— pensando en que el estudio remitiera
+            # a ellos («como se dijo en el antecedente 7»). El número se pone
+            # aquí y no se le pide al modelo, que ya lleva bastantes reglas.
+            # (El 2-oct-2026 él mismo pidió quitarlo: ver arriba.)
             _n = 0
             for x in (antecedentes or []):
                 x = x.strip()

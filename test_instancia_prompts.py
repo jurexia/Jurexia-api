@@ -345,7 +345,10 @@ ok(_t0b == _res_sala.replace("Primera Sala Civil del Tribunal Superior de Justic
 # todo. Es lo que ven las cuentas de fuera hasta que se mida.
 # (El estudio se compara contra la misma cuenta de pruebas sin origen: las
 # otras banderas del rediseño, «casa» por omisión, también lo mueven.)
-ct.poner(True, {"banderas": {"instancia_origen": False, "cumplimiento_ejecutoria": False}}, pruebas=True)
+# (2-oct-2026: `antecedentes_en_prosa` también mueve las instrucciones de
+# antecedentes y la forma moderna; se apaga con las dos de la instancia.)
+ct.poner(True, {"banderas": {"instancia_origen": False, "cumplimiento_ejecutoria": False,
+                             "antecedentes_en_prosa": False}}, pruebas=True)
 ct.poner_origen(None)
 _e_casa = estudio_v1()
 ct.poner_origen(oa.origen(JUZGADO, "…el juicio oral mercantil…", "", ACTO + CUMPL))

@@ -622,6 +622,13 @@ def prompt_antecedentes(texto_acto: str, tipo_asunto: str = "") -> str:
     trámite: la presentación, la admisión y el emplazamiento viven al principio
     del documento, en la parte que el otro recorte descarta.
     """
+    # EN PROSA (2-oct-2026, bandera `antecedentes_en_prosa`): el cierre repite
+    # que no se numera, porque es lo último que lee el modelo antes de escribir.
+    import contexto_taller as _ct_ant
+    _cierre = ("Escribe el apartado de antecedentes en prosa, un párrafo por línea "
+               "y sin numerarlos. Sólo el apartado."
+               if _ct_ant.rediseno("antecedentes_en_prosa") else
+               "Escribe el apartado de antecedentes, un párrafo por línea. Sólo el apartado.")
     return f"""{_NUCLEO}
 
 {instrucciones_antecedentes(tipo_asunto)}
@@ -632,7 +639,7 @@ def prompt_antecedentes(texto_acto: str, tipo_asunto: str = "") -> str:
 {_cortar_bien(texto_acto, TOPE_CARACTERES)}
 ──────────────────────────────────────────
 
-Escribe el apartado de antecedentes, un párrafo por línea. Sólo el apartado."""
+{_cierre}"""
 
 
 def prompt_relato(antecedentes: str, resumen_acto: str, resumen_conceptos: str,
@@ -1575,6 +1582,18 @@ class Fases123:
         if ps and re.match(r"^(?:QUINTO|CUARTO|SEXTO)\.?\s*ANTECEDENTES\s*\.?$",
                            ps[0], re.I):
             ps = ps[1:]
+        # SIN ENUMERAR (2-oct-2026, David: «quitar la enumeración de
+        # antecedentes»; bandera `antecedentes_en_prosa`). Con la bandera el
+        # prompt se titula «ANTECEDENTES» a secas —el ordinal lo calcula el
+        # documento— y el modelo puede reproducirlo así; y si aun así numera,
+        # el número se quita AQUÍ, que es la fuente común del adelanto, del
+        # proyecto, de la síntesis moderna y de los dos modos de componer.
+        import contexto_taller as _ct_ant
+        if _ct_ant.rediseno("antecedentes_en_prosa"):
+            from fases123_resumenes import sin_numeracion as _sin_num
+            if ps and re.match(r"^ANTECEDENTES\s*\.?:?$", ps[0], re.I):
+                ps = ps[1:]
+            ps = _sin_num(ps)
         return ps
 
     def parrafos_acto(self) -> list[str]:

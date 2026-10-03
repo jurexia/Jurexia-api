@@ -1055,7 +1055,18 @@ def ensamblar(ruta_plantilla: str, r: Relleno, ruta_salida: str) -> str:
         fin = buscar(doc, r"^SEXTO\.\s*Estudio", desde=indice_de(doc, p) + 1) if p else None
         borrar_entre(doc, p, fin)
         if p is not None:
-            ancla = clonar_bloque(p, r.antecedentes, mod["cuerpo"], mod["vacio"], doc)
+            # SIN ENUMERAR (2-oct-2026, David: «quitar la enumeración de
+            # antecedentes»; bandera `antecedentes_en_prosa`). Aquí el código
+            # nunca numeró, pero la síntesis moderna y el modelo pueden traer
+            # «1. »: se limpia igual que en el modo generado. Y el párrafo que
+            # sea SÓLO la fórmula de entrada sobra: el rótulo de la plantilla
+            # ya trae la suya («Para una mejor comprensión…»).
+            _ante = r.antecedentes
+            import contexto_taller as _ct_ant
+            if _ct_ant.rediseno("antecedentes_en_prosa"):
+                import fases123_resumenes as _fr_ant
+                _ante, _ = _fr_ant.antecedentes_en_prosa(_ante)
+            ancla = clonar_bloque(p, _ante, mod["cuerpo"], mod["vacio"], doc)
 
     # ── SEXTO. Estudio ───────────────────────────────────────────────────
     # EL ORDINAL DEL ESTUDIO NO ES FIJO. En amparo directo es el SEXTO; en un

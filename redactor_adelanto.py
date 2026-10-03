@@ -2705,7 +2705,12 @@ async def _terminar(cliente, r, e, criterios, material, estudio,
             _fuentes_fe = list(getattr(r.fases, "fuentes", None) or []) + [
                 str(getattr(r.fases, "resumen_acto", "") or ""),
                 str(getattr(r.fases, "resumen_conceptos", "") or ""),
-                "\n".join(getattr(r.fases, "antecedentes", None) or []),
+                # LOS ANTECEDENTES SON UNA CADENA (2-oct-2026): «"\n".join»
+                # sobre ella metía un salto entre cada LETRA, y el aviso de
+                # fechas buscaba en un texto ilegible. Mismo fallo que se curó
+                # en `fase_rama`; se acepta la lista por si algún día lo es.
+                (lambda _a: "\n".join(map(str, _a)) if isinstance(_a, (list, tuple))
+                 else str(_a or ""))(getattr(r.fases, "antecedentes", "")),
                 str(getattr(r.fases, "autos", "") or ""),
                 str(contexto or "")]
             _av_fe = _fe.aviso(str(estudio or ""), _fuentes_fe)

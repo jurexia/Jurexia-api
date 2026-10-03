@@ -366,6 +366,71 @@ ARRANQUES_ANTECEDENTES_UNICA = ("Por auto de", "En proveído de", "En auto de",
                                 "Radicada la demanda", "Seguido el juicio")
 
 
+# ═══ ANTECEDENTES EN PROSA, SIN ENUMERAR (2-oct-2026) ════════════════════════
+# David: «debemos quitar la enumeración de antecedentes», y en la misma petición
+# que el proyecto «sigue siendo a veces muy extenso». Detrás de la bandera
+# `antecedentes_en_prosa`: el considerando se conserva, pero en pocos párrafos
+# de prosa encadenada —uno por etapa— y más corto. Las medidas de arriba (17
+# párrafos, 645 palabras) son las del corpus y se quedan para la bandera
+# apagada; éstas son la meta nueva, NO medidas todavía en engroses reales.
+import re as _re_ant  # (aquí y no arriba: el resto del módulo no lo usa)
+
+PARRAFOS_ANTECEDENTES_PROSA = (3, 6)
+PALABRAS_ANTECEDENTES_PROSA = (350, 450)
+
+# EL NÚMERO QUE PONE EL MODELO. Estrecha a propósito: uno o dos dígitos con
+# punto o paréntesis y un espacio, sólo al principio del párrafo. No toca
+# «15 de marzo…» (tras la cifra no hay punto ni paréntesis) ni nada que no
+# abra el párrafo.
+_RX_NUMERO_ANTECEDENTE = _re_ant.compile(r"^\s*\d{1,2}[.)]\s+")
+
+# LA FÓRMULA DE ENTRADA, en cualquiera de sus variantes del corpus, más la del
+# compositor («Previo al análisis de los planteamientos…») y la de la plantilla
+# («Para una mejor comprensión del asunto…»).
+_RX_ENTRADA_ANTECEDENTES = _re_ant.compile(
+    r"^\s*(?:Para\s+contextualizar|Previo\s+al\s+an[áa]lisis|A\s+efecto\s+de\s+dar\s+claridad"
+    r"|Para\s+una\s+mejor\s+comprensi[óo]n)\b", _re_ant.I)
+# Una entrada SOLA es una frase de presentación, sin hechos: corta y sin fecha.
+# Si el modelo la fundió con el primer hecho («Para contextualizar…, conviene
+# precisar que por escrito presentado el quince de marzo de dos mil…»), el
+# párrafo ya es un hecho y no se borra.
+_MAX_PALABRAS_ENTRADA = 30
+_RX_FECHA_EN_AUTOS = _re_ant.compile(r"\bde\s+dos\s+mil\b|\b(?:19|20)\d\d\b", _re_ant.I)
+
+
+def sin_numeracion(parrafos) -> list[str]:
+    """Los párrafos de los antecedentes sin el «1. » o «2) » que traiga el modelo."""
+    salida = []
+    for p in (parrafos or []):
+        t = _RX_NUMERO_ANTECEDENTE.sub("", str(p or "").strip(), count=1).strip()
+        if t:
+            salida.append(t)
+    return salida
+
+
+def es_solo_entrada(parrafo: str) -> bool:
+    """¿El párrafo es sólo la fórmula de entrada, sin ningún hecho?"""
+    t = str(parrafo or "").strip()
+    return (bool(_RX_ENTRADA_ANTECEDENTES.match(t))
+            and len(t.split()) <= _MAX_PALABRAS_ENTRADA
+            and not _RX_FECHA_EN_AUTOS.search(t))
+
+
+def antecedentes_en_prosa(parrafos) -> tuple[list[str], bool]:
+    """Prepara los antecedentes para el documento con la bandera encendida.
+
+    Devuelve (párrafos, trae_entrada): sin números y sin el párrafo que sólo es
+    la fórmula de entrada —ésa la pone el documento, una vez—; `trae_entrada`
+    es verdadero cuando la fórmula del modelo viene FUNDIDA con el primer hecho:
+    entonces el documento no escribe la suya, para que no salgan dos seguidas.
+    """
+    ps = sin_numeracion(parrafos)
+    if ps and es_solo_entrada(ps[0]):
+        ps = ps[1:]
+    trae = bool(ps) and bool(_RX_ENTRADA_ANTECEDENTES.match(ps[0]))
+    return ps, trae
+
+
 def instrucciones_antecedentes(tipo_asunto: str = "") -> str:
     # EL ÚNICO DE LOS CUATRO QUE NO RECIBÍA EL TIPO, y el que más caro sale:
     # los antecedentes se escriben en el apartado «Antecedentes» del .docx, así
@@ -389,6 +454,45 @@ def instrucciones_antecedentes(tipo_asunto: str = "") -> str:
     _arranques = ARRANQUES_ANTECEDENTES_UNICA if _unica else ARRANQUES_ANTECEDENTES
     _quien = "una Sala o un tribunal ordinario"
     _extra = ""
+    # ═══ EN PROSA Y SIN ENUMERAR (2-oct-2026) ══════════════════════════════
+    # David: «debemos quitar la enumeración de antecedentes». La lista nacía
+    # AQUÍ, no en el número: el prompt pedía 17 párrafos de «un hecho procesal
+    # por párrafo, nada de encadenar», y el documento les ponía 1…17. Quitar
+    # sólo el número dejaba los mismos 17 renglones sueltos. Con la bandera se
+    # piden pocos párrafos, uno por etapa, con los hechos enlazados, y más
+    # cortos (también se quejó de que el proyecto es extenso). La fórmula de
+    # entrada se la queda el documento: pedírsela también al modelo daba dos
+    # seguidas. El rótulo pierde el ordinal, que el documento calcula. El
+    # cierre «en qué paró» NO se toca: lo leen `fase_rama`, `ficha_procesal`
+    # y el resolutivo de la revisión. Sin la bandera, letra por letra como antes.
+    import contexto_taller as _ct_ant
+    _prosa = _ct_ant.rediseno("antecedentes_en_prosa")
+    if _prosa:
+        _rotulo = "ANTECEDENTES"
+        _forma = f"""- SIN FÓRMULA DE ENTRADA: el documento ya pone la suya. Empieza directamente
+  por el primer hecho del juicio de origen.
+- EN PROSA ENCADENADA Y SIN ENUMERAR: entre {PARRAFOS_ANTECEDENTES_PROSA[0]} y {PARRAFOS_ANTECEDENTES_PROSA[1]} párrafos, uno por etapa
+  del asunto —el juicio de origen hasta su sentencia; el recurso o la instancia
+  que siguió, si la hubo; la resolución que aquí se reclama o se recurre—, y
+  alrededor de {PALABRAS_ANTECEDENTES_PROSA[0]} a {PALABRAS_ANTECEDENTES_PROSA[1]} palabras en total. Dentro de cada párrafo los
+  hechos se enlazan unos con otros; nada de un hecho por renglón. Ni números
+  de orden, ni viñetas, ni incisos.
+- SÓLO LOS HECHOS QUE HACEN FALTA para entender la solución. Los autos de mero
+  trámite que no inciden en lo que se va a resolver (turnos, vistas,
+  certificaciones, prórrogas) se omiten.
+"""
+        _como_empiezan = "ASÍ SE ENLAZAN los hechos en los engroses reales"
+        _orden_cumpl = "en su orden y encadenado"
+    else:
+        _rotulo = "QUINTO. ANTECEDENTES"
+        _forma = f"""- ARRANCA con una de estas fórmulas: «{ENTRADAS_ANTECEDENTES[0]}…» o
+  «{ENTRADAS_ANTECEDENTES[3]}…».
+- PÁRRAFOS CORTOS: mediana de 37 palabras, unos {PARRAFOS_ANTECEDENTES} en
+  total, alrededor de {PALABRAS_ANTECEDENTES} palabras. Un hecho procesal por
+  párrafo, nada de encadenar.
+"""
+        _como_empiezan = "ASÍ EMPIEZAN los párrafos en los engroses reales"
+        _orden_cumpl = "en su orden, un hecho por párrafo"
     if _unica:
         _org = _ta.sujetos_de(tipo_asunto)["organo"][0]
         _quien = (f"quien dictó la sentencia reclamada —aquí, {_org}, que "
@@ -400,7 +504,7 @@ def instrucciones_antecedentes(tipo_asunto: str = "") -> str:
 """
     if _cumpl:
         _extra += f"""- LA SENTENCIA RECLAMADA SE DICTÓ EN CUMPLIMIENTO de la ejecutoria del
-  {_cumpl.get("ejecutoria") or "amparo anterior"}. Cuéntalo en su orden, un hecho por párrafo: la
+  {_cumpl.get("ejecutoria") or "amparo anterior"}. Cuéntalo {_orden_cumpl}: la
   sentencia que se combatió primero; el amparo que se promovió contra ella
   —su número con cifras y tal como aparece en autos (nunca en letra), el
   tribunal que lo resolvió y qué ordenó la ejecutoria, con sus efectos
@@ -411,19 +515,14 @@ def instrucciones_antecedentes(tipo_asunto: str = "") -> str:
   no dice el número del amparo o el tribunal, no lo inventes: di que consta
   en autos.
 """
-    return f"""QUINTO. ANTECEDENTES
+    return f"""{_rotulo}
 
 Lo que PASÓ en el juicio de origen, en orden cronológico. NO es el resumen de
 lo que la responsable resolvió —eso va aparte y después—: aquí sólo se cuenta
 el trámite, para que quien lea entienda de dónde viene el asunto.
 
-- ARRANCA con una de estas fórmulas: «{ENTRADAS_ANTECEDENTES[0]}…» o
-  «{ENTRADAS_ANTECEDENTES[3]}…».
-- PÁRRAFOS CORTOS: mediana de 37 palabras, unos {PARRAFOS_ANTECEDENTES} en
-  total, alrededor de {PALABRAS_ANTECEDENTES} palabras. Un hecho procesal por
-  párrafo, nada de encadenar.
-- PRETÉRITO y verbos de TRÁMITE: {', '.join(_v_tramite[:6])}.
-- ASÍ EMPIEZAN los párrafos en los engroses reales:
+{_forma}- PRETÉRITO y verbos de TRÁMITE: {', '.join(_v_tramite[:6])}.
+- {_como_empiezan}:
   {'; '.join(f'«{a}…»' for a in _arranques[:5])}.
 - CADA FECHA EN LETRA, como en todo documento judicial.
 - Los puntos resolutivos de las sentencias de origen se TRANSCRIBEN entre

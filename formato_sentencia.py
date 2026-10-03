@@ -171,9 +171,7 @@ FORMATO: VERSIÓN MODERNA — la pregunta y enseguida la respuesta.
     · FUERA lo que no decide: el recuento de antecedentes, lo que la
       responsable resolvió y nadie combate, los «no pasa inadvertido» sobre
       objeciones que nadie planteó, y la paráfrasis de la tesis recién citada.
-- NO REMITAS A LOS ANTECEDENTES POR SU NÚMERO («como se dijo en el antecedente
-  7»): en esta versión se resumen de nuevo y su numeración cambia. Nómbralos
-  por su fecha o su contenido.
+{_remision_antecedentes()}
 """
     return f"""
 FORMATO: ESTÁNDAR — concepto por concepto, con la fórmula del oficio.
@@ -257,9 +255,7 @@ FORMATO: VERSIÓN MODERNA — la pregunta y enseguida la respuesta.
     · FUERA lo que no decide: el recuento de antecedentes, lo que la
       responsable resolvió y nadie combate, los «no pasa inadvertido» sobre
       objeciones que nadie planteó, y la paráfrasis de la tesis recién citada.
-- NO REMITAS A LOS ANTECEDENTES POR SU NÚMERO («como se dijo en el antecedente
-  7»): en esta versión se resumen de nuevo y su numeración cambia. Nómbralos
-  por su fecha o su contenido.
+{_remision_antecedentes()}
 """
     return f"""
 FORMATO: ESTÁNDAR — por la consideración que se ataca, con la fórmula del oficio.
@@ -547,6 +543,32 @@ def aviso_sin_contestar(faltan: list, es_recurso: bool) -> str:
 # ═══════════════════════════════════════════════════════════════════════════
 # LA SÍNTESIS DE LA VERSIÓN MODERNA
 # ═══════════════════════════════════════════════════════════════════════════
+def _antecedentes_en_prosa() -> bool:
+    """¿Rige la bandera `antecedentes_en_prosa` en esta petición?"""
+    try:
+        import contexto_taller as _ct_ant
+        return _ct_ant.rediseno("antecedentes_en_prosa")
+    except Exception:
+        return False
+
+
+def _remision_antecedentes() -> str:
+    """La regla de no remitir a los antecedentes por número, en el estudio moderno.
+
+    SIN ENUMERAR (2-oct-2026, David: «debemos quitar la enumeración de
+    antecedentes»). La razón de siempre —«se resumen de nuevo y su numeración
+    cambia»— suponía que había números; con la bandera ya no los hay, y la
+    regla se queda con su razón nueva y sin el ejemplo de la remisión, que un
+    ejemplo en el prompt se copia. Sin la bandera, el texto de siempre.
+    """
+    if _antecedentes_en_prosa():
+        return ("- NO REMITAS A LOS ANTECEDENTES POR UN NÚMERO: no llevan ninguno, van en\n"
+                "  prosa. Nómbralos por su fecha o su contenido.")
+    return ("- NO REMITAS A LOS ANTECEDENTES POR SU NÚMERO («como se dijo en el antecedente\n"
+            "  7»): en esta versión se resumen de nuevo y su numeración cambia. Nómbralos\n"
+            "  por su fecha o su contenido.")
+
+
 def prompt_sintesis(antecedentes: str, resumen_acto: str, resumen_conceptos: str,
                     problemas: list, criterios: list, organo: str, q: str,
                     n_planteamientos: int = 0) -> str:
@@ -561,6 +583,20 @@ def prompt_sintesis(antecedentes: str, resumen_acto: str, resumen_conceptos: str
                          for c in (criterios or []))
     n_txt = (f"El escrito trae {n_planteamientos} {q}: los {n_planteamientos} "
              f"tienen que aparecer, cada uno con su ordinal." if n_planteamientos >= 2 else "")
+    # EN PROSA, SIN NÚMEROS (2-oct-2026, bandera `antecedentes_en_prosa`). La
+    # numeración de la moderna la ponía el MODELO, por la regla 4 y por el
+    # ejemplo del JSON («1. …», «2. …»), que se copia tal cual. Con la bandera,
+    # la regla pide prosa y el ejemplo es de párrafos, como los otros dos.
+    if _antecedentes_en_prosa():
+        _regla_ante = ("4. ANTECEDENTES: los hechos que hacen falta para entender la solución,\n"
+                       "   en prosa encadenada y sin numerar —ni números de orden, ni viñetas, ni\n"
+                       "   incisos—, un párrafo por etapa, con sus fechas; los trámites que no\n"
+                       "   inciden en nada se quitan. El último hecho sigue siendo en qué paró.")
+        _molde_ante = '["párrafo", "párrafo"]'
+    else:
+        _regla_ante = ("4. ANTECEDENTES: los hechos que hacen falta para entender la solución,\n"
+                       "   numerados, con sus fechas; los trámites que no inciden en nada se quitan.")
+        _molde_ante = '["1. …", "2. …"]'
     return f"""Eres el secretario de un Tribunal Colegiado de Circuito. Tienes tres
 apartados ya escritos de un proyecto y hay que CONDENSARLOS para la versión
 moderna de la sentencia: la que atiende a fondo el problema jurídico central y
@@ -587,8 +623,7 @@ REGLAS, en este orden de importancia:
    entender la respuesta. Lo que resolvió y NADIE combate se dice en UNA frase
    al final («En lo demás, … consideraciones que no se controvierten.») o se
    omite si no importa para decidir.
-4. ANTECEDENTES: los hechos que hacen falta para entender la solución,
-   numerados, con sus fechas; los trámites que no inciden en nada se quitan.
+{_regla_ante}
 5. Registro de sentencia, tercera persona, sin viñetas ni Markdown, sin
    rótulos, sin comentarios sobre lo que estás haciendo.
 6. Cada apartado condensado, a lo sumo la MITAD de largo que el original.
@@ -603,7 +638,7 @@ REGLAS, en este orden de importancia:
 {resumen_conceptos}
 
 Devuelve JSON y nada más:
-{{"antecedentes": ["1. …", "2. …"],
+{{"antecedentes": {_molde_ante},
   "resolvio": ["párrafo", "párrafo"],
   "planteamientos": ["párrafo", "párrafo"]}}"""
 
