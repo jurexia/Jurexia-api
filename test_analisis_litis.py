@@ -287,7 +287,7 @@ if al0 is not None:
 
 print("\n9 · CON LA BANDERA: LAS PREMISAS, VERIFICADAS POR FUENTE")
 ct.poner(True, {"banderas": {"preguntas_al_secretario": True}}, pruebas=True)
-ok(al.version() == "analisis-4" and al.VERSION == "analisis-3", "otra versión, sólo con la bandera")
+ok(al.version() == "analisis-5" and al.VERSION == "analisis-3", "otra versión, sólo con la bandera")
 ok(al.huella(r1) != al0.huella(r1) if al0 is not None else True, "y la huella lo dice: se recalcula")
 _p9 = al.prompt(*(ACTO, ESCRITO, "", SEGS, [{"pregunta": "¿Procede?"}], "FICHA", True, "amparo_revision"))
 ok("premisas:" in _p9 and "afirma_la_parte" in _p9 and "no_se_pronuncia" in _p9 and "carga_de" in _p9
@@ -315,9 +315,11 @@ _CR9 = dict(CRUDO, faltantes=[{"que": "el contrato", "por_que_importa": "x"}],
                 {"id": "F2", "segmento": "A1.a", "afirma_la_parte": "conocía el arrendamiento",
                  "cita_escrito": _c, "el_acto": "lo_tuvo_por_cierto",
                  "cita_acto": "adquirió el bien durante el procedimiento y conocía el arrendamiento celebrado"},
+                # 3-oct-2026: sin pregunta, como la manda el modelo real cuando dice
+                # «lo tuvo por cierto» (el prompt sólo la pide si «no se pronuncia»).
                 {"id": "F3", "segmento": "A1.a", "afirma_la_parte": "la Sala lo tuvo por cierto",
-                 "cita_escrito": _c, "el_acto": "lo_tuvo_por_cierto",
-                 "cita_acto": _c, "pregunta": "¿Se probó?", "si_si": "fundado", "si_no": "infundado"},
+                 "cita_escrito": _c, "el_acto": "lo_tuvo_por_cierto", "carga_de": "recurrente",
+                 "cita_acto": _c},
                 {"id": "F4", "segmento": "A1.a", "afirma_la_parte": "inventada",
                  "cita_escrito": "esta frase no aparece en el escrito de la parte por ningún lado nunca",
                  "el_acto": "no_se_pronuncia", "pregunta": "¿Pasó?", "si_si": "fundado", "si_no": "infundado"}])
@@ -334,14 +336,17 @@ ok(_F["F1"]["segmento"] == "A1.a" and _F["F1"]["cita_escrito_verificada"] and _F
    "la premisa del escrito, con su segmento del inventario, su carga y su pregunta")
 ok(_F["F2"]["el_acto"] == "lo_tuvo_por_cierto" and _F["F2"]["fuente_acto"] == "acto" and "pregunta" not in _F["F2"],
    "lo que el acto tuvo por cierto, con su cita del acto, no se pregunta")
-ok(_F["F3"]["el_acto"] == "no_se_pronuncia" and _F["F3"]["cita_acto"] == "" and _F["F3"]["pregunta"],
-   "la «cita del acto» que sólo está en el escrito no vale: el acto no se pronunció")
+ok(_F["F3"]["el_acto"] == "lo_tuvo_por_cierto" and _F["F3"]["cita_acto"] == ""
+   and _F["F3"]["cita_acto_verificada"] is False and "pregunta" not in _F["F3"],
+   "la «cita del acto» que sólo está en el escrito no se cita, pero lo declarado se CONSERVA, sin verificar "
+   "(antes bajaba a «no se pronuncia» y decidía la carga contra la parte)")
+ok(_F["F2"]["cita_acto_verificada"] is True, "y la que sí se halló queda verificada")
 ok(not _F["F4"]["cita_escrito_verificada"] and "pregunta" not in _F["F4"],
    "una premisa que la parte no escribió no se le pregunta a nadie")
 import preguntas_secretario as ps9
 _q9 = ps9.preguntas_de(_d9, [{"pregunta": "¿Procede?", "jerarquia": "principal"}])
-ok(len(_q9) == 2 and all(q["indispensable"] for q in _q9) and _q9[0]["pregunta"].startswith("¿"),
-   "de ahí salen las preguntas (F1 y F3), indispensables por código")
+ok(len(_q9) == 1 and all(q["indispensable"] for q in _q9) and _q9[0]["pregunta"].startswith("¿"),
+   "de ahí sale la pregunta de F1, indispensable por código (F3 no: el acto sí se pronunció)")
 _b9 = al.bloque_propuesta(ps9.con_respuestas(_d9, ps9.preguntas_de(
     _d9, [{"pregunta": "¿Procede?", "jerarquia": "principal"}], {_q9[0]["id"]: "no"})))
 ok("PREMISAS DE LA PARTE, CONTRASTADAS CON LA RESOLUCIÓN" in _b9 and "[lo afirma: recurrente]" in _b9
@@ -350,6 +355,89 @@ ok("respuesta del secretario: NO" in _b9 and "decide la carga de la prueba" in _
    "con la respuesta del secretario, o sin ella la carga de la prueba")
 ok("lo que sólo afirma la parte NO es un hecho del asunto" in _b9 and "FALTA EN LOS INSUMOS" not in _b9,
    "y su regla")
+_l3 = next(i for i, x in enumerate(_b9.splitlines()) if x.strip().startswith("F3"))
+_sig3 = _b9.splitlines()[_l3 + 1]
+ok("LO TUVO POR CIERTO" in _b9.splitlines()[_l3] and "NO se halló" in _sig3 and "carga" in _sig3
+   and "decide la carga de la prueba, que toca" not in _sig3,
+   "F3 se imprime como lo declaró, con su cita sin hallar, y sin la carga de la prueba")
+ok(al.estado_de_premisa(_F["F3"]).startswith("lo_tuvo_por_cierto (cita sin verificar")
+   and al.estado_de_premisa(_F["F2"]) == "lo_tuvo_por_cierto",
+   "la etiqueta corta para el examinador lo dice (cita sin verificar)")
+
+print("\n10 · LAS OMISIONES Y LOS HECHOS DEL PROCEDIMIENTO NO SE DECIDEN POR CARGA (3-oct-2026)")
+ok("se_verifica_en" in _p9 and "omitió pronunciarse" in _p9 and "no la listes" in _p9,
+   "el prompt de las premisas deja fuera las omisiones de la resolución y pide `se_verifica_en`")
+ok(al.verifica_en("", "La Sala omitió pronunciarse sobre la prescripción que hice valer") == "resolucion"
+   and al.verifica_en("juicio", "la responsable no valoró la pericial en contabilidad") == "resolucion"
+   and al.verifica_en("", "el juez dejó de estudiar el agravio tercero") == "resolucion",
+   "una omisión de la resolución se reconoce aunque el modelo diga otra cosa")
+ok(al.verifica_en("", "que hizo valer la excepción de prescripción en la apelación") == "autos"
+   and al.verifica_en("autos", "que firmó el contrato") == "autos"
+   and al.verifica_en("", "la autoridad omitió notificarle el crédito") == "autos",
+   "un hecho del procedimiento es «autos» (y «omitió notificar» no es una omisión de la resolución)")
+ok(al.verifica_en("", "que trabajó para el demandado desde 2019") == "juicio"
+   and al.verifica_en("raro", "que pagó la renta") == "juicio",
+   "lo demás, «juicio», como siempre")
+_A = "Que la Sala omitió pronunciarse sobre la excepción de prescripción que hice valer en mi apelación"
+_E10 = ESCRITO + " " + _A + "."
+_CR10 = dict(CRUDO, premisas=[
+    {"id": "F1", "segmento": "A1.a", "problema": 1, "afirma_la_parte": _A, "cita_escrito": _A,
+     "el_acto": "no_se_pronuncia", "carga_de": "la parte quejosa", "pregunta": "¿Se pronunció la Sala?",
+     "si_si": "fundado", "si_no": "infundado"},
+    {"id": "F2", "segmento": "A1.a", "problema": 1, "afirma_la_parte": "que hizo valer la prescripción en la apelación",
+     "cita_escrito": _A, "el_acto": "no_se_pronuncia", "carga_de": "la parte", "se_verifica_en": "autos",
+     "pregunta": "¿Hizo valer la prescripción en sus agravios de apelación?", "si_si": "fundado",
+     "si_no": "infundado"}])
+_d10 = al.verificar(_CR10, ACTO, _E10, "", SEGS, True)
+_F10 = {f["id"]: f for f in _d10["premisas"]}
+ok(_F10["F1"]["se_verifica_en"] == "resolucion" and "pregunta" not in _F10["F1"],
+   "la omisión de la resolución no lleva pregunta: se comprueba leyéndola")
+ok(_F10["F2"]["se_verifica_en"] == "autos" and _F10["F2"]["pregunta"], "el hecho del procedimiento sí se pregunta")
+_q10 = ps9.preguntas_de(_d10, [{"pregunta": "¿Procede?", "jerarquia": "principal"}])
+ok(len(_q10) == 1 and "pendiente de verificar en autos" in _q10[0]["si_no_contesta"]
+   and "carga" in _q10[0]["si_no_contesta"] and "es suya" not in _q10[0]["si_no_contesta"],
+   "sin respuesta, el hecho de autos queda pendiente: no «la carga de probarlo es suya»")
+_b10 = al.bloque_propuesta(_d10)
+ok("es una omisión que se atribuye a la resolución" in _b10 and "pendiente de verificar en" in _b10
+   and "decide la carga de la prueba, que toca" not in _b10,
+   "el bloque no aplica la carga ni a la omisión ni al hecho de autos")
+ok(not al.decide_la_carga(_F10["F1"]) and not al.decide_la_carga(_F10["F2"])
+   and al.decide_la_carga({"el_acto": "no_se_pronuncia"}) and not al.decide_la_carga(_F["F3"]),
+   "decide_la_carga: sólo el hecho del juicio sobre el que la resolución calla (lo guardado antes, como siempre)")
+
+print("\n11 · LA REGLA NO MANDA ESCRIBIR IDENTIFICADORES INTERNOS; LA RED LOS QUITA (3-oct-2026)")
+ok("H# o la F#" not in _b9 and "sin escribir los identificadores" in _b9,
+   "la regla nombra el hecho por su contenido y su fuente, no por «H#/F#»")
+ok(al.quitar_ids_internos("Es fundado porque la notificación por lista (H1) no cumplió el art. 27, y la parte "
+                          "no fue llamada (F1).")
+   == "Es fundado porque la notificación por lista no cumplió el art. 27, y la parte no fue llamada.",
+   "quita los ids entre paréntesis")
+ok(al.quitar_ids_internos("Fundado conforme a F2: la Sala no valoró.") == "Fundado: la Sala no valoró."
+   and al.quitar_ids_internos("Según H1 y F2, procede.") == "Procede."
+   and al.quitar_ids_internos("El hecho H3 consta en autos.") == "El hecho consta en autos.",
+   "y los que van tras un conector o tras «el hecho»")
+_leg = "La fórmula H2O y el art. 14, fracción II; tesis 2a./J. 172/2010, registro 2021345, AR 631/2025."
+ok(al.quitar_ids_internos(_leg) == _leg and al.quitar_ids_internos(None) is None
+   and al.quitar_ids_internos("Sin ids.") == "Sin ids.",
+   "no toca artículos, claves de tesis, registros ni expedientes")
+_pp = al.quitar_ids_de_propuesta({"global": {"sentido": "fundado", "razon": "Fundado (H1).",
+                                             "registros": ["H1x"]},
+                                  "propuestas": [{"razon": "véase F2", "alternativa": {"razon": "R1 basta"}}]})
+ok(_pp["global"]["razon"] == "Fundado." and _pp["global"]["sentido"] == "fundado"
+   and _pp["propuestas"][0]["alternativa"]["razon"] == "Basta" and _pp["propuestas"][0]["razon"] == "",
+   "quitar_ids_de_propuesta limpia sólo la prosa, en una copia")
+
+print("\n12 · CON LA PROBABILIDAD, LA REGLA NO HABLA DE «alcanza» (3-oct-2026)")
+ct.poner(True, {"banderas": {"preguntas_al_secretario": True, "propuesta_por_probabilidad": True}}, pruebas=True)
+_b12 = al.bloque_propuesta(_d9)
+ok("alcanza" not in _b12 and "`sostenida`=false" in _b12 and "Decide siempre" in _b12,
+   "con «propuesta_por_probabilidad»: decide siempre, `sostenida`=false si el acervo no lo respalda")
+ct.poner(True, {"banderas": {"propuesta_por_probabilidad": True}}, pruebas=True)
+ok("alcanza" not in al.bloque_propuesta(_d8) and "`sostenida`=false" in al.bloque_propuesta(_d8),
+   "también en la regla sin las premisas")
+ct.poner(False, {})
+ok("alcanza=false queda sólo para cuando el acervo no da para sostener ningún sentido" in al.bloque_propuesta(_d8),
+   "sin banderas, el texto de siempre")
 ct.poner(False, {})
 
 print()

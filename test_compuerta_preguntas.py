@@ -5,7 +5,7 @@ una fila de mentira: sin red, sin Supabase, sin modelo.
 
     .venv/bin/python test_compuerta_preguntas.py
 """
-import ast, asyncio, json, subprocess, sys, time, types, uuid
+import ast, asyncio, hashlib, json, subprocess, sys, time, types, uuid
 sys.path.insert(0, ".")
 from fastapi import HTTPException
 import contexto_taller as ct
@@ -49,10 +49,11 @@ def entorno(marcas=None, nucleo=None, lanzadas=None):
         marcas[clave] = json.loads(json.dumps(doc))
         return True
 
-    async def preproponer_falsa(email, numero, r, material, forzar=False):
-        (lanzadas if lanzadas is not None else []).append({"forzar": forzar, "material": material})
+    async def preproponer_falsa(email, numero, r, material, forzar=False, contexto=""):
+        (lanzadas if lanzadas is not None else []).append({"forzar": forzar, "material": material,
+                                                           "contexto": contexto})
 
-    ns = {"asyncio": asyncio, "time": time, "uuid": uuid, "json": json, "_te": te,
+    ns = {"asyncio": asyncio, "time": time, "uuid": uuid, "json": json, "hashlib": hashlib, "_te": te,
           "HTTPException": HTTPException, "Form": lambda *a, **k: None, "app": _App(),
           "_taller_puerta": lambda *a, **k: None,
           "_taller_leer_marca": leer, "_taller_leer_marcas": leer_varias, "_taller_guardar_marca": guardar,
@@ -63,7 +64,7 @@ def entorno(marcas=None, nucleo=None, lanzadas=None):
     for f in ("_taller_compuerta_preguntas", "_taller_analisis_guardado", "_taller_respuestas_guardadas",
               "_taller_bloque_respuestas", "_con_autos", "taller_responder", "_taller_con_latido",
               "_taller_propuesta_unica", "_taller_propuesta_reclamada", "_taller_marca_es_mia",
-              "_taller_preproponer"):
+              "_taller_preproponer", "_taller_hash_contexto"):
         exec(compile(ast.Module(body=[FN[f]], type_ignores=[]), "main.py", "exec"), ns)
     # /taller/responder relanza la propuesta: aquí, la de mentira.
     ns["_taller_preproponer_real"] = ns["_taller_preproponer"]
@@ -282,6 +283,7 @@ class _Q:
 
 _nsa = {"_te": te, "err": str}
 exec(compile(ast.Module(body=[FN["_taller_avance"]], type_ignores=[]), "main.py", "exec"), _nsa)
+con_bandera(True)
 _nsa["supabase_admin"] = types.SimpleNamespace(table=lambda *a: _Q([{
     "propuesta": {"huella": "H1", "estado": "listo", "respuesta": {"estado": "preguntas", "pendientes": 2}},
     "consulta": {"estado": "listo", "segundos": 3}}]))
@@ -292,6 +294,12 @@ _nsa["supabase_admin"] = types.SimpleNamespace(table=lambda *a: _Q([{
     "propuesta": {"huella": "H1", "estado": "listo", "segundos": 9, "respuesta": {"global": {}}}}]))
 ok(_nsa["_taller_avance"]("a@b.c", "1/2026")["propuesta"] == {"estado": "listo", "segundos": 9},
    "una propuesta lista, como siempre")
+# ROLLBACK (3-oct-2026): sin la bandera, la marca «preguntas» no es «preguntas».
+con_bandera(False)
+_nsa["supabase_admin"] = types.SimpleNamespace(table=lambda *a: _Q([{
+    "propuesta": {"huella": "H1", "estado": "listo", "respuesta": {"estado": "preguntas", "pendientes": 2}}}]))
+ok(_nsa["_taller_avance"]("a@b.c", "1/2026")["propuesta"] == {"estado": "fallo", "segundos": None},
+   "sin la bandera, una guardada «preguntas» se informa «fallo»: la pantalla ofrece el botón y se recalcula")
 
 ct.poner(False)
 print()
