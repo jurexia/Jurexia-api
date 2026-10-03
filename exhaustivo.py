@@ -784,6 +784,18 @@ def prompt_reparacion(estudio: str, criterios: list, material, faltan: list,
     # del secretario que invoca el mayor beneficio en `sin_mayor_beneficio`), y
     # el prompt vuelve a ser el de las once llamadas de la calibración, más la
     # frase de que lo desestimado no va a los EFECTOS (la guarda lo exige igual).
+    # LO QUE DICE EL ESCRITO SE ATRIBUYE, NO SE AFIRMA (2-oct-2026, bandera
+    # «preguntas_al_secretario»; David: «nunca dar por hecho que lo que se dice
+    # en los recursos o conceptos de violación es cierto»). La regla de siempre
+    # trataba el pasaje del escrito como fuente de hechos afirmables.
+    _linea_hechos = "- No supones hechos: lo que no consta en el estudio ni en el pasaje del escrito no se afirma."
+    try:
+        import contexto_taller as _ct_ex
+        if _ct_ex.rediseno("preguntas_al_secretario"):
+            _linea_hechos = ("- No supones hechos: lo que dice el pasaje del escrito se atribuye a la parte, no se\n"
+                             "  afirma; sólo se afirma lo que consta en el estudio o en la resolución.")
+    except Exception:
+        pass
     return f"""Eres el secretario de un Tribunal Colegiado de Circuito. El estudio de fondo que va al
 final ya está escrito, y el secretario fijó su criterio. Una revisión automática encontró
 argumentos del escrito cuya única respuesta en el estudio es declararlos sin materia,
@@ -816,7 +828,7 @@ LÍMITES:
 - No declaras sin materia, innecesario ni sin beneficio un argumento cuyo criterio es de fondo.
 - No citas tesis, registros ni preceptos que no estén ya en el estudio o en los datos del
   argumento.
-- No supones hechos: lo que no consta en el estudio ni en el pasaje del escrito no se afirma.
+{_linea_hechos}
 - Sin Markdown, sin títulos, sin explicaciones fuera de las piezas.
 
 CÓMO LO ENTREGAS — cada pieza en su propio renglón, y nada más:

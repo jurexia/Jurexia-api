@@ -49,6 +49,16 @@ de ESTE expediente. Tampoco califica: no dice fundado ni infundado.
 
 NUNCA BLOQUEA. Si falla o tarda, la propuesta se hace sin él (regla de David:
 el secretario siempre puede pedir la propuesta al motor) y se dice.
+
+LAS PREMISAS Y LAS PREGUNTAS (2-oct-2026, bandera «preguntas_al_secretario»).
+David: «nunca dar por hecho que lo que se dice en los recursos o conceptos de
+violación es cierto… sólo si no se dice [en la resolución] se le pregunta al
+abogado, pero no se genera ninguna propuesta hasta que no se respondan esas
+preguntas, sólo si se consideran indispensables». El análisis entrega además
+las PREMISAS de hecho de la parte contrastadas con el acto, verificadas por
+fuente; donde el acto calla, una pregunta cerrada. Lo que sí detiene la
+propuesta lo decide el CÓDIGO (`preguntas_secretario`), no este módulo: el
+análisis sigue sin bloquear nada.
 """
 from __future__ import annotations
 
@@ -58,6 +68,29 @@ import os
 import re
 
 VERSION = "analisis-3"
+# LAS PREMISAS DE LA PARTE, CONTRASTADAS CON EL ACTO (2-oct-2026, David: «nunca
+# dar por hecho que lo que se dice en los recursos o conceptos de violación es
+# cierto; eso es justo lo que se debe verificar a la luz de lo acreditado en el
+# juicio»). Con la bandera «preguntas_al_secretario» el análisis lee lo mismo
+# pero entrega más (las premisas, la condición «afirmado_por_la_parte») y deja
+# de pedir faltantes abiertos: es otra versión, y la huella lo dice. Con la
+# bandera apagada la versión, el prompt y la huella son los de siempre.
+VERSION_PREGUNTAS = "analisis-4"
+
+
+def con_premisas() -> bool:
+    """¿Rige «preguntas_al_secretario» en esta petición? (nunca lanza)"""
+    try:
+        import contexto_taller as _ct
+        return bool(_ct.rediseno("preguntas_al_secretario"))
+    except Exception:
+        return False
+
+
+def version() -> str:
+    return VERSION_PREGUNTAS if con_premisas() else VERSION
+
+
 # EL ACTO Y EL ESCRITO, ENTEROS (diagnóstico del sesgo a conceder, 29-sep-2026).
 # Con 60 mil caracteres cortados por el principio, 13 de los 21 actos del banco
 # Kingston llegaban sin su estudio ni sus resolutivos (el más largo mide 193
@@ -90,6 +123,13 @@ CLAVE_MARCA = "analisis"
 
 CONDICIONES = ("falta_en_insumos", "no_acreditado", "tenido_por_acreditado",
                "acreditacion_impugnada", "no_controvertido")
+# «Lo afirma la parte y el acto no lo dice» (2-oct-2026): faltaba en el
+# catálogo, y «no_controvertido» —consta y nadie lo discute— se tragaba la
+# afirmación de una sola parte. Sólo con la bandera de las preguntas.
+CONDICIONES_PREGUNTAS = CONDICIONES + ("afirmado_por_la_parte",)
+# Lo que dice el acto de cada premisa de la parte.
+EL_ACTO = ("lo_tuvo_por_cierto", "lo_desestimo", "no_se_pronuncia")
+MAX_PREMISAS = 15
 RELACIONES = ("autonoma", "conjunta", "dependiente")
 _RX_JSON = re.compile(r"\{.*\}", re.S)
 
@@ -154,12 +194,48 @@ def huella(r) -> str:
     fuentes = list(getattr(f, "fuentes", []) or []) + ["", ""]
     probs = [(_txt((p or {}).get("pregunta")), _txt((p or {}).get("combate")), _txt((p or {}).get("resolvio")))
              for p in (getattr(f, "problemas", None) or []) if isinstance(p, dict)]
-    base = json.dumps([VERSION, recorte(fuentes[0], MAX_ACTO)[0], recorte(fuentes[1], MAX_ESCRITO)[0],
+    base = json.dumps([version(), recorte(fuentes[0], MAX_ACTO)[0], recorte(fuentes[1], MAX_ESCRITO)[0],
                        recorte(getattr(f, "autos", "") or "", MAX_AUTOS)[0], probs], ensure_ascii=False)
     return hashlib.sha1(base.encode("utf-8")).hexdigest()[:20]
 
 
 # ═══ EL PROMPT ═══════════════════════════════════════════════════════════════
+
+def _prompt_premisas(q: str, recurrida: str) -> str:
+    """Lo que el análisis entrega con «preguntas_al_secretario» EN LUGAR de los
+    faltantes abiertos: las premisas de hecho de la parte, contrastadas con el
+    acto, y sólo donde el acto calla, la pregunta cerrada al secretario.
+
+    SE DESCRIBE LA FORMA DE LA PREGUNTA, NO SE DA UNA: un ejemplo literal en un
+    prompt se copia tal cual (medido tres veces en este proyecto)."""
+    return f"""premisas: las afirmaciones de HECHO de la parte de las que depende la calificación de un
+  {q} (no sus argumentos de derecho), como mucho {MAX_PREMISAS}. Lo que la parte afirma NO es un
+  hecho del asunto: es justo lo que hay que contrastar con lo que se tuvo por acreditado en el
+  juicio. Cada una:
+  id ("F1"…), segmento (el id del inventario), problema (número del planteamiento),
+  afirma_la_parte: el hecho que afirma, atribuido a ella,
+  cita_escrito: 10 a 40 palabras LITERALES del escrito donde lo afirma,
+  el_acto, UNA de estas:
+    "lo_tuvo_por_cierto": {recurrida} lo dio por acreditado;
+    "lo_desestimo": {recurrida} lo negó, lo tuvo por no probado o valoró la prueba en contra;
+    "no_se_pronuncia": ni {recurrida} ni las constancias dicen nada de ese hecho,
+  cita_acto: 10 a 40 palabras LITERALES de {recurrida} o de las constancias donde se pronunció
+    ("" si no se pronuncia; NUNCA del escrito de la parte),
+  carga_de: a quién toca probar ese hecho: "la_parte" (quien lo afirma), "contraparte" o "autoridad",
+  y SÓLO si el_acto es "no_se_pronuncia":
+    pregunta: UNA pregunta cerrada y corta para el secretario, que tiene el expediente delante,
+      sobre el hecho mismo y no sobre un documento que haya que traer. Se contesta con sí o no,
+      y el «sí» confirma lo que afirma la parte. Si lo que decide es el texto de un documento
+      (una cláusula, un acuerdo, una diligencia), pregunta qué dice textualmente ese pasaje y
+      nómbralo. Sin preámbulo ni explicación, en menos de 220 caracteres,
+    tipo: "si_no", o "texto" cuando pides el texto de un pasaje,
+    si_si: la calificación del {q} si la respuesta confirma lo que afirma la parte
+      ("fundado", "infundado" o "inoperante"),
+    si_no: la calificación si no lo confirma,
+    para_que: en una línea, qué decide la respuesta.
+  No preguntes lo que {recurrida} ya resolvió, lo que no cambia la calificación ni lo que la parte
+  no afirmó. [] si no hay premisas de hecho en disputa."""
+
 
 def prompt(acto: str, escrito: str, autos: str, segmentos: list, problemas: list,
            ficha: str, es_recurso: bool, tipo_asunto: str = "") -> str:
@@ -172,6 +248,16 @@ def prompt(acto: str, escrito: str, autos: str, segmentos: list, problemas: list
                      if isinstance(s, dict) and s.get("id")) or "  (sin inventario)"
     probs = "\n".join(f"  {i}. {_txt((p or {}).get('pregunta'), 400)}"
                       for i, p in enumerate(problemas or [], 1) if isinstance(p, dict)) or "  (sin planteamientos)"
+    # SIN LA BANDERA, EL TEXTO DE SIEMPRE, letra por letra (paridad).
+    _cond_extra, _no_califica = "", "- No califiques: nada de fundado, infundado, inoperante ni sentido propuesto."
+    _pide = ('faltantes: lista de {"que": …, "por_que_importa": …} con lo que haría falta tener para\n'
+             '  decidir y no está en los insumos. [] si no falta nada.')
+    if con_premisas():
+        _cond_extra = ("\n    \"afirmado_por_la_parte\": sólo lo dice el escrito de la parte; ni el órgano que "
+                       "resolvió ni las\n       constancias lo tienen por cierto.")
+        _no_califica = ("- No califiques: nada de fundado, infundado, inoperante ni sentido propuesto, salvo en\n"
+                        "  si_si y si_no de las premisas, que sólo dicen qué calificación seguiría de cada respuesta.")
+        _pide = _prompt_premisas(q, recurrida)
     return f"""Eres secretario de estudio y cuenta de un Tribunal Colegiado de Circuito.
 ANTES de decidir nada, analiza la litis de este asunto ({tipo_asunto or 'sin tipo'}). NO
 califiques ni propongas sentido: sólo describe con precisión lo que hay que resolver.
@@ -205,16 +291,15 @@ hechos: los hechos que importan para decidir. Cada uno:
     "no_acreditado": la parte no lo acreditó en el juicio;
     "tenido_por_acreditado": el órgano que resolvió lo tuvo por acreditado;
     "acreditacion_impugnada": esa determinación probatoria se combate en el {q};
-    "no_controvertido": consta y nadie lo discute.
+    "no_controvertido": consta y nadie lo discute.{_cond_extra}
 
-faltantes: lista de {{"que": …, "por_que_importa": …}} con lo que haría falta tener para
-  decidir y no está en los insumos. [] si no falta nada.
+{_pide}
 
 REGLAS:
 - Copia las citas palabra por palabra; si no encuentras el pasaje, deja la cita en "".
 - No inventes hechos ni razones que no estén en los textos.
 - Lo revisable y lo firme ya está en la ficha procesal: no lo repitas ni lo contradigas.
-- No califiques: nada de fundado, infundado, inoperante ni sentido propuesto.
+{_no_califica}
 - Cada documento dice en su cabecera si va ÍNTEGRO. Lo que va íntegro no es un faltante:
   no pidas su «texto completo», su «parte restante» ni sus resolutivos; búscalos en él. Si la
   cabecera dice que puede estar incompleto o que se omitió una parte, sí puedes pedir lo que falte.
@@ -406,7 +491,7 @@ def textos(acto: str = "", escrito: str = "", autos: str = "") -> dict:
             "constancias": _pe.Texto(autos or "")}
 
 
-def verificar_cita(c, T: dict, fuente: str = "acto") -> tuple:
+def verificar_cita(c, T: dict, fuente: str = "acto", solo: tuple | None = None) -> tuple:
     """(cita, verificada, fuente donde está, lectura «literal»|«ocr»|«»).
 
     LA MISMA REGLA PARA TODO EL TALLER (etapa 3): el análisis neutral, la
@@ -414,13 +499,25 @@ def verificar_cita(c, T: dict, fuente: str = "acto") -> tuple:
     busca primero en la fuente declarada y después en las demás —una fuente
     vacía nunca deja pasar la cita de otra con su nombre—; literal, recortada
     por los bordes (`_recorte_literal`, sólo quita) o, al final, salvo errores
-    de lectura (`casi_literal`, calibrada: ver arriba)."""
+    de lectura (`casi_literal`, calibrada: ver arriba).
+
+    `solo` (2-oct-2026): las únicas fuentes donde se busca, SIN caída a las
+    demás. La premisa de la parte se cita del escrito y lo que dijo el acto, del
+    acto o las constancias: una cita del escrito que se hallaba «en alguna
+    fuente» pasaba por lo que el acto tuvo por cierto. La tolerancia de lectura
+    (`casi_literal`) sigue valiendo, fuente por fuente."""
     import plan_estudio as _pe
     c = _txt(c, 600)
     fuente = _fuente(fuente)
     if not c:
         return "", False, fuente, ""
     orden = [fuente] + [k for k in ("acto", "escrito", "constancias") if k != fuente]
+    if solo:
+        _solo = [_fuente(k) for k in solo]
+        orden = [k for k in orden if k in _solo]
+        if not orden:
+            return c, False, fuente, ""
+        fuente = orden[0]
     for k in orden:
         t = T.get(k)
         if not t:
@@ -599,14 +696,27 @@ def verificar(crudo: dict, acto: str, escrito: str, autos: str, segmentos: list,
                         "por_que": _txt(x.get("por_que"), 600), "combate": combate}
         argumentos.append(por_seg[sid])
 
+    _prem = con_premisas()
     hechos, ids_h = [], set()
     for i, x in enumerate(_lista(d.get("hechos")), 1):
         if not isinstance(x, dict):
             continue
         fuente = _fuente(x.get("fuente"))
         cond = _txt(x.get("condicion")).lower()
-        cond = cond if cond in CONDICIONES else "sin_verificar"
+        cond = cond if cond in (CONDICIONES_PREGUNTAS if _prem else CONDICIONES) else "sin_verificar"
         cita, ok, fuente = _cita(x.get("cita"), fuente)
+        # LO QUE SÓLO DICE EL ESCRITO NO ES UN HECHO TENIDO POR CIERTO (2-oct-
+        # 2026, con la bandera de las preguntas). Si la cita sólo se halla en el
+        # escrito de la parte y el modelo dijo «tenido por acreditado» o «no
+        # controvertido», la condición se corrige: lo afirma la parte, y la
+        # resolución no lo dice. Si también está en el acto o en las
+        # constancias, la fuente es ésa.
+        if _prem and ok and fuente == "escrito" and cond in ("tenido_por_acreditado", "no_controvertido"):
+            _c2, _ok2, _f2, _ = verificar_cita(cita, T, "acto", solo=("acto", "constancias"))
+            if _ok2:
+                fuente = _f2
+            else:
+                cond = "afirmado_por_la_parte"
         # LA CONDICIÓN SE SOSTIENE CON SU FUENTE: «falta en insumos» no lleva
         # cita; si trae una que SÍ está en los insumos, la condición se
         # contradice y queda «sin_verificar» (el secretario la corrige).
@@ -631,15 +741,92 @@ def verificar(crudo: dict, acto: str, escrito: str, autos: str, segmentos: list,
 
     faltantes = [{"que": _txt(x.get("que"), 300), "por_que_importa": _txt(x.get("por_que_importa"), 400)}
                  for x in _lista(d.get("faltantes")) if isinstance(x, dict) and _txt(x.get("que"))]
+    # LOS FALTANTES ABIERTOS DEJAN DE PEDIRSE con la bandera de las preguntas:
+    # «el texto íntegro de…», «las constancias de…» eran la queja 1 de David.
+    # Las preguntas cerradas sobre la premisa los sustituyen.
+    if _prem:
+        faltantes = []
     faltantes, depurados = depurar_faltantes(faltantes, acto, escrito, es_recurso)
 
     combatidas = {c for a in argumentos for c in a["combate"]}
     autonomas_sin = [r_["id"] for r_ in razones if r_["relacion"] == "autonoma" and r_["id"] not in combatidas]
-    return {"version": VERSION, "cuestion_central": _txt(d.get("cuestion_central"), 600),
-            "razones": razones, "argumentos": argumentos, "hechos": hechos, "faltantes": faltantes,
-            "faltantes_depurados": depurados,
-            "autonomas_sin_combatir": autonomas_sin,
-            "citas_sin_verificar": sum(1 for x in razones + hechos if x.get("cita") and not x.get("verificada"))}
+    out = {"version": version(), "cuestion_central": _txt(d.get("cuestion_central"), 600),
+           "razones": razones, "argumentos": argumentos, "hechos": hechos, "faltantes": faltantes,
+           "faltantes_depurados": depurados,
+           "autonomas_sin_combatir": autonomas_sin,
+           "citas_sin_verificar": sum(1 for x in razones + hechos if x.get("cita") and not x.get("verificada"))}
+    if _prem:
+        out["premisas"] = verificar_premisas(d.get("premisas"), T, ids_seg, ocr)
+    return out
+
+
+def _el_acto(x) -> str:
+    s = _plano_al(x).replace(" ", "_")
+    if s.startswith("lo_tuvo") or "cierto" in s or s.startswith("tenid"):
+        return "lo_tuvo_por_cierto"
+    if s.startswith("lo_desestim") or s.startswith("desestim") or "nego" in s:
+        return "lo_desestimo"
+    return "no_se_pronuncia"
+
+
+def _carga(x) -> str:
+    s = _plano_al(x)
+    if any(k in s for k in ("autoridad", "responsable")):
+        return "autoridad"
+    if any(k in s for k in ("contrap", "tercer", "contrari", "demandad")):
+        return "contraparte"
+    return "la_parte"
+
+
+def verificar_premisas(lista, T: dict, ids_seg: dict | None = None, ocr: set | None = None) -> list:
+    """Las premisas de la parte, comprobadas POR FUENTE (2-oct-2026):
+      · cita_escrito se busca SÓLO en el escrito;
+      · cita_acto SÓLO en el acto y las constancias, nunca en el escrito; si no
+        se halla, el acto «no se pronuncia» —no se le atribuye lo que no dice—;
+      · la pregunta al secretario sólo queda si el acto calla y la afirmación
+        de la parte se halló en su escrito (una premisa que la parte no
+        escribió no se le pregunta a nadie).
+    Nunca lanza por la forma de lo que mandó el modelo."""
+    out, ids = [], set()
+    for i, x in enumerate(_lista(lista), 1):
+        if not isinstance(x, dict) or len(out) >= MAX_PREMISAS:
+            continue
+        afirma = _txt(x.get("afirma_la_parte") or x.get("afirma"), 500)
+        if not afirma:
+            continue
+        fid = _txt(x.get("id")).upper() or f"F{i}"
+        while fid in ids:
+            fid += "b"
+        ids.add(fid)
+        seg = _txt(x.get("segmento"))
+        if ids_seg:
+            seg = ids_seg.get(seg.upper(), "")
+        try:
+            prob = int(str(x.get("problema") or "").strip())
+        except (TypeError, ValueError):
+            prob = 0
+        ce, ce_ok, _, ce_lec = verificar_cita(x.get("cita_escrito"), T, "escrito", solo=("escrito",))
+        ca, ca_ok, ca_f, ca_lec = verificar_cita(x.get("cita_acto"), T, "acto", solo=("acto", "constancias"))
+        el_acto = _el_acto(x.get("el_acto"))
+        if el_acto != "no_se_pronuncia" and not ca_ok:
+            el_acto = "no_se_pronuncia"
+        if el_acto == "no_se_pronuncia":
+            ca, ca_ok = "", False
+        for _c, _l in ((ce, ce_lec), (ca, ca_lec)):
+            if _l == "ocr" and ocr is not None and _c:
+                ocr.add(_c)
+        p = {"id": fid, "segmento": seg, "problema": prob, "afirma_la_parte": afirma,
+             "cita_escrito": ce if ce_ok else "", "cita_escrito_verificada": bool(ce_ok),
+             "el_acto": el_acto, "cita_acto": ca, "fuente_acto": ca_f if ca_ok else "",
+             "carga_de": _carga(x.get("carga_de"))}
+        if el_acto == "no_se_pronuncia" and ce_ok and _txt(x.get("pregunta")):
+            p.update({"pregunta": _txt(x.get("pregunta"), 400),
+                      "tipo": "texto" if _plano_al(x.get("tipo")).startswith(("texto", "literal", "textual"))
+                      else "si_no",
+                      "si_si": _txt(x.get("si_si"), 120), "si_no": _txt(x.get("si_no"), 120),
+                      "para_que": _txt(x.get("para_que"), 300)})
+        out.append(p)
+    return out
 
 
 # ═══ LA LLAMADA ══════════════════════════════════════════════════════════════
@@ -677,7 +864,10 @@ async def analizar(cliente, r, segmentos: list, ficha: str = "") -> dict | None:
               f"({len(doc['autonomas_sin_combatir'])} autónomas sin combatir) · "
               f"{len(doc['argumentos'])} argumentos · {len(doc['hechos'])} hechos · "
               f"{len(doc['faltantes'])} faltantes ({len(doc.get('faltantes_depurados') or [])} del propio documento, "
-              f"quitados) · {doc['citas_sin_verificar']} citas sin verificar")
+              f"quitados) · {doc['citas_sin_verificar']} citas sin verificar"
+              + (f" · {len(doc['premisas'])} premisas de la parte "
+                 f"({sum(1 for p in doc['premisas'] if p.get('pregunta'))} con pregunta)"
+                 if isinstance(doc.get("premisas"), list) else ""))
         return doc
     except Exception as ex:
         print(f"   🔎 ANÁLISIS: falló ({type(ex).__name__}); se propone sin él")
@@ -691,7 +881,14 @@ _TXT_COND = {"falta_en_insumos": "NO CONSTA en los insumos (no es lo mismo que n
              "tenido_por_acreditado": "el órgano recurrido lo TUVO POR ACREDITADO",
              "acreditacion_impugnada": "su acreditación ESTÁ IMPUGNADA",
              "no_controvertido": "consta y no se controvierte",
-             "sin_verificar": "condición SIN VERIFICAR (su cita no se halló)"}
+             "sin_verificar": "condición SIN VERIFICAR (su cita no se halló)",
+             # Sólo nace con la bandera de las preguntas (2-oct-2026).
+             "afirmado_por_la_parte": "SÓLO LO AFIRMA LA PARTE: la resolución no lo tiene por cierto"}
+
+_TXT_EL_ACTO = {"lo_tuvo_por_cierto": "la resolución LO TUVO POR CIERTO",
+                "lo_desestimo": "la resolución LO DESESTIMÓ",
+                "no_se_pronuncia": "la resolución NO SE PRONUNCIA"}
+_TXT_RESPUESTA = {"si": "SÍ", "no": "NO", "no_consta": "NO CONSTA (se lee como no acreditado)"}
 
 
 MAX_RAZONES_BLOQUE = 20
@@ -726,12 +923,18 @@ def bloque_propuesta(doc: dict | None) -> str:
         L.append(f"  ⚠ RAZONES AUTÓNOMAS QUE NINGÚN ARGUMENTO COMBATE: {', '.join(doc['autonomas_sin_combatir'])}. "
                  f"Si una basta sola para sostener lo resuelto y nadie la ataca, derrotar las demás no "
                  f"cambia el resultado: la solución que prospere tiene que decir por qué no se sostiene.")
+    _prem = con_premisas()
     if doc.get("hechos"):
         L.append("  HECHOS, CON SU CONDICIÓN:")
         for h in doc["hechos"][:MAX_HECHOS_BLOQUE]:
-            L.append(f"   {h['id']} {h['que']} — {_TXT_COND.get(h.get('condicion'), h.get('condicion'))}"
+            # QUIÉN LO AFIRMA (2-oct-2026, con la bandera de las preguntas): sin
+            # este campo la propuesta perdía de quién era la versión del hecho.
+            _quien = f" [lo afirma: {h['afirma']}]" if _prem and h.get("afirma") else ""
+            L.append(f"   {h['id']} {h['que']}{_quien} — {_TXT_COND.get(h.get('condicion'), h.get('condicion'))}"
                      + (f" ({h.get('fuente')}{', salvo errores de lectura' if h.get('lectura') == 'ocr' else ''}"
                         f": «{str(h['cita'])[:220]}»)" if h.get("cita") else ""))
+    if _prem and doc.get("premisas"):
+        L.extend(_lineas_premisas(doc["premisas"]))
     if doc.get("faltantes"):
         L.append("  FALTA EN LOS INSUMOS: " + "; ".join(f"{x.get('que')} ({x.get('por_que_importa')})"
                                                      for x in doc["faltantes"][:12]))
@@ -742,9 +945,49 @@ def bloque_propuesta(doc: dict | None) -> str:
     # no sostiene un sentido; un expediente incompleto se dice y baja la
     # confianza, pero el tribunal decide con lo que consta, y el secretario
     # siempre puede pedirle al motor una propuesta (regla de David).
+    if _prem:
+        # LA REGLA DE LAS PREMISAS (2-oct-2026, David: «nunca dar por hecho que
+        # lo que se dice en los recursos o conceptos de violación es cierto»).
+        L.append("  REGLA: lo que sólo afirma la parte NO es un hecho del asunto: es lo que hay que "
+                 "verificar contra lo que la resolución tuvo por acreditado, las constancias y las "
+                 "respuestas del secretario. Un hecho que la resolución tuvo por cierto o desestimó se toma "
+                 "como ella lo dijo, salvo que el escrito combata esa valoración y demuestre el error. Si la "
+                 "resolución calla y el secretario no contestó, decide la carga de la prueba: quien afirma "
+                 "y no demuestra no prospera en ese punto. Todo fundado que descanse en un hecho nombra el "
+                 "H# o la F# que lo sostiene. Una razón autónoma no combatida sostiene lo resuelto. Decide "
+                 "con lo que consta (alcanza=false queda sólo para cuando el acervo no da para sostener "
+                 "ningún sentido).")
+        return "\n".join(L) + "\n"
     L.append("  REGLA: distingue siempre «no consta en los insumos» de «no acreditado» y de «tenido por "
              "acreditado»; una razón autónoma no combatida sostiene lo resuelto; si falta un insumo "
              "indispensable, dilo en tu razón en vez de suplirlo. Lo que falta en los insumos baja tu "
              "confianza, pero no te impide proponer: decide con lo que consta (alcanza=false queda sólo "
              "para cuando el acervo no da para sostener ningún sentido).")
     return "\n".join(L) + "\n"
+
+
+MAX_PREMISAS_BLOQUE = 15
+
+
+def _lineas_premisas(premisas: list) -> list:
+    """La sección «PREMISAS DE LA PARTE, CONTRASTADAS CON LA RESOLUCIÓN»: qué
+    afirma la parte, qué dijo de ello la resolución (con su cita), y si calló,
+    la respuesta del secretario o la carga de la prueba."""
+    L = ["  PREMISAS DE LA PARTE, CONTRASTADAS CON LA RESOLUCIÓN (lo que afirma no se da por cierto):"]
+    for p in premisas[:MAX_PREMISAS_BLOQUE]:
+        if not isinstance(p, dict):
+            continue
+        cab = f"   {p.get('id')}" + (f" ({p['segmento']})" if p.get("segmento") else "")
+        L.append(f"{cab} la parte afirma: {p.get('afirma_la_parte')} — "
+                 f"{_TXT_EL_ACTO.get(p.get('el_acto'), _TXT_EL_ACTO['no_se_pronuncia'])}"
+                 + (f" ({p.get('fuente_acto') or 'acto'}: «{str(p['cita_acto'])[:220]}»)" if p.get("cita_acto") else ""))
+        if p.get("el_acto") != "no_se_pronuncia":
+            continue
+        r_ = p.get("respuesta")
+        if r_ not in (None, ""):
+            L.append(f"       respuesta del secretario: {_TXT_RESPUESTA.get(r_, '«' + str(r_)[:600] + '»')}")
+        else:
+            _c = {"la_parte": "a la parte que lo afirma", "contraparte": "a la contraparte",
+                  "autoridad": "a la autoridad"}.get(p.get("carga_de"), "a la parte que lo afirma")
+            L.append(f"       sin respuesta del secretario: decide la carga de la prueba, que toca {_c}")
+    return L

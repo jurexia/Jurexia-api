@@ -28,6 +28,20 @@ import re
 ROTULO = "CONSTANCIA"
 _RX_ROTULO = re.compile(r"\[\s*CONSTANCIA\s*[·:\-–—]\s*([^\]]{3,200})\]", re.I)
 MAX = 6
+# MENOS Y SIN PRESUMIR QUE TODO ES INDISPENSABLE (2-oct-2026, David: «el motor
+# siempre pide constancias… simplificar el tema de constancias y no ser tan
+# exigentes»). Con la bandera «preguntas_al_secretario» lo que no dice que es
+# indispensable no lo es, y caben tres: lo que decide se pregunta (ver
+# `preguntas_secretario`), no se pide como documento.
+MAX_PREGUNTAS = 3
+
+
+def _con_preguntas() -> bool:
+    try:
+        import contexto_taller as _ct
+        return bool(_ct.rediseno("preguntas_al_secretario"))
+    except Exception:
+        return False
 
 
 def _limpia(x) -> str:
@@ -55,6 +69,7 @@ def normalizar(lista, problemas: list = None) -> list:
     """[{que, para_que, indispensable, problema}] limpia, sin repetidas, con
     las indispensables primero y como mucho MAX."""
     fuera: list = []
+    _preg = _con_preguntas()
     for c in (lista or []):
         if isinstance(c, str):
             c = {"que": c}
@@ -65,7 +80,7 @@ def normalizar(lista, problemas: list = None) -> list:
             continue
         item = {"que": que[:200],
                 "para_que": _limpia(c.get("para_que") or c.get("razon") or c.get("explicacion"))[:300],
-                "indispensable": bool(c.get("indispensable", True)),
+                "indispensable": bool(c.get("indispensable", not _preg)),
                 "problema": int(c.get("problema") or 0) if str(c.get("problema") or "").strip().isdigit() else 0}
         if any(_parecidas(item["que"], x["que"]) for x in fuera):
             for x in fuera:
@@ -76,7 +91,7 @@ def normalizar(lista, problemas: list = None) -> list:
             continue
         fuera.append(item)
     fuera.sort(key=lambda x: (0 if x["indispensable"] else 1))
-    return fuera[:MAX]
+    return fuera[:(MAX_PREGUNTAS if _preg else MAX)]
 
 
 def de_fase3(problemas: list) -> list:
@@ -118,9 +133,15 @@ def faltantes(pedidas: list, contexto: str) -> list:
 
 
 def bloque_para_estudio(pedidas: list, contexto: str) -> str:
-    """Lo que el estudio tiene que saber: qué se pidió ver y no llegó."""
+    """Lo que el estudio tiene que saber: qué se pidió ver y no llegó.
+
+    Con la bandera «preguntas_al_secretario» (2-oct-2026), lo que no llegó y
+    no era indispensable NO se menciona: nombrarlo en el estudio es invitarlo
+    a escribir que «no obra» algo que nadie necesitaba."""
     falt = faltantes(pedidas, contexto)
     apor = [c for c in normalizar(pedidas) if c not in falt]
+    if _con_preguntas():
+        falt = [c for c in falt if c["indispensable"]]
     if not falt and not apor:
         return ""
     partes = ["", "═" * 71, "CONSTANCIAS DEL JUICIO DE ORIGEN", "═" * 71]
@@ -133,6 +154,19 @@ def bloque_para_estudio(pedidas: list, contexto: str) -> str:
         for c in falt:
             partes.append(f"  · {c['que']}" + (f" — {c['para_que']}" if c["para_que"] else "")
                           + (" [INDISPENSABLE]" if c["indispensable"] else ""))
+        if _con_preguntas():
+            # LA VOZ DEL TRIBUNAL, NO LA DE LA HERRAMIENTA (2-oct-2026): el
+            # tribunal tiene el expediente; no escribe que algo «no obra en el
+            # material».
+            partes.append(
+                "NO SUPONGAS SU CONTENIDO. Lo que dependa de una de ellas se tiene por NO "
+                "ACREDITADO y se resuelve con la carga de la prueba y con lo que sí consta en la "
+                "resolución y en autos: se escribe que la parte no lo demuestra o que de la "
+                "resolución no se advierte, nunca que algo falta «en el material» o «en lo "
+                "proporcionado». Si sin ella el planteamiento no se puede decidir, dilo en el "
+                "apartado ADVERTENCIAS con su nombre, para que quien firma la busque en el "
+                "expediente antes de listar.")
+            return "\n".join(partes) + "\n"
         partes.append(
             "NO SUPONGAS SU CONTENIDO. Lo que dependa de una de ellas se dice como "
             "NO ACREDITADO EN EL MATERIAL y se resuelve con la carga de la prueba y "

@@ -113,6 +113,22 @@ def instrucciones_resumen_acto(tipo_asunto: str = "", objetivo: int = 0) -> str:
     # 323/2025). Sólo en esa variante se dice lo que es; fuera de ella, igual.
     _contra = ("agravios" if not _ta_r.unica_instancia(tipo_asunto)
                else _ta_r.vocabulario_de(tipo_asunto)["combate"])
+    # LO QUE TUVO POR ACREDITADO (2-oct-2026, bandera «preguntas_al_secretario»;
+    # David: lo que afirma la parte «es justo lo que se debe verificar a la luz
+    # de lo acreditado en el juicio, que por regla general viene dicho en la
+    # sentencia reclamada o recurrida»). La propuesta y el estudio leen este
+    # resumen; si calla los hechos probados, no hay contra qué contrastar.
+    _acreditado = ""
+    try:
+        import contexto_taller as _ct_ra
+        if _ct_ra.rediseno("preguntas_al_secretario"):
+            _acreditado = (
+                "\n- LO QUE TUVO POR ACREDITADO Y CÓMO VALORÓ LAS PRUEBAS, siempre, con su ancla:\n"
+                "  qué hechos dio por probados y cuáles no, con qué pruebas y por qué les dio o\n"
+                "  les negó valor. Con esto se contrasta después lo que afirma la parte; lo que\n"
+                "  el resumen calle ya no se podrá verificar.")
+    except Exception:
+        _acreditado = ""
     return f"""RESUMEN DEL ACTO RECLAMADO O SENTENCIA RECURRIDA
 
 Abre el estudio con esto. Cuenta qué resolvió la autoridad y con qué razones,
@@ -127,7 +143,7 @@ de modo que quien lea entienda la resolución impugnada sin tenerla enfrente.
   razón —qué decidió, por qué, con qué precepto— y en el orden en que la
   responsable las expuso. Si resolvió cinco cuestiones, aquí hay cinco. Un
   resumen que se queda con dos deja al estudio sin poder contestar los
-  {_contra} contra las otras tres, y eso se llama incongruencia.
+  {_contra} contra las otras tres, y eso se llama incongruencia.{_acreditado}
 - LAS TESIS Y JURISPRUDENCIAS EN QUE SE APOYÓ SE NOMBRAN, con su clave o su
   registro tal como las cita: «…con apoyo en la jurisprudencia 2a./J. 13/2015
   (registro 2008474)». No se transcriben; se nombran, porque los {_contra}

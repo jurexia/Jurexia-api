@@ -1144,6 +1144,47 @@ def _recorte_limpio(x: str, tope: int) -> str:
         return (x or "")[:tope]
 
 
+def _preguntas_activas() -> bool:
+    """¿Rige «preguntas_al_secretario» en esta petición? (nunca lanza)"""
+    try:
+        import contexto_taller as _ct_ps
+        return bool(_ct_ps.rediseno("preguntas_al_secretario"))
+    except Exception:
+        return False
+
+
+# LO QUE CONSTA Y LO QUE SÓLO DICE LA PARTE (2-oct-2026, David: «nunca dar por
+# hecho que lo que se dice en los recursos o conceptos de violación es cierto;
+# eso es justo lo que se debe verificar a la luz de lo acreditado en el
+# juicio»). El estudio recibe el escrito de la parte literal y entero, y del
+# acto sólo el resumen; con la orden «o el hecho consta y se AFIRMA», lo que
+# «constaba» acababa siendo lo que decía la parte. Con la bandera se define qué
+# consta, y lo demás se atribuye. Sin ella, el texto de siempre.
+_REGLA_CONSTA = """- NUNCA SUPONGAS LO QUE CONSTA. Un tribunal tiene los autos delante: o el hecho
+  consta y se AFIRMA, o no consta y se dice que no obra. Están PROHIBIDAS las
+  fórmulas «si … fue efectivamente», «se afirma que», «según lo planteado», «de
+  ser cierto», «en el supuesto de que». Si el material no te permite afirmar,
+  escribe que el punto no está acreditado y sigue."""
+
+_REGLA_CONSTA_PREGUNTAS = """- NUNCA SUPONGAS LO QUE CONSTA, NI DES POR CIERTO LO QUE SÓLO DICE LA PARTE. Un
+  tribunal tiene los autos delante. CONSTA lo que dice la resolución reclamada o
+  recurrida, lo que obra en las constancias y lo que contestó quien firma en las
+  RESPUESTAS DEL SECRETARIO: eso se AFIRMA, como hecho de autos. Lo que sólo dice
+  el escrito de la parte se ATRIBUYE a ella (aduce, sostiene, refiere) y se
+  contrasta con lo que consta: es justo lo que se verifica, no una premisa. Si
+  nada de lo que consta lo acredita, se escribe que la parte no lo demuestra o
+  que de la resolución no se advierte, y decide la carga de la prueba. Están
+  PROHIBIDAS las fórmulas «si … fue efectivamente», «se afirma que», «según lo
+  planteado», «de ser cierto», «en el supuesto de que». Y la voz de la
+  herramienta no existe en una sentencia: el tribunal no habla del material, de
+  los insumos, de lo proporcionado, de lo aportado ni de las constancias
+  remitidas para un estudio, ni de quién informó un dato."""
+
+
+def _regla_consta() -> str:
+    return _REGLA_CONSTA_PREGUNTAS if _preguntas_activas() else _REGLA_CONSTA
+
+
 def _bloque_constancias(propuesta_global, contexto: str,
                         criterios: list | None = None) -> str:
     """Las constancias que la propuesta pidió ver: cuáles llegaron y cuáles
@@ -1181,6 +1222,9 @@ def _bloque_constancias(propuesta_global, contexto: str,
         if not _al_reves:
             return _cn.bloque_para_estudio(pedidas, contexto or "")
         falt = _cn.faltantes(pedidas, contexto or "")
+        if _preguntas_activas():
+            # Lo que no era indispensable y no llegó no se menciona (2-oct-2026).
+            falt = [c for c in falt if c.get("indispensable")]
         if not falt:
             return _cn.bloque_para_estudio(pedidas, contexto or "")
         lineas = ["", "═" * 71,
@@ -1228,6 +1272,19 @@ def _bloque_aportado(contexto: str) -> str:
     if not c:
         return ""
     import violacion_procesal as _vp
+    # LAS RESPUESTAS DEL SECRETARIO, ENTERAS Y DELANTE (2-oct-2026, bandera
+    # «preguntas_al_secretario»): son lo que decide la premisa, y el tope de
+    # abajo se queda con la cabeza. Se separan y no se recortan.
+    if _preguntas_activas():
+        try:
+            import preguntas_secretario as _ps_a
+            _resp, _resto = _ps_a.separar_bloque(c)
+        except Exception:
+            _resp, _resto = "", c
+        if _resp:
+            return ("\n" + _resp + "\n"
+                    + (_vp.bloque(_resto, para="estudio", tope=20000, recortar=_recorte_limpio)
+                       if _resto.strip() else ""))
     # POR PÁRRAFO, NO POR CARACTER. Estas constancias las subió el secretario
     # y alimentan prosa que se firma; cortarlas a mitad de frase es la misma
     # puerta por la que salió «el texto proporcionado se interrumpió» dentro
@@ -2877,11 +2934,7 @@ FUNDAMENTO — hay que fundar, y hay que fundar bien:
   trabajador reconoció el hecho, es contradecirse dentro del mismo párrafo. Si
   el criterio no lleva a donde quieres ir, NO lo cites: busca otro o razona sin
   él. Una cita que el propio fallo desmiente es peor que ninguna cita.
-- NUNCA SUPONGAS LO QUE CONSTA. Un tribunal tiene los autos delante: o el hecho
-  consta y se AFIRMA, o no consta y se dice que no obra. Están PROHIBIDAS las
-  fórmulas «si … fue efectivamente», «se afirma que», «según lo planteado», «de
-  ser cierto», «en el supuesto de que». Si el material no te permite afirmar,
-  escribe que el punto no está acreditado y sigue.
+{_regla_consta()}
 {_bloque_ley_de_la_via(material)}
 {_bloque_aportado(contexto)}
 {_bloque_constancias(propuesta_global, contexto, criterios)}
@@ -3699,11 +3752,7 @@ FUNDAMENTO — hay que fundar, y hay que fundar bien:
   trabajador reconoció el hecho, es contradecirse dentro del mismo párrafo. Si
   el criterio no lleva a donde quieres ir, NO lo cites: busca otro o razona sin
   él. Una cita que el propio fallo desmiente es peor que ninguna cita.
-- NUNCA SUPONGAS LO QUE CONSTA. Un tribunal tiene los autos delante: o el hecho
-  consta y se AFIRMA, o no consta y se dice que no obra. Están PROHIBIDAS las
-  fórmulas «si … fue efectivamente», «se afirma que», «según lo planteado», «de
-  ser cierto», «en el supuesto de que». Si el material no te permite afirmar,
-  escribe que el punto no está acreditado y sigue.
+{_regla_consta()}
 {_bloque_ley_de_la_via(material)}
 {_bloque_aportado(contexto)}
 {_bloque_constancias(propuesta_global, contexto, criterios)}
@@ -5763,7 +5812,24 @@ def revisar(estudio: str, criterios: list[Criterio], material: Material,
     if condicionales:
         avisos.append(f"{len(condicionales)} frases SUPONEN hechos en vez de "
                       f"afirmarlos contra autos: {sorted(set(condicionales))[:5]}. "
-                      f"Ciérralas o suprímelas.")
+                      + ("Afírmalas con su fuente (la resolución, las constancias o la respuesta "
+                         "del secretario) o di que la parte no lo demuestra."
+                         if _preguntas_activas() else "Ciérralas o suprímelas."))
+    # 4-ter-bis. LA VOZ DE LA HERRAMIENTA (2-oct-2026, bandera «preguntas_al_
+    #            secretario»): el tribunal tiene el expediente; «no obra en el
+    #            material proporcionado» o «los insumos» no caben en una
+    #            sentencia. El detector es determinista y vive en
+    #            `preguntas_secretario` (el supervisor lo usa como hallazgo).
+    if _preguntas_activas():
+        try:
+            import preguntas_secretario as _ps_v
+            _herr = _ps_v.frases_de_herramienta(estudio)
+        except Exception:
+            _herr = []
+        if _herr:
+            avisos.append(f"{len(_herr)} frases hablan con la voz de la herramienta y no del tribunal: "
+                          f"{_herr[:5]}. El tribunal tiene el expediente: escribe que de la resolución no "
+                          f"se advierte o que la parte no lo demuestra.")
 
     # 4-quater. Una sola calificación al cierre.
     cierre = " ".join(estudio.split()[-160:]).lower()
