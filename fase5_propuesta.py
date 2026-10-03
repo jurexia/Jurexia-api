@@ -88,6 +88,14 @@ class Propuesta:
     apoyos: list = field(default_factory=list)   # registros del acervo
     confianza: str = ""               # alta | media | baja
     alcanza: bool = True              # False = el material no da para proponer
+    # «ALCANZA» DEJA DE SUPRIMIR EL SENTIDO (2-oct-2026, David: «el motor
+    # nunca se atreve a proponer»). Con la bandera «propuesta_por_probabilidad»
+    # `alcanza` sólo dice si HAY sentido, y lo que antes significaba —el acervo
+    # lo respalda— pasa a `sostenida`. `origen` dice quién puso el sentido:
+    # «motor» (lo propuso él), «probabilidad» (la capa de probabilidad lo
+    # volteó o lo rellenó) o «arbol» (la suerte del principal).
+    sostenida: bool = True
+    origen: str = "motor"
 
     def bloque(self) -> str:
         if not self.alcanza:
@@ -174,6 +182,15 @@ class Global:
     # señalar cuándo sería posible». En la vía que valida una restricción esos
     # principios no se invocan; por eso se dice cuál es la otra.
     via_protectora: dict = field(default_factory=dict)
+    # LA PROBABILIDAD DEL SENTIDO (2-oct-2026; bandera
+    # «propuesta_por_probabilidad»). `sostenida`: el acervo respalda el
+    # sentido (lo que antes decía `alcanza`); `probabilidad`: lo que devuelve
+    # `probabilidad_sentido.aplicar` —p, lado, de dónde sale y si se volteó—;
+    # `confianza_motor`: la confianza que declaró el modelo, que ya no es la
+    # que se enseña (no separaba aciertos de errores: 6 de 27 en Kingston).
+    sostenida: bool = True
+    probabilidad: dict = field(default_factory=dict)
+    confianza_motor: str = ""
 
     # LA LISTA DE COMPROBACIÓN. Para que no se quede un tema sin contestar: cada
     # uno con su suerte en las DOS vías. La exhaustividad es de las cosas que se
@@ -963,6 +980,16 @@ def bloque_contraste(contraste: list) -> str:
             "firma leerá tu razón y la del contraste, una junto a otra.\n")
 
 
+def _banderas_propuesta() -> tuple:
+    """(propuesta_por_probabilidad, preguntas_al_secretario) de esta petición.
+    Fuera de una petición (pruebas, guiones) las dos apagadas, como hoy."""
+    try:
+        import contexto_taller as _ct
+        return bool(_ct.rediseno("propuesta_por_probabilidad")), bool(_ct.rediseno("preguntas_al_secretario"))
+    except Exception:
+        return False, False
+
+
 def prompt_propuesta(problemas: list, material, resumen_acto: str,
                      resumen_conceptos: str, es_recurso: bool = False,
                      contexto: str = "", contraste: str = "",
@@ -985,6 +1012,66 @@ def prompt_propuesta(problemas: list, material, resumen_acto: str,
     # equivocado iban en el MISMO prompt, y ganaba el menú, que es lo único que
     # le da palabras concretas.
     _verbos5 = _ta_p.verbos_del_recurrido(_t5)
+    # ═══ LA MEJORA FINAL DEL REDACTOR (2-oct-2026) ═══════════════════════
+    # Dos banderas tocan este prompt. Apagadas, sale letra por letra el de
+    # ayer (test_propuesta_probabilidad.py lo compara con la base):
+    #  · «propuesta_por_probabilidad» — David: «el motor nunca se atreve a
+    #    proponer». La regla 2 le daba permiso para no decidir («pon
+    #    alcanza=false») y el bloque «Y NO SE INVENTA» le dictaba la frase de
+    #    la abstención. Ahora decide siempre y `sostenida` dice si el acervo
+    #    lo respalda; el lado final lo fija la capa de probabilidad en main.
+    #  · «preguntas_al_secretario» — David: «nunca dar por hecho que lo que
+    #    se dice en los recursos o conceptos de violación es cierto (…) eso
+    #    es justo lo que se debe verificar». Fuera la regla 13 (constancias:
+    #    las preguntas cortas las hace otro paso, antes de proponer), y la
+    #    regla 4 dice que lo que sostiene la parte se verifica, no se afirma.
+    _por_prob, _con_preg = _banderas_propuesta()
+    _no_se_inventa = ("""Y NO SE INVENTA LO QUE NO HAY. Si para un problema no aparece nada útil en la
+lista, deja «apoyos» vacío y razona con la ley y con lo que consta; rellenarlo
+con un registro que trata de otra cosa es peor que dejarlo en blanco, porque
+esconde el hueco en vez de enseñarlo. Que el acervo no traiga un criterio no
+te exime de decidir: el sentido se propone igual y `sostenida` dice si el
+acervo lo respalda.""" if _por_prob else """Y NO SE INVENTA LO QUE NO HAY. Si para un problema no aparece nada útil en la
+lista, dilo en su razón con esas palabras —«el acervo no ofrece criterio para
+esto»— y deja «apoyos» vacío. Eso es información para quien firma; rellenarlo
+con un registro que trata de otra cosa es peor que dejarlo en blanco, porque
+esconde el hueco en vez de enseñarlo.""")
+    _regla2 = ("""2. SIEMPRE DECIDES UN SENTIDO, para cada problema y para el asunto entero:
+   el lado que, con lo que consta, es más probable, aunque tu confianza sea
+   baja —dila en `confianza`—. Ningún sentido se deja vacío. Si el acervo no
+   da para respaldarlo, pon `sostenida`=false y di en la razón qué falta:
+   quien firma decide con eso delante, y un hueco no le sirve.""" if _por_prob else """2. SI EL ACERVO NO DA PARA SOSTENER UN SENTIDO, DILO. Pon alcanza=false y
+   explica qué falta. Un sentido inventado con aire de fundado se firma, y ese
+   es el daño que este paso existe para evitar.""")
+    _regla4 = ("""4. NO SUPONGAS LO QUE NO CONSTA. Si el material no permite afirmar un hecho,
+   di que no está acreditado; no escribas «si fuera cierto que…».""" + (f"""
+   LO QUE SOSTIENE LA PARTE NO ES UN HECHO: lo que se afirma en los {q} es
+   justo lo que hay que VERIFICAR. La premisa fáctica de un fundado se ancla
+   en lo que la resolución tuvo por acreditado, en las constancias o en las
+   respuestas del secretario; si sólo lo dice el escrito, no consta.""" if _con_preg else ""))
+    _hechos6 = ("de qué va el asunto y qué pasó, según la resolución y los autos, no\n   según el escrito de la parte"
+                if _con_preg else "de qué va el asunto, qué pasó")
+    _regla13 = ("" if _con_preg else """13. LAS CONSTANCIAS QUE HARÍA FALTA VER, en `constancias`. Un tribunal
+   terminal no resuelve confrontando sólo la sentencia y el escrito: hay
+   hechos que sólo una constancia del juicio de origen puede acreditar —el
+   acuerdo recurrido y la interlocutoria que lo confirmó, la prueba que se
+   desechó, el contrato, la constancia de notificación, el poder—. Declara
+   cuáles harían falta ver PARA DECIDIR, y para qué: `que` (el documento,
+   nombrado como consta: «acuerdo de 13 de agosto de 2025», «interlocutoria
+   del recurso de reclamación»), `para_que` (qué hecho decide), `indispensable`
+   (true sólo si sin ella el sentido no se puede afirmar; false si sólo
+   afinaría), `problema` (el número). Como mucho seis. NO pidas lo que ya
+   está en el material o entre lo aportado; no pidas por pedir. Si no hace
+   falta ninguna, lista vacía.
+""")
+    _campo_alcanza = '"sostenida": true|false' if _por_prob else '"alcanza": true'
+    _constancias_json = ("" if _con_preg else """
+   "constancias": [
+     {"que": "<el documento, nombrado como consta>",
+       "para_que": "<qué hecho decide>",
+       "indispensable": true,
+       "problema": 1}
+   ],""")
     # ═══ UNA VIOLACIÓN PROCESAL NO QUEDA SIN MATERIA (26-sep-2026) ═════════
     # Decisión 1 de David: los artículos 74, fracción V, y 174 mandan decidir
     # todas las violaciones procesales, y la única excepción es un principal de
@@ -1098,11 +1185,7 @@ Medido sobre cinco asuntos reales: se recuperaron 191 tesis y sólo se invocaron
 10, y hubo un asunto donde seis de siete problemas se calificaron sin un solo
 criterio. Un problema resuelto sin apoyo es una opinión.
 
-Y NO SE INVENTA LO QUE NO HAY. Si para un problema no aparece nada útil en la
-lista, dilo en su razón con esas palabras —«el acervo no ofrece criterio para
-esto»— y deja «apoyos» vacío. Eso es información para quien firma; rellenarlo
-con un registro que trata de otra cosa es peor que dejarlo en blanco, porque
-esconde el hueco en vez de enseñarlo.
+{_no_se_inventa}
 
 {contraste}CÓMO SE CALIFICA, y no son sinónimos:
 - FUNDADO: el planteamiento combate la razón de la responsable y tiene razón.
@@ -1136,19 +1219,16 @@ esconde el hueco en vez de enseñarlo.
 REGLAS QUE NO SE ROMPEN:
 1. SÓLO TE APOYAS EN LOS REGISTROS DE ARRIBA. No cites de memoria: tus datos
    son viejos y falsos, y una cita inventada descalifica el proyecto entero.
-2. SI EL ACERVO NO DA PARA SOSTENER UN SENTIDO, DILO. Pon alcanza=false y
-   explica qué falta. Un sentido inventado con aire de fundado se firma, y ese
-   es el daño que este paso existe para evitar.
+{_regla2}
 3. {_regla_de_ley(material)}
-4. NO SUPONGAS LO QUE NO CONSTA. Si el material no permite afirmar un hecho,
-   di que no está acreditado; no escribas «si fuera cierto que…».
+{_regla4}
 5. LA RAZÓN, EN {PALABRAS_RAZON} PALABRAS. Es lo que el secretario lee antes de
    decidir: tiene que caber en tres o cuatro renglones y decir la razón toral,
    no el desarrollo.
 
 6. EL CONTEXTO, EN PROSA Y EN CUATRO PÁRRAFOS. Es lo PRIMERO que lee el
    secretario y con eso forma su criterio, sin volver al expediente. Escribe:
-   `hechos` (de qué va el asunto, qué pasó); `resolvio` (ABRE CON EL VERBO DEL
+   `hechos` ({_hechos6}); `resolvio` (ABRE CON EL VERBO DEL
    DESENLACE de ESTE tipo de asunto —{_verbos5}—,
    que es el dato que decide el resolutivo de este proyecto, y sólo DESPUÉS la
    razón. Salió esto: «tuvo por acreditado que la moral promovió el juicio
@@ -1215,19 +1295,7 @@ REGLAS QUE NO SE ROMPEN:
    La `razon` es UNA frase que el proyecto podrá escribir tal cual. No
    contradigas la `relacion` con `si_prospera`: si ahí queda sin materia, el
    tema DEPENDE, aunque en la otra vía lleve su propia calificación.
-13. LAS CONSTANCIAS QUE HARÍA FALTA VER, en `constancias`. Un tribunal
-   terminal no resuelve confrontando sólo la sentencia y el escrito: hay
-   hechos que sólo una constancia del juicio de origen puede acreditar —el
-   acuerdo recurrido y la interlocutoria que lo confirmó, la prueba que se
-   desechó, el contrato, la constancia de notificación, el poder—. Declara
-   cuáles harían falta ver PARA DECIDIR, y para qué: `que` (el documento,
-   nombrado como consta: «acuerdo de 13 de agosto de 2025», «interlocutoria
-   del recurso de reclamación»), `para_que` (qué hecho decide), `indispensable`
-   (true sólo si sin ella el sentido no se puede afirmar; false si sólo
-   afinaría), `problema` (el número). Como mucho seis. NO pidas lo que ya
-   está en el material o entre lo aportado; no pidas por pedir. Si no hace
-   falta ninguna, lista vacía.
-{_regla_via}
+{_regla13}{_regla_via}
 Devuelve SÓLO un JSON, sin texto alrededor, con esta forma exacta:
 {{"propuestas": [
   {{"problema": "<la pregunta, tal cual>",
@@ -1235,7 +1303,7 @@ Devuelve SÓLO un JSON, sin texto alrededor, con esta forma exacta:
     "razon": "<la razón toral, {PALABRAS_RAZON} palabras>",
     "apoyos": ["<registro>", "..."],
     "confianza": "alta|media|baja",
-    "alcanza": true}}
+    {_campo_alcanza}}}
  ],
  "global": {{"sentido": "fundado|infundado|inoperante|ineficaz",
    "razon": "<por qué el ASUNTO se resuelve así, {PALABRAS_RAZON} palabras>",
@@ -1244,7 +1312,7 @@ Devuelve SÓLO un JSON, sin texto alrededor, con esta forma exacta:
    "apoyos": ["<registro>", "..."],
    "confianza": "alta|media|baja",
    "en_contra": "<el mejor argumento en contra, un renglón>",
-   "alcanza": true,
+   {_campo_alcanza},
    "contexto": {{
      "hechos": "<un párrafo>",
      "resolvio": "<empieza por el verbo que corresponda a este tipo de asunto ({_verbos5}); y luego la razón>",
@@ -1254,13 +1322,7 @@ Devuelve SÓLO un JSON, sin texto alrededor, con esta forma exacta:
      "sentido": "<el contrario al de arriba>",
      "razon": "<cómo se sostendría, {PALABRAS_RAZON} palabras>",
      "efecto": "<qué les pasa a los accesorios en ESTA vía>",
-     "apoyos": ["<registro>", "..."]}},{_via_json}
-   "constancias": [
-     {{"que": "<el documento, nombrado como consta>",
-       "para_que": "<qué hecho decide>",
-       "indispensable": true,
-       "problema": 1}}
-   ],
+     "apoyos": ["<registro>", "..."]}},{_via_json}{_constancias_json}
    "checklist": [
      {{"numero": <el numero del problema en la lista de arriba: 1, 2, 3...>,
        "tema": "<el tema, en una línea>",
@@ -1560,7 +1622,12 @@ async def proponer(cliente, problemas: list, material, resumen_acto: str = "",
     # ser «el modelo no respondió» o «respondió algo que no supe leer», y son
     # dos averías distintas. Se distinguen aquí y no adivinando en los logs.
     leidas, crudo_global = _leer(crudo)
-    if not leidas:
+    _por_prob, _con_preg = _banderas_propuesta()
+    # UNA GLOBAL VÁLIDA NO SE TIRA PORQUE FALTEN LAS DE CADA PROBLEMA
+    # (2-oct-2026; bandera «propuesta_por_probabilidad»): el sentido del
+    # asunto es lo que el secretario acepta de un botón, y main rellena los
+    # problemas con el árbol.
+    if not leidas and not (_por_prob and str((crudo_global or {}).get("sentido") or "").strip()):
         motivo = ("el modelo no devolvió texto —probablemente agotó el "
                   "presupuesto razonando—" if not crudo.strip()
                   else f"la respuesta no traía el JSON esperado: «{crudo[:200]}»")
@@ -1571,13 +1638,19 @@ async def proponer(cliente, problemas: list, material, resumen_acto: str = "",
 
     fuera = []
     for d in leidas:
+        if not isinstance(d, dict):
+            continue
+        _s_d = str(d.get("sentido", "")).strip().lower()
         fuera.append(Propuesta(
             problema=str(d.get("problema", ""))[:400],
-            sentido=str(d.get("sentido", "")).strip().lower(),
+            sentido=_s_d,
             razon=str(d.get("razon", ""))[:900],
             apoyos=[str(a) for a in (d.get("apoyos") or [])][:6],
             confianza=str(d.get("confianza", "")).strip().lower(),
-            alcanza=bool(d.get("alcanza", True))))
+            # CON SENTIDO, ALCANZA (2-oct-2026): «alcanza» ya no suprime el
+            # sentido; lo que el modelo dice del acervo va a `sostenida`.
+            alcanza=(bool(_s_d) if _por_prob else bool(d.get("alcanza", True))),
+            sostenida=_sostenida(d)))
 
     # LA PROPUESTA DEL ASUNTO. Si el modelo la omitió, se queda sin ella y se
     # avisa: NO se rellena con la del problema principal, que es el defecto que
@@ -1593,7 +1666,10 @@ async def proponer(cliente, problemas: list, material, resumen_acto: str = "",
         apoyos=[str(a) for a in (g.get("apoyos") or [])][:6],
         confianza=str(g.get("confianza", "")).strip().lower(),
         en_contra=str(g.get("en_contra", ""))[:400],
-        alcanza=bool(g.get("alcanza", True)) and bool(g.get("sentido")),
+        # La global con sentido ya no se vacía (2-oct-2026): ver arriba.
+        alcanza=(bool(str(g.get("sentido") or "").strip()) if _por_prob
+                 else bool(g.get("alcanza", True)) and bool(g.get("sentido"))),
+        sostenida=_sostenida(g),
         # ES LO QUE EL SECRETARIO LEE PARA ENTENDER EL ASUNTO: no se recorta
         # a la mitad de una explicación.
         contexto={k: str((g.get("contexto") or {}).get(k, ""))[:8000]
@@ -1612,10 +1688,17 @@ async def proponer(cliente, problemas: list, material, resumen_acto: str = "",
         [c for c in (g.get("checklist") or []) if isinstance(c, dict)], problemas)
     # LAS CONSTANCIAS: lo que declaró el motor más lo que la fase 3 ya
     # marcaba como apoyo en una constancia, sin repetir.
+    # Con «preguntas_al_secretario» (2-oct-2026) ya no se piden constancias
+    # aquí: las preguntas cortas las hace el paso anterior a proponer, y la
+    # mezcla de la fase 3 —toda «apoyo» con motivo constancia— era de donde
+    # salía el «siempre pide constancias» de David.
     try:
         import constancias as _cn
-        glob.constancias = _cn.normalizar(
-            list(g.get("constancias") or []) + _cn.de_fase3(problemas), problemas)
+        if _con_preg:
+            glob.constancias = []
+        else:
+            glob.constancias = _cn.normalizar(
+                list(g.get("constancias") or []) + _cn.de_fase3(problemas), problemas)
     except Exception as _exc:
         print(f"   ⚠️ constancias: no se pudieron leer: {type(_exc).__name__}")
         glob.constancias = []
@@ -1650,6 +1733,17 @@ async def proponer(cliente, problemas: list, material, resumen_acto: str = "",
                 f"La «alternativa» vino con el MISMO sentido que la propuesta "
                 f"(«{glob.sentido}»): no es una vía contraria. Ignórala.")
     return fuera, glob, avisos
+
+
+def _sostenida(d) -> bool:
+    """¿El acervo respalda el sentido? `sostenida` si el modelo la dio; si no,
+    su `alcanza` de antes (que significaba eso)."""
+    if not isinstance(d, dict):
+        return True
+    v = d.get("sostenida", d.get("alcanza", True))
+    if isinstance(v, str):
+        return v.strip().lower() not in ("false", "no", "0", "")
+    return bool(v)
 
 
 def resumen(propuestas: list) -> str:
@@ -1714,8 +1808,15 @@ def bloque_direccion(sentido: str, tipo_asunto: str = "", es_recurso: bool = Fal
     lineas.append(
         f"La calificación es la de los {_q}, no la respuesta a la pregunta del "
         f"planteamiento. {s.replace('_', ' ').upper()} quiere decir aquí que "
-        + (f"prosperan los {_q}: cae lo que resolvió {_org} en este punto, y la razón "
-           f"demuestra lo que ellos sostienen."
+        + ((f"prosperan los {_q}: cae lo que resolvió {_org} en este punto, y la razón "
+            f"demuestra, con lo que consta en la resolución o en autos, que lo que ellos "
+            f"sostienen es cierto."
+            # LO QUE DICE LA PARTE SE VERIFICA (2-oct-2026, David; bandera
+            # «preguntas_al_secretario»): «demuestra lo que ellos sostienen»
+            # dejaba que la razón de un fundado se apoyara sólo en el escrito.
+            if _banderas_propuesta()[1] else
+            f"prosperan los {_q}: cae lo que resolvió {_org} en este punto, y la razón "
+            f"demuestra lo que ellos sostienen.")
            if _p else
            f"no prosperan los {_q}: subsiste lo que resolvió {_org} en este punto, y la "
            f"razón demuestra por qué no lo derriban."))

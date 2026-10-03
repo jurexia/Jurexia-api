@@ -18,7 +18,11 @@ import tarjeta_decision as td
 import taller_estado as te
 import fase6_estudio as f6
 import contexto_taller as ct
-ct.poner(True, {})          # cuenta de casa: la bandera «consulta_provisional» encendida
+# Cuenta de casa: la bandera «consulta_provisional» encendida. La propuesta por
+# probabilidad (2-oct-2026) también nace «casa» y cambia esto: aquí se apaga
+# para medir lo de siempre, y abajo se prueba encendida.
+_SIN_PROB = {"banderas": {"propuesta_por_probabilidad": False}}
+ct.poner(True, _SIN_PROB)
 
 print("\n1 · LA TARJETA")
 m = f6.Material()
@@ -35,7 +39,14 @@ ct.poner(False, {})
 m.consulta_estado = {"estado": "provisional", "faltan": ["decisiva"]}
 ok(td._provisional(m, "propuesta", "claro", ["R"])["recomendada"] == "propuesta",
    "para los de fuera, sin la bandera, la tarjeta como hoy (se mide antes)")
+# CON LA PROPUESTA POR PROBABILIDAD (2-oct-2026, contrato E): la consulta
+# provisional se dice, pero ya no quita la recomendación ni pone «no_alcanza».
 ct.poner(True, {})
+xp = td._provisional(m, "propuesta", "reñido", ["R"])
+ok(xp["recomendada"] == "propuesta" and xp["estado"] == "reñido"
+   and xp["estado_por_que"][0].startswith("Consulta PROVISIONAL") and xp["estado_por_que"][1:] == ["R"],
+   "con la propuesta por probabilidad: se dice que es provisional y se sigue recomendando")
+ct.poner(True, _SIN_PROB)
 
 print("\n2 · VIAJA CON LA SESIÓN")
 m2 = f6.Material()

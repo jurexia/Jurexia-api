@@ -80,6 +80,28 @@ if lee < declara:
     fallos.append(f"`usar_propuesta` se declara {declara} veces y se lee {lee}: "
                   f"hay un endpoint que se lo traga en silencio")
 
+# ── 3 · LA PROPUESTA POR PROBABILIDAD (2-oct-2026) ─────────────────────────
+# Con la bandera, el problema sin propuesta sigue sin sentido inventado, pero
+# ya no se cae en silencio: `repartir` lo dice y la rama «acervo» del criterio
+# común lo deja entrar vacío al árbol (que le da la suerte del principal o lo
+# saca con su nombre), con la predicción por problema como en el modo por
+# problema.
+import os as _os
+_os.environ["PROPUESTA_POR_PROBABILIDAD"] = "todos"
+try:
+    rep3, av3 = _md.repartir(problemas + [{"pregunta": "¿Tercero sin propuesta?"}],
+                             _md.ACERVO, "", propuestas, {})
+finally:
+    _os.environ.pop("PROPUESTA_POR_PROBABILIDAD", None)
+if str(rep3[2].get("sentido") or "").strip():
+    fallos.append("con la probabilidad, ACERVO inventó un sentido")
+if not any("¿Tercero sin propuesta?" in a for a in av3):
+    fallos.append("con la probabilidad, el problema sin sentido se cayó sin aviso")
+_i_ac = _ar.find('_modo == "acervo" or usar_propuesta')
+_rama_ac = _ar[_i_ac:_ar.find("    else:", _i_ac)]
+if "prediccion=" not in _rama_ac or "_rellenar_a" not in _rama_ac:
+    fallos.append("la rama «acervo» no pasa la predicción o no deja entrar los vacíos al árbol")
+
 if fallos:
     print("FALLOS:")
     for f in fallos:

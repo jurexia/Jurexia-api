@@ -54,6 +54,19 @@ vuelven a verificar aquí y la fuerza se recalcula por código. Sin ella, todo
 sale de la propuesta formato 2. Ver `_payload_deliberacion` para la forma que
 se lee (tolerante: el módulo `deliberacion.py` se escribe en paralelo).
 
+LA PROPUESTA POR PROBABILIDAD (2-oct-2026; bandera «propuesta_por_probabilidad»;
+contrato E). David: «el motor nunca se atreve a proponer (…) si hay un 50.01%
+de probabilidad hacia un lado sea esa la propuesta de resolución». Con la
+bandera, «NO DECIDE» deja de valer para la recomendación: la propuesta ya sale
+del lado más probable (`probabilidad_sentido`, con la tasa del tribunal, los
+precedentes del mismo problema y el voto del motor con el peso que demostró),
+así que `recomendada` es «propuesta» siempre que tenga sentido, y la tarjeta
+enseña `probabilidad` {p, lado, explicacion} —p es la del lado propuesto—.
+El `estado` sigue calculándose igual, pero ahora es GRADO DE CERTEZA y ya no
+quita la recomendación; las constancias indispensables y la consulta
+provisional tampoco la quitan ni ponen «no_alcanza». Sin la bandera, todo
+como estaba (y la regla «ningún porcentaje» sigue).
+
 CONTRATO: contrato_tarjeta.md (formato 1). Todos los campos pueden faltar o
 venir null: la pantalla los tolera.
 """
@@ -1196,6 +1209,31 @@ def vacia(estado_calculo: str, huella: str = "") -> dict:
             "conceptos_omitidos": None, "ficha": None, "avisos": []}
 
 
+def _por_probabilidad() -> bool:
+    """¿Rige la propuesta por probabilidad en esta petición? (2-oct-2026)"""
+    try:
+        import contexto_taller as _ct_pp
+        return bool(_ct_pp.rediseno("propuesta_por_probabilidad"))
+    except Exception:
+        return False
+
+
+def _probabilidad_de(glob: dict) -> dict | None:
+    """{p, lado, explicacion} de la probabilidad que dejó la propuesta (formato
+    3), con `p` la del LADO PROPUESTO; None si no la trae."""
+    pr = glob.get("probabilidad") if isinstance(glob, dict) else None
+    if not isinstance(pr, dict) or pr.get("lado") not in ("prospera", "no_prospera"):
+        return None
+    try:
+        p = float(pr.get("p_prospera"))
+    except (TypeError, ValueError):
+        p = None
+    if p is not None and pr["lado"] == "no_prospera":
+        p = 1.0 - p
+    return {"p": round(p, 3) if p is not None else None, "lado": pr["lado"],
+            "explicacion": _txt(pr.get("explicacion")) or None}
+
+
 def _provisional(material, recomendada, estado, por_que) -> dict:
     """LA CONSULTA PROVISIONAL NO RECOMIENDA (rediseño, etapa 2, 29-sep-2026).
     Si venció la espera de la pregunta decisiva y falta la búsqueda de su
@@ -1210,6 +1248,13 @@ def _provisional(material, recomendada, estado, por_que) -> dict:
         _on = False
     if _on and isinstance(ce, dict) and ce.get("estado") == "provisional":
         falta = ", ".join(ce.get("faltan") or []) or "parte de la consulta"
+        if _por_probabilidad():
+            # LA CONSULTA PROVISIONAL YA NO QUITA LA RECOMENDACIÓN (2-oct-2026):
+            # se dice, y la propuesta sigue siendo la del lado más probable.
+            return {"recomendada": recomendada, "estado": estado,
+                    "estado_por_que": [f"Consulta PROVISIONAL: falta {falta} (la pregunta decisiva no "
+                                       f"llegó a tiempo). Se completa sola al volver a proponer."]
+                                      + list(por_que or [])}
         return {"recomendada": None, "estado": "no_alcanza",
                 "estado_por_que": [f"Consulta PROVISIONAL: falta {falta} (la pregunta decisiva no "
                                    f"llegó a tiempo). Se completa sola al volver a proponer."]
@@ -1463,6 +1508,7 @@ def armar(propuesta_guardada, material, problemas_fase3, contraste=None, espejo=
     vp = glob.get("via_protectora") if isinstance(glob.get("via_protectora"), dict) else {}
     indispensables = [_txt(c.get("que")) for c in (glob.get("constancias") or [])
                       if isinstance(c, dict) and c.get("indispensable") is True and _txt(c.get("que"))]
+    _prob_on = _por_probabilidad()
     crux = None
     if delib and isinstance(delib.get("crux"), dict):
         crux = {k: (_txt(delib["crux"].get(k)) or None) for k in ("que", "si_cambia", "constancia")}
@@ -1471,8 +1517,10 @@ def armar(propuesta_guardada, material, problemas_fase3, contraste=None, espejo=
                      "limite_protector": _txt(vp.get("limite")) or None}
 
     # ── EL ESTADO ──
-    _args_estado = (via_p, via_o, principal["contraste"], discrepa, indispensables,
-                    hay_global or bool(delib))
+    # CON LA PROPUESTA POR PROBABILIDAD una constancia que falta ya no pone
+    # «no_alcanza» (2-oct-2026): sigue en «que_la_cambiaria».
+    _args_estado = (via_p, via_o, principal["contraste"], discrepa,
+                    [] if _prob_on else indispensables, hay_global or bool(delib))
     estado, por_que = _estado(*_args_estado)
     if delib and estado_juez:
         # EL JUEZ MANDA, con dos frenos que no se discuten: sin constancia
@@ -1480,13 +1528,19 @@ def armar(propuesta_guardada, material, problemas_fase3, contraste=None, espejo=
         # juez diga otra cosa (la verificación E es de código).
         duros = estado == "no_alcanza"
         estado = "no_alcanza" if duros else estado_juez
-    if estado != "claro":
+    if estado != "claro" and not _prob_on:
         # CON LOS NOMBRES DE LA PANTALLA: sin «claro» las columnas son la vía A
         # y la vía B y ninguna se rotula propuesta (revisión del 28-sep-2026).
+        # Con la propuesta por probabilidad la columna izquierda SIEMPRE es la
+        # propuesta, y así se nombra.
         por_que = _estado(*_args_estado, nombres=NOMBRES_NEUTROS)[1]
     if delib and estado_juez:
         por_que = [f"Deliberación: el juez la marcó «{estado_juez}»."] + por_que
     recomendada = "propuesta" if estado == "claro" else None
+    if _prob_on:
+        # SIEMPRE QUE LA PROPUESTA TENGA SENTIDO, SE RECOMIENDA (contrato E):
+        # el estado queda como grado de certeza.
+        recomendada = "propuesta" if (via_p and _txt(via_p.get("sentido"))) else None
 
     # ── LOS CONCEPTOS QUE EL JUEZ NO ESTUDIÓ (SPEC B) ──
     # Con el sentido de LA VÍA QUE PROSPERA, sea la propuesta o la contraria:
@@ -1521,6 +1575,9 @@ def armar(propuesta_guardada, material, problemas_fase3, contraste=None, espejo=
         "principal": principal,
         "vias": {"propuesta": via_p, "opuesta": via_o},
         **_provisional(material, recomendada, estado, por_que),
+        # LA PROBABILIDAD DE LA PROPUESTA (contrato E, 2-oct-2026): sólo con
+        # su bandera; sin ella la tarjeta no enseña ningún porcentaje.
+        **({"probabilidad": _probabilidad_de(glob)} if _prob_on else {}),
         "secundarios": secundarios, "independientes": independientes,
         "que_la_cambiaria": que_cambiaria,
         "tu_tribunal": _tu_tribunal(
@@ -1569,8 +1626,18 @@ def elegir_marcas(fila: dict, huella: str, propuestas_fila=None, ahora=None) -> 
     ct = fila.get("contraste") if isinstance(fila.get("contraste"), dict) else {}
     dl = fila.get("deliberacion") if isinstance(fila.get("deliberacion"), dict) else {}
     resp = {}
+    if pm.get("huella") == huella and isinstance(pm.get("respuesta"), dict) \
+            and pm["respuesta"].get("estado") == "preguntas":
+        # Las preguntas al secretario están pendientes: la global guardada,
+        # si la hay, es de antes de preguntar y no se enseña.
+        return {"estado_calculo": "sin_propuesta", "propuesta": None, "contraste": None,
+                "deliberacion": None}
+    # FORMATO 2 O 3 (2-oct-2026): el 3 es el 2 con la probabilidad y las
+    # preguntas. Una respuesta en estado «preguntas» no trae propuesta: hasta
+    # que el secretario conteste no hay tarjeta que armar.
     if pm.get("huella") == huella and pm.get("estado") == "listo" \
-            and isinstance(pm.get("respuesta"), dict) and pm["respuesta"].get("formato") == 2:
+            and isinstance(pm.get("respuesta"), dict) and pm["respuesta"].get("formato") in (2, 3) \
+            and pm["respuesta"].get("estado", "lista") != "preguntas":
         resp = dict(pm["respuesta"])
     g = gp.get("global") if (gp.get("huella") == huella and isinstance(gp.get("global"), dict)) \
         else None

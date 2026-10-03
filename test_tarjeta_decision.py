@@ -648,6 +648,9 @@ ok('p["jerarquia_por_secretario"] = True' in _src, "/taller/problema marca quié
 
 print("\n13 bis · LA REVISIÓN ADVERSARIAL DEL 28-sep-2026")
 # (a) Ningún porcentaje junto al principal: la jurimetría no va en la tarjeta.
+#     (2-oct-2026) La regla queda SÓLO con la bandera «propuesta_por_probabilidad»
+#     apagada; encendida, la tarjeta enseña la probabilidad de la propuesta
+#     (contrato E, sección 15).
 r_pr = copy.deepcopy(RESP)
 r_pr["propuestas"][0]["prediccion"] = {"frase": "Infundado (75% de 12 sentencias del acervo)", "n": 12}
 t_pr = armar(r_pr)
@@ -746,6 +749,56 @@ if _ruta and os.path.exists(_ruta):
                f"(el plan de producción: {_pr[2]['sentido']})")
 else:
     print("\n14 · (sin TARJETA_FILA_462: la fila real no se prueba aquí)")
+
+print("\n15 · LA PROPUESTA POR PROBABILIDAD (2-oct-2026, contrato E)")
+# David: «el motor nunca se atreve a proponer (…) si hay un 50.01% de
+# probabilidad hacia un lado sea esa la propuesta». Con la bandera, la
+# recomendación es siempre la propuesta y el estado queda como certeza.
+ok("probabilidad" not in armar(), "apagada: la tarjeta no trae probabilidad (como ayer)")
+os.environ["PROPUESTA_POR_PROBABILIDAD"] = "todos"
+try:
+    t15 = armar()
+    ok(t15["estado"] == "reñido" and t15["recomendada"] == "propuesta",
+       "reñido sigue siendo el grado de certeza, pero la propuesta se recomienda")
+    ok(not any("vía A" in x for x in t15["estado_por_que"]),
+       "y las razones la llaman «la propuesta», no «la vía A»")
+    ok(t15["probabilidad"] is None, "sin probabilidad en la propuesta guardada: null")
+    r15 = copy.deepcopy(RESP)
+    r15["formato"] = 3
+    r15["global"]["probabilidad"] = {"p_prospera": 0.324, "lado": "no_prospera",
+                                     "explicacion": "Se propone que no prospere, con una probabilidad del 68%."}
+    t15p = armar(r15)
+    ok(t15p["probabilidad"] == {"p": 0.676, "lado": "no_prospera",
+                                "explicacion": "Se propone que no prospere, con una probabilidad del 68%."},
+       f"la probabilidad del lado propuesto: {t15p['probabilidad']}")
+    r15i = copy.deepcopy(RESP)
+    r15i["global"]["constancias"] = [{"que": "la escritura", "indispensable": True, "problema": 1}]
+    t15i = armar(r15i)
+    ok(t15i["estado"] != "no_alcanza" and t15i["recomendada"] == "propuesta"
+       and t15i["que_la_cambiaria"]["constancias_indispensables"] == ["la escritura"],
+       "una constancia indispensable ya no pone «no_alcanza»: se sigue diciendo en lo que la cambiaría")
+    r15n = copy.deepcopy(RESP)
+    r15n["global"] = {}
+    t15n = armar(r15n)
+    ok(t15n["recomendada"] == "propuesta" and t15n["vias"]["propuesta"]["sentido"] == "infundado",
+       "sin global, la propuesta del principal también se recomienda")
+    r15v = copy.deepcopy(RESP)
+    r15v["global"] = {}
+    r15v["propuestas"] = [dict(PROPUESTAS[0], sentido=""), PROPUESTAS[1]]
+    ok(armar(r15v)["recomendada"] is None, "sin ningún sentido no hay qué recomendar")
+    # La marca de formato 3 se usa; la de «preguntas» no arma tarjeta.
+    _f3 = {"propuesta": {"huella": "h", "estado": "listo", "respuesta": dict(r15)}}
+    ok(td.elegir_marcas(_f3, "h")["estado_calculo"] == "listo", "la propuesta de formato 3 se lee")
+    _fq = {"propuesta": {"huella": "h", "estado": "listo",
+                         "respuesta": {"formato": 3, "estado": "preguntas", "propuestas": [],
+                                       "global": None, "preguntas": [{"id": "P1"}]}},
+           "global_propuesta": {"huella": "h", "global": GLOBAL}}
+    ok(td.elegir_marcas(_fq, "h")["estado_calculo"] == "sin_propuesta",
+       "con preguntas pendientes no hay tarjeta, aunque quede una global de antes")
+finally:
+    os.environ.pop("PROPUESTA_POR_PROBABILIDAD", None)
+_f2 = {"propuesta": {"huella": "h", "estado": "listo", "respuesta": dict(RESP)}}
+ok(td.elegir_marcas(_f2, "h")["estado_calculo"] == "listo", "la de formato 2, como siempre")
 
 print()
 if FALLOS:

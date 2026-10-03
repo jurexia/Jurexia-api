@@ -34254,11 +34254,24 @@ def _taller_armar_criterio(r, ses, glob: dict, *, sentido: str = "", problema: s
                      "/taller/proponer: sin ella no hay sentido que escribir y "
                      "nadie lo ha decidido a mano.")
         _rep_a, _av_a = _md.repartir(_probs_a, _md.ACERVO, "", _props_a, {})
+        # LA JURIMETRÍA POR PROBLEMA VIAJA AL ESTUDIO TAMBIÉN AQUÍ (2-oct-2026),
+        # como en el modo por problema: sin ella el estudio perdía el aviso de
+        # ir contra la corriente del acervo en el camino de un clic.
+        _son_a = getattr(ses.get("material"), "sondeo", None)
+        _pred_a = {str(d.get("problema", "")): d.get("prediccion") or {}
+                   for d in (getattr(_son_a, "por_problema", []) or []) if isinstance(d, dict)}
+        # Y UN PROBLEMA SIN SENTIDO NO SE DESCARTA EN SILENCIO (bandera
+        # «propuesta_por_probabilidad»): entra vacío, el árbol de abajo le da
+        # la suerte del principal y, si no puede, sale en «NO SE ESTUDIARON»
+        # con su nombre. Apagada, como ayer: se filtra.
+        import contexto_taller as _ctx_ac
+        _rellenar_a = _ctx_ac.rediseno("propuesta_por_probabilidad")
         crit = [_f6.Criterio(problema=x["problema"], sentido=x["sentido"],
                              razonamiento=x.get("razonamiento", ""),
                              jerarquia=x.get("jerarquia", "accesorio"),
-                             grupo=_grupos.get(_kp(x["problema"]), ""))
-                for x in _rep_a if str(x.get("sentido", "")).strip()]
+                             grupo=_grupos.get(_kp(x["problema"]), ""),
+                             prediccion=(_pred_a.get(x["problema"]) or {}) if _rellenar_a else {})
+                for x in _rep_a if str(x.get("sentido", "")).strip() or _rellenar_a]
         print(f"   ⚡ TALLER: reparto por jurimetría · {len(crit)} de "
               f"{len(_probs_a)} planteamiento(s) · sin supervisión")
         # SE DICE, PERO SÓLO EN LA PANTALLA: ningún aviso del taller llega al
@@ -34269,7 +34282,7 @@ def _taller_armar_criterio(r, ses, glob: dict, *, sentido: str = "", problema: s
             "revisó antes de escribirlo. Compruébalo tema por tema antes "
             "de firmar.")
         avisos_r.extend(list(_av_a or []))
-        if not crit:
+        if not any(str(c.sentido or "").strip() for c in crit):
             raise HTTPException(
                 422, "El motor no pudo decidir el sentido de ningún "
                      "planteamiento. El criterio te toca a ti.")
@@ -38492,11 +38505,18 @@ async def _taller_proponer_nucleo(user_email: str, numero: str, ses: dict,
     # la pantalla cree que significa.
     _emparejadas = _f5.emparejar(problemas, propuestas)
     _huerfanas = len([x for x in _emparejadas if x is None])
+    # LA PROPUESTA POR PROBABILIDAD (2-oct-2026, David: «el motor nunca se
+    # atreve a proponer»): con su bandera el motor SIEMPRE da un lado, y los
+    # problemas que quedan sin sentido los rellena el árbol con la suerte del
+    # principal. Apagada, todo como ayer.
+    import contexto_taller as _ctx_pp5
+    _por_prob = _ctx_pp5.rediseno("propuesta_por_probabilidad")
     if _huerfanas:
         avisos.append(
             f"{_huerfanas} de {len(problemas)} problemas se quedaron sin "
-            f"propuesta que les corresponda. Quedan en blanco: fija tú el "
-            f"sentido.")
+            f"propuesta que les corresponda. "
+            + ("Se rellenan con la suerte del problema principal; revísalos."
+               if _por_prob else "Quedan en blanco: fija tú el sentido."))
     propuestas = [x if x is not None else _f5.Propuesta(
         problema=(q.get("pregunta", "") if isinstance(q, dict) else str(q)),
         alcanza=False,
@@ -38537,6 +38557,23 @@ async def _taller_proponer_nucleo(user_email: str, numero: str, ses: dict,
                     f"párrafo segundo)."))
     except Exception as _ecp:
         print(f"   ⚠️ CUMPLIMIENTO en la propuesta: {err(_ecp)}")
+
+    # ═══ EL LADO MÁS PROBABLE ES LA PROPUESTA (2-oct-2026) ═════════════════
+    # David: «si ya tenemos jurimetría y sólo hay dos sentidos (…) si hay un
+    # 50.01% de probabilidad hacia un lado sea esa la propuesta de resolución,
+    # para que el secretario pueda generar el proyecto en automático». La
+    # probabilidad combina la tasa del tribunal, los precedentes del mismo
+    # problema y el voto del motor con el peso que demostró en Kingston
+    # (`probabilidad_sentido`). Si gana el lado contrario al del motor, se
+    # VOLTEA con la vía contraria que el propio motor escribió. Va DESPUÉS de
+    # lo vinculado por la ejecutoria y ANTES de reconciliar y del árbol, que
+    # recalculan los accesorios con el principal ya decidido.
+    if _por_prob and glob is not None:
+        try:
+            await _taller_probabilidad_sentido(r, ses, problemas, propuestas, glob,
+                                               _jer_por_problema, avisos)
+        except Exception as _eps:
+            print(f"   ⚠️ PROBABILIDAD del sentido: no se pudo aplicar: {err(_eps)}")
 
     # ═══ LA TARJETA NO PUEDE DECIR «NO PROSPERA» CON UN «FUNDADO» DEBAJO ═══
     # Revisión fiscal 2/2026: el motor razonó «el recurso no debe prosperar
@@ -38587,6 +38624,21 @@ async def _taller_proponer_nucleo(user_email: str, numero: str, ses: dict,
                     _p.razon_propia = _p.razon
                 _p.sentido = _c["sentido"]
                 _p.razon = _c.get("razonamiento") or _p.razon
+            elif _por_prob and not _p.sentido and _c.get("sentido"):
+                # EL HUECO LO LLENA LA SUERTE DEL PRINCIPAL (2-oct-2026): un
+                # problema sin sentido del motor toma el que el árbol le da con
+                # el principal ya decidido, y se dice de dónde salió.
+                _p.sentido = _c["sentido"]
+                _p.razon = _c.get("razonamiento") or _p.razon
+                _p.alcanza, _p.sostenida, _p.origen = True, False, "arbol"
+                print(f"   🌳 ÁRBOL rellena «{_p.problema[:60]}» → {_p.sentido}")
+        if _por_prob:
+            _sin_lado = [_p.problema for _p in propuestas if not str(_p.sentido or "").strip()]
+            if _sin_lado:
+                avisos.append(
+                    f"{len(_sin_lado)} problema(s) siguen sin sentido —ni el motor ni la suerte "
+                    f"del principal les dan uno—: " + " · ".join(f"«{t[:80]}»" for t in _sin_lado[:3])
+                    + ". Fíjalo tú antes de generar.")
         avisos.extend(_av_ad)
         # LA REVISIÓN POR CÓDIGO DE LA PROPUESTA (rediseño, etapa 3; bandera
         # «revision_semantica»): sólo avisa.
@@ -38619,7 +38671,11 @@ async def _taller_proponer_nucleo(user_email: str, numero: str, ses: dict,
                      "razon": _p.razon, "alcanza": _p.alcanza,
                      # Lo que el motor propuso antes del árbol (guarda procesal).
                      "sentido_propio": getattr(_p, "sentido_propio", "") or "",
-                     "razon_propia": getattr(_p, "razon_propia", "") or ""}
+                     "razon_propia": getattr(_p, "razon_propia", "") or "",
+                     # Quién puso el sentido y si el acervo lo respalda
+                     # (2-oct-2026; sólo con la propuesta por probabilidad).
+                     **({"origen": getattr(_p, "origen", "motor") or "motor",
+                         "sostenida": bool(getattr(_p, "sostenida", True))} if _por_prob else {})}
                     for _p in propuestas],
             }).eq("email", (user_email or "").strip().lower()) \
               .eq("expediente", numero).execute()
@@ -38694,6 +38750,17 @@ async def _taller_proponer_nucleo(user_email: str, numero: str, ses: dict,
     ses["global"] = glob
     print(f"   ⚖️ TALLER: propuesta {numero} · {len(propuestas)} sentidos · "
           f"{len(avisos)} avisos · modelo {_f5.MODELO_PROPUESTA}")
+    # EL FORMATO 3 (2-oct-2026): la respuesta gana `estado`, la probabilidad,
+    # `sostenida`, `origen` y las preguntas al secretario (contrato A). Con
+    # las dos banderas apagadas sigue el formato 2, letra por letra.
+    _formato_p = _taller_formato_propuesta()
+    _f3 = _formato_p >= 3
+    if _por_prob:
+        for _p in propuestas:
+            _p.alcanza = bool(str(_p.sentido or "").strip())
+        glob.alcanza = bool(str(glob.sentido or "").strip())
+    _preguntas_p = [q for q in (ses.get("preguntas") or []) if isinstance(q, dict)] \
+        if isinstance(ses.get("preguntas"), list) else []
 
     return {
         "expediente": numero,
@@ -38712,6 +38779,11 @@ async def _taller_proponer_nucleo(user_email: str, numero: str, ses: dict,
         "propuestas": [
             {"problema": p.problema, "sentido": p.sentido, "razon": p.razon,
              "apoyos": p.apoyos, "confianza": p.confianza, "alcanza": p.alcanza,
+             # SOSTENIDA Y ORIGEN (2-oct-2026, formato 3): si el acervo respalda
+             # el sentido —lo que antes decía `alcanza`— y quién lo puso: el
+             # motor, la probabilidad o la suerte del principal (el árbol).
+             **({"sostenida": bool(getattr(p, "sostenida", True)) and bool(p.sentido),
+                 "origen": getattr(p, "origen", "motor") or "motor"} if _f3 else {}),
              # LA JURIMETRÍA, POR PROBLEMA. Es la columna que faltaba en la
              # pantalla: «Conceder (82% de 50 sentencias del acervo)». No es un
              # pronóstico de lo que ESTE tribunal hará —es la distribución de
@@ -38725,7 +38797,10 @@ async def _taller_proponer_nucleo(user_email: str, numero: str, ses: dict,
         # anterior no trae la vía protectora (24-sep-2026) y no se sirve: se
         # recalcula. Súbelo cuando la respuesta gane un campo que la pantalla
         # necesita.
-        "formato": 2,
+        "formato": _formato_p,
+        # «lista» o «preguntas» (contrato A, 2-oct-2026); aquí siempre lista:
+        # la de «preguntas» sale antes de llamar al modelo.
+        **({"estado": "lista", "preguntas": _preguntas_p} if _f3 else {}),
         # CON QUÉ ORIGEN SE CALCULÓ (30-sep-2026): si el secretario corrige la
         # instancia o pega los efectos de la ejecutoria, la guardada ya no vale.
         "origen_firma": _taller_firma_origen(),
@@ -38759,6 +38834,13 @@ async def _taller_proponer_nucleo(user_email: str, numero: str, ses: dict,
             "checklist": glob.checklist,
             # LAS CONSTANCIAS QUE HARÍA FALTA VER, para que la pantalla las pida.
             "constancias": list(getattr(glob, "constancias", None) or []),
+            # LA PROBABILIDAD DEL SENTIDO (2-oct-2026, formato 3): de dónde sale
+            # el lado propuesto, y si se volteó el del motor. `sostenida` es lo
+            # que antes decía `alcanza`; `alcanza` ya sólo dice que hay sentido.
+            **({"probabilidad": (getattr(glob, "probabilidad", None) or None),
+                "sostenida": bool(getattr(glob, "sostenida", True)) and bool(glob.sentido),
+                "confianza_motor": getattr(glob, "confianza_motor", "") or glob.confianza}
+               if _f3 else {}),
         },
         "avisos": avisos,
         # LA LÍNEA DE LA CORTE BUSCADA EN INTERNET: su resumen y las PISTAS que
@@ -38788,8 +38870,122 @@ async def _taller_proponer_nucleo(user_email: str, numero: str, ses: dict,
               "razonamiento": p.razon,
               "jerarquia": _jer_por_problema.get(p.problema, "accesorio"),
               "prediccion": _pred_por_problema.get(p.problema, {})}
-             for p in propuestas if p.alcanza and p.sentido], ensure_ascii=False),
+             # Con la propuesta por probabilidad, TODOS los que tienen sentido
+             # (contrato A): `alcanza` ya no filtra nada que tenga lado.
+             for p in propuestas if (p.sentido if _por_prob else (p.alcanza and p.sentido))],
+            ensure_ascii=False),
     }
+
+
+def _taller_formato_propuesta() -> int:
+    """El formato de la respuesta de /taller/proponer en esta petición: 3 con
+    cualquiera de las dos banderas de la mejora final (2-oct-2026,
+    «propuesta_por_probabilidad» y «preguntas_al_secretario»: contrato A), 2
+    con las dos apagadas, que es la respuesta de ayer. Una guardada con otro
+    formato se recalcula al pedirla."""
+    try:
+        import contexto_taller as _ctx_fp
+        if _ctx_fp.rediseno("propuesta_por_probabilidad") or _ctx_fp.rediseno("preguntas_al_secretario"):
+            return 3
+    except Exception:
+        pass
+    return 2
+
+
+def _taller_filas_del_principal(material, pregunta: str) -> list:
+    """Los precedentes del propio tribunal que `consultar()` ya trajo para el
+    problema principal (`material.espejo`, el grupo de ese planteamiento).
+    Por texto exacto, y si no, por el mismo tema (el secretario pudo corregir
+    la pregunta después de consultar)."""
+    import fase5_propuesta as _f5f
+    grupos = [e for e in (getattr(material, "espejo", None) or [])
+              if isinstance(e, dict) and isinstance(e.get("filas"), list)]
+    clave = _f5f._norm_problema(pregunta)
+    for e in grupos:
+        if _f5f._norm_problema(e.get("problema")) == clave:
+            return list(e["filas"])
+    for e in grupos:
+        if _f5f._mismo_tema(str(e.get("problema") or ""), pregunta):
+            return list(e["filas"])
+    return []
+
+
+async def _taller_probabilidad_sentido(r, ses: dict, problemas: list, propuestas: list,
+                                       glob, jerarquias: dict, avisos: list) -> dict | None:
+    """LA CAPA DE PROBABILIDAD SOBRE LA PROPUESTA (2-oct-2026; ver
+    `probabilidad_sentido.aplicar`). Pone alrededor lo que necesita red: los
+    precedentes del principal (los de la consulta; si no los hay, se buscan con
+    tope de tiempo) y, sólo si el lado que gana no tiene razón escrita, UNA
+    llamada a `_f5.razonar`. Deja `glob.probabilidad` y los avisos. Nada de
+    esto tumba la propuesta: si algo falla, se queda la del motor."""
+    import probabilidad_sentido as _ps
+    import fase5_propuesta as _f5p
+    e = getattr(r, "encargo", None)
+    tipo = str(getattr(e, "tipo_asunto", "") or "")
+    i = _ps.indice_principal(problemas, propuestas, jerarquias)
+    pdict = problemas[i] if 0 <= i < len(problemas) and isinstance(problemas[i], dict) else {}
+    preg = str(pdict.get("pregunta") or (propuestas[i].problema if 0 <= i < len(propuestas) else ""))
+    material = ses.get("material")
+    filas = _taller_filas_del_principal(material, preg) if material is not None else []
+    # ¿ES EL TRIBUNAL DE LA TASA? Si no, la tasa se dice como referencia.
+    propio = True
+    try:
+        import fase_oaj as _fo_ps
+        import fase_precedente as _fp_ps
+        _circ = _fp_ps.circuito_de(getattr(e, "tribunal", "") or "")
+        _clave_o, _organo = _fo_ps.organo_de(getattr(e, "tribunal", "") or "", _circ,
+                                             getattr(e, "ciudad", "") or "")
+        propio = (_clave_o or "") == str(_ps.cargar().get("clave_organo") or "3TCC")
+        if not filas and _organo and pdict:
+            # LA CONSULTA NO LOS DEJÓ (sesión de antes, o el espejo calló por
+            # el principal): se buscan para el principal solo, como en
+            # `redactor_adelanto._espejo_oaj`, con tope. Si no llegan, la tasa
+            # y el voto del motor deciden igual.
+            filas = await asyncio.wait_for(_fo_ps.precedentes_oaj(
+                qdrant_client, lambda t: get_dense_embedding(t, modelo=EMBEDDING_MODEL),
+                pdict, tipo, _organo, getattr(e, "numero", "") or ""), timeout=20.0) or []
+            _propio_num = _fo_ps.numero_expediente(getattr(e, "numero", "") or "")
+            if _propio_num:
+                filas = [f for f in filas
+                         if _fo_ps.numero_expediente(f.get("expediente")) != _propio_num]
+    except asyncio.TimeoutError:
+        print("   ⚠️ PROBABILIDAD: los precedentes del principal tardaron más de 20 s: sin ellos")
+    except Exception as _exc_f:
+        print(f"   ⚠️ PROBABILIDAD: sin precedentes del principal: {type(_exc_f).__name__}")
+    info = _ps.aplicar(glob, propuestas, problemas, tipo, filas, jerarquias, propio=propio)
+    prob = info.get("probabilidad") or {}
+    if info.get("necesita_razon") and info.get("sentido"):
+        # EL LADO QUE GANA SIN RAZÓN ESCRITA: una llamada, con el mismo modelo
+        # que la razón de la calificación que elige el secretario.
+        _txt = ""
+        try:
+            _txt = await asyncio.wait_for(_f5p.razonar(
+                chat_client, preg, info["sentido"], material,
+                "\n".join(r.fases.parrafos_acto() or []),
+                "\n".join(r.fases.parrafos_conceptos() or []),
+                bool(e and getattr(e, "es_recurso", False)), tipo,
+                combate=str(pdict.get("combate") or ""),
+                resolvio=str(pdict.get("resolvio") or "")), timeout=150.0)
+        except Exception as _exc_r:
+            print(f"   ⚠️ PROBABILIDAD: la razón del lado propuesto no llegó: {type(_exc_r).__name__}")
+        if not (_txt or "").strip():
+            # Sin razón no se inventa una: se dice de dónde salió el sentido y
+            # que la razón está por escribir.
+            _txt = (f"{prob.get('explicacion', '')} La razón jurídica de esta vía está por "
+                    f"escribir: el motor no la redactó. Pídela con «Redactar el criterio de esta "
+                    f"vía» o escríbela tú.").strip()
+            avisos.append("El sentido propuesto no trae razón escrita: sale de la probabilidad. "
+                          "Pide o escribe la razón antes de generar.")
+        glob.razon = _txt[:900]
+        if 0 <= i < len(propuestas) and propuestas[i].sentido == info["sentido"] \
+                and not str(propuestas[i].razon or "").strip():
+            propuestas[i].razon = _txt[:900]
+    glob.probabilidad = prob
+    avisos.extend(info.get("avisos") or [])
+    print(f"   🎲 PROBABILIDAD del sentido ({tipo or 'sin tipo'}): p(prospera)="
+          f"{prob.get('p_prospera')} → {prob.get('lado')} · {len(filas)} precedente(s)"
+          + (" · VOLTEADA" if info.get("volteada") else ""))
+    return info
 
 
 @app.post("/taller/proponer")
@@ -38882,9 +39078,17 @@ async def taller_proponer(
                 _previa = _doc["respuesta"]
         except Exception as _exc_pp:
             print(f"   ⚠️ no se pudo recoger la propuesta calculada sola: {err(_exc_pp)}")
-    if _previa is not None and _previa.get("formato") != 2:
-        print(f"   ⚖️ TALLER: la propuesta guardada de {numero} es de un formato anterior "
-              f"(sin vía protectora): se recalcula")
+    # EL FORMATO QUE RIGE EN ESTA PETICIÓN (2-oct-2026): 3 con la mejora final
+    # —una guardada en formato 2 no trae la probabilidad ni las preguntas y se
+    # recalcula—, 2 sin ella (y una de formato 3 también se recalcula: se
+    # calculó con otras banderas). Una respuesta en estado «preguntas» se
+    # sirve tal cual: sus preguntas siguen pendientes y la invalida quien
+    # guarda las respuestas (/taller/responder).
+    _formato_rige = _taller_formato_propuesta()
+    if _previa is not None and _previa.get("estado") != "preguntas" \
+            and _previa.get("formato") != _formato_rige:
+        print(f"   ⚖️ TALLER: la propuesta guardada de {numero} es del formato "
+              f"{_previa.get('formato')} y rige el {_formato_rige}: se recalcula")
         _previa = None
     if _previa is not None and str(_previa.get("origen_firma") or "") != _taller_firma_origen():
         # «reclasificar» de /taller/origen: la guardada se calculó con otro
@@ -38931,7 +39135,10 @@ async def taller_proponer(
     _taller_guardar_global(user_email, numero, ses["resultado"], _resp)
     # Una propuesta calculada aquí (con contexto del secretario, o sin la
     # precalculada) también lleva su deliberación, si la bandera lo permite.
-    _taller_lanzar_deliberacion(user_email, numero, ses["resultado"], ses, _resp, contexto)
+    # Con preguntas pendientes (contrato A, 2-oct-2026) no hay propuesta que
+    # deliberar: la respuesta sale tal cual.
+    if (_resp or {}).get("estado") != "preguntas":
+        _taller_lanzar_deliberacion(user_email, numero, ses["resultado"], ses, _resp, contexto)
     return _taller_con_aplicado(_resp, user_email, recalculada=True)
 
 
