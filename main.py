@@ -39083,6 +39083,26 @@ async def _taller_proponer_nucleo(user_email: str, numero: str, ses: dict,
     except Exception as _ead:
         print(f"   ⚠️ ÁRBOL: no se pudo aplicar en la propuesta: {err(_ead)}")
 
+    # LOS IDENTIFICADORES INTERNOS DEL ANÁLISIS FUERA DE LA PROSA (3-oct-2026,
+    # revisión adversarial): «H2», «F1», «R3» sólo existen en el bloque del
+    # análisis; si el modelo los escribe en una razón, llegan a la pantalla y,
+    # por el criterio, al estudio. Se quitan antes de guardar y de servir.
+    try:
+        import preguntas_secretario as _ps_ids
+        if _ps_ids.activa():
+            import analisis_litis as _al_ids
+            for _p in propuestas:
+                _p.razon = _al_ids.quitar_ids_internos(_p.razon)
+            if glob is not None:
+                for _k in ("razon", "en_contra", "efecto"):
+                    if isinstance(getattr(glob, _k, None), str):
+                        setattr(glob, _k, _al_ids.quitar_ids_internos(getattr(glob, _k)))
+                if isinstance(getattr(glob, "alternativa", None), dict):
+                    glob.alternativa = _al_ids.quitar_ids_de_propuesta(glob.alternativa)
+                if isinstance(getattr(glob, "checklist", None), list):
+                    glob.checklist = _al_ids.quitar_ids_de_propuesta(glob.checklist)
+    except Exception as _exc_ids:
+        print(f"   ⚠️ no se pudieron quitar los identificadores internos: {err(_exc_ids)}")
     ses["propuestas"] = propuestas
     # ── Y SE PERSISTEN, PORQUE HAY DOS TRABAJADORES ──────────────────────
     #

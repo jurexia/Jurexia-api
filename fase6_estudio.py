@@ -1173,7 +1173,9 @@ _REGLA_CONSTA_PREGUNTAS = """- NUNCA SUPONGAS LO QUE CONSTA, NI DES POR CIERTO L
   el escrito de la parte se ATRIBUYE a ella (aduce, sostiene, refiere) y se
   contrasta con lo que consta: es justo lo que se verifica, no una premisa. Si
   nada de lo que consta lo acredita, se escribe que la parte no lo demuestra o
-  que de la resolución no se advierte, y decide la carga de la prueba. Están
+  que de la resolución no se advierte; la carga de la prueba decide sólo los
+  hechos que debían probarse en el juicio, y una omisión que la parte atribuye a
+  la resolución se comprueba leyéndola, no por la carga. Están
   PROHIBIDAS las fórmulas «si … fue efectivamente», «se afirma que», «según lo
   planteado», «de ser cierto», «en el supuesto de que». Y la voz de la
   herramienta no existe en una sentencia: el tribunal no habla del material, de

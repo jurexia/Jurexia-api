@@ -108,8 +108,13 @@ def _bloque_analisis(a) -> str:
     for h in (a.get("hechos") or [])[:35]:
         L.append(f"  {h.get('id')} {_t(h.get('que'), 250)} — afirma: {h.get('afirma')} — {h.get('condicion')}")
     for p in (a.get("premisas") or [])[:15]:
-        L.append(f"  PREMISA {p.get('id', '')}: la parte afirma {_t(p.get('afirma_la_parte'), 250)} — la resolución: "
-                 f"{p.get('el_acto')}" + (f" — respuesta del secretario: {p.get('respuesta')}" if p.get("respuesta") else ""))
+        try:
+            import analisis_litis as _al_e
+            _estado_p = _al_e.estado_de_premisa(p)
+        except Exception:
+            _estado_p = str(p.get("el_acto") or "")
+        L.append(f"  PREMISA: la parte afirma {_t(p.get('afirma_la_parte'), 250)} — la resolución: "
+                 f"{_estado_p}" + (f" — respuesta del secretario: {p.get('respuesta')}" if p.get("respuesta") else ""))
     if a.get("autonomas_sin_combatir"):
         L.append("RAZONES AUTÓNOMAS QUE NINGÚN ARGUMENTO ATACA (cálculo del análisis): "
                  + ", ".join(a["autonomas_sin_combatir"]))
