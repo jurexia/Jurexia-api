@@ -1862,6 +1862,16 @@ async def resolver(cliente, r: Resultado, criterios: list[f6.Criterio],
     # LA CALIFICACIÓN AL ABRIR (familia v2, p2-congruencia): sin modelo, igual
     # que en el gemelo en vivo.
     estudio = _congruencia_apertura(r, criterios, material, estudio, _meta, avisos)
+    # EL SUPERVISOR DEL PROYECTO (2-oct-2026, David: «un LLM o agente que, sin
+    # tanto costo, revise el proyecto y ajuste sus errores»). Aquí, con el
+    # estudio completo y sus marcas, y ANTES de los efectos, las fuentes
+    # tardías y `_terminar`: todo lo que viene después re-valida sin modelo el
+    # texto corregido. Bandera `supervisor_proyecto`; apagada, no se llama.
+    import supervisor_proyecto as _sup
+    if _sup.activo():
+        with cronometrar("supervisor"):
+            estudio = await _sup.en_el_resolver(cliente, r, criterios, material, estudio,
+                                                _meta, avisos, contexto)
     # LOS EFECTOS DE UNA VIOLACIÓN PROCESAL SE ORDENAN PASO A PASO (v5 del
     # 93/2026: «dicte otra» sobre una reposición). Se comprueba aquí porque
     # aquí se sabe si la hay.
@@ -1979,6 +1989,14 @@ async def resolver_en_vivo(cliente, r: Resultado, criterios: list[f6.Criterio],
                                                _faltan, _meta, avisos)
     # LA CALIFICACIÓN AL ABRIR (familia v2, p2-congruencia): sin modelo.
     estudio = _congruencia_apertura(r, criterios, material, estudio, _meta, avisos)
+    # EL SUPERVISOR DEL PROYECTO, igual que en `resolver` (2-oct-2026). La
+    # pantalla ve «revisando» mientras corre la llamada; sólo si rige.
+    import supervisor_proyecto as _sup
+    if _sup.activo():
+        yield {"tipo": "revisando"}
+        with cronometrar("supervisor"):
+            estudio = await _sup.en_el_resolver(cliente, r, criterios, material, estudio,
+                                                _meta, avisos, contexto)
     # CON LA RAMA, que ya lee lo que el estudio concluyó (28-sep-2026): en un
     # «revoca y niega» no hay efectos que ordenar (AR 631/2025).
     _av_ef = f6._efectos_de_reposicion(estudio, criterios, _vp,
@@ -2619,6 +2637,24 @@ async def _terminar(cliente, r, e, criterios, material, estudio,
                 avisos.extend(_dg4.revisar_marco(marco_escrito, marco or ""))
             except Exception as _em:
                 avisos.append(f"No se pudo escribir el marco jurídico: {_em}")
+    # EL BARRIDO ADELANTADO (2-oct-2026, velocidad del supervisor): se pregunta
+    # ya por los artículos del estudio y de los resúmenes, mientras la
+    # síntesis de portada y el compositor trabajan. Al terminar el .docx se
+    # barre el documento entero como siempre, reutilizando lo ya contestado.
+    # Mismo barrido, otro momento; sólo con la bandera del supervisor y si el
+    # barrido está encendido (el interruptor de Render sigue mandando).
+    _memo_bar, _t_bar_pre = None, None
+    try:
+        import supervisor_proyecto as _sup_b
+        import barrido_preceptos as _bp_pre
+        if _sup_b.activo() and _bp_pre.BARRIDO_ACTIVO:
+            _memo_bar = _sup_b.BarridoMemo()
+            _t_bar_pre = asyncio.ensure_future(_bp_pre.barrer(
+                _sup_b.texto_para_barrido(relleno, getattr(r, "estructura", None)), material,
+                preguntar=_memo_bar.preguntar, confirmar=_memo_bar.confirmar))
+    except Exception as _ebp:
+        print(f"   ⚠️ BARRIDO adelantado: {type(_ebp).__name__}")
+        _memo_bar, _t_bar_pre = None, None
     if (e.modo or "").lower() == "generado":
         with cronometrar("recomposición"):
             ruta, av_gen, _est = await _componer_generado(
@@ -2722,7 +2758,18 @@ async def _terminar(cliente, r, e, criterios, material, estudio,
         # 93/2026: 6-14 s, cero acusaciones falsas en seis corridas.
         try:
             import barrido_preceptos as _bp
-            _r_bar = await _bp.barrer(_plano, material)
+            if _memo_bar is not None:
+                # Lo adelantado, recogido (con tope: si aún pregunta, se espera
+                # lo que se habría tardado igual) y reutilizado.
+                with cronometrar("barrido de preceptos"):
+                    try:
+                        await asyncio.wait_for(_t_bar_pre, timeout=_bp.BARRIDO_SEGUNDOS + 10)
+                    except Exception:
+                        pass
+                    _r_bar = await _bp.barrer(_plano, material, preguntar=_memo_bar.preguntar,
+                                              confirmar=_memo_bar.confirmar)
+            else:
+                _r_bar = await _bp.barrer(_plano, material)
             for _a in (_r_bar.get("avisos") or []):
                 avisos.insert(0, _a)
         except Exception as _exbar:
