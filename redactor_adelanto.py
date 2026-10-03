@@ -1447,15 +1447,21 @@ _RX_REGISTRO = re.compile(r"registro(?:\s+digital)?(?:\s+n[úu]mero)?\s*:?\s*(\d
                           r"|\((\d{6,7})\)", re.I)
 
 
-def vicio_y_argumento(r, problema: str, sentido: str, razon: str = "") -> tuple:
-    """(vicio, argumento, resolvió) de un planteamiento calificado.
+# LA RAZÓN CORTA ES LA DIRECTRIZ DEL SECRETARIO; LA LARGA, EL PÁRRAFO DEL MOTOR
+# (revisión adversarial, 3-oct-2026). Lo que llega como razón casi nunca son
+# las dos líneas que él escribe: es el párrafo de /taller/razonar (60-160
+# palabras), la razón global del modo acervo (hasta 900 caracteres) o la del
+# motor puesta sobre el principal. En ese texto largo cualquier pista casa con
+# algo que no es el vicio, y su resultado pisaba el vicio que la fase 3 sí
+# declaró. Ahora la fase 3 manda sobre el texto largo; la directriz corta del
+# secretario, cuando nombra un vicio, sigue mandando sobre todo (él decide).
+RAZON_CORTA_CHARS = 280
 
-    El vicio, en este orden: el que nombra la razón del secretario (él decide),
-    el que la fase 3 declaró en el impedimento del problema, y el de la
-    calificativa (la inoperancia a secas, `no_combate`). «» si la calificativa
-    no es de técnica. El argumento es la pregunta y lo que la combate; lo que
-    se resolvió, lo que dijo el órgano: con eso se ordena por pertinencia.
-    El MISMO cálculo en /taller/razonar y antes del plan."""
+
+def _problema_de_la_fase3(r, problema: str) -> tuple:
+    """(combate, resolvio, vicio declarado) del problema de la fase 3 que casa
+    con `problema`; vacíos si no está. El vicio declarado es la clave del
+    impedimento si es del catálogo; si no, el que nombra su explicación."""
     import vicio_inoperancia as _vi
     combate, resolvio, declarado = "", "", ""
     try:
@@ -1473,13 +1479,58 @@ def vicio_y_argumento(r, problema: str, sentido: str, razon: str = "") -> tuple:
                 break
     except Exception:
         pass
-    vicio = _vi.vicio_de(sentido, "", _vi.vicio_de_texto(razon or "") or declarado)
+    return combate, resolvio, declarado
+
+
+def _tipo_de(r, tipo_asunto=None) -> str:
+    if tipo_asunto is not None:
+        return str(tipo_asunto or "")
+    return str(getattr(getattr(r, "encargo", None), "tipo_asunto", "") or "")
+
+
+def vicio_y_argumento(r, problema: str, sentido: str, razon: str = "", *,
+                      tipo_asunto=None) -> tuple:
+    """(vicio, argumento, resolvió) de un planteamiento calificado.
+
+    El vicio, en este orden: el que nombra la directriz CORTA del secretario
+    (él decide), el que la fase 3 declaró en el impedimento del problema, el
+    que nombra la razón larga (el párrafo del motor) y el de la calificativa
+    (la inoperancia a secas, `no_combate`). Sólo cuenta un vicio que exista en
+    la vía (`vicio_inoperancia.cabe_en_la_via`, la misma partición que pide la
+    fase 3). «» si la calificativa no es de técnica. El argumento es la
+    pregunta y lo que la combate; lo que se resolvió, lo que dijo el órgano:
+    con eso se ordena por pertinencia. El MISMO cálculo en /taller/razonar y
+    antes del plan."""
+    import vicio_inoperancia as _vi
+    combate, resolvio, declarado = _problema_de_la_fase3(r, problema)
+    razon = razon or ""
+    del_texto = _vi.vicio_de_texto(razon)
+    if len(" ".join(razon.split())) <= RAZON_CORTA_CHARS:
+        candidatos = (del_texto, declarado)
+    else:
+        candidatos = (declarado, del_texto)
+    tipo = _tipo_de(r, tipo_asunto)
+    elegido = next((v for v in candidatos if v and _vi.cabe_en_la_via(v, tipo)), "")
+    vicio = _vi.vicio_de(sentido, "", elegido)
     argumento = " ".join(f"{problema or ''} {combate}".split())
     return vicio, argumento, resolvio
 
 
+def vicio_declarado(r, problema: str, *, tipo_asunto=None) -> str:
+    """El vicio que la fase 3 declaró para el problema, si cabe en la vía; «»
+    si no declaró ninguno. Para las inoperancias por SEGMENTO de la v4
+    (3-oct-2026): un problema infundado puede tener argumentos que el plan
+    califica inoperantes por ese vicio."""
+    import vicio_inoperancia as _vi
+    _, _, declarado = _problema_de_la_fase3(r, problema)
+    if declarado and _vi.cabe_en_la_via(declarado, _tipo_de(r, tipo_asunto)):
+        return declarado
+    return ""
+
+
 async def material_con_tesis_del_vicio(qdrant, embed_juris, r, material, criterios, *,
-                                       tope_s: float = ESPERA_TESIS_DEL_VICIO_S):
+                                       tope_s: float = ESPERA_TESIS_DEL_VICIO_S,
+                                       suplencia=None, por_segmento=None):
     """UNA COPIA del material con las tesis del vicio de cada criterio de
     técnica (inoperante, inatendible, ineficaz, innecesario, fundado pero
     insuficiente), o el MISMO material si no hay nada que añadir, la bandera
@@ -1495,14 +1546,23 @@ async def material_con_tesis_del_vicio(qdrant, embed_juris, r, material, criteri
     · Los registros que la razón del criterio cita (la de /taller/razonar los
       tomó de estas mismas búsquedas) se traen por registro si faltan, salvo
       que hayan perdido vigencia: lo que la razón invoca tiene que estar en el
-      material que verá el estudio.
+      material que verá el estudio. Pasan los mismos filtros que las de la
+      búsqueda: la vía del rubro y lo que la evaluación excluye.
+    · `suplencia`: la del formulario cuando quien llama la tiene (el pedido del
+      plan, el precálculo con {}); None = la del encargo, que el resolver fija
+      desde SU formulario. Así la clave del plan sale igual en los dos workers.
+    · `por_segmento` (la v4; None = según la variante del encargo): también los
+      problemas cuyo criterio no es de técnica (infundado, fundado) pero cuyo
+      impedimento de la fase 3 declara un vicio, porque el plan v4 califica
+      inoperantes ARGUMENTOS dentro de ellos (3-oct-2026).
     Nunca lanza."""
     import vicio_inoperancia as _vi
     if material is None or not criterios or not _vi.activa():
         return material
     try:
         return await asyncio.wait_for(
-            _material_con_tesis_del_vicio(qdrant, embed_juris, r, material, criterios),
+            _material_con_tesis_del_vicio(qdrant, embed_juris, r, material, criterios,
+                                          suplencia=suplencia, por_segmento=por_segmento),
             timeout=tope_s)
     except asyncio.TimeoutError:
         print(f"   ⚠️ tesis del vicio: no llegaron en {tope_s:.0f} s; el estudio sigue sin ellas")
@@ -1511,16 +1571,25 @@ async def material_con_tesis_del_vicio(qdrant, embed_juris, r, material, criteri
     return material
 
 
-async def _material_con_tesis_del_vicio(qdrant, embed_juris, r, material, criterios):
+async def _material_con_tesis_del_vicio(qdrant, embed_juris, r, material, criterios, *,
+                                        suplencia=None, por_segmento=None):
     import copy as _copy
     import vicio_inoperancia as _vi
     e = getattr(r, "encargo", None)
     tipo = str(getattr(e, "tipo_asunto", "") or getattr(material, "tipo_asunto", "") or "")
     try:
         import suplencia as _sp
-        _supl = bool(_sp.confirmada(getattr(e, "suplencia", None) or {}))
+        _sup_d = (getattr(e, "suplencia", None) if suplencia is None else suplencia) or {}
+        _supl = bool(_sp.confirmada(_sup_d))
     except Exception:
         _supl = False
+    if por_segmento is None:
+        try:
+            import fase6_estudio as _f6s
+            por_segmento = _f6s.normalizar_variante(
+                getattr(e, "variante_estudio", "") or "", "") == "v4"
+        except Exception:
+            por_segmento = False
     # El principal primero: si hay que recortar vicios, se recorta lo accesorio.
     _orden = sorted([c for c in criterios if c is not None],
                     key=lambda c: str(getattr(c, "jerarquia", "") or "") != "principal")
@@ -1529,7 +1598,8 @@ async def _material_con_tesis_del_vicio(qdrant, embed_juris, r, material, criter
     for c in _orden:
         vicio, arg, res_ = vicio_y_argumento(r, str(getattr(c, "problema", "") or ""),
                                              str(getattr(c, "sentido", "") or ""),
-                                             str(getattr(c, "razonamiento", "") or ""))
+                                             str(getattr(c, "razonamiento", "") or ""),
+                                             tipo_asunto=tipo)
         if not vicio or (_supl and vicio in _vi.VICIOS_DE_FORMA):
             continue
         g = por_vicio.setdefault(vicio, {"args": [], "res": [],
@@ -1540,6 +1610,29 @@ async def _material_con_tesis_del_vicio(qdrant, embed_juris, r, material, criter
             reg = _m[0] or _m[1]
             if reg not in [x for x, _ in citados]:
                 citados.append((reg, vicio))
+    # LAS INOPERANCIAS POR SEGMENTO DE LA v4 (revisión adversarial,
+    # 3-oct-2026): el plan califica inoperantes ARGUMENTOS dentro de un problema
+    # infundado o fundado (deriva_de_desestimado, novedoso, falsa_premisa…), y
+    # sin esto no tenían ninguna tesis de su vicio: la regla v4 manda razonar
+    # sin cita si el material no la trae. Se busca el vicio que la fase 3
+    # DECLARÓ para el problema, con calificativa «inoperante», DESPUÉS de los
+    # criterios de técnica (si hay que recortar, se recorta esto) y sin sumar
+    # su argumento a un vicio que ya buscó un criterio de técnica: esa búsqueda
+    # queda como estaba. Determinista: entra al índice del plan y a su clave.
+    # Los vicios que sólo elige el planificador sin impedimento de la fase 3
+    # no se cubren aquí (harían falta después del plan, fuera de la clave).
+    if por_segmento:
+        for c in _orden:
+            _sent = str(getattr(c, "sentido", "") or "")
+            if _vi.vicio_de(_sent):
+                continue
+            _dec = vicio_declarado(r, str(getattr(c, "problema", "") or ""), tipo_asunto=tipo)
+            if not _dec or _dec in por_vicio or (_supl and _dec in _vi.VICIOS_DE_FORMA):
+                continue
+            _v_seg = _vi.vicio_de("inoperante", "", _dec)
+            _, arg, res_ = vicio_y_argumento(r, str(getattr(c, "problema", "") or ""),
+                                             "inoperante", "", tipo_asunto=tipo)
+            por_vicio[_v_seg] = {"args": [arg], "res": [res_], "calif": "inoperante"}
     if not por_vicio:
         return material
     vicios = list(por_vicio)[:TOPE_VICIOS_POR_ASUNTO]
@@ -1580,9 +1673,20 @@ async def _material_con_tesis_del_vicio(qdrant, embed_juris, r, material, criter
                 qdrant, [reg for reg, _ in _faltan[:2 * TOPE_VICIOS_POR_ASUNTO]])}
         except Exception:
             _traidas = {}
+        # LOS MISMOS FILTROS QUE LAS DE LA BÚSQUEDA (revisión adversarial,
+        # 3-oct-2026): «UN SOLO FILTRO para todas las entradas de tesis». Una
+        # tesis de otro recurso, o en una corrida del banco una publicada
+        # después del corte, no entra al material marcada como del vicio.
+        try:
+            import contexto_taller as _ct_tv
+            _pasan = {str(t.get("registro") or "")
+                      for t in _ct_tv.filtrar_tesis(list(_traidas.values()))}
+        except Exception:
+            _pasan = set(_traidas)
         for reg, v in _faltan:
             t = _traidas.get(reg)
-            if t is None or f6rag._perdio_vigencia(t):
+            if (t is None or f6rag._perdio_vigencia(t) or reg not in _pasan
+                    or not f6rag.apta_para_el_recurso(t.get("rubro", ""), tipo)):
                 continue
             t["vicio"] = v
             t["de_la_calificativa"] = por_vicio.get(v, {}).get("calif") or v
