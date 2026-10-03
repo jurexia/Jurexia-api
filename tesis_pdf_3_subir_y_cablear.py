@@ -193,29 +193,46 @@ def cablear():
         with urllib.request.urlopen(req, timeout=120) as r:
             return json.loads(r.read().decode('utf-8'))
 
-    hechos = errores = 0
+    # EN PARALELO, PORQUE EN SERIE SON SEIS HORAS. Es una llamada por tesis
+    # —cada una lleva su propia URL, así que no hay lote posible— y en serie
+    # salían 3 por segundo: 63,172 tesis habrían tardado 5.8 horas. Qdrant
+    # aguanta de sobra la concurrencia; el cuello era la latencia de ida y
+    # vuelta, y eso se tapa con hilos.
+    lock = threading.Lock()
+    n = {'hechos': 0, 'errores': 0}
     t0 = time.time()
-    # De 256 en 256: cada lote es una llamada con su filtro, y lotes más
-    # grandes hacen la petición demasiado pesada para el timeout.
-    for i in range(0, len(filas), 256):
-        lote = filas[i:i + 256]
-        for fila in lote:
-            reg = fila['registro']
-            try:
-                pedir(f'/collections/{COLECCION}/points/payload?wait=false', {
-                    'payload': {'pdf_url': url_de(reg)},
-                    'filter': {'must': [{'key': 'registro',
-                                         'match': {'value': reg}}]},
-                })
-                hechos += 1
-            except Exception as e:
-                errores += 1
-                if errores <= 5:
-                    print(f'  error con {reg}: {type(e).__name__}: {e}', flush=True)
-        seg = max(time.time() - t0, 1)
-        print(f'  {hechos:,}/{len(filas):,} cableadas · {hechos/seg:.0f}/s', flush=True)
 
-    print(f'\nCableadas: {hechos:,} · errores: {errores:,} · '
+    def una(fila):
+        reg = fila['registro']
+        try:
+            pedir(f'/collections/{COLECCION}/points/payload?wait=false', {
+                'payload': {'pdf_url': url_de(reg)},
+                'filter': {'must': [{'key': 'registro', 'match': {'value': reg}}]},
+            })
+            with lock:
+                n['hechos'] += 1
+        except Exception as e:
+            with lock:
+                n['errores'] += 1
+                if n['errores'] <= 5:
+                    print(f'  error con {reg}: {type(e).__name__}: {e}', flush=True)
+
+    parar = threading.Event()
+
+    def reloj():
+        while not parar.wait(15):
+            seg = max(time.time() - t0, 1)
+            print(f'  {n["hechos"]:,}/{len(filas):,} cableadas · '
+                  f'{n["hechos"]/seg:.0f}/s · errores {n["errores"]:,}', flush=True)
+
+    threading.Thread(target=reloj, daemon=True).start()
+    try:
+        with ThreadPoolExecutor(max_workers=48) as ex:
+            list(ex.map(una, filas))
+    finally:
+        parar.set()
+
+    print(f'\nCableadas: {n["hechos"]:,} · errores: {n["errores"]:,} · '
           f'{(time.time()-t0)/60:.1f} min')
     print(f'Ejemplo: {url_de(filas[0]["registro"])}')
 
