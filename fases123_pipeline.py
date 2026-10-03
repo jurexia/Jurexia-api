@@ -902,8 +902,7 @@ Devuelve JSON y nada más:
   ]
 }}
 {_clase_procesal}
-{_reparto}Si adviertes un impedimento técnico que llevaría a inoperancia, ponlo en
-"impedimento" como {{"motivo": "inoperancia", "explicacion": "..."}}.
+{_reparto}{__import__('vicio_inoperancia').regla_impedimento(_t)}
 Y si adviertes lo contrario —algo que sostenga el planteamiento— ponlo en
 "apoyo" como {{"motivo": "razón toral|jurisprudencia|constancia",
 "explicacion": "..."}}. Los dos campos son opcionales y ninguno obliga al

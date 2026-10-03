@@ -2557,16 +2557,7 @@ experto de uno que rellena:
 
   · En un {q1} que resulta INOPERANTE: **ENTRE TRES Y SIETE PÁRRAFOS, nunca
     más**. Y se resuelve como lo resuelve un secretario: se enuncia el
-    planteamiento, SE CITA UNA TESIS SOBRE LA INOPERANCIA de que se trate
-    —hay criterios para cada tipo: no combatir la razón toral, ser novedoso,
-    partir de premisa falsa, versar sobre cuestión firme— y SE APLICA a este
-    caso con el mismo diálogo jurídico que el resto: la regla del criterio,
-    los hechos de aquí, y por qué encajan.
-
-    La tesis hace el trabajo pesado, y por eso el apartado es corto. La
-    inoperancia se razona con autoridad, no se desarrolla con párrafos: un
-    apartado de inoperancia más largo que el del tema principal delata que no
-    se supo dónde estaba el asunto.
+{__import__('vicio_inoperancia').regla_inoperante_v1(q1)}
 
   · En un {q1} que SIGUE LA SUERTE del principal —queda sin materia, o
     subsiste la razón ya dada—: **ENTRE TRES Y SIETE PÁRRAFOS**, diciendo POR
@@ -2836,9 +2827,7 @@ FUNDAMENTO — hay que fundar, y hay que fundar bien:
     al caso», «aunque referido a la legislación del Estado de X» y cualquier
     otra que ponga la entidad ajena como razón: no aparecen ni una vez en el
     corpus. Se escribe así:
-        «Sustenta esa consideración, por analogía, la jurisprudencia 2a./J.
-         58/2010 de la Segunda Sala de la Suprema Corte de Justicia de la
-         Nación, de registro …, de rubro y texto siguientes:»
+{__import__('vicio_inoperancia').ejemplo_analogia()}
         «De acuerdo con el principio rector que informa la tesis precitada, es
          factible considerar que…»
         «resulta aplicable, por identidad de razón, … pues si bien en aquel
@@ -2851,7 +2840,7 @@ FUNDAMENTO — hay que fundar, y hay que fundar bien:
   · SI ES DE UN COLEGIADO DE OTRO CIRCUITO el verbo es COMPARTIR, no obedecer:
     «Por lo anterior se comparte el criterio sustentado en la jurisprudencia…».
 - EL REGISTRO DIGITAL VA SIEMPRE, sin excepción, en la misma frase que el rubro.
-  La clave —«2a./J. 58/2010»— no lo sustituye: sin el registro nadie comprueba
+  {__import__('vicio_inoperancia').clave_no_sustituye()}: sin el registro nadie comprueba
   la cita en el Semanario, que es para lo que sirve citarla.
 - Al citar una tesis: en el CUERPO van sólo el rubro entre comillas y el
   registro. NADA MÁS. La localización —«[J]; 11a. Época; 1a. Sala; Gaceta
@@ -3332,9 +3321,7 @@ FORMA — medida sobre 40 engroses firmados, no inventada:
       otro—: una o dos frases que lo declaran innecesario y dicen por qué.
     · CAE CON EL PRINCIPAL —el criterio dice que descansa en la premisa que ya
       se desestimó—: un párrafo.
-    · INOPERANTE: de uno a tres párrafos que dicen qué consideración deja sin
-      combatir, o por qué no puede examinarse, con su razón. La tesis sobre la
-      inoperancia se cita sólo si hace falta para sostenerla.
+{__import__('vicio_inoperancia').regla_inoperante_v4()}
     · RESIDUAL —un argumento menor y sin dato propio dentro de un {q1} que se
       contesta—: una o dos frases, con su calificación y su razón. El que
       trae un dato propio no es residual: recibe su respuesta.
@@ -3674,9 +3661,7 @@ FUNDAMENTO — hay que fundar, y hay que fundar bien:
     al caso», «aunque referido a la legislación del Estado de X» y cualquier
     otra que ponga la entidad ajena como razón: no aparecen ni una vez en el
     corpus. Se escribe así:
-        «Sustenta esa consideración, por analogía, la jurisprudencia 2a./J.
-         58/2010 de la Segunda Sala de la Suprema Corte de Justicia de la
-         Nación, de registro …, de rubro y texto siguientes:»
+{__import__('vicio_inoperancia').ejemplo_analogia()}
         «De acuerdo con el principio rector que informa la tesis precitada, es
          factible considerar que…»
         «resulta aplicable, por identidad de razón, … pues si bien en aquel
@@ -3689,7 +3674,7 @@ FUNDAMENTO — hay que fundar, y hay que fundar bien:
   · SI ES DE UN COLEGIADO DE OTRO CIRCUITO el verbo es COMPARTIR, no obedecer:
     se dice que este tribunal comparte ese criterio, no que lo acata.
 - EL REGISTRO DIGITAL VA SIEMPRE, sin excepción, en la misma frase que el rubro.
-  La clave —«2a./J. 58/2010»— no lo sustituye: sin el registro nadie comprueba
+  {__import__('vicio_inoperancia').clave_no_sustituye()}: sin el registro nadie comprueba
   la cita en el Semanario, que es para lo que sirve citarla.
 - Al citar una tesis: en el CUERPO van sólo el rubro entre comillas y el
   registro. NADA MÁS. La localización —«[J]; 11a. Época; 1a. Sala; Gaceta

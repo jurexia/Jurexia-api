@@ -788,9 +788,12 @@ async def consultar(qdrant, embed_juris, embed_leyes,
                                  ("apoyo", "sustento")):
                 _x = p.get(_clave)
                 if isinstance(_x, dict) and _x.get("explicacion"):
-                    problemas.append(
-                        f"¿{str(_x.get('motivo') or _pre).capitalize()}: "
-                        f"{_x['explicacion']}?")
+                    # EL VICIO, NO EL GÉNERO (2-oct-2026, David: «la cita de
+                    # inoperancia siempre es la misma»): con la bandera
+                    # `inoperancia_por_vicio`, el impedimento pregunta por SU
+                    # vicio; sin ella, «¿Inoperancia: …?» como antes.
+                    import vicio_inoperancia as _vi_c
+                    problemas.append(_vi_c.pregunta_sintetica(_clave, _pre, _x))
     coleccion = (r.encargo.coleccion_estatal if r.encargo else "") or None
     # LA LEY DEL ESTADO NO PINTA NADA EN UN LABORAL FEDERAL. En el ADL 382/2024
     # —IMSS contra un enfermero, ante la Junta Federal— el marco jurídico salió
@@ -1420,6 +1423,187 @@ async def _tesis_de_la_tecnica(qdrant, material, rama: str) -> None:
                   f"{', '.join(t['registro'] for t in _nuevas)}")
     except Exception as _et:
         print(f"   ⚠️ no se pudieron añadir las tesis de la rama: {type(_et).__name__}")
+
+
+# ═══ LAS TESIS DEL VICIO, ANTES DEL PLAN (2-oct-2026) ═══════════════════════
+# David: «en la cita de jurisprudencias sobre inoperancia siempre es la misma».
+# Hasta hoy la única tesis de inoperancia «del vicio» la traía /taller/razonar,
+# pegándola al material EN LA MEMORIA del worker que atendía (gunicorn -w 2):
+# llegaba al estudio sólo si el mismo worker resolvía, y el plan no la tenía en
+# su índice, así que todos los apartados inoperantes acababan en la tesis
+# genérica que trajo la co-citación. Ahora el resolver, ANTES del plan, trae
+# 1-2 tesis por cada vicio presente en el criterio y las pone en una COPIA del
+# material —nada en memoria— con cupo propio y marcadas `tecnica` y `vicio`:
+# entran al índice del plan (`plan_estudio.indice_material`) y al bloque del
+# estudio. Es determinista (similitud, sin rerank) para que la clave del plan
+# salga igual en los dos workers.
+CUPO_TESIS_POR_VICIO = 2
+TOPE_VICIOS_POR_ASUNTO = 4
+ESPERA_TESIS_DEL_VICIO_S = 12.0
+# Sólo lo que se cita COMO registro —«registro 2012073», «(2012073)», que es
+# como la razón lo escribe—: una cifra suelta de seis dígitos puede ser un
+# importe o un expediente, y traerla por registro metería una tesis ajena.
+_RX_REGISTRO = re.compile(r"registro(?:\s+digital)?(?:\s+n[úu]mero)?\s*:?\s*(\d{6,7})(?!\d)"
+                          r"|\((\d{6,7})\)", re.I)
+
+
+def vicio_y_argumento(r, problema: str, sentido: str, razon: str = "") -> tuple:
+    """(vicio, argumento, resolvió) de un planteamiento calificado.
+
+    El vicio, en este orden: el que nombra la razón del secretario (él decide),
+    el que la fase 3 declaró en el impedimento del problema, y el de la
+    calificativa (la inoperancia a secas, `no_combate`). «» si la calificativa
+    no es de técnica. El argumento es la pregunta y lo que la combate; lo que
+    se resolvió, lo que dijo el órgano: con eso se ordena por pertinencia.
+    El MISMO cálculo en /taller/razonar y antes del plan."""
+    import vicio_inoperancia as _vi
+    combate, resolvio, declarado = "", "", ""
+    try:
+        import arbol_decision as _ad
+        k = _ad.clave_problema(problema or "")
+        for p in (getattr(getattr(r, "fases", None), "problemas", None) or []):
+            if isinstance(p, dict) and _ad.clave_problema(str(p.get("pregunta") or "")) == k:
+                combate = str(p.get("combate") or "")
+                resolvio = str(p.get("resolvio") or "")
+                imp = p.get("impedimento")
+                if isinstance(imp, dict):
+                    declarado = str(imp.get("vicio") or "").strip().lower()
+                    if declarado not in _vi.VICIOS:
+                        declarado = _vi.vicio_de_texto(str(imp.get("explicacion") or ""))
+                break
+    except Exception:
+        pass
+    vicio = _vi.vicio_de(sentido, "", _vi.vicio_de_texto(razon or "") or declarado)
+    argumento = " ".join(f"{problema or ''} {combate}".split())
+    return vicio, argumento, resolvio
+
+
+async def material_con_tesis_del_vicio(qdrant, embed_juris, r, material, criterios, *,
+                                       tope_s: float = ESPERA_TESIS_DEL_VICIO_S):
+    """UNA COPIA del material con las tesis del vicio de cada criterio de
+    técnica (inoperante, inatendible, ineficaz, innecesario, fundado pero
+    insuficiente), o el MISMO material si no hay nada que añadir, la bandera
+    `inoperancia_por_vicio` está apagada o la búsqueda no llega a tiempo.
+
+    · Un vicio, una búsqueda (`fase6_rag.tesis_de_la_calificativa`), todas en
+      paralelo y con tope; como mucho TOPE_VICIOS_POR_ASUNTO vicios y
+      CUPO_TESIS_POR_VICIO tesis por vicio.
+    · Con suplencia confirmada no se traen tesis de los vicios de FORMA (no
+      combatir, accesoria, genérico, reiterar): esa inoperancia está prohibida.
+    · Si una ya estaba en el material, se marca en su sitio (en la copia) en
+      vez de duplicarla; si otro vicio ya la tomó, se pasa a la siguiente.
+    · Los registros que la razón del criterio cita (la de /taller/razonar los
+      tomó de estas mismas búsquedas) se traen por registro si faltan, salvo
+      que hayan perdido vigencia: lo que la razón invoca tiene que estar en el
+      material que verá el estudio.
+    Nunca lanza."""
+    import vicio_inoperancia as _vi
+    if material is None or not criterios or not _vi.activa():
+        return material
+    try:
+        return await asyncio.wait_for(
+            _material_con_tesis_del_vicio(qdrant, embed_juris, r, material, criterios),
+            timeout=tope_s)
+    except asyncio.TimeoutError:
+        print(f"   ⚠️ tesis del vicio: no llegaron en {tope_s:.0f} s; el estudio sigue sin ellas")
+    except Exception as _e:
+        print(f"   ⚠️ tesis del vicio: {type(_e).__name__}; el estudio sigue sin ellas")
+    return material
+
+
+async def _material_con_tesis_del_vicio(qdrant, embed_juris, r, material, criterios):
+    import copy as _copy
+    import vicio_inoperancia as _vi
+    e = getattr(r, "encargo", None)
+    tipo = str(getattr(e, "tipo_asunto", "") or getattr(material, "tipo_asunto", "") or "")
+    try:
+        import suplencia as _sp
+        _supl = bool(_sp.confirmada(getattr(e, "suplencia", None) or {}))
+    except Exception:
+        _supl = False
+    # El principal primero: si hay que recortar vicios, se recorta lo accesorio.
+    _orden = sorted([c for c in criterios if c is not None],
+                    key=lambda c: str(getattr(c, "jerarquia", "") or "") != "principal")
+    por_vicio: dict = {}
+    citados: list = []
+    for c in _orden:
+        vicio, arg, res_ = vicio_y_argumento(r, str(getattr(c, "problema", "") or ""),
+                                             str(getattr(c, "sentido", "") or ""),
+                                             str(getattr(c, "razonamiento", "") or ""))
+        if not vicio or (_supl and vicio in _vi.VICIOS_DE_FORMA):
+            continue
+        g = por_vicio.setdefault(vicio, {"args": [], "res": [],
+                                         "calif": str(getattr(c, "sentido", "") or "")})
+        g["args"].append(arg)
+        g["res"].append(res_)
+        for _m in _RX_REGISTRO.findall(str(getattr(c, "razonamiento", "") or "")):
+            reg = _m[0] or _m[1]
+            if reg not in [x for x, _ in citados]:
+                citados.append((reg, vicio))
+    if not por_vicio:
+        return material
+    vicios = list(por_vicio)[:TOPE_VICIOS_POR_ASUNTO]
+    tesis_m = list(getattr(material, "tesis", None) or [])
+    ya = {str(t.get("registro") or ""): i for i, t in enumerate(tesis_m) if isinstance(t, dict)}
+
+    async def _de(v):
+        g = por_vicio[v]
+        return await f6rag.tesis_de_la_calificativa(
+            qdrant, embed_juris, g["calif"], "", CUPO_TESIS_POR_VICIO + 4, vicio=v,
+            argumento=" ".join(g["args"])[:600], resolvio=" ".join(g["res"])[:600],
+            tipo_asunto=tipo)
+
+    listas = await asyncio.gather(*[_de(v) for v in vicios], return_exceptions=True)
+    nuevas, marcadas, tomadas, resumen = [], {}, set(), []
+    for v, lista in zip(vicios, listas):
+        if isinstance(lista, Exception) or not lista:
+            continue
+        n = 0
+        for t in lista:
+            reg = str(t.get("registro") or "")
+            if not reg or reg in tomadas:
+                continue
+            tomadas.add(reg)
+            if reg in ya:
+                marcadas[ya[reg]] = (v, t.get("de_la_calificativa"))
+            else:
+                nuevas.append(t)
+            n += 1
+            resumen.append(f"{v}→{reg}")
+            if n >= CUPO_TESIS_POR_VICIO:
+                break
+    # Lo que cita la razón y falta: por registro (o existe o no viene nada).
+    _faltan = [(reg, v) for reg, v in citados if reg not in ya and reg not in tomadas]
+    if _faltan:
+        try:
+            _traidas = {t["registro"]: t for t in await f6rag.tesis_por_registro(
+                qdrant, [reg for reg, _ in _faltan[:2 * TOPE_VICIOS_POR_ASUNTO]])}
+        except Exception:
+            _traidas = {}
+        for reg, v in _faltan:
+            t = _traidas.get(reg)
+            if t is None or f6rag._perdio_vigencia(t):
+                continue
+            t["vicio"] = v
+            t["de_la_calificativa"] = por_vicio.get(v, {}).get("calif") or v
+            nuevas.append(t)
+            tomadas.add(reg)
+            resumen.append(f"{v}→{reg} (citada en la razón)")
+    if not nuevas and not marcadas:
+        return material
+    copia = _copy.copy(material)
+    lista_tesis = []
+    for i, t in enumerate(tesis_m):
+        if i in marcadas:
+            t = dict(t)
+            t["tecnica"] = True
+            t["vicio"], _cal = marcadas[i]
+            t["de_la_calificativa"] = _cal
+        lista_tesis.append(t)
+    copia.tesis = lista_tesis + nuevas
+    # HIGIENE DE REGISTROS: sólo vicios y registros, nada del asunto.
+    print(f"   ⚖️ tesis del vicio antes del plan: {', '.join(resumen)}")
+    return copia
 
 
 def _formato_al_material(r, material, cliente=None, criterios=None) -> None:
