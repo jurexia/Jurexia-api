@@ -374,8 +374,12 @@ cp3 = Falso(lambda p, kw: "{}")
 asyncio.run(f5.proponer(cp3, PROBLEMAS, m, "", "", True, contraste_previo=[]))
 ok("LA CUESTIÓN DECISIVA" not in cp3.llamadas[-1][1], "sin pregunta decisiva, el prompt de siempre")
 _main = open("main.py", encoding="utf8").read()
-ok(_main.count('"formato": 2') >= 1 and "!= 2" in _main,
-   "el `formato` de la propuesta sigue siendo 2 (no se recalculan las guardadas)")
+# (2-oct-2026) El formato lo decide `_taller_formato_propuesta`: 3 sólo con las
+# banderas de la mejora final; apagadas, sigue siendo 2 y no se recalcula nada.
+_fp = _main.split("def _taller_formato_propuesta", 1)[-1][:1500]
+ok('"formato": _formato_p' in _main and "return 3" in _fp and _fp.rstrip().count("return 2") == 1
+   and "_previa.get(\"formato\") != _formato_rige" in _main,
+   "el `formato` de la propuesta sigue siendo 2 sin las banderas (no se recalculan las guardadas)")
 
 
 # ═══ 5 · EL ESTUDIO: CRITERIO Y GUION ═══════════════════════════════════════

@@ -198,6 +198,16 @@ def razon_de_la_otra_via(texto: str, sentido: str, glob) -> tuple:
         f"si tienes la razón, escríbela.")
 
 
+def _rellenar_acervo() -> bool:
+    """¿Rige la propuesta por probabilidad (2-oct-2026)? Fuera de una
+    petición, no."""
+    try:
+        import contexto_taller as _ct
+        return bool(_ct.rediseno("propuesta_por_probabilidad"))
+    except Exception:                                   # pragma: no cover
+        return False
+
+
 def repartir(problemas: list, modo: str, sentido_global: str = "",
              propuestas: list = None, calificaciones: dict = None,
              global_dictado: bool = False,
@@ -323,6 +333,14 @@ def repartir(problemas: list, modo: str, sentido_global: str = "",
             pr = props.get(t) or {}
             sentido = str(pr.get("sentido") or "").strip().lower()
             razon = str(pr.get("razon") or "")
+            # UN PROBLEMA SIN SENTIDO NO SE CAE EN SILENCIO (2-oct-2026; bandera
+            # «propuesta_por_probabilidad»). Aquí no se inventa —eso sigue
+            # igual—: se dice, y el llamador lo deja pasar vacío al árbol, que
+            # le da la suerte del principal o lo saca con su nombre.
+            if not sentido and _rellenar_acervo():
+                avisos.append(
+                    f"«{t[:90]}» llegó sin sentido del motor: se le aplica la suerte del "
+                    f"problema principal; si no la tiene, no se estudia y se dice.")
         fuera.append({"problema": t, "sentido": sentido,
                       "razonamiento": razon, "jerarquia": jer})
 
