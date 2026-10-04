@@ -5251,6 +5251,22 @@ async def _componer_generado(cliente, e: Encargo, relleno, computo,
     # venía a cerrar. Un getattr con valor por omisión no avisa de nada.
     datos["resolvio_a_quo"] = getattr(fases, "resolvio_a_quo", "") or ""
     datos["resolutivo_recurrida"] = getattr(fases, "resolutivo_recurrida", "") or ""
+    # LA MISMA LECTURA QUE LA TARJETA, Y CON EL LECTOR DE HOY (4-oct-2026, AR
+    # 380/2025). La sesión guardó «sobresee» —el recuento sobre la firma
+    # electrónica— y ningún punto reproducible; la propuesta y el proyecto
+    # confirmaban un sobreseimiento que el juzgado nunca decretó. Si la sesión
+    # trae el papel, se vuelve a leer: lo que hizo el juzgado con
+    # `que_hizo_el_juzgado` (el orden de fuentes de la tarjeta) y su punto de
+    # fondo con `resolutivo_recurrida`.
+    try:
+        import fase_rama as _fr_d
+        if _tipo_de_encargo(e) == "amparo_revision":
+            _que_d = _fr_d.que_hizo_el_juzgado(fases, str(getattr(e, "resolvio_declarado", "") or ""))
+            if _que_d:
+                datos["resolvio_a_quo"] = _que_d
+            datos["resolutivo_recurrida"] = _fr_d.resolutivo_de_fases(fases)
+    except Exception as _ex_d:
+        print(f"   ⚠️ no se pudo releer el desenlace del a quo: {type(_ex_d).__name__}")
     datos["expediente_origen"] = getattr(fases, "expediente_origen", "") or ""
     datos["fecha_origen"] = getattr(fases, "fecha_origen", "") or ""
     # SI SE REASUME JURISDICCIÓN (art. 93, frs. I, V y VI; 28-sep-2026): quién

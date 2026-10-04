@@ -481,6 +481,11 @@ def desenlace_de(tipo_asunto: str, resolvio_a_quo: str, sentido: str, *,
                 nota = ("La sentencia recurrida también sobreseyó respecto de algún acto: si nadie "
                         "lo impugnó, ese sobreseimiento queda firme y no es materia de la revisión; "
                         "la confirmación se acota a ella.")
+        elif rama in ("confirma_niega", "confirma_sobresee") and res:
+            # CONFIRMAR LA NEGATIVA O EL SOBRESEIMIENTO EN LOS TÉRMINOS DEL
+            # JUZGADO (4-oct-2026, David, AR 380/2025): su punto de fondo,
+            # reproducido, si dice lo mismo que la rama.
+            puntos = [_rellenar(p) for p in _ta.puntos_confirma(rama, res)]
         elif rama == "revoca_fondo_concede" and q == "quejoso" and a in ("concede",):
             # LA QUEJOSA RECURRE SU CONCESIÓN Y GANA: no se le niega lo que ya
             # tenía (fr. V). Ver `tipos_asunto.puntos_quejosa_mejora`.

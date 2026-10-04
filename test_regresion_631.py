@@ -334,8 +334,13 @@ SENTENCIA = (
     "Colegiado negó el amparo por segunda vez. "
     "CONSIDERANDO SÉPTIMO. Es fundado el concepto de violación y procede conceder el amparo. "
     "Por lo expuesto, se R E S U E L V E: ÚNICO. " + RESOL + " Notifíquese.")
-ok(fr.resolvio_a_quo(SENTENCIA) == "niega",
+# LA TRAMPA SIGUE EN EL RECUENTO, PERO EL RESPALDO YA NO CAE (4-oct-2026, AR
+# 380/2025): `resolvio_a_quo` lee antes las fórmulas de presente de la cola del
+# documento, que son los puntos resolutivos.
+ok(fr._resolvio_de(" ".join(SENTENCIA.split())) == "niega",
    "el caso reproduce la trampa: contar verbos en todo el texto da «niega» (un amparo anterior)")
+ok(fr.resolvio_a_quo(SENTENCIA) == "concede",
+   "y el respaldo ya no cae en ella: la cola del documento dice «concede»")
 ok(fr.resolvio_segun_resolutivos(SENTENCIA) == "concede", "sus puntos resolutivos dicen «concede»")
 ok(fr.resolvio_a_quo(SENTENCIA, resolutivo=fr.resolutivo_recurrida(SENTENCIA)) == "concede",
    "con el resolutivo delante, `resolvio_a_quo` dice «concede»")

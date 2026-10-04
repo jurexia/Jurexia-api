@@ -5715,6 +5715,39 @@ def puntos_confirma_concede(resolutivo_reproducido: str = "",
     return [primero, RAMAS_REVISION["confirma_concede"]["puntos"][1]]
 
 
+# CONFIRMAR ES CONFIRMAR LO QUE EL JUZGADO RESOLVIÓ, EN SUS TÉRMINOS (4-oct-2026).
+# David, sobre el AR 380/2025: «si en el taller confirmo y la sentencia contiene
+# un solo resolutivo, entonces lo lógico es confirmar esa negativa en los
+# términos de esa sentencia y de lo resuelto en la ejecutoria de revisión». Lo
+# que ya se hacía con la concesión (ARA 361/2025) vale para la negativa y el
+# sobreseimiento: si el punto de fondo del juzgado se leyó con seguridad
+# (`fase_rama.resolutivo_recurrida`) y DICE LO MISMO que la rama, se reproduce;
+# si no, la fórmula de la rama, que dice menos pero no dice de más.
+_LO_QUE_CONFIRMA = {"confirma_concede": "concede", "confirma_niega": "niega",
+                    "confirma_sobresee": "sobresee"}
+
+
+def puntos_confirma(rama: str, resolutivo_reproducido: str = "", parcial: bool = False) -> list:
+    """Los puntos de una revisión que confirma, con el resolutivo del juzgado
+    reproducido cuando coincide con la rama; [] si `rama` no confirma."""
+    if rama not in _LO_QUE_CONFIRMA:
+        return []
+    r = " ".join((resolutivo_reproducido or "").split())
+    if rama == "confirma_concede":
+        return puntos_confirma_concede(r, parcial=parcial)
+    try:
+        import fase_rama as _fr_pc
+        dice = _fr_pc.que_dice_el_resolutivo(r) if r else ""
+    except Exception:
+        dice = ""
+    if dice == _LO_QUE_CONFIRMA[rama]:
+        return [CONFIRMA_PARCIAL if parcial else CONFIRMA_ENTERA, "SEGUNDO. " + r]
+    puntos = list(RAMAS_REVISION[rama]["puntos"])
+    if parcial and puntos:
+        puntos[0] = CONFIRMA_PARCIAL
+    return puntos
+
+
 # ═══ REVOCAR UNA CONCESIÓN ES NEGAR LO QUE ELLA CONCEDIÓ (28-sep-2026) ═══════
 # AR 631/2025: la fórmula genérica —«no ampara ni protege a {quejoso}, contra
 # el acto reclamado a {responsable_originaria}»— se llena con lo tecleado en el

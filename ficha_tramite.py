@@ -1554,9 +1554,14 @@ def fundir_lecturas(*lecturas, rotulo: str = "auto") -> dict:
             if _vacio(ya):
                 if not _vacio(v):
                     _poner(fin, ruta, v)
+            # LO QUE RESOLVIÓ EL JUZGADO TAMBIÉN (4-oct-2026, AR 380/2025): si el
+            # lector de los puntos y el modelo no dicen lo mismo, de eso depende
+            # confirmar o revocar, sobreseer o negar; se avisa, no se elige en
+            # silencio.
             elif not _vacio(v) and ya != v and (_es_ruta_fecha(ruta) or ruta in (
                     "numero", "turno.ponente", "returno.ponente", "acto.toca", "acto.expediente",
-                    "responsable")) and not (ruta == "responsable" and _misma_base(ya, v)):
+                    "responsable", "acto.resolvio", "acto.resolvio_mixto")) \
+                    and not (ruta == "responsable" and _misma_base(ya, v)):
                 av = (f"DOS CONSTANCIAS NO DICEN LO MISMO sobre {ruta.replace('.', ' ')}: "
                       f"«{_dmy(ya) if _es_ruta_fecha(ruta) else ya}» y "
                       f"«{_dmy(v) if _es_ruta_fecha(ruta) else v}». Se tomó el primero; "

@@ -33913,7 +33913,9 @@ async def _taller_deliberar_nucleo(r, ses: dict, resp: dict, contexto: str = "",
         contraste=list((resp or {}).get("contraste") or []),
         constancias_faltantes=constancias,
         resolvio_a_quo=_a_quo,
-        resolutivo_recurrida=str(getattr(r.fases, "resolutivo_recurrida", "") or ""),
+        # EL PUNTO DE FONDO DEL JUZGADO, RELEÍDO DEL PAPEL SI LA SESIÓN LO TRAE
+        # (4-oct-2026, AR 380/2025): la sesión guardó «» con el lector de entonces.
+        resolutivo_recurrida=_fr_d.resolutivo_de_fases(r.fases),
         # EN UN RECURSO, EL «QUEJOSO» DEL FORMULARIO ES QUIEN RECURRE (AR
         # 631/2025: así salió amparada la tercera interesada). Los puntos que
         # nombran al quejoso salen del resolutivo del juzgado; si no, la fórmula
@@ -40166,6 +40168,7 @@ def taller_tarjeta(numero: str, user_email: str):
     # B, la misma que calcula `conceptos_omitidos` en /taller/proponer. Antes
     # la tarjeta leía por su cuenta qué hizo el juzgado y mandaba los conceptos
     # del secretario como un booleano, que la función de SPEC B leía como texto.
+    import fase_rama as _fr_rp
     try:
         import redactor_adelanto as _ra_t
         _info = _ra_t.info_de_rama(
@@ -40176,7 +40179,8 @@ def taller_tarjeta(numero: str, user_email: str):
         _info = {"tipo_asunto": str(getattr(_enc, "tipo_asunto", "") or "")}
     rama_info = dict(_info,
                      resolvio_a_quo=str(_info.get("que_hizo") or ""),
-                     resolutivo_recurrida=str(getattr(r.fases, "resolutivo_recurrida", "") or ""),
+                     # Releído del papel si la sesión lo trae (4-oct-2026, AR 380/2025).
+                     resolutivo_recurrida=_fr_rp.resolutivo_de_fases(r.fases),
                      tribunal=str(getattr(_enc, "tribunal", "") or ""),
                      necesita_conceptos=bool(resp.get("necesita_conceptos")),
                      huella=hu)

@@ -121,8 +121,12 @@ ok(not any("magistrad" in r["autoridad"].lower() for r in fi["responsables"])
 _pts = fi["resolvio"]["puntos"]
 ok([(p["ordinal"], p["que"]) for p in _pts] == [("PRIMERO", "sobresee"), ("SEGUNDO", "concede")],
    "lo que resolvió el juzgado, punto por punto: sobresee (PRIMERO) y concede (SEGUNDO)")
-ok(fi["resolvio"]["que"] == "concede" and fi["resolvio"]["fuente"] == "punto resolutivo del juzgado",
-   "qué hizo el juzgado: la misma fuente única de `que_hizo_el_juzgado` (su resolutivo manda)")
+# LA ETIQUETA DE LA FUENTE CAMBIÓ (4-oct-2026, AR 380/2025): ahora distingue los
+# puntos resolutivos de lo que se dedujo sin ellos («no se leyeron sus puntos»).
+ok(fi["resolvio"]["que"] == "concede"
+   and fi["resolvio"]["fuente"] == "puntos resolutivos de la sentencia recurrida"
+   and not any(a.startswith("COMPRUEBA QUÉ RESOLVIÓ") for a in fi.get("avisos") or []),
+   "qué hizo el juzgado: la misma fuente única de `que_hizo_el_juzgado` (su resolutivo manda), sin aviso")
 ok(any(t["nombre"] == RECURRENTE for t in fi["terceros"]), "la recurrente figura como tercera interesada")
 ok(len(fi["materia_revision"]) == 1 and fi["materia_revision"][0].startswith("concesión"),
    "materia de la revisión: la concesión, que es lo que perjudica a la tercera")

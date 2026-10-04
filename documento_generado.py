@@ -8234,6 +8234,17 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
                         "REVISIÓN» porque el estudio afirma que algo de la "
                         "sentencia recurrida no fue combatido. Compruébalo: si "
                         "la recurrente sí lo impugnó todo, quita esa frase.")
+            elif _clave in ("confirma_niega", "confirma_sobresee") and _ta.puntos_confirma(
+                    _clave, str(datos.get("resolutivo_recurrida") or "")) != list(_rama["puntos"]):
+                # CONFIRMAR LA NEGATIVA O EL SOBRESEIMIENTO EN LOS TÉRMINOS DEL
+                # JUZGADO (4-oct-2026, David, AR 380/2025: «confirmar esa
+                # negativa en los términos de esa sentencia»): su punto de fondo,
+                # reproducido, si dice lo mismo que la rama. Gana a la fórmula con
+                # los actos de la ficha porque es la del propio juzgado.
+                _puntos = _ta.puntos_confirma(_clave, str(datos.get("resolutivo_recurrida") or ""))
+                _avisos_bk.append(
+                    "EL SEGUNDO RESOLUTIVO REPRODUCE EL PUNTO DE FONDO DEL JUZGADO, con la cola hacia "
+                    "la sentencia recurrida: compruébalo contra la sentencia recurrida.")
             elif _tipo_reas == "concesion" and _clave in ("revoca_fondo_niega",
                                                           "revoca_fondo_concede"):
                 # REVOCAR NO ES NEGAR (art. 93, fr. VI; AR 631/2025): el punto

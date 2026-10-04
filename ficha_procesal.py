@@ -501,14 +501,22 @@ def armar(encargo, fases=None, partes=None, *, acto: str = "", declarado: str = 
     if tipo == "amparo_revision":
         que = _fr.que_hizo_el_juzgado(fases, declarado) if fases is not None else \
             _fr.resolvio_segun_resolutivos(acto)
-        if fases is not None and _fr.que_dice_el_resolutivo(str(getattr(fases, "resolutivo_recurrida", "") or "")):
-            f_que = "punto resolutivo del juzgado"
-        elif fases is not None and str(getattr(fases, "resolvio_a_quo", "") or "").strip().lower() in _fr._VALIDOS_A_QUO:
-            f_que = "lectura del PDF de la sentencia recurrida"
-        elif (declarado or "").strip():
-            f_que = "lo declarado al proponer"
+        # DE DÓNDE SALIÓ, CON EL LECTOR DE HOY (4-oct-2026, AR 380/2025): si los
+        # puntos del papel lo dicen, de ellos; si no, se dice que NO salió de
+        # ellos, y el aviso de abajo pide comprobarlo antes de elegir la vía.
+        _de_puntos = bool(que) and (
+            (fases is not None and _fr.que_dice_el_resolutivo(
+                str(getattr(fases, "resolutivo_recurrida", "") or "")) == que)
+            or (bool(acto) and _fr.resolvio_segun_resolutivos(acto) == que))
+        if _de_puntos:
+            f_que = "puntos resolutivos de la sentencia recurrida"
+        elif fases is not None and str(getattr(fases, "resolvio_a_quo", "") or "").strip().lower() == que \
+                and que in _fr._VALIDOS_A_QUO:
+            f_que = "recuento de palabras del PDF (no se leyeron sus puntos resolutivos)"
+        elif (declarado or "").strip() and que:
+            f_que = "lo que el motor declaró al proponer (no se leyeron los puntos resolutivos)"
         else:
-            f_que = "antecedentes" if que else ""
+            f_que = "antecedentes (no se leyeron los puntos resolutivos)" if que else ""
         sob_ad = bool(fases is not None and _fr.sobreseyo_ademas(fases, declarado))
         seccion = _fr.seccion_resolutiva(acto) or res
         puntos = puntos_resolutivos(seccion)
@@ -527,6 +535,14 @@ def armar(encargo, fases=None, partes=None, *, acto: str = "", declarado: str = 
         if not que:
             avisos.append("No consta qué resolvió el juzgado: ni su resolutivo ni la lectura "
                           "del PDF lo dicen.")
+        elif not _de_puntos:
+            # SE DICE ARRIBA DE TODO, NO EN UNA BURBUJA (4-oct-2026, AR 380/2025):
+            # de este dato dependen las dos vías —confirmar es confirmar lo que
+            # el juzgado resolvió—, y en la 380 la propuesta confirmó un
+            # sobreseimiento que el juzgado nunca decretó.
+            avisos.insert(0, "COMPRUEBA QUÉ RESOLVIÓ EL JUZGADO: no se leyeron los puntos resolutivos "
+                             f"de la sentencia recurrida y el sistema dedujo «{que.replace('_', ' y ')}» "
+                             f"de {f_que or 'otra fuente'}. Las dos vías dependen de ese dato.")
         elif not puntos:
             avisos.append("No se pudieron leer los puntos resolutivos uno por uno: lo resuelto "
                           "sale de " + (f_que or "otra fuente") + ".")

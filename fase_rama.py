@@ -58,13 +58,30 @@ def _algo_dice(t: str) -> bool:
     return any(re.search(rx, t, re.I) for _, rx in _QUE_HIZO)
 
 
+# «CAUSA DE SOBRESEIMIENTO» NO ES SOBRESEER (4-oct-2026, AR 380/2025). La única
+# vez que la sentencia decía la palabra era para descartarla: «de oficio no
+# advierte que se actualice motivo de improcedencia o causa de sobreseimiento».
+# El «no» queda a diez palabras —fuera del alcance de `_afirmado`— y el
+# recuento dio «sobresee». El sustantivo dentro de la fórmula del análisis de
+# procedencia (causa, causal, motivo, hipótesis o supuesto de sobreseimiento;
+# «improcedencia o sobreseimiento») no cuenta: lo que cuenta es decretarlo.
+_RX_SOBRESEIMIENTO_DE_ANALISIS = re.compile(
+    r"(?:causa(?:l)?(?:es)?|causas|motivos?|hip[óo]tesis|supuestos?|actualiza\w*)"
+    r"\s+(?:legal(?:es)?\s+)?(?:de\s+)?$|improcedencia\s+(?:o|y|ni|u)\s+(?:de\s+)?$", re.I)
+
+
+def _es_sobreseimiento_de_analisis(fuente: str, m) -> bool:
+    return bool(re.match(r"sobrese[ei]miento", m.group(0), re.I)
+                and _RX_SOBRESEIMIENTO_DE_ANALISIS.search(fuente[max(0, m.start() - 60):m.start()]))
+
+
 def _resolvio_de(fuente: str, solo_verbos: bool = False) -> str:
     """El recuento, aislado para poder correrlo sobre más de una fuente."""
     cuenta = {}
     for clave, rx in (_QUE_HIZO_VERBOS if solo_verbos else _QUE_HIZO):
         n_ = 0
         for m in re.finditer(rx, fuente, re.I):
-            if _afirmado(fuente, m):
+            if _afirmado(fuente, m) and not _es_sobreseimiento_de_analisis(fuente, m):
                 n_ += 1
         if n_:
             cuenta[clave] = n_
@@ -118,6 +135,13 @@ def resolvio_a_quo(texto: str, antecedentes: str = "",
     _r = que_dice_el_resolutivo(resolutivo)
     if _r:
         return _r
+    # LA COLA DEL DOCUMENTO ANTES QUE CUALQUIER RECUENTO (4-oct-2026, AR
+    # 380/2025): si el rótulo no se leyó, los puntos siguen estando al final,
+    # con sus fórmulas de presente. Ver `resolvio_segun_resolutivos`.
+    if texto:
+        _c = que_dice_el_resolutivo(_cola_del_documento(texto))
+        if _c:
+            return _c
     dec = " ".join((declarado or "").split())
     if dec:
         _d = _mixto(dec) or _resolvio_de(dec, solo_verbos=False)
@@ -617,18 +641,139 @@ def sentido_en_plenitud(texto: str) -> str:
 # DE ESTA SENTENCIA», y en el engrose del tribunal «esta sentencia» ya es otra.
 # En el proyecto que David corrigió a mano la cola quedó sin cambiar —por eso
 # lo pidió explícitamente—.
+# EL RÓTULO «RESUELVE», NO EL VERBO (4-oct-2026, AR 380/2025). Con `re.I` el
+# patrón casaba también el verbo en minúscula de la prosa —«las sentencias que
+# RESUELVEN en definitiva…»— y, sobre todo, la fórmula de cierre que va DESPUÉS
+# de los puntos: «NOTIFÍQUESE. A S Í lo RESUELVE y firma el Juez…». Como se
+# toma el último, la «sección resolutiva» del AR 380/2025 era la firma
+# electrónica: no se leyó ningún punto, el recuento de palabras contó la única
+# «causa de sobreseimiento» del documento —que el juez descartaba— y el taller
+# propuso «se confirma y se sobresee» sobre una sentencia cuyo único punto de
+# fondo NEGABA el amparo. Rótulo es el de versales («R E S U E L V E»,
+# «RESUELVE», «SE RESUELVE») o la fórmula con sus dos puntos («se resuelve:»).
 _RX_RESUELVE = re.compile(
-    r"R\s*E\s*S\s*U\s*E\s*L\s*V\s*E\s*(?:N)?\s*:?", re.I)
+    r"\bR\s?E\s?S\s?U\s?E\s?L\s?V\s?E(?:\s?N)?\b\s*:?"
+    r"|(?i:\b(?:se|y\s+se|es\s+de\s+resolverse\s+y\s+se)\s+resuelve\s*:)")
+# Y EL RÓTULO ABRE PUNTOS: tras él viene «PRIMERO.» o «ÚNICO.». Un «RESUELVE»
+# en versales dentro de un rubro transcrito no los trae.
+_RX_ORDINAL_TRAS_ROTULO = re.compile(
+    r"\s*[:.\-–]?\s*(?:PRIMERO|SEGUNDO|[ÚU]NICO|Primero|[ÚU]nico)\b")
 _RX_FIN_RESOLUTIVO = re.compile(
     r"\b(?:Notif[íi]quese|As[íi]\s+lo\s+resolvi|As[íi],?\s+(?:por|lo)\s|"
-    r"Publ[íi]quese)", re.I)
+    r"Publ[íi]quese)|\bA\s?S\s?[ÍI]\s*,?\s+lo\s+(?:resuelv|resolvi)", re.I)
+_RX_NOTIFIQUESE = re.compile(r"\bNotif[íi]quese\b", re.I)
 _RX_ORDINAL_PUNTO = re.compile(
-    r"^\s*(?:PRIMERO|SEGUNDO|TERCERO|CUARTO|QUINTO|[ÚU]NICO)\s*\.\s*", re.I)
+    r"^\s*(?:PRIMERO|SEGUNDO|TERCERO|CUARTO|QUINTO|[ÚU]NICO)\s*[.:\-–]+\s*", re.I)
+# LOS ORDINALES QUE ABREN PUNTO: en versales, o con mayúscula inicial al
+# empezar la frase. «el considerando segundo.» no abre ninguno (con `re.I` se
+# contaba como un segundo punto y el resolutivo no se reproducía).
+_RX_ORDINALES = re.compile(
+    r"\b(?:PRIMERO|SEGUNDO|TERCERO|CUARTO|QUINTO|SEXTO|S[ÉE]PTIMO|OCTAVO|[ÚU]NICO)\s*[.:\-–]"
+    r"|(?:^|(?<=[.:;]\s))(?:Primero|Segundo|Tercero|Cuarto|Quinto|[ÚU]nico)\s*[.:\-–]")
 # «de esta sentencia», «del presente fallo»… todo lo que en la recurrida
 # apuntaba a sí misma y en el engrose apuntaría al engrose.
 _RX_COLA_PROPIA = re.compile(
     r"\bde\s+(?:est[ae]|l[ao]\s+presente)\s+"
     r"(?:sentencia|resoluci[óo]n|fallo|ejecutoria)\b", re.I)
+
+# LO QUE EL PDF METE ENTRE PÁGINA Y PÁGINA (4-oct-2026, AR 380/2025). El sello
+# de la firma electrónica cae donde cae el salto de hoja, a media frase del
+# punto resolutivo: «a través de su LEONARDO DANIEL ANAYA ARIAS
+# 706a66…8bb4 15/05/26 18:00:00 18 apoderado legal». Reproducido tal cual, el
+# resolutivo del proyecto llevaría el nombre del secretario del juzgado, el
+# número de serie del certificado y el número de página.
+_RX_SELLO_FIRMA = re.compile(
+    r"\b(?:[A-ZÁÉÍÓÚÑ]{2,}\s+){1,7}[A-ZÁÉÍÓÚÑ]{2,}\s+[0-9a-f]{40}\s+"
+    r"\d{2}/\d{2}/\d{2}\s+\d{2}:\d{2}:\d{2}(?:\s+\d{1,4}(?=\s))?")
+_RX_PJF_PUBLICA = re.compile(r"\bPJF\s*[-–]\s*Versi[óo]n\s+P[úu]blica\b", re.I)
+
+
+def sin_marcas_de_pagina(texto: str) -> str:
+    """El texto sin los sellos de firma ni el «PJF - Versión Pública» que el
+    PDF intercala en los saltos de página."""
+    t = _RX_SELLO_FIRMA.sub(" ", texto or "")
+    t = _RX_PJF_PUBLICA.sub(" ", t)
+    return " ".join(t.split())
+
+
+# «se resuelve» SIN dos puntos sólo cuenta si le sigue el primer punto: «Por lo
+# expuesto, se resuelve PRIMERO. …» sí; «el recurso que ahora se resuelve.» no.
+_RX_SE_RESUELVE_SUELTO = re.compile(
+    r"(?i:\b(?:se|y\s+se|es\s+de\s+resolverse\s+y\s+se)\s+resuelve\b)")
+
+
+def _rotulo_resolutivo(t: str):
+    """El rótulo que abre los puntos resolutivos del documento (`t`, ya en una
+    línea), o None. EL ÚLTIMO, porque los anteriores son citas; pero ANTES del
+    último «Notifíquese», que cierra los puntos —lo que va después es la firma—,
+    y de preferencia el que va seguido de «PRIMERO.» o «ÚNICO.»."""
+    cands = list(_RX_RESUELVE.finditer(t))
+    cands += [m for m in _RX_SE_RESUELVE_SUELTO.finditer(t)
+              if _RX_ORDINAL_TRAS_ROTULO.match(t, m.end())
+              and not any(c.start() <= m.start() < c.end() for c in cands)]
+    cands.sort(key=lambda m: m.start())
+    if not cands:
+        return None
+    notif = list(_RX_NOTIFIQUESE.finditer(t))
+    if notif:
+        _antes = [m for m in cands if m.start() < notif[-1].start()]
+        cands = _antes or cands
+    con_puntos = [m for m in cands if _RX_ORDINAL_TRAS_ROTULO.match(t, m.end())]
+    return (con_puntos or cands)[-1]
+
+
+# LOS PUNTOS DE TRÁMITE NO SON EL RESOLUTIVO (4-oct-2026, AR 380/2025). El
+# juzgado resolvió en un punto —«PRIMERO. La Justicia de la Unión no ampara ni
+# protege…»— y añadió otro de oficina: «SEGUNDO. … captúrese … la presente
+# sentencia en versión pública». Contados los dos, «hay más de un punto» y no se
+# reproducía nada, aunque el fondo estaba en uno solo. Un punto es de trámite si
+# sólo ordena publicar, capturar, notificar, archivar, remitir o agregar, sin
+# ninguna fórmula de fondo.
+_RX_PUNTO_DE_TRAMITE = re.compile(
+    r"versi[óo]n\s+p[úu]blica|capt[úu]rese|publ[íi]quese|arch[íi]vese|notif[íi]quese|"
+    r"rem[íi]tase|gl[óo]sese|agr[ée]guese|h[áa]gase|comun[íi]quese|devu[ée]lvan?se|"
+    r"d[ée]se\s+vista|an[óo]tese|reg[íi]strese|ac[úu]sese", re.I)
+_RX_PUNTO_DE_FONDO = re.compile(
+    r"\bampara\b|\bprotege\b|sobrese|\bse\s+(?:niega|concede|revoca|confirma|modifica|desecha|declara)\b",
+    re.I)
+
+
+_SECUENCIA_ORDINALES = ("PRIMERO", "SEGUNDO", "TERCERO", "CUARTO", "QUINTO", "SEXTO",
+                        "SEPTIMO", "OCTAVO")
+
+
+def _ordinal_plano(m) -> str:
+    o = re.match(r"[A-Za-zÁÉÍÓÚÜÑáéíóúüñ]+", m.group(0).strip()).group(0).upper()
+    return o.replace("Ú", "U").replace("É", "E")
+
+
+def _puntos_de_la_seccion(cuerpo: str) -> list:
+    """Los puntos de una sección resolutiva, cada uno con su ordinal.
+
+    EN SU ORDEN, O NO CUENTAN (4-oct-2026). Tras «ÚNICO.» no hay otro punto, y
+    tras «PRIMERO.» sólo abre punto «SEGUNDO.»: en el AD 469/2024 una nota al
+    pie intercalada por el PDF —«“SEXTO. La jurisprudencia integrada…”»— se
+    contaba como segundo punto y el resolutivo dejaba de reproducirse."""
+    marcas = list(_RX_ORDINALES.finditer(cuerpo))
+    if not marcas:
+        return [cuerpo] if cuerpo.strip() else []
+    validas = [marcas[0]]
+    if _ordinal_plano(marcas[0]) != "UNICO":
+        for m in marcas[1:]:
+            previo = _ordinal_plano(validas[-1])
+            if previo in _SECUENCIA_ORDINALES:
+                i = _SECUENCIA_ORDINALES.index(previo)
+                if i + 1 < len(_SECUENCIA_ORDINALES) and _ordinal_plano(m) == _SECUENCIA_ORDINALES[i + 1]:
+                    validas.append(m)
+    out = []
+    for i, m in enumerate(validas):
+        fin = validas[i + 1].start() if i + 1 < len(validas) else len(cuerpo)
+        out.append(cuerpo[m.start():fin].strip())
+    return out
+
+
+def _es_de_tramite(punto: str) -> bool:
+    return bool(_RX_PUNTO_DE_TRAMITE.search(punto)) and not _RX_PUNTO_DE_FONDO.search(punto)
 
 
 def resolutivo_recurrida(texto: str) -> str:
@@ -637,35 +782,29 @@ def resolutivo_recurrida(texto: str) -> str:
     Devuelve el TEXTO SIN SU ORDINAL —el ordinal lo calcula el compositor, como
     todos— y con la cola apuntando a la sentencia recurrida.
 
-    NO REPRODUCE SI HAY MÁS DE UN PUNTO. Un resolutivo con «PRIMERO. Se
-    sobresee… SEGUNDO. La Justicia de la Unión ampara…» no cabe en un punto
+    NO REPRODUCE SI HAY MÁS DE UN PUNTO DE FONDO. Un resolutivo con «PRIMERO.
+    Se sobresee… SEGUNDO. La Justicia de la Unión ampara…» no cabe en un punto
     solo, y encajarlo a la fuerza produciría un resolutivo que dice menos que
     el del juzgado. En ese caso se devuelve vacío y el documento escribe la
-    fórmula genérica de siempre, que es lo que ya hacía.
+    fórmula genérica de siempre. Los puntos de TRÁMITE —publicar la versión
+    pública, notificar, archivar— no cuentan (4-oct-2026, AR 380/2025).
     """
-    t = " ".join((texto or "").split())
-    if not t:
-        return ""
-    m = None
-    for m in _RX_RESUELVE.finditer(t):
-        pass                       # el ÚLTIMO: los anteriores son citas
-    if m is None:
-        return ""
-    resto = t[m.end():].lstrip(" :")
-    fin = _RX_FIN_RESOLUTIVO.search(resto)
-    cuerpo = (resto[:fin.start()] if fin else resto[:1500]).strip()
+    cuerpo = seccion_resolutiva(texto)
     if not cuerpo:
         return ""
-    # ¿UN SOLO PUNTO? Se cuentan los ordinales que abren punto.
-    ordinales = re.findall(
-        r"\b(?:PRIMERO|SEGUNDO|TERCERO|CUARTO|QUINTO|[ÚU]NICO)\s*\.", cuerpo, re.I)
-    if len(ordinales) > 1:
+    puntos = _puntos_de_la_seccion(cuerpo)
+    de_fondo = [p for p in puntos if not _es_de_tramite(p)]
+    if len(de_fondo) != 1:
         return ""
-    cuerpo = _RX_ORDINAL_PUNTO.sub("", cuerpo).strip()
+    cuerpo = _RX_ORDINAL_PUNTO.sub("", de_fondo[0]).strip()
     # Un resolutivo de dos palabras no es un resolutivo: es un corte mal hecho.
     if len(cuerpo.split()) < 8 or len(cuerpo) > 1200:
         return ""
     cuerpo = _RX_COLA_PROPIA.sub("de la sentencia recurrida", cuerpo)
+    # LA ERRATA DEL JUZGADO NO PASA AL PROYECTO (AR 380/2025: «identificado en
+    # el considerado segundo de este fallo»): reproducida, sería nuestra.
+    cuerpo = re.sub(r"\bconsiderado(\s+(?:primero|segundo|tercero|cuarto|quinto|sexto|s[ée]ptimo|"
+                    r"octavo|noveno|d[ée]cimo|[úu]ltimo))\b", r"considerando\1", cuerpo, flags=re.I)
     return cuerpo.rstrip(" .") + "."
 
 
@@ -709,27 +848,60 @@ def que_dice_el_resolutivo(fragmento: str) -> str:
 
 
 def seccion_resolutiva(texto: str) -> str:
-    """Lo que va del ÚLTIMO «RESUELVE» del documento a «Notifíquese»: los
-    puntos resolutivos, con todos sus puntos (a diferencia de
-    `resolutivo_recurrida`, que sólo devuelve un punto reproducible)."""
+    """Lo que va del rótulo «RESUELVE» que abre los puntos resolutivos hasta
+    «Notifíquese»: los puntos, con todos sus puntos (a diferencia de
+    `resolutivo_recurrida`, que sólo devuelve un punto reproducible), sin los
+    sellos de firma que el PDF intercala entre página y página."""
     t = " ".join((texto or "").split())
-    m = None
-    for m in _RX_RESUELVE.finditer(t):
-        pass                       # el ÚLTIMO: los anteriores son citas
+    m = _rotulo_resolutivo(t)
     if m is None:
         return ""
-    resto = t[m.end():].lstrip(" :")
+    resto = t[m.end():].lstrip(" :.-–")
     fin = _RX_FIN_RESOLUTIVO.search(resto)
-    return (resto[:fin.start()] if fin else resto[:3000]).strip()
+    return sin_marcas_de_pagina(resto[:fin.start()] if fin else resto[:3000]).strip()
+
+
+# LA COLA, SI EL RÓTULO NO SE DEJA LEER (4-oct-2026). Un OCR que parte «R E S U E
+# L V E» en dos renglones o una sentencia sin rótulo dejaban el resolutivo sin
+# leer y la decisión al recuento de palabras de TODO el documento —que en el AR
+# 380/2025 contó una «causa de sobreseimiento» que el juez descartaba—. Los
+# puntos están al final: se leen ahí sus fórmulas de presente («no ampara ni
+# protege», «ampara y protege», «se sobresee»), sin el bloque de la firma
+# electrónica que el PDF pega detrás.
+_RX_EVIDENCIA_FIRMA = re.compile(r"EVIDENCIA\s+CRIPTOGR[ÁA]FICA", re.I)
+
+
+def _cola_del_documento(texto: str, fraccion: float = 0.15) -> str:
+    t = " ".join((texto or "").split())
+    m = _RX_EVIDENCIA_FIRMA.search(t)
+    if m:
+        t = t[:m.start()]
+    return sin_marcas_de_pagina(t[-max(1500, int(len(t) * fraccion)):])
 
 
 def resolvio_segun_resolutivos(texto: str) -> str:
     """Qué hizo el juzgado según SUS PUNTOS RESOLUTIVOS, leídos del texto de
-    la sentencia recurrida; «» si no se encuentran o no lo dicen."""
-    return que_dice_el_resolutivo(seccion_resolutiva(texto))
+    la sentencia recurrida; si el rótulo no se deja leer, según las fórmulas de
+    resolutivo de la cola del documento; «» si nada lo dice."""
+    return (que_dice_el_resolutivo(seccion_resolutiva(texto))
+            or que_dice_el_resolutivo(_cola_del_documento(texto)))
 
 
 _VALIDOS_A_QUO = ("sobresee", "niega", "concede", "sobresee_niega", "sobresee_concede")
+
+
+def resolutivo_de_fases(fases) -> str:
+    """El punto de fondo reproducible del juzgado para una sesión: el guardado
+    y, si no se guardó ninguno y la sesión trae el papel de la recurrida
+    (`fuentes[0]`), releído con el lector de hoy (4-oct-2026, AR 380/2025: la
+    sesión guardó «» porque el lector de entonces tomó la firma electrónica por
+    los puntos). Lo guardado manda: se leyó del mismo papel al generar."""
+    guardado = str(getattr(fases, "resolutivo_recurrida", "") or "")
+    if guardado.strip():
+        return guardado
+    fu = list(getattr(fases, "fuentes", None) or [])
+    papel = str(fu[0] or "") if fu else ""
+    return resolutivo_recurrida(papel) if papel.strip() else ""
 
 
 def que_hizo_el_juzgado(fases, declarado: str = "") -> str:
@@ -742,9 +914,27 @@ def que_hizo_el_juzgado(fases, declarado: str = "") -> str:
     hacían `"\\n".join(r.fases.antecedentes or [])`, que sobre una cadena
     intercala un salto de línea entre CADA LETRA: ningún verbo casaba y, sin
     lo declarado, la rama del estudio quedaba sin determinar."""
-    _r = que_dice_el_resolutivo(str(getattr(fases, "resolutivo_recurrida", "") or ""))
+    _r = que_dice_el_resolutivo(resolutivo_de_fases(fases))
     if _r:
         return _r
+    # EL PAPEL SE VUELVE A LEER SI ESTÁ (4-oct-2026, AR 380/2025). La sesión
+    # guarda el texto de la recurrida (`fuentes[0]`) y, con él, lo que dicen sus
+    # puntos con el lector de hoy, no con el que se guardó al generar: la 380
+    # guardó «sobresee» —el recuento sobre la firma electrónica— y su único
+    # punto de fondo NEGABA el amparo. Si el papel está y sus puntos no dicen
+    # nada, lo guardado salió de un recuento: manda antes lo que el motor
+    # declaró tras leer el expediente entero.
+    _fu = list(getattr(fases, "fuentes", None) or [])
+    _papel = str(_fu[0] or "") if _fu else ""
+    if _papel.strip():
+        _p = resolvio_segun_resolutivos(_papel)
+        if _p:
+            return _p
+        _dec = " ".join((declarado or "").split())
+        if _dec:
+            _d = _mixto(_dec) or _resolvio_de(_dec, solo_verbos=False)
+            if _d:
+                return _d
     _pdf = str(getattr(fases, "resolvio_a_quo", "") or "").strip().lower()
     if _pdf in _VALIDOS_A_QUO:
         return _pdf
