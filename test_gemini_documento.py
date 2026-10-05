@@ -34,16 +34,28 @@ def correr(co):
     return asyncio.new_event_loop().run_until_complete(co)
 
 
-os.environ.pop("GEMINI_API_KEY_DOCUMENTO", None)
+for _v in ("GEMINI_API_KEY", "GEMINI_API_KEY_DOCUMENTO", "DOCUMENTO_CLAVE_PROPIA"):
+    os.environ.pop(_v, None)
 import gemini_documento as gd  # noqa: E402
 
 print("\n1 · QUÉ VA POR GEMINI DIRECTO")
 ok(gd.es_modelo_gemini_directo("gemini-3.1-pro-preview"), "«gemini-3.1-pro-preview» es Gemini directo")
 ok(not gd.es_modelo_gemini_directo("google/gemini-3.1-pro-preview"), "con «/» sigue siendo OpenRouter")
 ok(not gd.es_modelo_gemini_directo("gpt-6-luna") and not gd.es_modelo_gemini_directo(None), "luna y None no")
-ok(not gd.disponible(), "sin GEMINI_API_KEY_DOCUMENTO no está disponible")
-os.environ["GEMINI_API_KEY_DOCUMENTO"] = "AQ.falsa-para-pruebas"
-ok(gd.disponible(), "con la variable, sí")
+ok(not gd.disponible(), "sin clave de Gemini no está disponible")
+# LA CLAVE GENERAL (4-oct-2026): la propia de documentos se quedó sin saldo.
+os.environ["GEMINI_API_KEY"] = "AIza-general-falsa"
+ok(gd.disponible() and gd.clave() == "AIza-general-falsa", "con GEMINI_API_KEY, disponible y es la que usa")
+os.environ["GEMINI_API_KEY_DOCUMENTO"] = "AQ.propia-falsa"
+ok(gd.clave() == "AIza-general-falsa", "la propia de documentos ya NO manda por sí sola")
+os.environ["DOCUMENTO_CLAVE_PROPIA"] = "1"
+ok(gd.clave() == "AQ.propia-falsa", "con DOCUMENTO_CLAVE_PROPIA=1, vuelve la propia (sin desplegar)")
+os.environ.pop("GEMINI_API_KEY_DOCUMENTO")
+ok(gd.clave() == "AIza-general-falsa", "y si la propia falta, cae a la general")
+for _v in ("GEMINI_API_KEY", "GEMINI_API_KEY_DOCUMENTO", "DOCUMENTO_CLAVE_PROPIA"):
+    os.environ.pop(_v, None)
+os.environ["GEMINI_API_KEY_DOCUMENTO"] = "AQ.propia-falsa"
+ok(not gd.disponible(), "sólo con la propia y sin pedirla, no está disponible")
 os.environ.pop("GEMINI_API_KEY_DOCUMENTO")
 
 print("\n2 · DE MENSAJES DE OPENAI A GEMINI")
@@ -150,6 +162,8 @@ except RuntimeError as e:
     ok("PROHIBITED_CONTENT" in str(e), "un documento bloqueado al abrir levanta error (y hay repliegue)")
 
 print("\n5 · MAIN.PY: RUTA, OMISIÓN Y REPLIEGUE")
+for _v in ("GEMINI_API_KEY", "GEMINI_API_KEY_DOCUMENTO", "DOCUMENTO_CLAVE_PROPIA"):
+    os.environ.pop(_v, None)   # main se importa SIN clave: Platinum debe quedarse en luna
 with contextlib.redirect_stdout(io.StringIO()):
     import main  # noqa: E402
 importlib.reload(gd)  # el cliente real otra vez (las pruebas de arriba lo sustituyeron)
@@ -162,7 +176,7 @@ ok(cli is main.deepseek_client, "google/gemini-… sigue yendo por OpenRouter (r
 cli, params = main._via_documento("gpt-6-luna", "medium")
 ok(cli is main.chat_client and params.get("reasoning_effort") == "medium", "luna sigue por OpenAI con su esfuerzo")
 ok(main.DOCUMENT_MODEL_PLATINUM == main.DOCUMENT_MODEL,
-   "sin GEMINI_API_KEY_DOCUMENTO, Platinum sigue con luna (el código se puede desplegar antes que la clave)")
+   "sin clave de Gemini, Platinum sigue con luna (el código se puede desplegar antes que la clave)")
 fuente = Path("main.py").read_text(encoding="utf-8")
 ok('"gemini-3.1-pro-preview" if _gemini_doc.disponible() else DOCUMENT_MODEL' in fuente,
    "con la clave, Platinum pasa por omisión a gemini-3.1-pro-preview")
@@ -170,7 +184,7 @@ i = fuente.index("response = await _abrir(model_to_use, esfuerzo_doc)")
 tramo = fuente[i:i + 900]
 ok("_repliegue = (DOCUMENT_MODEL, esfuerzo_doc or DOCUMENT_ESFUERZO)" in tramo,
    "si Gemini no abre, Platinum cae a luna con SU esfuerzo (medium), no al low de todos")
-ok('"Gemini directo (clave nueva)"' in fuente, "el registro dice por dónde fue («Gemini directo (clave nueva)»)")
+ok('"Gemini directo"' in fuente, "el registro dice por dónde fue («Gemini directo»)")
 
 print()
 if FALLOS:

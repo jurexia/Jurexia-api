@@ -163,9 +163,9 @@ DOCUMENT_MODEL = os.getenv("DOCUMENT_MODEL", "gpt-6-luna")
 # 11,254 caracteres de mediana y 3 citas verificadas; con luna medium, 36,117
 # y 1 (respuestas completas, mismo prompt). En toda la plataforma las citas
 # verificadas por análisis bajaron de 4.2 a 1.7. David: devolverle Gemini 3.1
-# Pro con la clave NUEVA de la API de Gemini, sin OpenRouter
-# (gemini_documento.py). Sin esa clave (GEMINI_API_KEY_DOCUMENTO) Platinum
-# sigue con luna, como ayer: el código puede desplegarse antes que la clave.
+# Pro con la API de Gemini directa, sin OpenRouter (gemini_documento.py).
+# Desde el 4-oct-2026 con la clave GENERAL (GEMINI_API_KEY): la propia de
+# documentos se quedó sin saldo. Sin clave de Gemini, Platinum sigue con luna.
 import gemini_documento as _gemini_doc
 DOCUMENT_MODEL_PLATINUM = os.getenv(
     "DOCUMENT_MODEL_PLATINUM",
@@ -13158,7 +13158,7 @@ async def analyze_document(
         model_to_use = DOCUMENT_MODEL_PLATINUM if is_platinum_or_admin else DOCUMENT_MODEL
         esfuerzo_doc = DOCUMENT_ESFUERZO_PLATINUM if is_platinum_or_admin else DOCUMENT_ESFUERZO
         _via_doc = ("OpenRouter" if "/" in model_to_use
-                    else "Gemini directo (clave nueva)" if _gemini_doc.es_modelo_gemini_directo(model_to_use)
+                    else "Gemini directo" if _gemini_doc.es_modelo_gemini_directo(model_to_use)
                     else f"OpenAI, razonamiento {esfuerzo_doc}")
         print(f"   🚀 Enviando a {model_to_use} vía {_via_doc} ({len(full_user_message):,} chars) — preprocessing total: {t_pre_llm - t0:.2f}s")
 

@@ -159,9 +159,10 @@ CATALOGO: list[Motor] = [
         clave="documento_platinum", boton="Analizar documento adjunto", marcador=None,
         proveedor="google", modelo="gemini-3.1-pro-preview", razona=True,
         esfuerzo=None, max_tokens=32_768, planes="platinum y admin",
-        nota="Desde el 27-sep-2026 Platinum vuelve a Gemini 3.1 Pro, directo con "
-             "la clave nueva de la API de Gemini (GEMINI_API_KEY_DOCUMENTO; "
-             "gemini_documento.py), temperatura 0.3 como en OpenRouter. Con luna "
+        nota="Desde el 27-sep-2026 Platinum vuelve a Gemini 3.1 Pro, directo por "
+             "la API de Gemini (gemini_documento.py); desde el 4-oct con la clave "
+             "general GEMINI_API_KEY (la propia, GEMINI_API_KEY_DOCUMENTO, sólo con "
+             "DOCUMENTO_CLAVE_PROPIA=1), temperatura 0.3 como en OpenRouter. Con luna "
              "medium escribía 3× más largo con la mitad de citas del acervo. Sin "
              "la clave, Platinum sigue con luna medium; si Gemini no abre, cae a "
              "luna medium. DOCUMENT_MODEL_PLATINUM lo cambia sin desplegar.",

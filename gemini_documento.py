@@ -50,9 +50,16 @@ import os
 from types import SimpleNamespace
 from typing import Any, Dict, List, Optional
 
-# La clave nueva vive aparte para no mezclar su cuota con la de los Genios y el
-# resto de rutas de Gemini, que siguen con GEMINI_API_KEY.
-CLAVE_ENV = "GEMINI_API_KEY_DOCUMENTO"
+# LA CLAVE ES LA GENERAL (4-oct-2026). La «nueva» (GEMINI_API_KEY_DOCUMENTO)
+# vivía aparte para no mezclar su cuota con la de los Genios, pero era de una
+# cuenta de AI Studio con PREPAGO y se quedó sin saldo el 4-oct —402 «Your
+# prepayment credits are depleted»: 28 análisis Platinum cayeron a luna en 24
+# h—. David: «usemos GEMINI_API_KEY para documentos y todo lo demás, sin
+# necesidad de recargar». Por omisión, la general (la del proyecto 725313204299,
+# la misma de los Genios, el chat, el supervisor y el OCR). La propia sólo si
+# DOCUMENTO_CLAVE_PROPIA=1 y está puesta: así se vuelve a separar sin desplegar.
+CLAVE_ENV = "GEMINI_API_KEY"
+CLAVE_PROPIA_ENV = "GEMINI_API_KEY_DOCUMENTO"
 TEMPERATURA = float(os.getenv("DOCUMENT_GEMINI_TEMPERATURA", "0.3"))
 MAX_SALIDA = int(os.getenv("DOCUMENT_GEMINI_MAX_SALIDA", "32768"))
 
@@ -60,6 +67,10 @@ _cliente_genai = None
 
 
 def clave() -> str:
+    if (os.getenv("DOCUMENTO_CLAVE_PROPIA") or "").strip().lower() in ("1", "true", "si", "sí"):
+        propia = (os.getenv(CLAVE_PROPIA_ENV) or "").strip()
+        if propia:
+            return propia
     return (os.getenv(CLAVE_ENV) or "").strip()
 
 
