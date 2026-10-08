@@ -182,6 +182,9 @@ DOCUMENT_MAX_SALIDA = int(os.getenv("DOCUMENT_MAX_SALIDA", "40000"))
 # un documento; ver «LA CONVERSACIÓN VIAJA CON EL DOCUMENTO».
 DOCUMENTO_VENTANA_CHARS = int(os.getenv("DOCUMENTO_VENTANA_CHARS", "760000"))
 DOCUMENTO_VENTANA_LARGA_CHARS = int(os.getenv("DOCUMENTO_VENTANA_LARGA_CHARS", "2400000"))
+# Lo más que se acepta del historial adjunto: el frontend ya le quita los
+# marcadores pesados; más allá de esto, algo raro viene en la petición.
+HISTORIAL_ARCHIVO_MAX_BYTES = int(os.getenv("HISTORIAL_ARCHIVO_MAX_BYTES", str(12 * 1024 * 1024)))
 GEMINI_LITE_MODEL = os.getenv("GEMINI_LITE_MODEL", "gemini-3.1-flash-lite-preview")  # Chat normal sin genio vía Gemini API directa — Flash Lite, latencia mínima
 
 # Consulta rápida (el rayo). Elegido midiendo seis candidatos sobre contexto
@@ -12718,8 +12721,12 @@ async def analyze_document(
     # El selector «Fuentes» del chat, separado por comas. Ver fuentes_elegidas.py.
     fuentes: str = Form(None),
     # La conversación previa, como JSON [{"role","content"}] (7-oct-2026). Ver
-    # «LA CONVERSACIÓN VIAJA CON EL DOCUMENTO» más abajo.
+    # «LA CONVERSACIÓN VIAJA CON EL DOCUMENTO» más abajo. Va como ARCHIVO:
+    # Starlette corta en 1 MiB cada campo de texto del formulario y responde
+    # 400 antes de llegar aquí, y una conversación con dos o tres escritos
+    # adjuntos pasa de eso. El campo de texto queda por compatibilidad.
     historial: str = Form(None),
+    historial_archivo: Optional[UploadFile] = File(None),
 ):
     """
     Analiza un documento completo con Gemini Flash vía OpenRouter.
@@ -12732,6 +12739,18 @@ async def analyze_document(
     from starlette.responses import StreamingResponse
 
     t0 = _time.time()
+
+    # El historial que llega como archivo se lee AQUÍ, antes de devolver el
+    # flujo: los archivos subidos se cierran al salir de esta función.
+    if historial_archivo is not None:
+        try:
+            _crudo_hist = await historial_archivo.read(HISTORIAL_ARCHIVO_MAX_BYTES + 1)
+            if len(_crudo_hist) > HISTORIAL_ARCHIVO_MAX_BYTES:
+                print(f"   ⚠️ Historial de {len(_crudo_hist):,} bytes: pasa del tope, se analiza sin él")
+            elif _crudo_hist:
+                historial = _crudo_hist.decode("utf-8", errors="replace")
+        except Exception as _e_ha:
+            print(f"   ⚠️ No pude leer el historial adjunto: {type(_e_ha).__name__}: {str(_e_ha)[:120]}")
 
     filename = file.filename or "unknown"
     extension = filename.split(".")[-1].lower()

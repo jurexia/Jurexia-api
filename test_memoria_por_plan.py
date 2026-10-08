@@ -87,6 +87,26 @@ ok("*_historial_para(_modelo)" in fuente, "el historial entra en la llamada prin
 ok("*_historial_para(DOCUMENT_MODEL" in fuente, "y en la continuación por recitación")
 ok("REGLA_COHERENCIA_HILO" in fuente, "con la regla de coherencia")
 
+ok("historial_archivo" in firma.parameters, "parámetro historial_archivo (archivo)")
+ok("await historial_archivo.read(" in fuente, "el archivo se lee antes de devolver el flujo")
+# Por qué archivo y no texto: Starlette corta cada CAMPO DE TEXTO en 1 MiB.
+from fastapi import FastAPI, File, Form, UploadFile  # noqa: E402
+from fastapi.testclient import TestClient  # noqa: E402
+_app = FastAPI()
+
+
+@_app.post("/x")
+async def _x(historial: str = Form(None), historial_archivo: UploadFile = File(None)):
+    datos = (await historial_archivo.read()) if historial_archivo else (historial or "").encode()
+    return {"n": len(datos)}
+
+_c = TestClient(_app)
+_grande = json.dumps([{"role": "user", "content": "x" * 2_000_000}])
+r_texto = _c.post("/x", data={"historial": _grande})
+r_arch = _c.post("/x", files={"historial_archivo": ("historial.json", _grande.encode(), "application/json")})
+ok(r_texto.status_code == 400, f"2 MB como texto: {r_texto.status_code} (lo corta Starlette)")
+ok(r_arch.status_code == 200 and r_arch.json()["n"] == len(_grande), "2 MB como archivo: pasa entero")
+
 print("5. La regla de coherencia")
 ok("COHERENCIA CON ESTA CONVERSACIÓN" in main.REGLA_COHERENCIA_HILO, "existe")
 for pieza in ("fijó la legislación", "ya aclaró", "contraparte", "Iurexia propuso antes", "insiste"):
