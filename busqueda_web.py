@@ -258,9 +258,30 @@ async def _un_agente(agente: dict, consulta, estado: Optional[str]) -> Dict[str,
             "repetir la consulta. Prioriza sitios oficiales mexicanos "
             "(.gob.mx, poderes judiciales, congresos)."
         )
+        # EL AGENTE FEDERAL NO OPINA SOBRE LO LOCAL (7-oct-2026). «Vigencia»
+        # sólo puede buscar en sitios federales; con un asunto de Guanajuato
+        # regido por su Código Civil y su Código de Procedimientos Civiles, lo
+        # único federal que encontraba era el Código Nacional de Procedimientos
+        # Civiles y Familiares, y lo pintaba arriba de las «Fuentes de internet
+        # consultadas». La abogada que había pedido sólo legislación estatal
+        # (folio 1317-23) lo leyó como que trabajábamos con la ley equivocada.
+        # Con entidad, este agente se abstiene si lo aplicable es local; lo
+        # local lo cubren «local» y «acervo_local».
+        limite = ""
+        if agente["id"] == "vigencia" and estado:
+            limite = (
+                f"\n\nLA CONSULTA ES DEL ESTADO DE {estado.replace('_', ' ').upper()}. Si se rige por legislación "
+                "local —códigos civil, familiar, penal, de procedimientos u otras leyes del "
+                "estado—, este encargo no aplica: responde exactamente NO_APLICA y nada más. "
+                "En particular, no traigas el Código Nacional de Procedimientos Civiles y "
+                "Familiares ni el Código Nacional de Procedimientos Penales salvo que la "
+                "consulta los mencione: su aplicación depende de la declaratoria del estado y "
+                "de la fecha en que inició el procedimiento. Sólo si lo aplicable es una ley "
+                "federal, cumple tu misión."
+            )
         instruccion = (
             f"Consulta jurídica mexicana: {consulta}{donde}\n\n"
-            f"TU MISIÓN: {agente['mision']}\n\n{cierre}"
+            f"TU MISIÓN: {agente['mision']}{limite}\n\n{cierre}"
         )
 
         # Con OpenAI el coto se pide DESDE la búsqueda (allowed_domains): así
@@ -273,6 +294,9 @@ async def _un_agente(agente: dict, consulta, estado: Optional[str]) -> Dict[str,
             print(f"   🌐 [{agente['id']}] sin motor o sin respuesta ({c['error'][:90]})")
             return vacio
         texto, crudas = c["texto"], c["crudas"]
+        if limite and "NO_APLICA" in (texto or "")[:200]:
+            print(f"   🌐 [{agente['id']}] asunto local de {estado}: se abstiene")
+            return vacio
 
         fuentes, vistos = [], set()
         for titulo, url in crudas:

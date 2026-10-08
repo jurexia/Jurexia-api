@@ -175,6 +175,13 @@ DOCUMENT_ESFUERZO_PLATINUM = os.getenv("DOCUMENT_ESFUERZO_PLATINUM", "medium")
 # En la familia gpt-6 el razonamiento descuenta del mismo tope que el texto.
 # Medido: Gemini Flash escribía 28,800 caracteres de media (~7 mil tokens).
 DOCUMENT_MAX_SALIDA = int(os.getenv("DOCUMENT_MAX_SALIDA", "40000"))
+# Lo que cabe de ENTRADA en cada motor, en caracteres (7-oct-2026): prompt +
+# acervo + conversación + documento. Luna: ~272 mil tokens de ventana menos
+# los 40 mil de salida, a ~3.5 caracteres por token, con holgura. Gemini 3.1
+# Pro: un millón de tokens. Con esto se decide cuánta conversación acompaña a
+# un documento; ver «LA CONVERSACIÓN VIAJA CON EL DOCUMENTO».
+DOCUMENTO_VENTANA_CHARS = int(os.getenv("DOCUMENTO_VENTANA_CHARS", "760000"))
+DOCUMENTO_VENTANA_LARGA_CHARS = int(os.getenv("DOCUMENTO_VENTANA_LARGA_CHARS", "2400000"))
 GEMINI_LITE_MODEL = os.getenv("GEMINI_LITE_MODEL", "gemini-3.1-flash-lite-preview")  # Chat normal sin genio vía Gemini API directa — Flash Lite, latencia mínima
 
 # Consulta rápida (el rayo). Elegido midiendo seis candidatos sobre contexto
@@ -2008,6 +2015,97 @@ HISTORIAL_CABEZA_USUARIO = 3000
 _HISTORIAL_MARCA = "\n\n[…recortado del historial para que la conversación siga cabiendo…]"
 _HISTORIAL_OMITIDO = "[…turno anterior omitido por extensión…]"
 
+# ── LA MEMORIA DE LA CONVERSACIÓN, POR PLAN (7-oct-2026) ──────────────────
+#
+# Hasta hoy todos los planes tenían la misma memoria —HISTORIAL_MAX_CHARS,
+# 600 mil caracteres—, y ése es el máximo que admite el motor del chat
+# (gpt-6-luna, unos 272 mil tokens con el acervo y el prompt encima). David:
+# cuando la conversación rebase la memoria, avisar y ofrecer dos salidas:
+# seguir en una conversación nueva partiendo de un documento con lo
+# trabajado, o un plan mayor «que ofrece una mayor ventana de contexto», y
+# que eso sea cierto. Como el techo del motor no se puede subir, lo cierto es
+# que cada plan tenga su memoria y Platinum la del techo.
+#
+# El aviso viaja como marcador de pantalla (MEMORIA_LLENA) y el frontend lo
+# convierte en el recuadro con los dos botones. Topes movibles sin desplegar.
+HISTORIAL_TOPE_POR_PLAN = {
+    "gratuito": int(os.getenv("HISTORIAL_TOPE_GRATUITO", "150000")),
+    "basico": int(os.getenv("HISTORIAL_TOPE_BASICO", "250000")),
+    "pro": int(os.getenv("HISTORIAL_TOPE_PRO", "400000")),
+    "platinum": HISTORIAL_MAX_CHARS,
+}
+_PLAN_CON_MAS_MEMORIA = {"gratuito": "basico", "basico": "pro", "pro": "platinum", "platinum": None}
+
+# ── LA COHERENCIA CON LO YA DICHO (7-oct-2026) ─────────────────────────────
+# Folio 1317-23: en la misma conversación Iurexia le marcó a una abogada como
+# errores párrafos que él mismo le había redactado, le señaló como
+# contradicciones hechos que venían de la demanda contraria, volvió a plantear
+# lo que ella ya había aclarado y, cuando ella lo corregía, le daba la razón y
+# cambiaba de postura —cuatro veces en dos días—. Parte venía de que la vía de
+# documentos no veía la conversación (ver analyze_document); esto es la otra
+# parte: con la conversación delante, decir explícitamente qué hacer con ella.
+# Se inyecta sólo cuando hay turnos previos, en /chat y con documento.
+REGLA_COHERENCIA_HILO = """COHERENCIA CON ESTA CONVERSACIÓN
+Esta respuesta continúa una conversación con el mismo abogado. Antes de escribir, ten presente lo que ya se dijo en ella:
+1. Si el abogado fijó la legislación aplicable, fúndate en ella en toda la respuesta. Si crees que otra norma también aplica, dilo como advertencia razonada, sin sustituir el fundamento que él fijó.
+2. Lo que el abogado ya aclaró o corrigió se tiene por cierto: no lo vuelvas a plantear como problema.
+3. Antes de llamar contradicción o error a algo de un escrito, verifica de dónde viene: lo que proviene del escrito de la contraparte, o lo que ambas partes admiten, no es una contradicción del escrito del abogado.
+4. Si vas a criticar o cambiar un texto que Iurexia propuso antes en esta conversación, dilo así y explica qué dato nuevo lo justifica; sin dato nuevo, sostén lo propuesto.
+5. Si cambias de criterio respecto de una respuesta anterior, explica en una frase qué cambió. No cambies de criterio sólo porque el abogado insiste: revisa el punto y sostenlo o corrígelo con fundamento."""
+
+
+def nivel_de_plan(subscription_type: Optional[str], es_admin: bool = False) -> str:
+    """gratuito | basico | pro | platinum. Ultra y los administradores cuentan
+    como platinum: es la memoria más grande que hay."""
+    s = (subscription_type or "").strip().lower()
+    if es_admin or s.startswith("platinum") or s.startswith("ultra"):
+        return "platinum"
+    for nivel in ("pro", "basico"):
+        if s.startswith(nivel):
+            return nivel
+    return "gratuito"
+
+
+def tope_de_historial(nivel: str) -> int:
+    return min(HISTORIAL_TOPE_POR_PLAN.get(nivel, HISTORIAL_TOPE_POR_PLAN["gratuito"]), HISTORIAL_MAX_CHARS)
+
+
+def marcador_memoria_llena(nivel: str, tope: int, usado: int) -> str:
+    """El aviso para la pantalla. Se emite UNA vez por respuesta, al principio,
+    y sólo cuando el recorte de verdad quitó algo."""
+    datos = {"plan": nivel, "tope": int(tope), "usado": int(usado),
+             "mayor": _PLAN_CON_MAS_MEMORIA.get(nivel)}
+    return "\n<!-- MEMORIA_LLENA:" + json.dumps(datos, ensure_ascii=False) + " -->\n"
+
+
+_NIVEL_CACHE: Dict[str, tuple] = {}
+
+
+async def nivel_del_usuario(user_id: Optional[str]) -> str:
+    """El nivel de plan de un usuario, con un minuto de caché: se pregunta en
+    cada turno y el plan no cambia de un mensaje al siguiente. Si no se puede
+    leer, gratuito —el tope más chico nunca rompe la ventana del motor—."""
+    if not user_id or not supabase_admin:
+        return "gratuito"
+    ahora = time.time()
+    previo = _NIVEL_CACHE.get(user_id)
+    if previo and ahora - previo[1] < 60:
+        return previo[0]
+    nivel = "gratuito"
+    try:
+        r = await asyncio.to_thread(
+            lambda: supabase_admin.table("user_profiles").select("subscription_type, email")
+            .eq("id", user_id).limit(1).execute())
+        if r.data:
+            fila = r.data[0]
+            correo = (fila.get("email") or "").strip().lower()
+            nivel = nivel_de_plan(fila.get("subscription_type"), bool(correo and correo in ADMIN_EMAILS))
+    except Exception as e:
+        print(f"   ⚠️ No pude leer el plan para la memoria: {type(e).__name__}: {str(e)[:120]}")
+        return "gratuito"
+    _NIVEL_CACHE[user_id] = (nivel, ahora)
+    return nivel
+
 # ── LOS MARCADORES NO SON CONVERSACIÓN (3-sep-2026) ───────────────────────
 #
 # El backend emite hacia el navegador cosas que no son texto para el modelo:
@@ -2032,7 +2130,7 @@ _HISTORIAL_OMITIDO = "[…turno anterior omitido por extensión…]"
 _MARCADORES_DE_PANTALLA = (
     "FUENTES_PREVIAS", "CITATION_META", "PRECEDENTES_META", "REGISTROS_FUERA",
     "SOURCES", "PASO", "MODE", "PING", "CACHE", "SUSCRIPCION_SUSPENDIDA",
-    "ADVERTENCIA",
+    "ADVERTENCIA", "MEMORIA_LLENA",
 )
 # La apertura de un marcador. Lo demás —hasta su «-->» y los saltos de línea
 # de alrededor— lo recorre _limpiar_marcadores con str.find, no una
@@ -12619,6 +12717,9 @@ async def analyze_document(
     usar_acervo: str = Form("1"),
     # El selector «Fuentes» del chat, separado por comas. Ver fuentes_elegidas.py.
     fuentes: str = Form(None),
+    # La conversación previa, como JSON [{"role","content"}] (7-oct-2026). Ver
+    # «LA CONVERSACIÓN VIAJA CON EL DOCUMENTO» más abajo.
+    historial: str = Form(None),
 ):
     """
     Analiza un documento completo con Gemini Flash vía OpenRouter.
@@ -13272,6 +13373,62 @@ async def analyze_document(
 
             t_llm_start = _time.time()
 
+            # ── LA CONVERSACIÓN VIAJA CON EL DOCUMENTO (7-oct-2026) ──────────
+            # Este camino mandaba al motor [sistema, documento] y nada más: el
+            # abogado que adjuntaba un escrito A MITAD de una conversación
+            # recibía un análisis hecho por alguien que no había leído nada de
+            # lo anterior. Aurora (pro, folio 1317-23) lo vivió tres veces en
+            # una noche: su contestación se analizó sin la demanda que había
+            # subido antes, sin sus aclaraciones y sin los párrafos que el
+            # propio chat le había redactado; el análisis le marcaba como
+            # contradicciones hechos de la demanda y criticaba nuestra propia
+            # redacción, y al turno siguiente —ya por /chat, CON historial— le
+            # contestaba «tienes razón». Ella lo leyó, con toda razón, como que
+            # Iurexia se contradice.
+            #
+            # Ahora el frontend manda la conversación y aquí entra con el mismo
+            # recorte que /chat: tope del plan, y además lo que deje libre la
+            # ventana del motor que va a escribir, porque el documento y el
+            # acervo ocupan la misma ventana. Se arma por modelo: si el de
+            # Platinum no abre y se repliega a luna, la ventana es otra.
+            _previos_doc: List[Message] = []
+            if historial:
+                try:
+                    for _m in (json.loads(historial) or []):
+                        if (isinstance(_m, dict) and _m.get("role") in ("user", "assistant")
+                                and str(_m.get("content") or "").strip()):
+                            _previos_doc.append(Message(role=_m["role"], content=str(_m["content"])))
+                except Exception as _e_hist:
+                    print(f"   ⚠️ Historial del documento ilegible, se analiza sin él: "
+                          f"{type(_e_hist).__name__}: {str(_e_hist)[:120]}")
+                    _previos_doc = []
+            if _previos_doc:
+                system_documento = system_documento + "\n\n" + REGLA_COHERENCIA_HILO
+            _nivel_doc = nivel_de_plan(plan_actual, es_admin)
+            _memoria_doc: Dict[str, Any] = {}
+
+            def _historial_para(_modelo: str, _extra: int = 0) -> List[Dict[str, str]]:
+                if not _previos_doc:
+                    return []
+                _ventana = (DOCUMENTO_VENTANA_CHARS if _modelo == DOCUMENT_MODEL
+                            else DOCUMENTO_VENTANA_LARGA_CHARS)
+                _libre = _ventana - len(system_documento) - len(full_user_message) - _extra
+                _presupuesto = min(tope_de_historial(_nivel_doc), _libre)
+                if _presupuesto < 4000:
+                    # Ni el ancla cabe: va sin historial y se avisa igual.
+                    _antes = sum(len(m.content) for m in _previos_doc)
+                    _memoria_doc.update(antes=_antes, despues=0, tope=max(_presupuesto, 0))
+                    print(f"   ✂️ DOCUMENTO SIN HISTORIAL: el documento llena la ventana de {_modelo}")
+                    return []
+                _h, _antes, _despues = _recortar_historial(_previos_doc, presupuesto=_presupuesto)
+                _memoria_doc.update(antes=_antes, despues=_despues, tope=_presupuesto)
+                if _despues < _antes:
+                    print(f"   ✂️ HISTORIAL DEL DOCUMENTO RECORTADO: {_antes:,} → {_despues:,} chars "
+                          f"(tope {_presupuesto:,}, plan {_nivel_doc}, {_modelo})")
+                else:
+                    print(f"   🧵 Documento con su conversación: {len(_h)} mensajes, {_despues:,} chars")
+                return [{"role": m.role, "content": m.content} for m in _h]
+
             async def _abrir(_modelo: str, _esfuerzo: Optional[str] = None):
                 _cliente, _parametros = _via_documento(_modelo, _esfuerzo)
                 return await _crear_con_amortiguador(
@@ -13280,6 +13437,7 @@ async def analyze_document(
                     model=_modelo,
                     messages=[
                         {"role": "system", "content": system_documento},
+                        *_historial_para(_modelo),
                         {"role": "user", "content": full_user_message}
                     ],
                     stream=True,
@@ -13315,6 +13473,12 @@ async def analyze_document(
             _hubo_texto = False
             _trozos: List[str] = []
             _previas_pendiente = _marcador_previas
+            # El aviso de memoria llena viaja con el mapa de fuentes, después
+            # del primer párrafo (ver abajo por qué no antes).
+            if _memoria_doc and _memoria_doc.get("despues", 0) < _memoria_doc.get("antes", 0):
+                _previas_pendiente = (marcador_memoria_llena(_nivel_doc, _memoria_doc.get("tope", 0),
+                                                             _memoria_doc["antes"])
+                                      + (_previas_pendiente or ""))
             # Por qué paró el motor. Gemini se detiene en silencio cuando el
             # texto le parece «recitación» —y transcribir un artículo es
             # justo eso—; sin este registro una respuesta cortada a media
@@ -13374,6 +13538,7 @@ async def analyze_document(
                         model=DOCUMENT_MODEL,
                         messages=[
                             {"role": "system", "content": system_documento},
+                            *_historial_para(DOCUMENT_MODEL, sum(len(t) for t in _trozos)),
                             {"role": "user", "content": full_user_message},
                             {"role": "assistant", "content": "".join(_trozos)},
                             {"role": "user", "content": INSTRUCCION_CONTINUAR},
@@ -13475,6 +13640,104 @@ async def analyze_document(
             "X-Accel-Buffering": "no",
         }
     )
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# CONTINUAR EN UNA CONVERSACIÓN NUEVA (7-oct-2026)
+# ══════════════════════════════════════════════════════════════════════════════
+# La salida que da el aviso MEMORIA_LLENA cuando una conversación ya no cabe en
+# la memoria del plan: un expediente de lo trabajado —hechos, legislación que
+# fijó el abogado, documentos, decisiones, aclaraciones y textos ya
+# aceptados—, que el frontend pone como documento adjunto al principio de una
+# conversación nueva. Ahí entra como ancla del historial (ver
+# _recortar_historial), que es lo último que se recorta.
+#
+# No descuenta consulta: es la misma conversación, que ya se pagó, mudándose
+# de sitio porque nuestra memoria se llenó.
+
+PROMPT_EXPEDIENTE_DE_TRABAJO = """Vas a preparar el EXPEDIENTE DE TRABAJO de una conversación entre un abogado e Iurexia, para que el abogado la continúe en una conversación nueva sin perder nada. Quien lo lea después no verá la conversación original: lo que importe tiene que quedar aquí.
+
+Usa estos encabezados en Markdown, en este orden, y omite los que no tengan contenido:
+## Asunto — tipo de juicio o trámite, órgano, número de expediente, entidad, partes y a quién representa el abogado.
+## Legislación y criterios que fijó el abogado — las leyes que pidió usar y las que pidió no usar, con los artículos que se trabajaron.
+## Hechos — como quedaron establecidos, distinguiendo lo que afirma cada parte y lo que ya está admitido.
+## Documentos analizados — cuál, de quién, qué contiene en lo relevante y en qué versión quedó.
+## Decisiones y estrategia — lo acordado y por qué.
+## Aclaraciones del abogado — lo que el abogado corrigió o precisó y debe respetarse en adelante.
+## Textos ya redactados y aceptados — cópialos literalmente y completos.
+## Pendientes — lo que falta hacer o decidir.
+
+Reglas: no agregues nada que no esté en la conversación. Si dos momentos de la conversación se contradicen, consigna la versión final que aceptó el abogado. Conserva exactos los números de artículo, fechas, montos, nombres y números de expediente. De los documentos adjuntos resume lo relevante, no los transcribas. Escribe en español, en tercera persona, sin saludos ni comentarios sobre la conversación."""
+
+BIENVENIDA_CONTINUACION = (
+    "Tengo delante el expediente de lo que trabajamos en la conversación anterior: los hechos, "
+    "la legislación que usted fijó, los documentos, lo acordado y los textos ya redactados. "
+    "¿Con qué seguimos?"
+)
+CONTINUAR_ENTRADA_MAX = int(os.getenv("CONTINUAR_ENTRADA_MAX", "700000"))
+_CONTINUAR_USOS: Dict[str, List[float]] = {}
+
+
+class ContinuarRequest(BaseModel):
+    user_id: str = Field(..., min_length=10, max_length=64)
+    titulo: Optional[str] = Field(None, max_length=300)
+    messages: List[Message] = Field(..., min_length=1)
+
+
+@app.post("/conversacion/continuar")
+async def continuar_conversacion(req: ContinuarRequest):
+    if not supabase_admin:
+        raise HTTPException(status_code=503, detail="El servicio no está disponible en este momento.")
+    try:
+        r = await asyncio.to_thread(
+            lambda: supabase_admin.table("user_profiles").select("id").eq("id", req.user_id).limit(1).execute())
+        if not r.data:
+            raise HTTPException(status_code=403, detail="Usuario no reconocido.")
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"   ⚠️ /conversacion/continuar: no pude verificar al usuario: {type(e).__name__}")
+        raise HTTPException(status_code=503, detail="No pudimos verificar su cuenta. Intente de nuevo.")
+
+    # Un freno contra el uso en bucle: cuesta una llamada al motor cada vez.
+    ahora = time.time()
+    usos = [t for t in _CONTINUAR_USOS.get(req.user_id, []) if ahora - t < 3600]
+    if len(usos) >= 6:
+        raise HTTPException(status_code=429, detail="Ya preparó varios resúmenes esta hora. Intente más tarde.")
+    _CONTINUAR_USOS[req.user_id] = usos + [ahora]
+
+    mensajes, antes, despues = _recortar_historial(
+        [m for m in req.messages if m.role in ("user", "assistant")], presupuesto=CONTINUAR_ENTRADA_MAX)
+    transcripcion = "\n\n".join(
+        f"### {'Abogado' if m.role == 'user' else 'Iurexia'}\n{m.content}" for m in mensajes)
+    titulo = (req.titulo or "").strip() or "la conversación anterior"
+    print(f"   📦 CONTINUAR: {len(mensajes)} mensajes, {despues:,} de {antes:,} chars → expediente de trabajo")
+
+    t0 = time.time()
+    try:
+        cliente, parametros = _via_documento(DOCUMENT_MODEL, "low")
+        parametros = dict(parametros)
+        if "max_completion_tokens" in parametros:
+            parametros["max_completion_tokens"] = 24000
+        resp = await _crear_con_amortiguador(
+            cliente,
+            etiqueta="conversacion-continuar",
+            model=DOCUMENT_MODEL,
+            messages=[
+                {"role": "system", "content": PROMPT_EXPEDIENTE_DE_TRABAJO},
+                {"role": "user", "content": f"CONVERSACIÓN «{titulo}»:\n\n{transcripcion}"},
+            ],
+            **parametros,
+        )
+        documento = ((resp.choices[0].message.content if resp.choices else "") or "").strip()
+    except Exception as e:
+        print(f"   ❌ /conversacion/continuar: {type(e).__name__}: {str(e)[:200]}")
+        raise HTTPException(status_code=502, detail="No pudimos preparar el resumen. Intente de nuevo en unos minutos.")
+    if len(documento) < 200:
+        raise HTTPException(status_code=502, detail="El resumen salió incompleto. Intente de nuevo.")
+    print(f"   📦 CONTINUAR listo: {len(documento):,} chars en {time.time() - t0:.1f}s")
+    return {"titulo": f"Lo trabajado en «{titulo}»", "documento": documento,
+            "bienvenida": BIENVENIDA_CONTINUACION}
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -18281,14 +18544,27 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                         dynamic_injections.append(_session_msg)
                         print(f"   🔗 SESSION CTX: materia={_session_ctx.get('materia_detectada','?')}, proceso={_session_ctx.get('proceso_detectado','?')}")
 
+                # La coherencia con lo ya dicho, sólo si hay algo dicho (ver
+                # REGLA_COHERENCIA_HILO, 7-oct-2026).
+                if len(request.messages) > 1:
+                    dynamic_injections.append(REGLA_COHERENCIA_HILO)
+
                 # Agregar historial conversacional, con tope. Ver
                 # `_recortar_historial`: una conversación que no cabe en la
                 # ventana del modelo no falla «a veces», falla SIEMPRE y desde
                 # el turno en que la rebasó.
-                _hist, _hist_antes, _hist_despues = _recortar_historial(request.messages)
+                #
+                # El tope es el del PLAN (7-oct-2026, ver HISTORIAL_TOPE_POR_PLAN)
+                # y, si el recorte quita algo, la pantalla lo sabe: una
+                # conversación que se abrevia en silencio es una que «se
+                # contradice» sin que nadie sepa por qué.
+                _nivel_mem = await nivel_del_usuario(request.user_id)
+                _tope_mem = tope_de_historial(_nivel_mem)
+                _hist, _hist_antes, _hist_despues = _recortar_historial(request.messages, presupuesto=_tope_mem)
                 if _hist_despues < _hist_antes:
                     print(f"   ✂️ HISTORIAL RECORTADO: {_hist_antes:,} → {_hist_despues:,} chars "
-                          f"en {len(_hist)} mensajes (tope {HISTORIAL_MAX_CHARS:,})")
+                          f"en {len(_hist)} mensajes (tope {_tope_mem:,}, plan {_nivel_mem})")
+                    yield marcador_memoria_llena(_nivel_mem, _tope_mem, _hist_antes)
                 for i, msg in enumerate(_hist):
                     msg_content = msg.content
 
