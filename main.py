@@ -11537,7 +11537,7 @@ async def acervo_registros(payload: dict):
 
     Este endpoint pregunta lo que de verdad importa cuando se investiga una
     alucinación: **¿tenía el modelo de dónde sacar esta cita?** Si el registro
-    no está en `jurisprudencia_nacional_v2`, no lo leyó: lo inventó. Y si está
+    no está en la jurisprudencia del acervo (v3), no lo leyó: lo inventó. Y si está
     pero con otro rubro, tenemos el caso grave —registro auténtico al que se
     le reescribió el rubro—, que comprobar sólo la existencia deja pasar.
 
@@ -11562,7 +11562,7 @@ async def acervo_registros(payload: dict):
         for i in range(0, len(registros), BATCH):
             lote = registros[i:i + BATCH]
             pts, _ = await qdrant_client.scroll(
-                collection_name="jurisprudencia_nacional_v2",
+                collection_name=FIXED_SILOS["jurisprudencia"],
                 scroll_filter=Filter(must=[FieldCondition(key="registro",
                                                           match=MatchAny(any=lote))]),
                 limit=BATCH * 2,          # margen por duplicados
@@ -27872,7 +27872,7 @@ async def redactor_tcc_beta_generate(
                         continue
                     flt = Filter(must=[FieldCondition(key="registro", match=MatchAny(any=batch))])
                     pts, _ = await qdrant_client.scroll(
-                        collection_name="jurisprudencia_nacional_v2",
+                        collection_name=FIXED_SILOS["jurisprudencia"],
                         scroll_filter=flt,
                         limit=BATCH * 2,  # margen por si hay duplicados
                         with_payload=True,
@@ -28419,7 +28419,7 @@ async def redactor_tcc_v4_analyze(
                         continue
                     flt = Filter(must=[FieldCondition(key="registro", match=MatchAny(any=batch))])
                     pts, _ = await qdrant_client.scroll(
-                        collection_name="jurisprudencia_nacional_v2",
+                        collection_name=FIXED_SILOS["jurisprudencia"],
                         scroll_filter=flt,
                         limit=BATCH * 2,
                         with_payload=True,
@@ -30998,14 +30998,18 @@ Sé EXHAUSTIVO al identificar TODOS los agravios/conceptos de violación. Cada p
                 if not sq.strip():
                     continue
                 try:
+                    # La v2 se borró el 11-oct-2026: la v3 usa otro modelo de
+                    # embedding (3072) y su vector se llama «texto».
+                    _col_j = FIXED_SILOS["jurisprudencia"]
                     results = await qdrant_client.query_points(
-                        collection_name="jurisprudencia_nacional_v2",
-                        query=await get_dense_embedding(sq),
+                        collection_name=_col_j,
+                        query=await _embedding_juris(sq),
+                        using=_vector_de(_col_j),
                         limit=5,
                         with_payload=True,
                     )
                     for r in results.points:
-                        ref = r.payload.get("ref", "")
+                        ref = r.payload.get("ref") or r.payload.get("registro", "")
                         texto = r.payload.get("texto", "")
                         if texto and ref not in [j.get("ref") for j in juris]:
                             juris.append({
