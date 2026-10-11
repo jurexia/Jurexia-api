@@ -94,7 +94,7 @@ def categoria(coleccion: Any) -> Optional[str]:
     n = str(coleccion or "").strip().lower()
     if not n:
         return None
-    if n == "leyes_federales":
+    if n in ("leyes_federales", "procesal_federal", "normas_oficiales"):
         return "federal"
     if n == "bloque_constitucional":
         return "constitucional"

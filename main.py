@@ -5923,7 +5923,7 @@ def _filtrar_por_distancia(results: list, protected_silo: Optional[str] = None) 
     if not results:
         return results
 
-    _PROTEGIDOS = {*JURIS_SILOS,
+    _PROTEGIDOS = {*JURIS_SILOS, "procesal_federal", "normas_oficiales",
                    "bloque_constitucional"}
     piso = results[0].score - RAG_DISTANCIA_MAXIMA
     guardados, descartados = [], 0
@@ -6031,6 +6031,136 @@ def _consulta_procesal_fuerte(query: str) -> bool:
     if _SOLO_PENAL.search(q) or _SOLO_CIVIL.search(q):
         return True
     return len({m.lower() for m in _SENAL_PROCESAL.findall(q)}) >= 2
+
+
+NOM_ACTIVAS = os.getenv("NOM_ACTIVAS", "1").strip() != "0"
+# NORMAS OFICIALES MEXICANAS (11-oct-2026): 52 NOM elegidas por uso forense
+# (ver scripts/ingesta_nom.py). No se buscan en cada consulta: sólo cuando la
+# pregunta nombra una NOM o cae en un tema donde una NOM fija el estándar
+# exigible. Sin esta puerta, una NOM de etiquetado se colaría en un divorcio.
+_RE_NOM_CLAVE = re.compile(r"\bNOM[\s-]*(\d{3})[\s-]*([A-Z0-9/-]+?)[\s-]*(\d{4})\b", re.IGNORECASE)
+_RE_NOM_TEMA = re.compile(
+    r"\b(norma oficial|normas oficiales|\bnom\b|expediente cl[ií]nico|negligencia m[eé]dica|mala pr[aá]ctica|"
+    r"responsabilidad m[eé]dica|consentimiento informado|historia cl[ií]nica|violencia sexual|violaci[oó]n.*(embarazo|aborto)|"
+    r"interrupci[oó]n (legal )?del embarazo|parto|obst[eé]tric|urgencias m[eé]dicas|ambulancia|anestesi|"
+    r"riesgo psicosocial|factores de riesgo psicosocial|acoso laboral|mobbing|teletrabajo|home office|"
+    r"seguridad e higiene|comisi[oó]n de seguridad|equipo de protecci[oó]n|trabajos en altura|riesgo de trabajo|"
+    r"etiquetado|sellos de advertencia|informaci[oó]n comercial|pr[aá]cticas comerciales|profeco|garant[ií]a|"
+    r"compraventa de (vivienda|casa|inmueble)|preventa|desarrollador|inmobiliaria|comercio electr[oó]nico|venta en l[ií]nea|"
+    r"conservaci[oó]n de mensajes de datos|constancia de conservaci[oó]n|digitalizaci[oó]n|mensajes de datos|"
+    r"peso y dimensiones|tractocami[oó]n|autotransporte|transporte de carga|horas de conducci[oó]n|se[nñ]alamiento vial|"
+    r"especies? (en riesgo|amenazadas|protegidas|end[eé]micas)|ruido|contaminaci[oó]n|aguas residuales|residuos peligrosos|"
+    r"relleno sanitario|residuos de manejo especial|hidrocarburos en suelo|emisiones|verificaci[oó]n vehicular|agua potable|"
+    r"disponibilidad de agua|concesi[oó]n de aguas|protecci[oó]n civil|se[nñ]ales y avisos|biol[oó]gico[- ]infeccios|RPBI|"
+    r"vih|adicciones|salud mental|psiqui[aá]tric)", re.IGNORECASE)
+
+
+async def _traer_normas_oficiales(query, dense_vector, existing_ids, skip=False) -> list:
+    """Las NOM que vienen al caso, como SearchResult. Nunca lanza."""
+    if skip or not NOM_ACTIVAS or not dense_vector:
+        return []
+    clave = _RE_NOM_CLAVE.search(query or "")
+    if not clave and not _RE_NOM_TEMA.search(query or ""):
+        return []
+    try:
+        import fuentes_elegidas as _fe_nom
+        if not _fe_nom.permitida("normas_oficiales"):
+            return []
+    except Exception:
+        pass
+    _t = time.perf_counter()
+    try:
+        from qdrant_client.models import FieldCondition, Filter, MatchValue
+        filtro = None
+        if clave:
+            _c = f"NOM-{clave.group(1)}-{clave.group(2).strip('-').upper()}-{clave.group(3)}"
+            filtro = Filter(must=[FieldCondition(key="clave", match=MatchValue(value=_c))])
+        res = await qdrant_client.query_points(collection_name="normas_oficiales", query=dense_vector,
+                                               using="dense", query_filter=filtro, limit=8, with_payload=True)
+        pts = list(res.points or [])
+        if filtro is not None and not pts:
+            res = await qdrant_client.query_points(collection_name="normas_oficiales", query=dense_vector,
+                                                   using="dense", limit=8, with_payload=True)
+            pts = list(res.points or [])
+    except Exception as e:
+        print(f"   ⚠️ NOM: búsqueda falló: {err(e)}")
+        return []
+    umbral = 0.0 if clave else 0.42
+    fuera = []
+    for i, p in enumerate(pts):
+        pl = p.payload or {}
+        if float(p.score or 0) < umbral or str(p.id) in existing_ids:
+            continue
+        existing_ids.add(str(p.id))
+        fuera.append(SearchResult(
+            id=str(p.id),
+            score=(max(float(p.score), 0.86) if (clave and i < 3) else min(float(p.score), 0.80)),
+            texto=pl.get("texto") or pl.get("texto_raw") or "",
+            ref=pl.get("ref"), origen=pl.get("origen") or pl.get("clave"),
+            jurisdiccion="federal", entidad="FEDERAL", silo="normas_oficiales",
+            pdf_url=pl.get("pdf_url"),
+        ))
+        if len(fuera) >= (5 if clave else 3):
+            break
+    if fuera:
+        print(f"   📏 NOM: +{len(fuera)} ({', '.join(sorted({(r.ref or '').split(',')[0] for r in fuera}))}) "
+              f"en {time.perf_counter()-_t:.2f}s")
+    return fuera
+
+
+PROCESAL_FEDERAL_ACTIVO = os.getenv("PROCESAL_FEDERAL_ACTIVO", "1").strip() != "0"
+
+
+async def _traer_procesal_federal(query, dense_vector, detected_materias, forced_materia,
+                                  top_k, existing_ids, skip=False) -> list:
+    """Los artículos procesales federales que pide la consulta, como SearchResult.
+
+    Lugar garantizado: con una consulta claramente procesal, hasta seis (según
+    `top_k`) con piso de 0.87 —por encima del CNPP de antes (0.86) y por debajo
+    del código local de la materia (0.90), que debe encabezar—; con señal
+    débil, dos. El resto compite con su puntuación. Nunca lanza.
+    """
+    if skip or not PROCESAL_FEDERAL_ACTIVO or not dense_vector:
+        return []
+    try:
+        import fuentes_elegidas as _fe_pf
+        if not _fe_pf.permitida("procesal_federal"):
+            return []
+    except Exception:
+        pass
+    _t = time.perf_counter()
+    try:
+        import procesal_federal as _pfm
+        pistas = list(detected_materias or []) + ([forced_materia] if forced_materia else [])
+        det, hits = await _pfm.buscar(qdrant_client, query, dense_vector, pistas=pistas, limite=8)
+    except Exception as e:
+        print(f"   ⚠️ PROCESAL FEDERAL falló (se sigue con el CNPP de leyes_federales): {err(e)}")
+        return []
+    if not hits:
+        return []
+    n_piso = max(2, min(6, top_k // 5)) if det.get("fuerte") else 2
+    fuera = []
+    for i, (pid, score, pl) in enumerate(hits):
+        if pid in existing_ids:
+            continue
+        existing_ids.add(pid)
+        fuera.append(SearchResult(
+            id=pid,
+            score=max(score, 0.87) if i < n_piso else min(score, 0.85),
+            texto=pl.get("texto") or pl.get("texto_raw") or "",
+            ref=pl.get("ref"),
+            origen=pl.get("ley"),
+            jurisdiccion="federal",
+            entidad="FEDERAL",
+            silo="procesal_federal",
+            pdf_url=pl.get("pdf_url"),
+        ))
+    print(f"   🧭 PROCESAL FEDERAL {det.get('materias')} figuras={det.get('figuras')[:4]} "
+          f"citas={det.get('citas')}: +{len(fuera)} artículos "
+          f"({min(n_piso, len(fuera))} con lugar garantizado) "
+          + ", ".join(f"{(h[2].get('abreviatura') or '')} {h[2].get('ref') or ''}".strip() for h in hits[:6])
+          + f" en {time.perf_counter()-_t:.2f}s")
+    return fuera
 
 
 async def _traer_codigo_nacional(materia: str, dense_vector, limite: int = 6):
@@ -6141,7 +6271,7 @@ def _apply_materia_threshold(results: list, detected_materias: Optional[List[str
     for r in results:
         # SIEMPRE mantener jurisprudencia, constitucional, y el silo del estado seleccionado
         # El silo del estado seleccionado es la fuente primaria — nunca descartar por materia
-        if r.silo in (*JURIS_SILOS, "bloque_constitucional") or r.silo == protected_silo:
+        if r.silo in (*JURIS_SILOS, "bloque_constitucional", "procesal_federal", "normas_oficiales") or r.silo == protected_silo:
             filtered.append(r)
             continue
         
@@ -6733,6 +6863,10 @@ def _get_jerarquia_label(silo: str) -> str:
     """
     if silo == "coidh":
         return "JURISPRUDENCIA_INTERAMERICANA"
+    if silo == "procesal_federal":
+        return "LEY_FEDERAL"
+    if silo == "normas_oficiales":
+        return "NORMA_OFICIAL_MEXICANA"
     level = SILO_HIERARCHY_PRIORITY.get(silo, 2)
     if level == 0:
         return "CONSTITUCION"
@@ -7218,6 +7352,20 @@ def format_results_as_xml(results: List[SearchResult], estado: Optional[str] = N
             f'La jurisprudencia va DESPUÉS como complemento interpretativo. -->'
         )
 
+    if any(r.silo == "procesal_federal" for r in results):
+        try:
+            import procesal_federal as _pfm_x
+            xml_parts.append("<!-- INSTRUCCIÓN PROCESAL: " + _pfm_x.instruccion(
+                [r.origen for r in results if r.silo == "procesal_federal"]) + " -->")
+        except Exception:
+            pass
+    if any(r.silo == "normas_oficiales" for r in results):
+        xml_parts.append(
+            '<!-- INSTRUCCIÓN NOM: los documentos tipo="NORMA_OFICIAL_MEXICANA" son normas técnicas '
+            'de observancia obligatoria (Ley de Infraestructura de la Calidad). Sirven para acreditar el '
+            'estándar exigible —el deber de cuidado en una negligencia médica, la obligación del patrón en '
+            'seguridad y salud, la información que debe dar un proveedor—. Cítalas por su clave completa '
+            '(p. ej. NOM-004-SSA3-2012), el numeral y su [Doc ID]; no las presentes como ley. -->')
     if any(r.silo == "doctrina" for r in results):
         xml_parts.append(
             '<!-- INSTRUCCIÓN DOCTRINA: Los documentos tipo="DOCTRINA" son obras '
@@ -7405,6 +7553,10 @@ def format_results_as_xml(results: List[SearchResult], estado: Optional[str] = N
                 tipo_tag = ' tipo="BLOQUE_CONSTITUCIONAL" prioridad="ALTA"' 
         elif r.silo in ("leyes_federales", "codigo_nacional"):
             tipo_tag = ' tipo="LEY_FEDERAL" prioridad="PRIMARIA"'
+        elif r.silo == "procesal_federal":
+            tipo_tag = ' tipo="LEY_PROCESAL_FEDERAL" prioridad="PRIMARIA"'
+        elif r.silo == "normas_oficiales":
+            tipo_tag = ' tipo="NORMA_OFICIAL_MEXICANA" prioridad="TECNICA"'
         elif r.silo == "doctrina":
             # La doctrina ilustra: prioridad explícita para que el modelo no la
             # trate como norma. La instrucción de cita exacta va aparte, abajo.
@@ -10865,7 +11017,19 @@ async def hybrid_search_all_silos(
     # ═══════════════════════════════════════════════════════════════════════════
     # CÓDIGOS NACIONALES CON LUGAR GARANTIZADO
     # ═══════════════════════════════════════════════════════════════════════════
-    _materia_procesal = _detectar_consulta_procesal(query)
+    # NORMATIVA PROCESAL FEDERAL (11-oct-2026): colección propia, etiquetada
+    # por materia, figura, plazo y remisión (ver procesal_federal.py). Si
+    # trae algo, sustituye al CNPP de leyes_federales; si falla o está vacía,
+    # se cae al camino de siempre.
+    _pf_hits = await _traer_procesal_federal(
+        query, dense_vector, detected_materias, forced_materia, top_k, existing_ids,
+        skip=skip_post_search)
+    if _pf_hits:
+        merged.extend(_pf_hits)
+    _nom_hits = await _traer_normas_oficiales(query, dense_vector, existing_ids, skip=skip_post_search)
+    if _nom_hits:
+        merged.extend(_nom_hits)
+    _materia_procesal = None if _pf_hits else _detectar_consulta_procesal(query)
     if _materia_procesal and not skip_post_search:
         _t_nac = time.perf_counter()
         _nacionales = await _traer_codigo_nacional(
@@ -11245,6 +11409,7 @@ _COLECCIONES_CITA = list(dict.fromkeys(
     # Primero las fuentes primarias: ante un UUID repetido —rarísimo— gana la
     # primera de la lista, y debe ganar la ley sobre el comentario.
     list(FIXED_SILOS.values())
+    + ["procesal_federal", "normas_oficiales"]
     + ["jurisprudencia_nacional", "sentencias_scjn_holdings", "sentencias_holdings"]
     + [LEGACY_ESTATAL_SILO]
     + list(ESTADO_SILO.values())
