@@ -84,7 +84,10 @@ def normalizar(valor: Any) -> Optional[FrozenSet[str]]:
         elegidas = frozenset(crudas & set(FUENTES_BASE))
         if "federal" in elegidas:
             elegidas = elegidas | {"procesal", "nom"}
-    if not elegidas or len(elegidas) == len(FUENTES):
+    if not elegidas:
+        return None
+    elegidas = elegidas | {"procesal"}       # automática: nunca se apaga
+    if len(elegidas) == len(FUENTES):
         return None
     return elegidas
 
@@ -104,7 +107,10 @@ def categoria(coleccion: Any) -> Optional[str]:
     if not n:
         return None
     if n == "procesal_federal":
-        return "procesal"
+        # Automática (David, 11-oct-2026: «quita el filtro de normativa procesal y
+        # déjala en automático»): el régimen procesal decide qué código rige; el
+        # CNPP o el CNPCF también rigen ante tribunales locales.
+        return None
     if n == "normas_oficiales":
         return "nom"
     if n == "leyes_federales":

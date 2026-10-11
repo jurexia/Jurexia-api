@@ -105,6 +105,9 @@ _F = {
     "conciliacion": r"\b(conciliacion|conciliatori\w*|mediacion|convenio|acuerdo reparatorio|mecanismos alternativos)\b",
     "improcedencia": r"\b(improcedencia|improcedente|desecha\w*|inadmisib\w*)\b",
     "via": r"\b(juicio oral|juicio ordinario|juicio especial|juicio ejecutivo|juicio sumario|procedimiento especial|procedimiento abreviado|procedimiento ordinario|via (ordinaria|especial|sumaria|ejecutiva|oral))\b",
+    # 11-oct-2026 (pregunta real: un lote asegurado en una investigación por recursos de procedencia ilícita):
+    "aseguramiento": r"\b(asegurad\w*|aseguramiento|decomis\w*|abandono (de|a favor)|bienes? (asegurad|embargad|incautad)\w*|devolucion de (los )?bienes|levantamiento del aseguramiento|extincion de dominio)\b",
+    "etapas": r"\b(etapas?|fases?) (del|de la|de) (procedimiento|proceso|juicio)|\betapa (de investigacion|intermedia|de juicio)\b|\binvestigacion (inicial|complementaria)\b",
 }
 FIGURAS = {k: re.compile(v) for k, v in _F.items()}
 
@@ -155,7 +158,8 @@ _SENAL = re.compile(
     r"embargo|cautelar|suspension|competen\w*|juzgado|tribunal|sentencia|auto|acuerdo|juicio|procedimiento|"
     r"tramit\w*|caducidad|preclu\w*|sobresee\w*|sobreseimiento|desist\w*|exhorto|edicto|perito|testig\w*|"
     r"vinculacion|imputacion|carpeta de investigacion|denuncia|querella|conciliacion|laudo|nulidad|via|"
-    r"requisitos|como se promueve|como promuevo|que procede|procede)\b")
+    r"requisitos|como se promueve|como promuevo|que procede|procede|proceso|investigacion|asegurad\w*|aseguramiento|"
+    r"etapas?|que puedo hacer|que hago|defender\w*|devolucion|levant\w*)\b")
 
 _MATERIA_DE_CONSULTA = {
     "penal": r"\b(penal|imputad\w*|imputacion|vinculacion|ministerio publico|fiscalia|carpeta de investigacion|victima|ofendid\w*|delito|prision preventiva|juez de control|tribunal de enjuiciamiento|procedimiento abreviado|suspension condicional|acusacion|querella|denuncia|sentenciad\w*|libertad anticipada|preliberacion\w*|juez de ejecucion)\b",
@@ -202,7 +206,9 @@ _RE_CITA = re.compile(r"\bart(?:iculo|\.)?s?\s*(\d{1,4})\s*(?:bis|ter)?\s*(?:,|\
 # procede contra el auto que desecha pruebas?» nombra pruebas, pero pide un
 # RECURSO; sin foco, los artículos de pruebas ganaban por mencionar más cosas.
 _FOCO = [
-    ("recurso", r"\b(que recurso|recurso procede|recurso que procede|como (se )?impugn\w*|medio de impugnacion|es apelable|se puede apelar|procede (la )?(apelacion|revocacion|queja|revision))\b"),
+    ("recurso", r"\b(que recurso|recurso procede|recurso que procede|como (se |lo |la )?impugn\w*|medio de (impugnacion|defensa)|es apelable|se puede apelar|procede (la )?(apelacion|revocacion|queja|revision)|que puedo hacer|que hago|que se puede hacer|como (me )?defiend\w*|como (lo |la )?combat\w*|como (lo |la )?recupero|como pido)\b"),
+    ("aseguramiento", r"\b(asegurad\w*|aseguramiento|decomis\w*|levant\w* (el|del) aseguramiento|devolucion de (los )?bienes)\b"),
+    ("etapas", r"\b(etapas?|fases?) del (proceso|procedimiento|juicio)\b"),
     ("plazo", r"\b(plazo|termino|cuantos dias|en que tiempo|cuanto tiempo|hasta cuando|a partir de cuando)\b"),
     ("competencia", r"\b(ante quien|que juez|que juzgado|que tribunal|competente|competencia)\b"),
     ("prueba", r"\b(que pruebas|como (se )?prueb\w*|ofrecer pruebas|carga de la prueba)\b"),
@@ -227,10 +233,22 @@ def detectar(consulta: str, pistas: Optional[Iterable[str]] = None) -> dict:
                 break
     procesal = bool(_SENAL.search(q)) or bool(citas)
     materias = [k for k, rx in _MATERIA_RX.items() if rx.search(q)]
-    for p in pistas or []:
-        m = _PISTA.get(str(p or "").lower())
-        if m and m not in materias:
-            materias.append(m)
+    # Las pistas del chat sólo cuentan si la pregunta no trae materia propia: en
+    # una pregunta penal sobre un lote asegurado el chat detectaba «civil» por el
+    # inmueble, y el CNPCF (providencias precautorias) le ganaba al CNPP.
+    if not materias:
+        for p in pistas or []:
+            m = _PISTA.get(str(p or "").lower())
+            if m and m not in materias:
+                materias.append(m)
+    # Procesal sin materia («¿cómo pido un embargo precautorio antes de demandar?»):
+    # lo más común es lo civil; sin esto no había régimen ni código local.
+    if not materias and (_SENAL.search(q) or figuras_de(q)):
+        materias = ["civil_familiar"]
+    # Lo penal manda: si lo civil sólo entra por una palabra suelta, se queda lo penal.
+    if "penal" in materias and "civil_familiar" in materias and not re.search(
+            r"\b(divorci\w*|alimentos|custodia|arrendamiento|juicio civil|demanda civil|familiar)\b", q):
+        materias.remove("civil_familiar")
     figuras = figuras_de(q)
     if "competencia" in figuras and "organica" not in materias:
         materias.append("organica")
@@ -254,7 +272,20 @@ def _lexico(q: str, texto_norm: str) -> float:
     return sum(1 for w in pal if w in texto_norm) / len(pal)
 
 
-async def buscar(qdrant, consulta: str, vector, pistas=None, limite: int = 8) -> tuple[dict, list]:
+def _frase_del_foco(consulta: str, foco: str) -> Optional[str]:
+    """La oración de la consulta que pide ese foco («¿Cuáles son las etapas del
+    proceso penal?»), para buscar cada parte de una pregunta compuesta con sus
+    propias palabras."""
+    rx = dict(_FOCO_RX).get(foco)
+    if rx is None:
+        return None
+    for frase in re.split(r"(?<=[.?!;])\s+|\n+", consulta or ""):
+        if len(frase) > 12 and rx.search(normalizar(frase)):
+            return frase.strip()[:400]
+    return None
+
+
+async def buscar(qdrant, consulta: str, vector, pistas=None, limite: int = 8, embed=None) -> tuple[dict, list]:
     """(detección, [(id, puntuación, payload)]) — vacío si la consulta no es procesal."""
     from qdrant_client.models import FieldCondition, Filter, MatchAny, MatchValue
 
@@ -262,8 +293,8 @@ async def buscar(qdrant, consulta: str, vector, pistas=None, limite: int = 8) ->
     if not det["procesal"] or not vector:
         return det, []
 
-    async def _q(filtro, n):
-        r = qdrant.query_points(collection_name=COLECCION, query=vector, using="dense",
+    async def _q(filtro, n, v=None):
+        r = qdrant.query_points(collection_name=COLECCION, query=v or vector, using="dense",
                                 query_filter=filtro, limit=n, with_payload=True)
         if asyncio.iscoroutine(r):
             r = await r
@@ -284,13 +315,35 @@ async def buscar(qdrant, consulta: str, vector, pistas=None, limite: int = 8) ->
     f_mat = Filter(must=[FieldCondition(key="materia_procesal", match=MatchAny(any=mats))]) if mats else None
     tareas = [_q(f_mat, 40), _exactos()]
     figs = det["foco"] or [f for f in det["figuras"] if f != "via"] or det["figuras"]
-    for grupo_fig in ([[f] for f in det["foco"][:2]] if len(det["foco"]) > 1 else ([figs] if figs else [])):
+    for grupo_fig in ([[f] for f in det["foco"][:3]] if len(det["foco"]) > 1 else ([figs] if figs else [])):
         must = [FieldCondition(key="figuras", match=MatchAny(any=grupo_fig))]
         if mats:
             must.append(FieldCondition(key="materia_procesal", match=MatchAny(any=mats)))
         tareas.append(_q(Filter(must=must), 20))
+    # PREGUNTAS COMPUESTAS (11-oct-2026): «¿cuáles son las etapas…? … ¿qué puedo
+    # hacer con el aseguramiento?». Con el vector de la pregunta entera ganaba la
+    # parte más larga; cada foco busca ahora con su propia oración.
+    por_foco = {}
+    if embed is not None and len(det["foco"]) > 1:
+        async def _parte(f):
+            frase = _frase_del_foco(consulta, f)
+            if not frase or len(frase) > 0.8 * len(consulta):
+                return f, []
+            try:
+                v_f = await embed(frase)
+            except Exception as e:
+                print(f"   ⚠️ procesal: no se pudo vectorizar la parte «{f}»: {type(e).__name__}: {str(e)[:120]}")
+                return f, []
+            must = [FieldCondition(key="figuras", match=MatchAny(any=[f]))]
+            if mats:
+                must.append(FieldCondition(key="materia_procesal", match=MatchAny(any=mats)))
+            return f, (await _q(Filter(must=must), 8, v_f) if v_f else [])
+        for f, pts in await asyncio.gather(*[_parte(f) for f in det["foco"][:3]]):
+            por_foco[f] = pts
     res = await asyncio.gather(*tareas, return_exceptions=True)
     densos = [p for i, grupo in enumerate(res) if i != 1 and isinstance(grupo, list) for p in grupo]
+    for pts in por_foco.values():
+        densos += pts
     exactos = res[1] if isinstance(res[1], list) else []
 
     puntos = {}
@@ -322,10 +375,16 @@ async def buscar(qdrant, consulta: str, vector, pistas=None, limite: int = 8) ->
     orden = sorted(por_art.values(), key=lambda x: x[1], reverse=True)
     # Con dos focos («¿ante qué juez y en qué plazo?») cada uno se lleva sus
     # dos mejores; si no, el más fuerte llena la lista y el otro no aparece.
+    # Una pregunta con varias partes («las etapas… el aseguramiento… qué hago»)
+    # necesita sitio para cada una.
+    limite = min(14, limite + 2 * max(0, len(det["foco"]) - 1))
     mejores = []
     if len(det["foco"]) > 1:
         for f in det["foco"]:
-            mejores += [t for t in orden if f in (t[2].get("figuras") or []) and t not in mejores][:2]
+            propios = {str(p.id) for p in por_foco.get(f) or []}
+            candidatos = ([t for t in orden if t[0] in propios]
+                          or [t for t in orden if f in (t[2].get("figuras") or [])])
+            mejores += [t for t in candidatos if t not in mejores][:2]
     mejores += [t for t in orden if t not in mejores]
     mejores = sorted(mejores[:limite], key=lambda x: x[1], reverse=True)
 
@@ -370,7 +429,9 @@ def instruccion(leyes_presentes: Iterable[str]) -> str:
         "que también viene en el contexto: la sustantiva dice qué se reclama; la procesal, cómo, ante quién y "
         "en qué plazo. En civil y familiar, el Código Nacional de Procedimientos Civiles y Familiares entra en "
         "vigor por entidad según su declaratoria: si en el contexto viene el código de procedimientos local "
-        "de la entidad del usuario, advierte cuál rige y no los mezcles. Si un plazo no está en estos "
-        "artículos, dilo; no lo calcules de memoria. Cuando un artículo traiga [PLAZOS VERIFICADOS], da el "
+        "de la entidad del usuario, advierte cuál rige y no los mezcles. Explica el procedimiento con los "
+        "artículos que vienen, transcribiendo lo esencial y citándolos; si una cifra concreta no está en ellos, no "
+        "la inventes y di qué conviene verificar, pero NUNCA escribas frases como «con la información disponible "
+        "no puedo» ni te disculpes por el acervo. Cuando un artículo traiga [PLAZOS VERIFICADOS], da el "
         "plazo tal cual (cantidad, hábiles o naturales, desde cuándo corre) y NO calcules fechas de "
         "vencimiento: la pantalla ofrece «Calcular vencimiento» con los días inhábiles del código.")

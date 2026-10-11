@@ -10,23 +10,53 @@
       "estado": "verificada",
       "fuente": "Declaratoria de Vigencia del CNPCF en la Ciudad de México, DOF 26-08-2024; modificada DOF 17-06-2025 y DOF 06-07-2026",
       "fases": [
-        {"desde": "2024-12-01", "materia": "civil", "rx": "hipotecari|arrendamiento|renta|inquilin|desahucio",
-         "supuestos": "juicio especial hipotecario oral y juicio especial de arrendamiento inmobiliario oral (con sus preparatorios, recursos y medios de defensa)"},
-        {"desde": "2024-12-01", "materia": "familiar", "rx_excluye": "divorcio|sucesi|testament|intestad|herencia|albacea",
-         "supuestos": "jurisdicción voluntaria familiar en todas sus modalidades; controversias familiares en las que no se plantee el divorcio; justicia restaurativa"},
-        {"desde": "2027-04-01", "materia": "todo",
-         "supuestos": "todo lo demás (ordinario civil oral, ejecutivo civil, vía de apremio, jurisdicción voluntaria civil, providencias precautorias, divorcio, sucesiones y demás familiares)"}
+        {
+          "desde": "2024-12-01",
+          "materia": "civil",
+          "rx": "hipotecari|arrendamiento|renta|inquilin|desahucio",
+          "supuestos": "juicio especial hipotecario oral y juicio especial de arrendamiento inmobiliario oral (con sus preparatorios, recursos y medios de defensa)"
+        },
+        {
+          "desde": "2024-12-01",
+          "materia": "familiar",
+          "rx_excluye": "divorcio|sucesi|testament|intestad|herencia|albacea",
+          "supuestos": "jurisdicción voluntaria familiar en todas sus modalidades; controversias familiares en las que no se plantee el divorcio; justicia restaurativa"
+        },
+        {
+          "desde": "2027-04-01",
+          "materia": "todo",
+          "supuestos": "todo lo demás (ordinario civil oral, ejecutivo civil, vía de apremio, jurisdicción voluntaria civil, providencias precautorias, divorcio, sucesiones y demás familiares)"
+        }
       ]
     },
     "QUINTANA_ROO": {
       "estado": "reportada",
       "fuente": "Congreso de Quintana Roo aprobó la declaratoria en mayo de 2026; transición gradual desde el 1-jun-2026 (prensa; no localizada en el DOF)",
-      "desde": "2026-06-01", "gradual": true
+      "desde": "2026-06-01",
+      "gradual": true
     },
     "BAJA_CALIFORNIA": {
       "estado": "reportada",
       "fuente": "Congreso de Baja California declaró la entrada en vigor gradual entre marzo de 2026 y marzo de 2027 (prensa; sin detalle por materia; no localizada en el DOF)",
-      "desde": "2026-03-01", "gradual": true
+      "desde": "2026-03-01",
+      "gradual": true
+    },
+    "QUERETARO": {
+      "estado": "verificada",
+      "fuente": "Poder Judicial del Estado de Querétaro: primera etapa de la justicia civil y familiar oral en el Distrito Judicial de San Juan del Río (10-sep-2026)",
+      "fases": [
+        {
+          "desde": "2026-09-10",
+          "materia": "todo",
+          "rx": "san juan del rio",
+          "supuestos": "asuntos del Distrito Judicial de San Juan del Río (procedimientos determinados de la primera etapa)"
+        },
+        {
+          "desde": "2027-04-01",
+          "materia": "todo",
+          "supuestos": "todos los demás distritos y procedimientos"
+        }
+      ]
     }
   }
 }

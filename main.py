@@ -6159,6 +6159,87 @@ async def _traer_normas_oficiales(query, dense_vector, existing_ids, skip=False)
 PROCESAL_FEDERAL_ACTIVO = os.getenv("PROCESAL_FEDERAL_ACTIVO", "1").strip() != "0"
 
 
+async def _traer_procesal_local(clave: str, silo: str, query: str, dense_vector, existing_ids: set,
+                                nota: str = "") -> list:
+    """El código procesal LOCAL que rige, con la misma estrategia que la fuente
+    federal (11-oct-2026): 40 candidatos del código por su nombre exacto,
+    reordenados por figura, plazo y léxico, y cada parte de una pregunta
+    compuesta buscada con su propia oración. Lugar garantizado (0.90). Nunca lanza."""
+    import procesal_federal as _pfl
+    from qdrant_client.models import FieldCondition, Filter, MatchAny
+    _dest = _CODIGOS_DE_LA_MATERIA.get(clave)
+    if not _dest or not dense_vector:
+        return []
+    try:
+        nombres = [orig for norm_, orig in await _nombres_de_coleccion(silo)
+                   if any(re.search(pt, norm_) for pt in _dest[1])]
+    except Exception:
+        nombres = []
+    if not nombres:
+        print(f"   ⚠️ PROCESAL LOCAL: {silo} no tiene código para «{clave}»")
+        return []
+    det = _pfl.detectar(query)
+    filtro = Filter(must=[FieldCondition(key="origen", match=MatchAny(any=nombres))])
+
+    async def _q(v, n):
+        try:
+            async with QDRANT_SEM:
+                r = await qdrant_client.query_points(collection_name=silo, query=v, using="dense",
+                                                     query_filter=filtro, limit=n, with_payload=True)
+            return list(r.points or [])
+        except Exception as e:
+            print(f"   ⚠️ PROCESAL LOCAL: búsqueda falló en {silo}: {err(e)}")
+            return []
+
+    tareas = [_q(dense_vector, 40)]
+    focos = det["foco"][:3] if len(det["foco"]) > 1 else []
+    for f in focos:
+        frase = _pfl._frase_del_foco(query, f)
+        if frase and len(frase) < 0.8 * len(query):
+            async def _parte(fr=frase):
+                try:
+                    return await _q(await get_dense_embedding(fr), 8)
+                except Exception:
+                    return []
+            tareas.append(_parte())
+    grupos = await asyncio.gather(*tareas)
+    puntos = {}
+    for gi, grupo in enumerate(grupos):
+        for p in grupo:
+            pl = p.payload or {}
+            txt = pl.get("texto") or pl.get("text") or ""
+            nt = _pfl.normalizar(txt)
+            figs = _pfl.figuras_de(nt)
+            s = float(p.score or 0)
+            s += min(0.12, 0.05 * len(set(det["figuras"]) & set(figs)))
+            s += 0.06 * _pfl._lexico(det["q"], nt)
+            if "plazo" in det["figuras"] and _pfl.plazos_de(nt):
+                s += 0.04
+            if set(det["foco"]) & set(figs):
+                s += 0.06
+            if gi > 0:
+                s += 0.05                       # lo halló la oración de su parte
+            k = (pl.get("origen"), pl.get("ref"))
+            if k not in puntos or puntos[k][1] < s:
+                puntos[k] = (str(p.id), s, pl)
+    n = 8 if focos else 6
+    fuera = []
+    for pid, s, pl in sorted(puntos.values(), key=lambda x: x[1], reverse=True):
+        if pid in existing_ids:
+            continue
+        existing_ids.add(pid)
+        fuera.append(SearchResult(
+            id=pid, score=max(0.90, min(0.99, s)), texto=pl.get("texto") or pl.get("text") or "",
+            ref=pl.get("ref"), origen=pl.get("origen"), jurisdiccion=pl.get("jurisdiccion"),
+            entidad=pl.get("entidad"), silo=silo, pdf_url=pl.get("pdf_url") or pl.get("url_pdf") or pl.get("pdf"),
+            nota_regimen=nota or None))
+        if len(fuera) >= n:
+            break
+    print(f"   🏛️ PROCESAL LOCAL ({clave}) {silo}: +{len(fuera)} "
+          + ", ".join(f"{(r.origen or '')[:40]} {r.ref}" for r in fuera[:6]))
+    return fuera
+
+
 async def _traer_procesal_federal(query, dense_vector, detected_materias, forced_materia,
                                   top_k, existing_ids, skip=False, estado=None):
     """Los artículos procesales federales que pide la consulta, como SearchResult.
@@ -6180,7 +6261,8 @@ async def _traer_procesal_federal(query, dense_vector, detected_materias, forced
     try:
         import procesal_federal as _pfm
         pistas = list(detected_materias or []) + ([forced_materia] if forced_materia else [])
-        det, hits = await _pfm.buscar(qdrant_client, query, dense_vector, pistas=pistas, limite=10)
+        det, hits = await _pfm.buscar(qdrant_client, query, dense_vector, pistas=pistas, limite=10,
+                                      embed=get_dense_embedding)
     except Exception as e:
         print(f"   ⚠️ PROCESAL FEDERAL falló (se sigue con el CNPP de leyes_federales): {err(e)}")
         return [], []
@@ -9899,7 +9981,7 @@ _CODIGOS_DE_LA_MATERIA = {
                                     r"\bc\s?o?\s?digo procesal civil\b",
                                     r"\bc\s?o?\s?digo (?:de )?procedimientos? familiar(?:es)?\b",
                                     r"\bc\s?o?\s?digo procesal familiar\b"]),
-    "admin_local": (None, [r"\bley (?:de|del) (?:procedimiento|proceso|justicia) (?:contencioso )?administrativ[oa]\b",
+    "admin_local": (None, [r"\bley (?:de|del|de los) (?:procedimientos?|proceso|justicia) (?:contencioso )?administrativ[oa]s?\b",
                            r"\bc\s?o?\s?digo (?:de )?(?:procedimientos? )?(?:y )?(?:de )?justicia administrativa\b",
                            r"\bc\s?o?\s?digo de procedimientos? administrativos?\b",
                            r"\bley de justicia administrativa\b"]),
@@ -11112,20 +11194,30 @@ async def hybrid_search_all_silos(
         skip=skip_post_search, estado=estado)
     if _pf_hits:
         merged.extend(_pf_hits)
+    if _pf_regs:
+        try:
+            import regimen_procesal as _rp2
+            _quitar = _rp2.excluidas(_pf_regs)
+            if _quitar:
+                # Lo que no rige tampoco entra por la búsqueda general: el CNPCF
+                # también vive en leyes_federales (Estado de México, 11-oct-2026).
+                _nombres_q = {_normalizar_nombre_ley(n) for ab, (n, *_r) in __import__("procesal_federal").LEYES.items() if ab in _quitar}
+                _antes = len(merged)
+                merged = [r for r in merged if not (r.silo == "leyes_federales"
+                                                    and _normalizar_nombre_ley(r.origen or "") in _nombres_q)]
+                if _antes != len(merged):
+                    print(f"   🧭 RÉGIMEN: fuera {_antes - len(merged)} artículos de {sorted(_quitar)} de leyes_federales")
+        except Exception as _e_q:
+            print(f"   ⚠️ RÉGIMEN: no se pudo depurar leyes_federales: {err(_e_q)}")
     for _rg in _pf_regs or []:
         if not (_rg.get("inyectar") and estado and _selected_state_silo):
             continue
         try:
             import regimen_procesal as _rp2
-            _ids_antes = {r.id for r in merged}
-            merged = await _inyectar_codigo_de_la_materia(
-                merged, _rg["inyectar"], _selected_state_silo, estado, query,
-                dense_vector, sparse_vector, top_k, alpha)
-            _nota_rg = _rp2.nota_para_modelo(_pf_regs)
-            for r in merged:
-                if r.id not in _ids_antes:
-                    r.nota_regimen = _nota_rg
-                    existing_ids.add(r.id)
+            _locales = await _traer_procesal_local(_rg["inyectar"], _selected_state_silo, query,
+                                                   dense_vector, existing_ids, _rp2.nota_para_modelo(_pf_regs))
+            if _locales:
+                merged = _locales + merged
         except Exception as _e_rg:
             print(f"   ⚠️ RÉGIMEN: no se pudo inyectar el código local ({_rg.get('inyectar')}): {err(_e_rg)}")
     _nom_hits = await _traer_normas_oficiales(query, dense_vector, existing_ids, skip=skip_post_search)

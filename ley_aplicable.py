@@ -206,12 +206,19 @@ def es_local(m: Optional[str]) -> bool:
 # REVISAR antes del 1-abr-2027 y con cada declaratoria nueva. Verificado el
 # 28-sep-2026.
 VIGENCIA_CNPCF = {
+    # 11-oct-2026: la modificación DOF 06-07-2026 (SIDOF 5792699) aplazó al
+    # 1-abr-2027 las fases II a IV; hoy sólo rige la fase I (dic-2024). Lo
+    # detallado vive en datos/regimen_procesal.json (regimen_procesal.py).
     "CDMX": {
         "nombre": "la Ciudad de México",
-        "alcance": "plena",
-        "texto": ("rige todos los asuntos civiles y familiares que se inician desde el 15 de noviembre "
-                  "de 2025 (entró por fases desde el 1 de diciembre de 2024)"),
-        "fuente": "DOF, Declaratoria de Vigencia del CNPCF en la Ciudad de México (SIDOF 5737237)",
+        "alcance": "parcial",
+        "texto": ("rige desde el 1 de diciembre de 2024 sólo para el juicio especial hipotecario oral, el juicio "
+                  "especial de arrendamiento inmobiliario oral, la jurisdicción voluntaria familiar, las "
+                  "controversias familiares en las que no se plantee el divorcio y la justicia restaurativa; todo "
+                  "lo demás (ordinario civil, ejecutivo, vía de apremio, divorcio, sucesiones) se tramita conforme "
+                  "al Código de Procedimientos Civiles para el Distrito Federal hasta el 1 de abril de 2027"),
+        "excepcion": r"\bhipotecari|\barrendamiento|\bjurisdiccion voluntaria|\bjusticia restaurativa|\balimentos|\bguarda|\bcustodia|\bconvivencia",
+        "fuente": "DOF 26-08-2024 (SIDOF 5737237), modificada DOF 17-06-2025 y 06-07-2026 (SIDOF 5792699)",
     },
     "QUERETARO": {
         "nombre": "Querétaro",
@@ -249,6 +256,9 @@ def instruccion_procesal(m: Optional[str], estado) -> Optional[str]:
         return cabeza + ("Un asunto que se inicia ahora se funda en él —vía, procedimiento y medidas—, no en "
                          "el código procesal anterior de la entidad, que sólo rige los asuntos iniciados "
                          "antes de esa fecha. No mezcles artículos de los dos.")
+    if _ALIAS_ENTIDAD.get(_plano(estado).upper().strip().replace(" ", "_"), "") == "CDMX" or v["nombre"].endswith("México"):
+        return cabeza + ("Si el asunto está en esos supuestos, funda vía, plazos y recursos en el Código Nacional; "
+                         "si no, en el Código de Procedimientos Civiles para el Distrito Federal. No mezcles los dos.")
     return cabeza + ("Salvo que el usuario diga que su asunto es de ese distrito, funda la vía, el "
                      "procedimiento y las medidas sólo en el código procesal del estado y no cites el "
                      "Código Nacional.")
