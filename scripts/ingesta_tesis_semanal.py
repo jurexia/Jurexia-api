@@ -44,7 +44,8 @@ def pedir(url, ref):
 
 
 def json_de(reg):
-    for semanal in ("true", "false"):
+    # Hasta el 2032443 (10-jul-2026) es Gaceta mensual: se pide primero así.
+    for semanal in (("false", "true") if reg <= 2032443 else ("true", "false")):
         try:
             ct, b = pedir(f"{BASE}/{reg}?isSemanal={semanal}&hostName=https://sjf2.scjn.gob.mx",
                           f"https://sjf2.scjn.gob.mx/detalle/tesis/{reg}")
