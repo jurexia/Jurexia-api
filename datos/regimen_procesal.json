@@ -1,0 +1,32 @@
+{
+  "_nota": "Qué código procesal rige, por entidad y materia (11-oct-2026). CNPCF: transitorio Segundo del decreto DOF 07-06-2023 — rige en cada entidad por la Declaratoria de su Congreso local (publicada en el DOF y en el periódico oficial; máx. 120 días naturales entre declaratoria y vigencia) y, en el orden federal, por la del Congreso de la Unión; en todo caso, automáticamente a más tardar el 1-abr-2027. 'verificada' = leída en el DOF; 'reportada' = sólo en fuentes secundarias; las demás entidades: sin declaratoria publicada en el DOF al 11-oct-2026 (barrido SIDOF 1-jun-2023 → 11-oct-2026).",
+  "cnpcf_limite": "2027-04-01",
+  "cnpcf_orden_federal": {
+    "estado": "sin_declaratoria",
+    "texto": "En el orden federal no hay Declaratoria publicada en el DOF: los juicios civiles federales siguen con el Código Federal de Procedimientos Civiles hasta la declaratoria o, a más tardar, el 1 de abril de 2027."
+  },
+  "cnpcf_entidades": {
+    "CIUDAD_DE_MEXICO": {
+      "estado": "verificada",
+      "fuente": "Declaratoria de Vigencia del CNPCF en la Ciudad de México, DOF 26-08-2024; modificada DOF 17-06-2025 y DOF 06-07-2026",
+      "fases": [
+        {"desde": "2024-12-01", "materia": "civil", "rx": "hipotecari|arrendamiento|renta|inquilin|desahucio",
+         "supuestos": "juicio especial hipotecario oral y juicio especial de arrendamiento inmobiliario oral (con sus preparatorios, recursos y medios de defensa)"},
+        {"desde": "2024-12-01", "materia": "familiar", "rx_excluye": "divorcio|sucesi|testament|intestad|herencia|albacea",
+         "supuestos": "jurisdicción voluntaria familiar en todas sus modalidades; controversias familiares en las que no se plantee el divorcio; justicia restaurativa"},
+        {"desde": "2027-04-01", "materia": "todo",
+         "supuestos": "todo lo demás (ordinario civil oral, ejecutivo civil, vía de apremio, jurisdicción voluntaria civil, providencias precautorias, divorcio, sucesiones y demás familiares)"}
+      ]
+    },
+    "QUINTANA_ROO": {
+      "estado": "reportada",
+      "fuente": "Congreso de Quintana Roo aprobó la declaratoria en mayo de 2026; transición gradual desde el 1-jun-2026 (prensa; no localizada en el DOF)",
+      "desde": "2026-06-01", "gradual": true
+    },
+    "BAJA_CALIFORNIA": {
+      "estado": "reportada",
+      "fuente": "Congreso de Baja California declaró la entrada en vigor gradual entre marzo de 2026 y marzo de 2027 (prensa; sin detalle por materia; no localizada en el DOF)",
+      "desde": "2026-03-01", "gradual": true
+    }
+  }
+}

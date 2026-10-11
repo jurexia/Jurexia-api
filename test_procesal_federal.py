@@ -42,6 +42,28 @@ ok(pf.plazos_de(pf.normalizar("dentro de los quince días hábiles siguientes y 
 ok(pf.remisiones_de(pf.normalizar("en términos del artículo 52 de esta Ley y del artículo 14 de la Constitución"), 58) == [52],
    "remisión interna sí, la que nombra otra ley no")
 
+print("\nParte 1b · régimen procesal y calculadora (sin red)")
+import datetime as _dt
+import plazos_calculo as pc
+import regimen_procesal as rp
+H = _dt.date(2026, 10, 11)
+r = rp.resolver("JALISCO", pf.detectar("¿Cuál es el plazo para contestar la demanda de divorcio?"), H)
+ok(rp.excluidas(r) >= {"CNPCF"} and r[0]["inyectar"] == "procesal_civil_local", "Jalisco sin declaratoria: fuera el CNPCF, entra el código local")
+r = rp.resolver("CIUDAD_DE_MEXICO", pf.detectar("plazo para contestar en el juicio especial de arrendamiento inmobiliario oral"), H)
+ok(r[0]["rige"] == "CNPCF", "CDMX arrendamiento oral: rige el CNPCF (declaratoria, dic-2024)")
+r = rp.resolver("CIUDAD_DE_MEXICO", pf.detectar("plazo para apelar la sentencia de divorcio"), H)
+ok(r[0]["rige"] == "LOCAL", "CDMX divorcio: código local hasta el 1-abr-2027 (modificación DOF 06-07-2026)")
+r = rp.resolver("JALISCO", pf.detectar("plazo para contestar la demanda civil"), _dt.date(2027, 4, 2))
+ok(r[0]["rige"] == "CNPCF", "desde el 1-abr-2027 el CNPCF rige en todas")
+r = rp.resolver("QUERETARO", pf.detectar("¿en qué plazo impugno una multa de tránsito municipal?"), H)
+ok("LFPCA" in rp.excluidas(r), "multa municipal: fuera la LFPCA")
+r = rp.resolver("QUERETARO", pf.detectar("plazo para demandar la nulidad de un crédito fiscal del SAT"), H)
+ok(r[0]["rige"] == "FEDERAL" and not rp.excluidas(r), "crédito del SAT: TFJA y LFPCA")
+ok(pc.calcular("2026-10-05", 15, "dias", "LAmp", "personal")["vencimiento"] == "2026-10-28", "amparo: 15 hábiles desde el 5-oct saltando el 12-oct → 28-oct")
+ok(pc.calcular("2026-10-09", 15, "dias", "CNPCF", "personal")["vencimiento"] == "2026-10-30", "CNPCF: emplazamiento 9-oct, 15 hábiles → 30-oct")
+ok(pc.calcular("2026-11-17", 3, "dias", "CNPP", "personal")["vencimiento"] == "2026-11-20", "CNPP: surte al día siguiente y cuenta desde ese día → 20-nov")
+ok(pc.calcular("2026-10-09", 9, "dias", "CNPCF", "personal", familiar_urgente=True)["vencimiento"] == "2026-10-18", "CNPCF familiar: naturales (art. 150)")
+
 ENV = {}
 for ruta in ("../SECRETOS_IUREXIA.env", ".env"):
     if os.path.exists(ruta):

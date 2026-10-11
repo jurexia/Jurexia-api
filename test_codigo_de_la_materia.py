@@ -173,7 +173,7 @@ finally:
 
 print("\n3 · EL CNPP «GARANTIZADO» LO ESTÁ DE VERDAD")
 i = fuente.index("CÓDIGOS NACIONALES CON LUGAR GARANTIZADO")
-tramo = fuente[i:i + 2500]
+tramo = fuente[i:i + 6000]  # 11-oct-2026: la fuente procesal y el régimen van antes
 ok("_consulta_procesal_fuerte(query) else 2)" in tramo and "r.score = max(r.score, 0.86)" in tramo
    and 'if _materia_procesal == "procesal_penal" else 0' in tramo,
    "el CNPP: piso de 0.86 (bajo el 0.90 del código local), lugares completos sólo si la consulta es claramente procesal; el CNPCF, sin piso")

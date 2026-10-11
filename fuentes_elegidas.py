@@ -48,7 +48,12 @@ import threading
 from contextvars import ContextVar
 from typing import Any, FrozenSet, Iterable, List, Optional
 
-FUENTES = ("constitucional", "jurisprudencia", "federal", "estatal")
+FUENTES = ("constitucional", "jurisprudencia", "federal", "estatal", "procesal", "nom")
+# 11-oct-2026: «procesal» (normativa procesal federal) y «nom» (Normas Oficiales
+# Mexicanas) son filas propias del selector. Las apps que no las conocen no
+# mandan la marca MARCA_V2: para ellas las dos siguen a «federal», como antes.
+FUENTES_BASE = ("constitucional", "jurisprudencia", "federal", "estatal")
+MARCA_V2 = "selector2"
 
 _ELEGIDAS: ContextVar[Optional[FrozenSet[str]]] = ContextVar("_fuentes_elegidas", default=None)
 
@@ -70,11 +75,15 @@ def normalizar(valor: Any) -> Optional[FrozenSet[str]]:
         return None
     partes: Iterable = valor.split(",") if isinstance(valor, str) else valor
     try:
-        elegidas = frozenset(
-            p.strip().lower() for p in partes
-            if isinstance(p, str) and p.strip().lower() in FUENTES)
+        crudas = {p.strip().lower() for p in partes if isinstance(p, str)}
     except TypeError:
         return None
+    if MARCA_V2 in crudas:
+        elegidas = frozenset(crudas & set(FUENTES))
+    else:
+        elegidas = frozenset(crudas & set(FUENTES_BASE))
+        if "federal" in elegidas:
+            elegidas = elegidas | {"procesal", "nom"}
     if not elegidas or len(elegidas) == len(FUENTES):
         return None
     return elegidas
@@ -94,7 +103,11 @@ def categoria(coleccion: Any) -> Optional[str]:
     n = str(coleccion or "").strip().lower()
     if not n:
         return None
-    if n in ("leyes_federales", "procesal_federal", "normas_oficiales"):
+    if n == "procesal_federal":
+        return "procesal"
+    if n == "normas_oficiales":
+        return "nom"
+    if n == "leyes_federales":
         return "federal"
     if n == "bloque_constitucional":
         return "constitucional"
@@ -158,6 +171,8 @@ def instruccion(elegidas: Optional[FrozenSet[str]], estado_humano: Optional[str]
         "jurisprudencia": "la jurisprudencia nacional (tesis y precedentes de la SCJN y de los tribunales colegiados)",
         "federal": "las leyes federales y generales",
         "estatal": (f"las leyes del estado de {estado_humano}" if estado_humano else "las leyes estatales"),
+        "procesal": "la normativa procesal federal y nacional (CNPP, CNPCF, Ley de Amparo, LFT procesal, LFPCA y demás)",
+        "nom": "las Normas Oficiales Mexicanas",
     }
     si = [nombres[f] for f in FUENTES if f in elegidas]
     no = [nombres[f] for f in FUENTES if f not in elegidas]

@@ -3449,6 +3449,9 @@ class SearchResult(BaseModel):
     entidad: Optional[str] = None
     silo: str
     pdf_url: Optional[str] = None  # URL del PDF oficial (GCS o fuente gubernamental)
+    # Qué código procesal rige (regimen_procesal.py, 11-oct-2026): se pega a lo
+    # procesal y a lo local inyectado para que el XML se lo diga al modelo.
+    nota_regimen: Optional[str] = None
     # Campos de jurisprudencia/tesis para CITATION_META
     registro: Optional[str] = None
     tesis_num: Optional[str] = None
@@ -6033,6 +6036,39 @@ def _consulta_procesal_fuerte(query: str) -> bool:
     return len({m.lower() for m in _SENAL_PROCESAL.findall(q)}) >= 2
 
 
+# PLAZOS VERIFICADOS (fase 2, 11-oct-2026): datos/plazos_procesales.json, extraídos
+# por scripts/extraer_plazos.py y cotejados letra por letra con el artículo.
+_TABLA_PLAZOS: Optional[dict] = None
+
+
+def _tabla_plazos() -> dict:
+    global _TABLA_PLAZOS
+    if _TABLA_PLAZOS is None:
+        try:
+            with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "datos", "plazos_procesales.json"),
+                      encoding="utf-8") as _f:
+                _TABLA_PLAZOS = json.load(_f)
+        except Exception:
+            _TABLA_PLAZOS = {}
+    return _TABLA_PLAZOS
+
+
+def _plazos_como_texto(abrev: str, ref: str) -> str:
+    filas = _tabla_plazos().get(f"{abrev}|{ref}") or []
+    if not filas:
+        return ""
+    tipo = {"habiles": "días hábiles", "naturales": "días naturales"}
+    lineas = []
+    for p in filas[:6]:
+        u = p.get("unidad")
+        cuanto = f"{p.get('cantidad')} {tipo.get(p.get('tipo_dias'), 'días') if u == 'dias' else u}"
+        if u == "dias" and p.get("tipo_dias") == "no_especifica":
+            cuanto += " (el artículo no dice si hábiles o naturales: aplica la regla general del código)"
+        corre = f"; corre: {p['computo']}" if p.get("computo") else ""
+        lineas.append(f"· {p.get('acto')}: {cuanto}{corre} — texto: «{p.get('texto_literal')}»")
+    return "\n[PLAZOS VERIFICADOS de este artículo (cotejados con su texto):\n" + "\n".join(lineas) + "]"
+
+
 NOM_ACTIVAS = os.getenv("NOM_ACTIVAS", "1").strip() != "0"
 # NORMAS OFICIALES MEXICANAS (11-oct-2026): 52 NOM elegidas por uso forense
 # (ver scripts/ingesta_nom.py). No se buscan en cada consulta: sólo cuando la
@@ -6112,7 +6148,7 @@ PROCESAL_FEDERAL_ACTIVO = os.getenv("PROCESAL_FEDERAL_ACTIVO", "1").strip() != "
 
 
 async def _traer_procesal_federal(query, dense_vector, detected_materias, forced_materia,
-                                  top_k, existing_ids, skip=False) -> list:
+                                  top_k, existing_ids, skip=False, estado=None):
     """Los artículos procesales federales que pide la consulta, como SearchResult.
 
     Lugar garantizado: con una consulta claramente procesal, hasta seis (según
@@ -6121,46 +6157,70 @@ async def _traer_procesal_federal(query, dense_vector, detected_materias, forced
     débil, dos. El resto compite con su puntuación. Nunca lanza.
     """
     if skip or not PROCESAL_FEDERAL_ACTIVO or not dense_vector:
-        return []
+        return [], []
     try:
         import fuentes_elegidas as _fe_pf
         if not _fe_pf.permitida("procesal_federal"):
-            return []
+            return [], []
     except Exception:
         pass
     _t = time.perf_counter()
     try:
         import procesal_federal as _pfm
         pistas = list(detected_materias or []) + ([forced_materia] if forced_materia else [])
-        det, hits = await _pfm.buscar(qdrant_client, query, dense_vector, pistas=pistas, limite=8)
+        det, hits = await _pfm.buscar(qdrant_client, query, dense_vector, pistas=pistas, limite=10)
     except Exception as e:
         print(f"   ⚠️ PROCESAL FEDERAL falló (se sigue con el CNPP de leyes_federales): {err(e)}")
-        return []
+        return [], []
+    # QUÉ CÓDIGO RIGE (11-oct-2026): lo que no rige en esa entidad, materia o
+    # autoridad no entra —el CNPCF en un estado sin declaratoria, la LFPCA ante
+    # una multa municipal, la LFTSE para un trabajador del estado—.
+    regs, nota = [], ""
+    try:
+        import regimen_procesal as _rp
+        regs = _rp.resolver(estado, det)
+        quitar = _rp.excluidas(regs)
+        if quitar:
+            antes = len(hits)
+            hits = [h for h in hits if (h[2].get("abreviatura") not in quitar)]
+            print(f"   🧭 RÉGIMEN: excluidos {sorted(quitar)} ({antes - len(hits)} artículos)")
+        nota = _rp.nota_para_modelo(regs)
+        if regs:
+            paso("regimen", " · ".join(r["chip"] for r in regs))
+            print(f"   🧭 RÉGIMEN {[(r['materia'], r['rige']) for r in regs]}")
+    except Exception as e:
+        print(f"   ⚠️ RÉGIMEN procesal sin decidir: {err(e)}")
     if not hits:
-        return []
+        return [], regs
     n_piso = max(2, min(6, top_k // 5)) if det.get("fuerte") else 2
-    fuera = []
+    fuera, con_tabla = [], []
     for i, (pid, score, pl) in enumerate(hits):
         if pid in existing_ids:
             continue
         existing_ids.add(pid)
+        _con_plazos = _plazos_como_texto(pl.get("abreviatura") or "", pl.get("ref") or "")
+        if _con_plazos:
+            con_tabla.append(f"{pl.get('abreviatura')}|{pl.get('ref')}")
         fuera.append(SearchResult(
             id=pid,
             score=max(score, 0.87) if i < n_piso else min(score, 0.85),
-            texto=pl.get("texto") or pl.get("texto_raw") or "",
+            texto=(pl.get("texto") or pl.get("texto_raw") or "") + _con_plazos,
             ref=pl.get("ref"),
             origen=pl.get("ley"),
             jurisdiccion="federal",
             entidad="FEDERAL",
             silo="procesal_federal",
             pdf_url=pl.get("pdf_url"),
+            nota_regimen=nota or None,
         ))
+    if con_tabla:
+        paso("plazos", ";".join(con_tabla[:6]))
     print(f"   🧭 PROCESAL FEDERAL {det.get('materias')} figuras={det.get('figuras')[:4]} "
           f"citas={det.get('citas')}: +{len(fuera)} artículos "
           f"({min(n_piso, len(fuera))} con lugar garantizado) "
           + ", ".join(f"{(h[2].get('abreviatura') or '')} {h[2].get('ref') or ''}".strip() for h in hits[:6])
           + f" en {time.perf_counter()-_t:.2f}s")
-    return fuera
+    return fuera, regs
 
 
 async def _traer_codigo_nacional(materia: str, dense_vector, limite: int = 6):
@@ -7359,6 +7419,9 @@ def format_results_as_xml(results: List[SearchResult], estado: Optional[str] = N
                 [r.origen for r in results if r.silo == "procesal_federal"]) + " -->")
         except Exception:
             pass
+    _nota_reg = next((r.nota_regimen for r in results if getattr(r, "nota_regimen", None)), None)
+    if _nota_reg:
+        xml_parts.append("<!-- " + html.escape(_nota_reg, quote=False) + " -->")
     if any(r.silo == "normas_oficiales" for r in results):
         xml_parts.append(
             '<!-- INSTRUCCIÓN NOM: los documentos tipo="NORMA_OFICIAL_MEXICANA" son normas técnicas '
@@ -9819,6 +9882,17 @@ _CODIGOS_DE_LA_MATERIA = {
                         r"\bc\s?o?\s?digo (?:de )?(?:procedimientos?|proceimientos) civil(?:es)?\b"]),
     "administrativo": (None, [r"\bley (?:de|del) (?:procedimiento|proceso|justicia) (?:contencioso )?administrativ[oa]\b"]),
     "laboral": (FIXED_SILOS["federal"], [r"\bley federal del trabajo\b"]),
+    # Del régimen procesal (regimen_procesal.py, 11-oct-2026): el código que RIGE.
+    "procesal_civil_local": (None, [r"\bc\s?o?\s?digo (?:de )?(?:procedimientos?|proceimientos) civil(?:es)?\b",
+                                    r"\bc\s?o?\s?digo procesal civil\b",
+                                    r"\bc\s?o?\s?digo (?:de )?procedimientos? familiar(?:es)?\b",
+                                    r"\bc\s?o?\s?digo procesal familiar\b"]),
+    "admin_local": (None, [r"\bley (?:de|del) (?:procedimiento|proceso|justicia) (?:contencioso )?administrativ[oa]\b",
+                           r"\bc\s?o?\s?digo (?:de )?(?:procedimientos? )?(?:y )?(?:de )?justicia administrativa\b",
+                           r"\bc\s?o?\s?digo de procedimientos? administrativos?\b",
+                           r"\bley de justicia administrativa\b"]),
+    "burocratico_local": (None, [r"\bley (?:de los|para los|del) (?:trabajadores|servidores publicos)\b.*\b(?:servicio|estado|municipios)\b",
+                                 r"\bley del servicio civil\b", r"\bestatuto juridico\b"]),
 }
 
 
@@ -11021,15 +11095,33 @@ async def hybrid_search_all_silos(
     # por materia, figura, plazo y remisión (ver procesal_federal.py). Si
     # trae algo, sustituye al CNPP de leyes_federales; si falla o está vacía,
     # se cae al camino de siempre.
-    _pf_hits = await _traer_procesal_federal(
+    _pf_hits, _pf_regs = await _traer_procesal_federal(
         query, dense_vector, detected_materias, forced_materia, top_k, existing_ids,
-        skip=skip_post_search)
+        skip=skip_post_search, estado=estado)
     if _pf_hits:
         merged.extend(_pf_hits)
+    for _rg in _pf_regs or []:
+        if not (_rg.get("inyectar") and estado and _selected_state_silo):
+            continue
+        try:
+            import regimen_procesal as _rp2
+            _ids_antes = {r.id for r in merged}
+            merged = await _inyectar_codigo_de_la_materia(
+                merged, _rg["inyectar"], _selected_state_silo, estado, query,
+                dense_vector, sparse_vector, top_k, alpha)
+            _nota_rg = _rp2.nota_para_modelo(_pf_regs)
+            for r in merged:
+                if r.id not in _ids_antes:
+                    r.nota_regimen = _nota_rg
+                    existing_ids.add(r.id)
+        except Exception as _e_rg:
+            print(f"   ⚠️ RÉGIMEN: no se pudo inyectar el código local ({_rg.get('inyectar')}): {err(_e_rg)}")
     _nom_hits = await _traer_normas_oficiales(query, dense_vector, existing_ids, skip=skip_post_search)
     if _nom_hits:
         merged.extend(_nom_hits)
-    _materia_procesal = None if _pf_hits else _detectar_consulta_procesal(query)
+    # Con el régimen decidido no hay respaldo: el CNPP/CNPCF de leyes_federales
+    # metería justo lo que el régimen acaba de excluir.
+    _materia_procesal = None if (_pf_hits or _pf_regs) else _detectar_consulta_procesal(query)
     if _materia_procesal and not skip_post_search:
         _t_nac = time.perf_counter()
         _nacionales = await _traer_codigo_nacional(
@@ -32709,6 +32801,43 @@ async def taller_tipos():
             "nota": ("La estructura de cada tipo está contada sobre adelantos "
                      "reales del corpus; el plazo sale de la ley, con su "
                      "artículo. Ninguno de los dos se teclea.")}
+
+
+@app.get("/plazos/tabla")
+async def plazos_tabla(abrev: str = "", ref: str = ""):
+    """Plazos verificados de la normativa procesal federal (fase 2, 11-oct-2026)
+    y la regla de cómputo con que se calculan. Sin parámetros, el índice."""
+    import plazos_calculo as _pc
+    tabla = _tabla_plazos()
+    if abrev and ref:
+        filas = tabla.get(f"{abrev}|{ref}") or []
+        return {"abrev": abrev, "ref": ref, "plazos": filas,
+                "regla": abrev if abrev in _pc.REGLAS else "LOCAL"}
+    if abrev:
+        return {"abrev": abrev, "articulos": sorted(k.split("|", 1)[1] for k in tabla if k.startswith(abrev + "|"))}
+    return {"leyes": sorted({k.split("|", 1)[0] for k in tabla}), "total": sum(len(v) for v in tabla.values())}
+
+
+@app.post("/plazos/calcular")
+async def plazos_calcular(payload: dict):
+    """Fecha de vencimiento de un plazo procesal con su fundamento (fase 3).
+    Determinista: el modelo no cuenta días. Ver plazos_calculo.py."""
+    import plazos_calculo as _pc
+    try:
+        return _pc.calcular(
+            fecha_notificacion=str(payload.get("fecha_notificacion") or ""),
+            cantidad=int(payload.get("cantidad") or 0),
+            unidad=str(payload.get("unidad") or "dias"),
+            regla=str(payload.get("regla") or "LOCAL"),
+            tipo_notificacion=str(payload.get("tipo_notificacion") or "personal"),
+            tipo_dias=payload.get("tipo_dias") or None,
+            inhabiles_extra=[str(x) for x in (payload.get("inhabiles_extra") or [])][:200],
+            periodos_inhabiles=[tuple(map(str, p))[:2] for p in (payload.get("periodos_inhabiles") or [])][:20],
+            familiar_urgente=bool(payload.get("familiar_urgente")),
+            sabados_habiles=bool(payload.get("sabados_habiles")),
+        )
+    except (ValueError, TypeError) as e:
+        raise HTTPException(400, f"Datos del plazo inválidos: {e}")
 
 
 @app.get("/admin/uso-colecciones")

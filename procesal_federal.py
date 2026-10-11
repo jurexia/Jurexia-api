@@ -371,4 +371,6 @@ def instruccion(leyes_presentes: Iterable[str]) -> str:
         "en qué plazo. En civil y familiar, el Código Nacional de Procedimientos Civiles y Familiares entra en "
         "vigor por entidad según su declaratoria: si en el contexto viene el código de procedimientos local "
         "de la entidad del usuario, advierte cuál rige y no los mezcles. Si un plazo no está en estos "
-        "artículos, dilo; no lo calcules de memoria.")
+        "artículos, dilo; no lo calcules de memoria. Cuando un artículo traiga [PLAZOS VERIFICADOS], da el "
+        "plazo tal cual (cantidad, hábiles o naturales, desde cuándo corre) y NO calcules fechas de "
+        "vencimiento: la pantalla ofrece «Calcular vencimiento» con los días inhábiles del código.")
