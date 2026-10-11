@@ -6088,7 +6088,17 @@ _RE_NOM_TEMA = re.compile(
     r"especies? (en riesgo|amenazadas|protegidas|end[eé]micas)|ruido|contaminaci[oó]n|aguas residuales|residuos peligrosos|"
     r"relleno sanitario|residuos de manejo especial|hidrocarburos en suelo|emisiones|verificaci[oó]n vehicular|agua potable|"
     r"disponibilidad de agua|concesi[oó]n de aguas|protecci[oó]n civil|se[nñ]ales y avisos|biol[oó]gico[- ]infeccios|RPBI|"
-    r"vih|adicciones|salud mental|psiqui[aá]tric)", re.IGNORECASE)
+    r"vih|adicciones|salud mental|psiqui[aá]tric|"
+    # 11-oct-2026, segunda vuelta (David: «tránsito es indispensable, ingeniería,
+    # materiales peligrosos, hidrocarburos, salud…»):
+    r"se[nñ]al\w*|vial(es)?|tr[aá]nsito|velocidad|reductor\w*|topes?|carreter\w*|vialidad\w*|sem[aá]foro\w*|"
+    r"construcci[oó]n|edificaci[oó]n|estructural|instalaci[oó]n(es)? (el[eé]ctrica|de gas|hidr[aá]ulica)|el[eé]ctric\w*|"
+    r"gas (lp|l\.p\.|natural)|gasolinera\w*|estaci[oó]n de servicio|hidrocarburo\w*|petrol\w*|di[eé]sel|asea|"
+    r"materiales? peligros\w*|sustancias? (peligros|qu[ií]mic)\w*|envase\w*|embalaje\w*|cilindro\w*|"
+    r"alimento\w*|bebida\w*|medicament\w*|farmac\w*|hospital\w*|cl[ií]nica\w*|consultorio\w*|laboratorio\w*|"
+    r"extintor\w*|incendio\w*|seguridad industrial|elevador\w*|caldera\w*|recipientes? a presi[oó]n|"
+    r"plaguicida\w*|fertilizante\w*|sanidad (animal|vegetal)|rastro\w*|metrolog\w*|b[aá]scula\w*|"
+    r"especificaci[oó]n(es)? t[eé]cnica\w*|norma t[eé]cnica)", re.IGNORECASE)
 
 
 async def _traer_normas_oficiales(query, dense_vector, existing_ids, skip=False) -> list:
@@ -6096,8 +6106,10 @@ async def _traer_normas_oficiales(query, dense_vector, existing_ids, skip=False)
     if skip or not NOM_ACTIVAS or not dense_vector:
         return []
     clave = _RE_NOM_CLAVE.search(query or "")
-    if not clave and not _RE_NOM_TEMA.search(query or ""):
-        return []
+    # Sin clave ni tema también se busca, pero sólo entra lo MUY parecido: la
+    # pregunta por los reductores de velocidad no dice «NOM» y la norma es la
+    # respuesta (NOM-034-SCT2/SEDATU-2022).
+    por_tema = bool(_RE_NOM_TEMA.search(query or ""))
     try:
         import fuentes_elegidas as _fe_nom
         if not _fe_nom.permitida("normas_oficiales"):
@@ -6121,7 +6133,7 @@ async def _traer_normas_oficiales(query, dense_vector, existing_ids, skip=False)
     except Exception as e:
         print(f"   ⚠️ NOM: búsqueda falló: {err(e)}")
         return []
-    umbral = 0.0 if clave else 0.42
+    umbral = 0.0 if clave else (0.40 if por_tema else 0.52)
     fuera = []
     for i, p in enumerate(pts):
         pl = p.payload or {}
@@ -6136,7 +6148,7 @@ async def _traer_normas_oficiales(query, dense_vector, existing_ids, skip=False)
             jurisdiccion="federal", entidad="FEDERAL", silo="normas_oficiales",
             pdf_url=pl.get("pdf_url"),
         ))
-        if len(fuera) >= (5 if clave else 3):
+        if len(fuera) >= (5 if clave else 4 if por_tema else 3):
             break
     if fuera:
         print(f"   📏 NOM: +{len(fuera)} ({', '.join(sorted({(r.ref or '').split(',')[0] for r in fuera}))}) "
@@ -32801,6 +32813,117 @@ async def taller_tipos():
             "nota": ("La estructura de cada tipo está contada sobre adelantos "
                      "reales del corpus; el plazo sale de la ley, con su "
                      "artículo. Ninguno de los dos se teclea.")}
+
+
+# ── IUREXIA AGENDA (11-oct-2026) ─────────────────────────────────────────────
+# El abogado sube la foto o el PDF del acuerdo (o pega su texto) y aquí se lee:
+# OCR con el lector de siempre (`_texto_de_bytes`), extracción con gpt-6-luna,
+# CONTROL de que cada plazo esté escrito tal cual en el acuerdo, código que
+# rige (regimen_procesal) y vencimiento con plazos_calculo. No guarda nada: la
+# pantalla muestra la propuesta, el abogado la corrige y la guarda él en
+# `agenda_terminos` (Supabase, RLS). Los avisos los manda /api/cron/agenda.
+_AGENDA_INSTRUCCION = """Lees un acuerdo, auto, cédula de notificación o resolución de un juzgado o tribunal mexicano (texto de OCR: puede traer errores). Responde SOLO con un objeto JSON con esta forma:
+{"expediente":"","organo":"","entidad":"nombre del estado, o Federal","materia":"civil|familiar|penal|laboral|mercantil|administrativo|fiscal|amparo|agrario|otra","fecha_acuerdo":"AAAA-MM-DD o null","fecha_notificacion":"AAAA-MM-DD o null","tipo_notificacion":"personal|lista|electronica|desconocida","resumen":"qué se acordó, en una o dos frases","terminos":[{"acto":"lo que debe hacer la parte (p. ej. Contestar la demanda)","parte":"a quién se le concede","cantidad":9,"unidad":"dias|horas|meses|anos","tipo_dias":"habiles|naturales|no_especifica","fundamento_citado":"artículo y ley si el acuerdo los cita; si no, cadena vacía","texto_literal":"copia EXACTA del pasaje donde está el plazo","apercibimiento":"la consecuencia si no se hace, si el acuerdo la dice"}],"audiencias":[{"fecha":"AAAA-MM-DD","hora":"HH:MM","tipo":"tipo de audiencia o diligencia"}]}
+Reglas: no inventes plazos ni fechas; si el acuerdo no concede plazo, "terminos": []. "fecha_notificacion" sólo si el documento muestra la razón, constancia o cédula de notificación. Las fechas escritas con letra conviértelas a AAAA-MM-DD."""
+
+_AGENDA_LEYES = [
+    ("LAmp", r"ley de amparo"), ("CNPCF", r"nacional de procedimientos civiles|cnpcf"),
+    ("CNPP", r"nacional de procedimientos penales|cnpp"), ("LFT", r"federal del trabajo|\blft\b"),
+    ("LFPCA", r"contencioso administrativo|lfpca"), ("CFF", r"codigo fiscal de la federacion"),
+    ("LFPA", r"ley federal de procedimiento administrativo"), ("CCom", r"codigo de comercio"),
+    ("CFPC", r"federal de procedimientos civiles"), ("LAgra", r"ley agraria"),
+]
+_AGENDA_RIGE_A_REGLA = {"CNPCF": "CNPCF", "LOCAL": "LOCAL", "CFPC": "CFPC", "FEDERAL": "LFPCA", "LFT": "LFT",
+                        "LFTSE": "LFT", "CNPP": "CNPP", "CCom": "CCom", "LAmp": "LAmp", "LAgra": "LAgra",
+                        "LOCAL_BUROCRATICO": "LOCAL", "MIXTO": "LOCAL"}
+
+
+def _agenda_regla(fundamento: str, materia: str, entidad: str, texto: str) -> tuple:
+    import procesal_federal as _pfa
+    import regimen_procesal as _rpa
+    f = _pfa.normalizar(fundamento or "")
+    for regla, rx in _AGENDA_LEYES:
+        if re.search(rx, f):
+            return regla, f"Por el fundamento que cita el acuerdo ({fundamento})."
+    m = (materia or "").lower()
+    if m == "amparo":
+        return "LAmp", "Juicio de amparo."
+    det = _pfa.detectar(f"plazo {m} {(texto or '')[:1500]}", pistas=[m])
+    det["procesal"] = True
+    regs = _rpa.resolver(entidad if entidad and entidad.lower() != "federal" else None, det)
+    for r in regs:
+        if r["materia"] in ("civil_familiar", "administrativo", "laboral", "penal", "mercantil", "agrario"):
+            return _AGENDA_RIGE_A_REGLA.get(r["rige"], "LOCAL"), r["chip"]
+    return "LOCAL", "Sin código identificado: regla genérica; revise el cómputo con su código."
+
+
+@app.post("/agenda/extraer")
+async def agenda_extraer(archivo: UploadFile = File(None), texto: str = Form(""), estado: str = Form(""),
+                         authorization: str = Header("")):
+    token = (authorization or "").replace("Bearer ", "").strip()
+    if not token:
+        raise HTTPException(401, "Inicie sesión para usar la agenda.")
+    try:
+        quien = await asyncio.to_thread(supabase_admin.auth.get_user, token)
+        if not getattr(quien, "user", None):
+            raise ValueError("sin usuario")
+    except Exception:
+        raise HTTPException(401, "Sesión no válida.")
+    contenido_txt = ""
+    nombre = ""
+    if archivo is not None:
+        nombre = archivo.filename or "acuerdo"
+        datos = await archivo.read()
+        if len(datos) > 15 * 1024 * 1024:
+            raise HTTPException(413, "El archivo pasa de 15 MB.")
+        contenido_txt = await _texto_de_bytes(datos, nombre)
+    contenido_txt = (contenido_txt or texto or "").strip()[:40000]
+    if len(contenido_txt) < 40:
+        raise HTTPException(422, "No se pudo leer el acuerdo. Pruebe con una foto más nítida o pegue el texto.")
+    try:
+        async with httpx.AsyncClient(timeout=120) as cli:
+            r = await cli.post("https://api.openai.com/v1/chat/completions",
+                               headers={"Authorization": f"Bearer {os.getenv('OPENAI_API_KEY', '')}"},
+                               json={"model": BUSCAR_MODEL, "reasoning_effort": "low", "max_completion_tokens": 4000,
+                                     "response_format": {"type": "json_object"},
+                                     "messages": [{"role": "system", "content": _AGENDA_INSTRUCCION},
+                                                  {"role": "user", "content": contenido_txt}]})
+        r.raise_for_status()
+        ext = json.loads(r.json()["choices"][0]["message"]["content"] or "{}")
+    except Exception as e:
+        print(f"   ⚠️ AGENDA: la extracción falló: {err(e)}")
+        raise HTTPException(502, "No se pudo analizar el acuerdo en este momento.")
+
+    import plazos_calculo as _pca
+    import procesal_federal as _pfa2
+    entidad = (ext.get("entidad") or estado or "").strip()
+    norm_doc = _pfa2.normalizar(contenido_txt)
+    fecha_base = ext.get("fecha_notificacion") or ext.get("fecha_acuerdo")
+    tipo_not = ext.get("tipo_notificacion") if ext.get("tipo_notificacion") in ("personal", "lista", "electronica") else "personal"
+    propuestas, avisos = [], []
+    if not ext.get("fecha_notificacion"):
+        avisos.append("El documento no muestra la fecha de notificación: se tomó la del acuerdo. Corríjala con la de su cédula o lista.")
+    for t in (ext.get("terminos") or [])[:8]:
+        literal = str(t.get("texto_literal") or "")
+        verificado = bool(literal) and _pfa2.normalizar(literal)[:160] in norm_doc and \
+            _pca.numero_de_texto(literal) == t.get("cantidad")
+        regla, por_que = _agenda_regla(t.get("fundamento_citado") or "", ext.get("materia") or "", entidad, contenido_txt)
+        calc = None
+        if fecha_base and isinstance(t.get("cantidad"), int) and t.get("unidad") in ("dias", "horas", "meses", "anos"):
+            try:
+                calc = _pca.calcular(fecha_base, t["cantidad"], t["unidad"], regla, tipo_not,
+                                     t.get("tipo_dias") if t.get("tipo_dias") in ("habiles", "naturales") else None)
+            except Exception as e:
+                print(f"   ⚠️ AGENDA: cómputo falló: {err(e)}")
+        propuestas.append({**t, "verificado": verificado, "regla": regla, "regla_motivo": por_que, "calculo": calc})
+    audiencias = [a for a in (ext.get("audiencias") or []) if re.fullmatch(r"\d{4}-\d{2}-\d{2}", str(a.get("fecha") or ""))][:6]
+    print(f"   📅 AGENDA: {len(propuestas)} términos, {len(audiencias)} audiencias "
+          f"({sum(1 for p in propuestas if p['verificado'])} verificados) de {nombre or 'texto pegado'}")
+    return {"expediente": ext.get("expediente"), "organo": ext.get("organo"), "entidad": entidad,
+            "materia": ext.get("materia"), "fecha_acuerdo": ext.get("fecha_acuerdo"),
+            "fecha_notificacion": ext.get("fecha_notificacion"), "tipo_notificacion": tipo_not,
+            "resumen": ext.get("resumen"), "terminos": propuestas, "audiencias": audiencias,
+            "avisos": avisos, "documento": nombre}
 
 
 @app.get("/plazos/tabla")

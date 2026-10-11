@@ -223,3 +223,24 @@ def calcular(fecha_notificacion: str, cantidad: int, unidad: str = "dias", regla
                             f"{(dias[0] if dias else inicio.isoformat())} al {venc.isoformat()}, incluido el día del vencimiento."),
             "avisos": avisos + ["No incluye vacaciones ni suspensiones de labores del órgano que no hayas agregado."],
             "pasos": pasos}
+
+
+_NUMEROS = {"un": 1, "uno": 1, "una": 1, "dos": 2, "tres": 3, "cuatro": 4, "cinco": 5, "seis": 6, "siete": 7,
+            "ocho": 8, "nueve": 9, "diez": 10, "once": 11, "doce": 12, "trece": 13, "catorce": 14, "quince": 15,
+            "dieciseis": 16, "diecisiete": 17, "dieciocho": 18, "diecinueve": 19, "veinte": 20, "veintiuno": 21,
+            "veinticinco": 25, "treinta": 30, "cuarenta": 40, "cuarenta y cinco": 45, "cuarenta y ocho": 48,
+            "sesenta": 60, "setenta y dos": 72, "noventa": 90, "ciento veinte": 120, "ciento ochenta": 180}
+
+
+def numero_de_texto(literal: str) -> Optional[int]:
+    """«nueve días» → 9; «3 días hábiles» → 3. None si no hay número."""
+    import re
+    import unicodedata
+    t = "".join(c for c in unicodedata.normalize("NFKD", literal or "") if not unicodedata.combining(c)).lower()
+    m = re.search(r"\d+", t)
+    if m:
+        return int(m.group(0))
+    for palabra in sorted(_NUMEROS, key=len, reverse=True):
+        if re.search(rf"\b{palabra}\b", t):
+            return _NUMEROS[palabra]
+    return None
