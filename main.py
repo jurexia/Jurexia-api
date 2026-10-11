@@ -181,7 +181,17 @@ DOCUMENT_MAX_SALIDA = int(os.getenv("DOCUMENT_MAX_SALIDA", "40000"))
 # Pro: un millón de tokens. Con esto se decide cuánta conversación acompaña a
 # un documento; ver «LA CONVERSACIÓN VIAJA CON EL DOCUMENTO».
 DOCUMENTO_VENTANA_CHARS = int(os.getenv("DOCUMENTO_VENTANA_CHARS", "760000"))
-DOCUMENTO_VENTANA_LARGA_CHARS = int(os.getenv("DOCUMENTO_VENTANA_LARGA_CHARS", "2400000"))
+# SIN COBRO DOBLE (11-oct-2026). Gemini cabe un millón de tokens, pero por
+# encima de 200 mil cobra la entrada al DOBLE: del 1 al 11-oct, 220 de los 545
+# MXN del análisis Platinum fueron ese tramo («gemini 3 pro long»), casi todo
+# conversación que acompañaba al documento. 640 mil caracteres son ~180 mil
+# tokens con el castellano jurídico (~3.6 car./token): la conversación se
+# recorta antes de cruzar la raya. Un documento que por sí solo la cruza sigue
+# entrando entero.
+DOCUMENTO_VENTANA_LARGA_CHARS = int(os.getenv("DOCUMENTO_VENTANA_LARGA_CHARS", "640000"))
+# Los Genios (corpus en caché de Gemini) están apagados desde el 11-oct-2026;
+# ver «LOS GENIOS, APAGADOS EN EL SERVIDOR».
+GENIOS_ACTIVOS = os.getenv("GENIOS_ACTIVOS", "0").strip() == "1"
 # Lo más que se acepta del historial adjunto: el frontend ya le quita los
 # marcadores pesados; más allá de esto, algo raro viene en la petición.
 HISTORIAL_ARCHIVO_MAX_BYTES = int(os.getenv("HISTORIAL_ARCHIVO_MAX_BYTES", str(12 * 1024 * 1024)))
@@ -16465,6 +16475,16 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
     _resolved_genio_ids = request.genio_ids or []
     if not _resolved_genio_ids and request.enable_genio_juridico:
         _resolved_genio_ids = ["amparo"]  # Legacy compatibility
+
+    # ── LOS GENIOS, APAGADOS EN EL SERVIDOR (11-oct-2026) ───────────────────
+    # La pantalla ya no los ofrece, pero las peticiones los seguían trayendo
+    # (versiones viejas de la web y de la app): 96 cachés creadas del 5 al
+    # 9-oct, cada una de ~215 mil tokens de corpus. Fueron 756 de los 1,709 MXN
+    # de Google del 1 al 11-oct. La consulta sigue por el chat normal, con el
+    # acervo. GENIOS_ACTIVOS=1 en Render los devuelve sin desplegar.
+    if _resolved_genio_ids and not GENIOS_ACTIVOS:
+        print(f"   🧞 Genios pedidos y apagados: {_resolved_genio_ids} → chat normal")
+        _resolved_genio_ids = []
 
     # ── SÓLO GENIOS QUE EXISTEN ──────────────────────────────────────────────
     # Medido en los registros del 21 al 28-ago-2026: llegaron `genio_ids` que

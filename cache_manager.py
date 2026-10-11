@@ -87,6 +87,10 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 
 # ── Safety Limits ────────────────────────────────────────────────────────────
 MAX_DAILY_CREATES = int(os.getenv("MAX_DAILY_CREATES", "100"))  # Shared across all genios (server-level cache)
+# Apagados desde el 11-oct-2026: cada caché cuesta ~215 mil tokens de corpus y
+# fueron el 44 % de la factura de Google. Este freno vale para TODOS los
+# caminos que crean caché (chat, redactor, sentencias), no sólo el chat.
+GENIOS_ACTIVOS = os.getenv("GENIOS_ACTIVOS", "0").strip() == "1"
 
 # ── Genio Configurations ────────────────────────────────────────────────────
 GENIO_CONFIGS = {
@@ -414,6 +418,11 @@ async def _create_cache(genio_id: str) -> Optional[str]:
         return None
 
     state = _get_state(genio_id)
+
+    if not GENIOS_ACTIVOS:
+        state.last_error = "Genios apagados (GENIOS_ACTIVOS=0)"
+        logger.info(f"🧞 [{genio_id}] caché no creada: Genios apagados")
+        return None
 
     try:
         if not _check_daily_budget():
