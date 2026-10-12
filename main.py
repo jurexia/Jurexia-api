@@ -1320,7 +1320,9 @@ sobre tu maquinaria.
 PROHIBIDO nombrar el sistema interno, con estas palabras o con cualquier otra
 que signifique lo mismo: «el contexto recuperado», «lo recuperado», «no se
 recuperó», «la búsqueda», «mi base», «mi acervo», «no tengo cobertura», «regla
-de precisión del sistema», «no puedo validar con lo recuperado». La lista no es
+de precisión del sistema», «no puedo validar con lo recuperado», «no me consta»,
+«no puedo confirmar», «con la información disponible», «los documentos (o
+fragmentos, o textos) disponibles no incluyen», «no tengo el texto». La lista no es
 cerrada: la prohibición es sobre la IDEA, no sobre las frases. Si al leer una
 oración tuya se entiende que hay un buscador detrás, está mal escrita.
 
@@ -1330,9 +1332,12 @@ QUÉ SÍ SE DICE, Y SON TRES COSAS DISTINTAS QUE NO SE CONFUNDEN:
    jueces locales, no la que usted plantea» o «ese precepto pertenece a otro
    ordenamiento». Esto es un hallazgo sobre el escrito, y es lo más valioso
    que puedes darle.
-3. No se pudo corroborar → «no me consta el texto vigente de este precepto:
-   verifíquelo antes de presentar». Punto. Sin explicar por qué, sin pedir
-   disculpas y sin sugerir que la culpa es de él.
+3. No se pudo corroborar → «conviene verificar el texto vigente del artículo X
+   de [ley] antes de presentar». Punto. Sin explicar por qué, sin pedir
+   disculpas y sin sugerir que la culpa es de él. Si lo que falta es un dato
+   (un plazo, una cifra), explica la regla con los artículos que sí tienes y
+   señala qué artículo de qué código lo fija para que lo verifique; nunca digas
+   que no lo tienes ni que no puedes confirmarlo.
 
 Y NUNCA rellenes un hueco inventando. Preferir el silencio del punto 3 a una
 cita de otra ley no es una concesión: es la única respuesta honesta. Un artículo
@@ -6124,32 +6129,89 @@ async def _traer_normas_oficiales(query, dense_vector, existing_ids, skip=False)
             _c = f"NOM-{clave.group(1)}-{clave.group(2).strip('-').upper()}-{clave.group(3)}"
             filtro = Filter(must=[FieldCondition(key="clave", match=MatchValue(value=_c))])
         res = await qdrant_client.query_points(collection_name="normas_oficiales", query=dense_vector,
-                                               using="dense", query_filter=filtro, limit=8, with_payload=True)
+                                               using="dense", query_filter=filtro, limit=60, with_payload=True)
         pts = list(res.points or [])
         if filtro is not None and not pts:
             res = await qdrant_client.query_points(collection_name="normas_oficiales", query=dense_vector,
-                                                   using="dense", limit=8, with_payload=True)
+                                                   using="dense", limit=30, with_payload=True)
             pts = list(res.points or [])
     except Exception as e:
         print(f"   ⚠️ NOM: búsqueda falló: {err(e)}")
         return []
     umbral = 0.0 if clave else (0.40 if por_tema else 0.52)
-    fuera = []
-    for i, p in enumerate(pts):
+    if not pts or float(pts[0].score or 0) < umbral:
+        return []
+    # LA NORMA, NO TROZOS SUELTOS (11-oct-2026): con cuatro trozos el numeral que
+    # responde —la distancia de una gasolinera, el umbral de un sello— quedaba
+    # fuera y el modelo decía «los fragmentos no lo contienen». Se elige la NOM
+    # que mejor responde y se toman hasta seis de sus numerales, reordenados por
+    # las palabras de la pregunta; la segunda NOM entra si está casi empatada.
+    import procesal_federal as _pfn
+    qn = _pfn.normalizar(query or "")
+    por_clave: Dict[str, list] = {}
+    for p in pts:
         pl = p.payload or {}
-        if float(p.score or 0) < umbral or str(p.id) in existing_ids:
+        s = float(p.score or 0) + 0.08 * _pfn._lexico(qn, _pfn.normalizar(pl.get("texto_raw") or pl.get("texto") or ""))
+        por_clave.setdefault(pl.get("clave") or "", []).append((s, p))
+    # La NORMA se elige por parecido puro (el léxico favorecía a la de gas natural
+    # en una pregunta por gasolineras); las palabras sólo ordenan sus numerales.
+    _cos = lambda c: max(float(x[1].score or 0) for x in por_clave[c])
+    # …y por su TÍTULO, con más peso a las palabras raras: «gasolina» o
+    # «aprovechamiento» distinguen una norma; «seguridad» o «estaciones», no.
+    import math as _m
+    _vac = {"cual", "cuales", "como", "para", "debe", "deben", "tiene", "tienen", "segun", "norma", "normas",
+            "oficial", "mexicana", "donde", "cuando", "esta", "este", "estos", "estas", "sobre", "entre", "puede"}
+    _pal = [w for w in set(re.findall(r"[a-z]{4,}", qn)) if w not in _vac]
+    # (el texto de sus numerales recuperados, no el título: el de la NOM-034 ni
+    # siquiera dice «reductores», y el de protección civil sí dice «avisos»)
+    _tit = {c: _pfn.normalizar(" ".join(((x[1].payload or {}).get("titulo") or "") + " " + ((x[1].payload or {}).get("texto_raw") or "")
+                                        for x in por_clave[c])) for c in por_clave}
+    _df = {w: sum(1 for t in _tit.values() if w in t) for w in _pal}
+    _peso = {w: _m.log(1 + len(_tit) / _df[w]) for w in _pal if _df[w]}
+
+    def _por_titulo(c):
+        tot = sum(_peso.values()) or 1.0
+        return sum(v for w, v in _peso.items() if w in _tit[c]) / tot
+    _cos_t = lambda c: _cos(c) + 0.12 * _por_titulo(c)
+    claves = sorted(por_clave, key=_cos_t, reverse=True)
+    # QUIÉN ELIGE LA NORMA (11-oct-2026): el parecido confunde normas vecinas (la
+    # de gas natural ante una pregunta por gasolineras; la de aeronaves ante el
+    # ruido de un negocio). Un modelo barato lee la pregunta y los títulos de las
+    # seis candidatas y dice cuál regula lo preguntado; si falla, manda el orden.
+    elegidas_llm = []
+    if not clave and len(claves) > 1 and chat_client is not None:
+        cand = claves[:6]
+        lista = "\n".join(f"{i + 1}. {c} — {((por_clave[c][0][1].payload or {}).get('titulo') or '')[:180]}"
+                           for i, c in enumerate(cand))
+        try:
+            r = await asyncio.wait_for(chat_client.chat.completions.create(
+                model=BUSCAR_MODEL, reasoning_effort="none", max_completion_tokens=80,
+                response_format={"type": "json_object"},
+                messages=[{"role": "system", "content": "Eliges normas oficiales mexicanas. Responde SOLO JSON {\"elegidas\": [números]} con hasta 2 normas de la lista que regulan DIRECTAMENTE lo que se pregunta, la mejor primero; [] si ninguna."},
+                          {"role": "user", "content": f"Pregunta: {query[:600]}\n\nNormas:\n{lista}"}]), timeout=5)
+            nums = json.loads(r.choices[0].message.content or "{}").get("elegidas") or []
+            elegidas_llm = [cand[int(n) - 1] for n in nums if str(n).isdigit() and 1 <= int(n) <= len(cand)][:2]
+        except Exception as e:
+            print(f"   ⚠️ NOM: la elección por modelo falló ({type(e).__name__}); manda el orden por parecido")
+    if elegidas_llm:
+        claves = elegidas_llm + [c for c in claves if c not in elegidas_llm]
+    elegidos = sorted(por_clave[claves[0]], key=lambda x: x[0], reverse=True)[:6]
+    if len(claves) > 1 and ((len(elegidas_llm) > 1) or (not elegidas_llm and _cos_t(claves[1]) >= _cos_t(claves[0]) - 0.02)):
+        elegidos += sorted(por_clave[claves[1]], key=lambda x: x[0], reverse=True)[:2]
+    fuera = []
+    for i, (s, p) in enumerate(elegidos):
+        pl = p.payload or {}
+        if str(p.id) in existing_ids:
             continue
         existing_ids.add(str(p.id))
         fuera.append(SearchResult(
             id=str(p.id),
-            score=(max(float(p.score), 0.86) if (clave and i < 3) else min(float(p.score), 0.80)),
+            score=(max(s, 0.86) if (i < 3 and (clave or por_tema)) else min(max(s, 0.70), 0.84)),
             texto=pl.get("texto") or pl.get("texto_raw") or "",
             ref=pl.get("ref"), origen=pl.get("origen") or pl.get("clave"),
             jurisdiccion="federal", entidad="FEDERAL", silo="normas_oficiales",
             pdf_url=pl.get("pdf_url"),
         ))
-        if len(fuera) >= (5 if clave else 4 if por_tema else 3):
-            break
     if fuera:
         print(f"   📏 NOM: +{len(fuera)} ({', '.join(sorted({(r.ref or '').split(',')[0] for r in fuera}))}) "
               f"en {time.perf_counter()-_t:.2f}s")
@@ -6157,6 +6219,23 @@ async def _traer_normas_oficiales(query, dense_vector, existing_ids, skip=False)
 
 
 PROCESAL_FEDERAL_ACTIVO = os.getenv("PROCESAL_FEDERAL_ACTIVO", "1").strip() != "0"
+
+
+_FRASES_PROCESALES_LOCALES = [
+    (r"apela", "término para interponer el recurso de apelación contra la sentencia y los autos"),
+    (r"revocaci", "término para interponer el recurso de revocación"),
+    (r"\bqueja", "término para interponer el recurso de queja"),
+    (r"\brevisi[oó]n\b", "término para interponer el recurso de revisión"),
+    (r"contest", "término para contestar la demanda después del emplazamiento"),
+    (r"prescri|despid|plazo para demandar|tiempo para demandar", "prescripción de las acciones y plazo para demandar"),
+    (r"caducidad", "caducidad de la instancia por inactividad procesal de las partes"),
+    (r"prueba", "término para ofrecer y desahogar pruebas"),
+    (r"embargo|precautori|cautelar|asegura", "providencias precautorias y embargo precautorio, requisitos y garantía"),
+    (r"alimento", "alimentos provisionales y procedimiento en el juicio de alimentos"),
+    (r"divorci", "procedimiento y término en el juicio de divorcio"),
+    (r"sucesi|intestad|herencia|testament", "denuncia y tramitación del juicio sucesorio"),
+    (r"nulidad|contencioso|multa|clausura|tribunal de justicia administrativa", "plazo para presentar la demanda de nulidad o el recurso administrativo"),
+]
 
 
 async def _traer_procesal_local(clave: str, silo: str, query: str, dense_vector, existing_ids: set,
@@ -6192,6 +6271,17 @@ async def _traer_procesal_local(clave: str, silo: str, query: str, dense_vector,
             return []
 
     tareas = [_q(dense_vector, 40)]
+    # FRASES CANÓNICAS (11-oct-2026): el artículo que fija el plazo («El término
+    # para apelar será de…») se redacta distinto de la pregunta y a veces no
+    # entraba; se busca además con la frase con que lo dicen los códigos.
+    for _rx_c, _frase_c in _FRASES_PROCESALES_LOCALES:
+        if re.search(_rx_c, det["q"]):
+            async def _canon(fr=_frase_c):
+                try:
+                    return await _q(await get_dense_embedding(fr), 8)
+                except Exception:
+                    return []
+            tareas.append(_canon())
     focos = det["foco"][:3] if len(det["foco"]) > 1 else []
     for f in focos:
         frase = _pfl._frase_del_foco(query, f)
@@ -6218,7 +6308,7 @@ async def _traer_procesal_local(clave: str, silo: str, query: str, dense_vector,
             if set(det["foco"]) & set(figs):
                 s += 0.06
             if gi > 0:
-                s += 0.05                       # lo halló la oración de su parte
+                s += 0.05                       # lo halló la oración de su parte o la frase canónica
             k = (pl.get("origen"), pl.get("ref"))
             if k not in puntos or puntos[k][1] < s:
                 puntos[k] = (str(p.id), s, pl)
@@ -7522,7 +7612,11 @@ def format_results_as_xml(results: List[SearchResult], estado: Optional[str] = N
             'de observancia obligatoria (Ley de Infraestructura de la Calidad). Sirven para acreditar el '
             'estándar exigible —el deber de cuidado en una negligencia médica, la obligación del patrón en '
             'seguridad y salud, la información que debe dar un proveedor—. Cítalas por su clave completa '
-            '(p. ej. NOM-004-SSA3-2012), el numeral y su [Doc ID]; no las presentes como ley. -->')
+            '(p. ej. NOM-004-SSA3-2012), el numeral y su [Doc ID]; no las presentes como ley. Responde con lo '
+            'que dicen los numerales que tienes, transcribiendo lo esencial. Si un dato puntual (una cifra, una '
+            'tabla) no está en ellos, remite al numeral o a la NOM completa en su PDF («consulte el numeral X de '
+            'la NOM-…»), pero NUNCA escribas que los fragmentos, documentos o textos disponibles no lo contienen, '
+            'ni frases como «no me consta» o «con la información disponible». -->')
     if any(r.silo == "doctrina" for r in results):
         xml_parts.append(
             '<!-- INSTRUCCIÓN DOCTRINA: Los documentos tipo="DOCTRINA" son obras '

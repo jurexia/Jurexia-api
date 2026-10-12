@@ -71,7 +71,9 @@ def grupo_de(num: str, dep: str) -> str:
     """La norma, sin el año: 034 + primera dependencia. ECOL se llamó luego SEMARNAT."""
     dep = re.sub(r"([A-Z])-(\d)", r"\1\2", dep)          # SCT-2 = SCT2 (SCT1/2/3/4 son subsectores distintos)
     primera = re.split(r"[/-]", dep)[0]
-    primera = {"ECOL": "SEMARNAT"}.get(primera, primera)
+    # Dependencias que cambiaron de siglas: la norma es la misma.
+    primera = {"ECOL": "SEMARNAT", "SEMP": "SEDE", "SECOFI": "SCFI", "SARH": "SAG", "SAGAR": "SAG",
+               "SAGARPA": "SAG", "SAGARHPA": "SAG", "SEMARNAP": "SEMARNAT"}.get(primera, primera)
     return f"{num}|{primera}"
 
 
@@ -105,9 +107,12 @@ def plan():
         d = defin.setdefault(clave, {"clave": clave, "num": num, "dep": dep, "anio": anio, "notas": [], "titulo": ""})
         es_mod = bool(re.match(r"^\s*(modificaci|acuerdo)", t, re.I))
         if not es_mod:
-            d["titulo"] = re.sub(r"\s+", " ", t).strip()
+            if d.get("publicada") != f["dia"]:
+                # una republicación en otra fecha reemplaza; varias partes el MISMO día
+                # (la NOM-001-SEDE-2012 salió en nueve notas) se suman.
+                d["notas"] = [x for x in d["notas"] if x["mod"] and x["dia"] > f["dia"]]
+            d["titulo"] = d.get("titulo") or re.sub(r"\s+", " ", t).strip()
             d["publicada"] = f["dia"]
-            d["notas"] = [x for x in d["notas"] if x["mod"] and x["dia"] > f["dia"]]  # una republicación reemplaza
         d["notas"].append({"cod": f["codNota"], "dia": f["dia"], "mod": es_mod, "titulo": t[:200]})
     # vigencia
     fuera_cancel, fuera_sustituida = [], []
@@ -121,11 +126,20 @@ def plan():
             del defin[clave]
             continue
         por_grupo.setdefault(grupo_de(d["num"], d["dep"]), []).append(d)
+    # «(Cancela y sustituye a la NOM-001-SESH-2014)»: la sustitución cruza dependencias.
+    sustituye = set()
+    for d in defin.values():
+        for m in re.finditer(r"cancela(?:\s+y\s+sustituye)?\s+a\s+(?:la|las)\s+(?:norma oficial mexicana\s+)?(NOM[^,;)]+)", d.get("titulo", ""), re.I):
+            c = clave_de(m.group(1))
+            if c and c[0] != d["clave"]:
+                sustituye.add(c[0])
     vigentes = []
     for g, lista in por_grupo.items():
         lista.sort(key=lambda d: (d["anio"], d.get("publicada", "")))
         vigentes.append(lista[-1])
         fuera_sustituida += [d["clave"] for d in lista[:-1]]
+    fuera_sustituida += [d["clave"] for d in vigentes if d["clave"] in sustituye]
+    vigentes = [d for d in vigentes if d["clave"] not in sustituye]
     for d in vigentes:
         d["materia"] = materia_de(d["dep"])
     PLAN.write_text(json.dumps({"vigentes": vigentes, "canceladas": fuera_cancel, "sustituidas": fuera_sustituida},
