@@ -496,7 +496,10 @@ async def agrupar_cuestiones(cli, cuestiones: list, contador: Contador) -> list:
             if not ids or not str(g.get("cuestion") or "").strip():
                 continue
             usados.update(ids)
-            citas = sorted((_cita(por_id[i]) for i in ids), key=lambda x: (x["documento"], x["pagina"]))
+            # Una cita por página: dos cuestiones del mismo folio agrupadas
+            # pintaban «pág. 81» dos veces.
+            citas = sorted({(por_id[i]["documento"], por_id[i]["pagina"]): _cita(por_id[i])
+                            for i in reversed(ids)}.values(), key=lambda x: (x["documento"], x["pagina"]))
             grupos.append({"cuestion": str(g.get("cuestion")).strip()[:500],
                            "sostiene": str(g.get("sostiene") or "").strip()[:200],
                            "postura": str(g.get("postura") or "").strip()[:900],
