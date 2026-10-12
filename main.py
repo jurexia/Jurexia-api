@@ -33149,6 +33149,385 @@ async def plazos_calcular(payload: dict):
         raise HTTPException(400, f"Datos del plazo inválidos: {e}")
 
 
+# ── CRONOLOGÍA DEL EXPEDIENTE (12-oct-2026, sólo Platinum) ──────────────────
+# Inspirada en el «litigation deep dive» de Harvey: de uno o varios PDF de
+# cientos de páginas, la cronología con su página, las cuestiones en disputa y
+# los plazos que corren. La lectura y la verificación viven en
+# cronologia_expediente.py; el cobro y la puerta Platinum, en cobro_consultas.py
+# (compartido con la Bóveda).
+#
+# EL FLUJO. La pantalla cuenta las páginas, pide la cotización
+# (/cotizar) y el abogado confirma cuántas consultas va a gastar. Al subir
+# (/expediente/cronologia) el servidor RECUENTA: si sale más caro que lo
+# confirmado no cobra y devuelve 409 con la cifra nueva. Se cobra todo de una
+# vez, se crea la fila en `cronologias` y el trabajo corre aparte; la pantalla
+# pregunta por el progreso. Si el trabajo falla, se devuelven las consultas;
+# si fallan sólo algunos lotes, la parte proporcional.
+#
+# TRES WORKERS. El progreso y el resultado viven en Supabase, no en memoria.
+# El trabajo renueva `latido_at`; un trabajo con el latido viejo murió con su
+# worker (despliegue o reciclado): quien lo lea lo reanuda una vez desde los
+# PDF guardados —el OCR ya está en caché— o, si no puede, lo da por fallido y
+# devuelve las consultas.
+import cobro_consultas as _cobro  # noqa: E402
+import cronologia_expediente as _cx  # noqa: E402
+from datetime import datetime as _cdt, timedelta as _ctd, timezone as _ctz  # noqa: E402
+
+_CRONO_MOTIVO = "cronologia"
+_CRONO_MAX_BYTES = int(os.getenv("CRONOLOGIA_MAX_MB", "200")) * 1024 * 1024
+_CRONO_LATIDO_S = 30
+_CRONO_MUERTO_S = 180
+_CRONO_REINTENTOS = 1
+_CRONO_CUBO = "expedientes"
+_CRONO_EN_MARCHA: set = set()
+
+
+async def _crono_usuario(authorization: str) -> tuple:
+    token = (authorization or "").replace("Bearer ", "").strip()
+    if not token:
+        raise HTTPException(401, "Inicie sesión para usar la Cronología del expediente.")
+    if not supabase_admin:
+        raise HTTPException(503, "Servicio temporalmente no disponible.")
+    try:
+        r = await asyncio.to_thread(supabase_admin.auth.get_user, token)
+        u = getattr(r, "user", None)
+        if not u:
+            raise ValueError("sin usuario")
+        return str(u.id), (u.email or "").strip().lower()
+    except Exception:
+        raise HTTPException(401, "Sesión no válida.")
+
+
+async def _crono_platinum(user_id: str) -> dict:
+    return await _cobro.exigir_platinum(supabase_admin, user_id, ADMIN_EMAILS,
+                                        "La Cronología del expediente")
+
+
+async def _crono_docs_de_carpeta(user_id: str, ids: list) -> list:
+    """[(nombre, bytes, ruta)] de los PDF de una carpeta, sólo si son suyos."""
+    ids = [str(i) for i in ids if re.fullmatch(r"[0-9a-fA-F-]{36}", str(i))][:40]
+    if not ids:
+        return []
+    r = await asyncio.to_thread(
+        lambda: supabase_admin.table("expediente_documentos")
+        .select("id, nombre, storage_path, mime_type")
+        .in_("id", ids).eq("user_id", user_id).execute())
+    filas = {f["id"]: f for f in (r.data or [])}
+    fuera = []
+    for i in ids:
+        f = filas.get(i)
+        if not f:
+            raise HTTPException(404, "Uno de los documentos de la carpeta no existe o no es tuyo.")
+        nombre = f.get("nombre") or "documento.pdf"
+        if "pdf" not in (f.get("mime_type") or "").lower() and not nombre.lower().endswith(".pdf"):
+            continue
+        datos = await asyncio.to_thread(
+            lambda p=f["storage_path"]: supabase_admin.storage.from_(_CRONO_CUBO).download(p))
+        fuera.append((nombre, datos, f["storage_path"]))
+    return fuera
+
+
+def _crono_paginas(datos: bytes, nombre: str) -> int:
+    if not (datos or b"")[:1024].lstrip().startswith(b"%PDF"):
+        raise HTTPException(400, f"«{nombre}» no es un PDF.")
+    try:
+        return _cx.contar_paginas(datos)
+    except Exception:
+        raise HTTPException(400, f"No se pudo abrir «{nombre}»: el PDF está dañado o protegido.")
+
+
+async def _crono_guardar(job_id: str, **campos) -> None:
+    campos["updated_at"] = _cdt.now(_ctz.utc).isoformat()
+    campos["latido_at"] = campos["updated_at"]
+    await asyncio.to_thread(
+        lambda: supabase_admin.table("cronologias").update(campos).eq("id", job_id).execute())
+
+
+async def _crono_latir(job_id: str) -> None:
+    while True:
+        await asyncio.sleep(_CRONO_LATIDO_S)
+        try:
+            ahora = _cdt.now(_ctz.utc).isoformat()
+            await asyncio.to_thread(
+                lambda: supabase_admin.table("cronologias").update({"latido_at": ahora})
+                .eq("id", job_id).execute())
+        except Exception as e:
+            print(f"   ⚠️ CRONOLOGÍA {job_id[:8]}: latido sin guardar ({type(e).__name__})")
+
+
+async def _crono_cache_tiene(contenido: bytes) -> bool:
+    h = await asyncio.to_thread(cache_ocr.huella, contenido)
+    return bool(await cache_ocr.leer(supabase_admin, h))
+
+
+async def _crono_trabajo(job_id: str, user_id: str, cobro_id: Optional[str], consultas: int,
+                         docs: list, documentos: list, progreso_base: dict) -> None:
+    """docs = [(nombre, bytes, ruta_guardada_o_None)]. Corre aparte de la
+    petición que lo lanzó."""
+    latido = asyncio.create_task(_crono_latir(job_id))
+    t0 = time.time()
+    try:
+        await _crono_guardar(job_id, estado="procesando",
+                             progreso={**progreso_base, "fase": "guardando"})
+        # LOS PDF SE GUARDAN para poder abrirlos en su página más tarde y para
+        # reanudar si el worker muere. Los de una carpeta ya están guardados.
+        cambio = False
+        for i, (nombre, datos, ruta) in enumerate(docs):
+            if ruta or documentos[i].get("ruta"):
+                continue
+            ruta_nueva = f"cronologias/{user_id}/{job_id}/{i}.pdf"
+            try:
+                await asyncio.to_thread(lambda r=ruta_nueva, b=datos: supabase_admin.storage.from_(_CRONO_CUBO)
+                                        .upload(r, b, {"content-type": "application/pdf", "upsert": "true"}))
+                documentos[i]["ruta"] = ruta_nueva
+                cambio = True
+            except Exception as e:
+                print(f"   ⚠️ CRONOLOGÍA {job_id[:8]}: no se guardó «{nombre}» ({type(e).__name__})")
+        if cambio:
+            await _crono_guardar(job_id, documentos=documentos)
+
+        leidos, ocr_pagadas = [], 0
+        for i, (nombre, datos, _r) in enumerate(docs):
+            await _crono_guardar(job_id, progreso={**progreso_base, "fase": "leyendo",
+                                                   "documento": i + 1, "documentos": len(docs)})
+            d = await _cx.leer_paginas(datos, nombre, texto_nativo_sirve=_texto_nativo_sirve,
+                                       texto_de_bytes=_texto_de_bytes, cache_tiene=_crono_cache_tiene)
+            if d["ocr"] == "azure":
+                ocr_pagadas += d["total"]
+            leidos.append(d)
+            print(f"   📚 CRONOLOGÍA {job_id[:8]}: «{nombre}» {d['total']} pág · {d['ocr']}")
+        if sum(len((t or "").strip()) for d in leidos for t in d["paginas"]) < 200:
+            raise RuntimeError("No se pudo leer el texto de los documentos.")
+
+        async def progreso(p: dict):
+            await _crono_guardar(job_id, progreso={**progreso_base, **p})
+
+        res = await _cx.procesar(leidos, regla_de=_agenda_regla, al_progreso=progreso,
+                                 ocr_pagadas=ocr_pagadas)
+        # LOTES QUE FALLARON: se devuelve la parte de las consultas que les
+        # toca. El resto del expediente sí se entregó.
+        devueltas = 0
+        if res["lotes_fallidos"] and cobro_id:
+            sin_leer = sum(f["hasta"] - f["desde"] + 1 for f in res["lotes_fallidos"])
+            total = max(1, res["costo"]["paginas"])
+            devueltas = min(consultas, (consultas * sin_leer) // total)
+            if devueltas:
+                await _cobro.devolver_cobro(supabase_admin, cobro_id, devueltas)
+        res["consultas_devueltas"] = devueltas
+        await _crono_guardar(job_id, estado="lista", resultado=res,
+                             progreso={**progreso_base, "fase": "lista"})
+        c = res["costo"]
+        print(f"   ✅ CRONOLOGÍA {job_id[:8]}: {c['paginas']} pág · {len(res['hechos'])} hechos · "
+              f"{len(res['cuestiones'])} cuestiones · {len(res['plazos'])} plazos · "
+              f"descartados {res['descartes']['hechos']}/{res['descartes']['cuestiones']}/{res['descartes']['plazos']} · "
+              f"{c['usd_total']:.4f} USD ({c['usd_ocr']:.4f} OCR) · {time.time() - t0:.0f}s · "
+              f"{consultas} consultas")
+    except asyncio.CancelledError:
+        # El worker se apaga: la fila queda con el latido viejo y quien la lea
+        # la reanuda o devuelve las consultas.
+        raise
+    except Exception as e:
+        print(f"   ❌ CRONOLOGÍA {job_id[:8]} falló: {err(e)}")
+        devuelta = await _cobro.devolver_cobro(supabase_admin, cobro_id) if cobro_id else {}
+        try:
+            await _crono_guardar(job_id, estado="error", progreso={**progreso_base, "fase": "error"},
+                                 error=("No se pudo construir la cronología. "
+                                        + ("Se devolvieron las consultas." if devuelta.get("devuelta")
+                                           else "Escríbenos a soporte para devolverte las consultas.")))
+        except Exception as e2:
+            print(f"   🚨 CRONOLOGÍA {job_id[:8]}: ni el error se pudo guardar: {err(e2)}")
+    finally:
+        latido.cancel()
+
+
+def _crono_lanzar(*args) -> None:
+    tarea = asyncio.get_running_loop().create_task(_crono_trabajo(*args))
+    _CRONO_EN_MARCHA.add(tarea)
+    tarea.add_done_callback(_CRONO_EN_MARCHA.discard)
+
+
+async def _crono_rescatar(fila: dict) -> dict:
+    """Un trabajo con el latido viejo: se reanuda una vez o se da por fallido."""
+    umbral = (_cdt.now(_ctz.utc) - _ctd(seconds=_CRONO_MUERTO_S)).isoformat()
+    ahora = _cdt.now(_ctz.utc).isoformat()
+    # SE RECLAMA CON UNA SOLA ESCRITURA CONDICIONADA: si dos lecturas llegan a
+    # la vez, sólo una encuentra el latido viejo.
+    r = await asyncio.to_thread(
+        lambda: supabase_admin.table("cronologias").update({"latido_at": ahora})
+        .eq("id", fila["id"]).lt("latido_at", umbral).execute())
+    if not r.data:
+        return fila
+    progreso = dict(fila.get("progreso") or {})
+    documentos = list(fila.get("documentos") or [])
+    reintentos = int(progreso.get("reintentos") or 0)
+    if reintentos < _CRONO_REINTENTOS and documentos and all(d.get("ruta") for d in documentos):
+        try:
+            docs = []
+            for d in documentos:
+                datos = await asyncio.to_thread(
+                    lambda p=d["ruta"]: supabase_admin.storage.from_(_CRONO_CUBO).download(p))
+                docs.append((d.get("nombre") or "documento.pdf", datos, d["ruta"]))
+            base = {"reintentos": reintentos + 1}
+            print(f"   🔁 CRONOLOGÍA {fila['id'][:8]}: el trabajo se interrumpió; se reanuda")
+            _crono_lanzar(fila["id"], fila["user_id"], fila.get("cobro_id"), int(fila.get("consultas") or 0),
+                          docs, documentos, base)
+            return {**fila, "estado": "procesando", "progreso": {**base, "fase": "reanudando"}}
+        except Exception as e:
+            print(f"   ⚠️ CRONOLOGÍA {fila['id'][:8]}: no se pudo reanudar: {err(e)}")
+    devuelta = await _cobro.devolver_cobro(supabase_admin, fila.get("cobro_id"))
+    error = ("El trabajo se interrumpió. "
+             + ("Se devolvieron las consultas; vuelve a intentarlo." if devuelta.get("devuelta")
+                else "Escríbenos a soporte para devolverte las consultas."))
+    await _crono_guardar(fila["id"], estado="error", error=error, progreso={**progreso, "fase": "error"})
+    return {**fila, "estado": "error", "error": error}
+
+
+class CronologiaCotizar(BaseModel):
+    paginas: int = Field(0, ge=0, le=100000)
+    documento_ids: List[str] = Field(default_factory=list)
+
+
+@app.post("/expediente/cronologia/cotizar")
+async def cronologia_cotizar(payload: CronologiaCotizar, authorization: str = Header("")):
+    """Cuántas consultas costará y si le alcanzan. No cobra ni procesa nada."""
+    uid, _correo = await _crono_usuario(authorization)
+    await _crono_platinum(uid)
+    paginas = int(payload.paginas or 0)
+    if payload.documento_ids:
+        docs = await _crono_docs_de_carpeta(uid, payload.documento_ids)
+        paginas += sum([await asyncio.to_thread(_crono_paginas, b, n) for n, b, _r in docs])
+    if paginas <= 0:
+        raise HTTPException(400, "No hay páginas que leer.")
+    consultas = _cobro.consultas_por_paginas(paginas)
+    saldo = await _cobro.saldo_consultas(supabase_admin, uid)
+    return {"paginas": paginas, "consultas": consultas,
+            "paginas_por_consulta": _cobro.PAGINAS_POR_CONSULTA,
+            "max_paginas": _cx.MAX_PAGINAS, "excede": paginas > _cx.MAX_PAGINAS,
+            "saldo": saldo,
+            "alcanza": bool(saldo.get("ilimitado")) or int(saldo.get("disponibles") or 0) >= consultas}
+
+
+@app.post("/expediente/cronologia", status_code=202)
+async def cronologia_crear(archivos: List[UploadFile] = File(default_factory=list),
+                           documento_ids: str = Form(""),
+                           consultas_aceptadas: int = Form(...),
+                           titulo: str = Form(""),
+                           carpeta_id: str = Form(""),
+                           authorization: str = Header("")):
+    uid, _correo = await _crono_usuario(authorization)
+    await _crono_platinum(uid)
+
+    docs, peso = [], 0
+    for f in archivos[:40]:
+        datos = await f.read()
+        peso += len(datos)
+        if peso > _CRONO_MAX_BYTES:
+            raise HTTPException(413, f"El expediente pasa de {_CRONO_MAX_BYTES // (1024 * 1024)} MB.")
+        if datos:
+            docs.append((f.filename or f"documento-{len(docs) + 1}.pdf", datos, None))
+    try:
+        ids = json.loads(documento_ids) if documento_ids else []
+    except Exception:
+        raise HTTPException(400, "documento_ids no es una lista.")
+    if ids:
+        docs += await _crono_docs_de_carpeta(uid, ids if isinstance(ids, list) else [])
+    if not docs:
+        raise HTTPException(400, "Sube al menos un PDF del expediente.")
+
+    paginas_doc = [await asyncio.to_thread(_crono_paginas, b, n) for n, b, _r in docs]
+    paginas = sum(paginas_doc)
+    if paginas > _cx.MAX_PAGINAS:
+        raise HTTPException(413, f"El expediente tiene {paginas} páginas; el máximo por cronología es "
+                                 f"{_cx.MAX_PAGINAS}. Divídelo en partes.")
+    consultas = _cobro.consultas_por_paginas(paginas)
+    # EL SERVIDOR RECUENTA. Lo que el abogado aceptó es una cifra que vio en
+    # pantalla; si el expediente resulta más caro, no se le cobra a ciegas.
+    if consultas > int(consultas_aceptadas or 0):
+        raise HTTPException(409, {"codigo": "cotizacion_distinta", "paginas": paginas, "consultas": consultas,
+                                  "mensaje": f"El expediente tiene {paginas} páginas y cuesta {consultas} "
+                                             f"consultas. Confirma de nuevo."})
+
+    job_id = str(uuid.uuid4())
+    cobro = await _cobro.cobrar_consultas(supabase_admin, uid, consultas, _CRONO_MOTIVO, job_id)
+    documentos = [{"nombre": n, "paginas": p, "ruta": r} for (n, _b, r), p in zip(docs, paginas_doc)]
+    titulo = (titulo or "").strip()[:200] or (docs[0][0].rsplit(".", 1)[0] + (f" y {len(docs) - 1} más" if len(docs) > 1 else ""))
+    try:
+        await asyncio.to_thread(lambda: supabase_admin.table("cronologias").insert({
+            "id": job_id, "user_id": uid, "estado": "en_cola", "titulo": titulo,
+            "carpeta_id": (carpeta_id or "").strip()[:64] or None, "documentos": documentos,
+            "paginas": paginas, "consultas": consultas, "cobro_id": cobro.get("cobro_id"),
+            "progreso": {"fase": "en_cola"}}).execute())
+    except Exception as e:
+        print(f"   ❌ CRONOLOGÍA: no se pudo crear el trabajo: {err(e)}")
+        await _cobro.devolver_cobro(supabase_admin, cobro.get("cobro_id"))
+        raise HTTPException(503, "No se pudo iniciar la cronología. No se descontaron consultas.")
+    print(f"   🗂️ CRONOLOGÍA {job_id[:8]}: {len(docs)} doc · {paginas} pág · {consultas} consultas")
+    _crono_lanzar(job_id, uid, cobro.get("cobro_id"), consultas, docs, documentos, {})
+    return {"id": job_id, "estado": "en_cola", "paginas": paginas, "consultas": consultas,
+            "restantes": cobro.get("restantes"), "titulo": titulo}
+
+
+_CRONO_COLUMNAS = ("id, estado, titulo, carpeta_id, documentos, paginas, consultas, progreso, "
+                   "error, latido_at, created_at, updated_at")
+
+
+@app.get("/expediente/cronologias")
+async def cronologia_lista(carpeta_id: str = "", authorization: str = Header("")):
+    uid, _correo = await _crono_usuario(authorization)
+    q = supabase_admin.table("cronologias").select(_CRONO_COLUMNAS).eq("user_id", uid)
+    if carpeta_id:
+        q = q.eq("carpeta_id", carpeta_id)
+    r = await asyncio.to_thread(lambda: q.order("created_at", desc=True).limit(50).execute())
+    return {"cronologias": r.data or []}
+
+
+@app.get("/expediente/cronologia/{job_id}")
+async def cronologia_estado(job_id: str, authorization: str = Header("")):
+    """El progreso mientras corre; el resultado cuando está lista. Sin puerta
+    Platinum: lo que ya pagó lo puede ver aunque cambie de plan."""
+    uid, _correo = await _crono_usuario(authorization)
+    if not re.fullmatch(r"[0-9a-fA-F-]{36}", job_id or ""):
+        raise HTTPException(404, "No existe esa cronología.")
+    r = await asyncio.to_thread(
+        lambda: supabase_admin.table("cronologias").select(_CRONO_COLUMNAS + ", user_id, cobro_id, resultado")
+        .eq("id", job_id).eq("user_id", uid).limit(1).execute())
+    if not r.data:
+        raise HTTPException(404, "No existe esa cronología.")
+    fila = r.data[0]
+    if fila["estado"] in ("en_cola", "procesando"):
+        try:
+            latido = _cdt.fromisoformat(str(fila["latido_at"]).replace("Z", "+00:00"))
+            if (_cdt.now(_ctz.utc) - latido).total_seconds() > _CRONO_MUERTO_S:
+                fila = await _crono_rescatar(fila)
+        except Exception as e:
+            print(f"   ⚠️ CRONOLOGÍA {job_id[:8]}: no se pudo revisar el latido: {err(e)}")
+    fila.pop("user_id", None)
+    fila.pop("cobro_id", None)
+    return fila
+
+
+@app.get("/expediente/cronologia/{job_id}/pdf/{indice}")
+async def cronologia_pdf(job_id: str, indice: int, authorization: str = Header("")):
+    """Liga firmada (una hora) al PDF, para abrirlo en la página citada."""
+    uid, _correo = await _crono_usuario(authorization)
+    r = await asyncio.to_thread(
+        lambda: supabase_admin.table("cronologias").select("documentos")
+        .eq("id", job_id).eq("user_id", uid).limit(1).execute())
+    if not r.data:
+        raise HTTPException(404, "No existe esa cronología.")
+    docs = r.data[0].get("documentos") or []
+    if not (0 <= indice < len(docs)) or not docs[indice].get("ruta"):
+        raise HTTPException(404, "Ese documento no se guardó.")
+    s = await asyncio.to_thread(
+        lambda: supabase_admin.storage.from_(_CRONO_CUBO).create_signed_url(docs[indice]["ruta"], 3600))
+    url = (s or {}).get("signedURL") or (s or {}).get("signedUrl") or (s or {}).get("signed_url")
+    if not url:
+        raise HTTPException(502, "No se pudo abrir el documento.")
+    if url.startswith("/"):
+        url = SUPABASE_URL.rstrip("/") + "/storage/v1" + url
+    return {"url": url, "nombre": docs[indice].get("nombre")}
+
+
 @app.get("/admin/uso-colecciones")
 async def admin_uso_colecciones(user_email: str = ""):
     """Qué colecciones se han tocado desde el último reinicio.
