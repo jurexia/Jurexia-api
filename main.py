@@ -10815,7 +10815,11 @@ async def hybrid_search_all_silos(
         # «boost» sino un filtro duro: sobre «ley = CNPP» exigía además
         # `materia = penal`, que el CNPP no tiene, y la búsqueda salía vacía.
         # Con la ley ya detectada, la ley basta.
+        # Nunca en las estatales (12-oct-2026): sus leyes no traen `materia` y
+        # una v4 que indexara el campo dejaba la búsqueda del estado en CERO
+        # (el should de Qdrant es filtro duro). Medido con Chiapas v4.
         if (_materia_should_filter and silo_name not in (*JURIS_SILOS, "bloque_constitucional")
+                and silo_name not in set(ESTADO_SILO.values())
                 and not (silo_name == "leyes_federales" and _ley_federal_detectada)
                 and await _coleccion_indexa(silo_name, "materia")):
             combined_filter = _combine_filters_for_silo(state_filter, _materia_should_filter)
