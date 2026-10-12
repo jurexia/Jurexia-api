@@ -8863,7 +8863,7 @@ async def _reordenar_leyes_con_modelo(query: str, estatales: list, federales: li
         return estatales, federales
 
     def _linea(clave, r):
-        txt = re.sub(r"\s+", " ", (r.texto or ""))[:420]
+        txt = re.sub(r"\s+", " ", (r.texto or ""))[:650]
         return f"[{clave}] {(r.origen or '')[:90]} — {r.ref or ''}\n{txt}"
     cands = "\n\n".join([_linea(f"E{i + 1}", r) for i, r in enumerate(E)] +
                          [_linea(f"F{i + 1}", r) for i, r in enumerate(F)])
