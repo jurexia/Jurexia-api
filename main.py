@@ -3769,6 +3769,10 @@ class ChatRequest(BaseModel):
         description="IDs de los genios a usar: ['amparo', 'mercantil']. Si None pero enable_genio_juridico=True, usa 'amparo'."
     )
     user_id: Optional[str] = Field(None, description="Supabase user ID for server-side quota enforcement")
+    # La Bóveda de ESTA carpeta como fuente (boveda.py). A diferencia de
+    # user_id, aquí manda el token: sin sesión Platinum dueña de la carpeta,
+    # la consulta sigue sin Bóveda.
+    boveda_carpeta_id: Optional[str] = Field(None, max_length=64, description="Carpeta cuya Bóveda se consulta")
     materia: Optional[str] = Field(None, description="IGNORADO si lo manda el cliente (25-sep-2026): la materia se deduce de la consulta. Sólo lo rellenan los Genios activos, dentro de /chat.")
     fuero: Optional[str] = Field(None, description="Filtro por fuero: constitucional, federal, estatal. Si None, busca en todos los silos.")
     # La señal del globo viajaba escondida como «[FUENTES_WEB] » dentro del
@@ -4029,7 +4033,18 @@ async def lifespan(app: FastAPI):
             print(f"   🔧 FIX: Reclasificados {_fixed} chunks de Ley Reglamentaria XVII bis (constitucion→ley)")
     except Exception as e:
         print(f"   ⚠️ Fix Michoacán tipo (non-fatal): {err(e)}")
-    
+
+    # La Bóveda usa el cliente y los administradores de aquí (el cobro es el
+    # compartido con la Cronología, cobro_consultas.py); el índice, OpenAI. Su trabajador corre en cada uno
+    # de los tres procesos y se reparte la cola con SKIP LOCKED (boveda.py).
+    try:
+        import boveda_indice as _bov_idx
+        _boveda.configurar(supabase_admin, ADMIN_EMAILS)
+        _bov_idx.configurar(openai_client)
+        _boveda.arrancar()
+    except Exception as e:
+        print(f"   ⚠️ Bóveda sin arrancar (non-fatal): {err(e)}")
+
     print(" Iurexia Core Engine LISTO")
     
     yield
@@ -11959,6 +11974,12 @@ app.add_middleware(
 from flujo_agente import router as _flujo_router  # noqa: E402
 app.include_router(_flujo_router)
 
+# LA BÓVEDA (oct-2026): cientos de documentos por carpeta, indexados por
+# usuario, para el chat y la tabla de revisión. Sólo Platinum, cobra en
+# proporción (cobro_consultas.py). Diseño y costos: BOVEDA.md.
+import boveda as _boveda  # noqa: E402
+app.include_router(_boveda.router)
+
 
 # ═══════════════════════════════════════════════════════════════════════════
 # UN ERROR TIENE QUE LLEGAR AL NAVEGADOR, Y HOY NO LLEGABA
@@ -13099,6 +13120,14 @@ async def eliminar_cuenta(request: Request):
         # sigue con el borrado de datos y se deja constancia para limpiar a mano.
         print(f"   ⚠️ storage incompleto ({err(e)}) — el borrado de datos continúa")
 
+    # 1b) la Bóveda: vectores en Qdrant y archivos del cubo `boveda`. Las filas
+    #     se van con el usuario (cascada) y su disparador deja purgas, pero se
+    #     borra aquí primero para no depender del barrendero.
+    try:
+        await _boveda.borrar_boveda_de_usuario(str(uid))
+    except Exception as e:
+        print(f"   ⚠️ Bóveda incompleta ({err(e)}) — queda en boveda_purgas")
+
     # 2) las filas, atómicas
     try:
         resumen = supabase_admin.rpc(
@@ -13392,6 +13421,7 @@ def _marcador_fuentes_previas(results: List["SearchResult"]) -> str:
                 # los demás silos.
                 **_campos_coidh(_d),
                 **_campos_doctrina(_d),        # doctrina: página y ancla (25-sep-2026)
+                **_campos_boveda(_d),          # Bóveda (oct-2026)
                 # Sello de vigencia (25-sep-2026): sólo tesis que la perdieron.
                 **_campos_vigencia(_d),
             }
@@ -13430,6 +13460,7 @@ def _marcadores_del_sello(texto: str, doc_id_map: Dict[str, "SearchResult"],
                 "materia": getattr(doc, "materia_meta", None) or None,
                 **_campos_coidh(doc),          # Corte IDH (25-sep-2026)
                 **_campos_doctrina(doc),       # doctrina: página y ancla (25-sep-2026)
+                **_campos_boveda(doc),          # Bóveda (oct-2026)
                 # Sello de vigencia (25-sep-2026): sólo tesis que la perdieron.
                 **_campos_vigencia(doc),
             }
@@ -15733,6 +15764,17 @@ def _campos_doctrina(doc) -> dict:
         if _m and int(_m.group(1)) > 0:
             salida["pagina"] = int(_m.group(1))
     return salida
+
+
+def _campos_boveda(doc) -> dict:
+    """La Bóveda del abogado (boveda.py): el visor abre SU archivo, que no
+    tiene URL pública. Viaja el id del documento (en `llave`), la página y el
+    ancla para resaltar el pasaje; el front pide la URL firmada con su sesión.
+    Vacío para cualquier otro silo."""
+    if getattr(doc, "silo", None) != "boveda":
+        return {}
+    return {"silo": "boveda", "pdf_url": None, "boveda_doc_id": getattr(doc, "llave", None),
+            "pagina": getattr(doc, "pagina", None), "ancla": getattr(doc, "ancla", None)}
 
 
 def _sr_doctrina(pid: str, pl: dict, score: float) -> SearchResult:
@@ -18219,6 +18261,18 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
         # Corre en paralelo con el RAG, como la web: si no aporta o falla, la
         # consulta sigue igual. La regla de entrada vive en doctrina.py y está
         # medida: sólo entra cuando el tema de verdad pega.
+        # ── La Bóveda de la carpeta (oct-2026) ───────────────────────────
+        # Sólo si el front la pidió; la puerta (token, Platinum, carpeta
+        # propia) la cierra boveda.fuentes_para_chat. Va en paralelo, como la
+        # doctrina, y si falla la consulta sigue sin ella.
+        _boveda_task = None
+        if request.boveda_carpeta_id:
+            try:
+                _boveda_task = asyncio.create_task(_boveda.fuentes_para_chat(
+                    http_request.headers.get("authorization"), request.boveda_carpeta_id,
+                    last_user_message[:2000]))
+            except Exception as _be:
+                print(f"   🗄️ No pude lanzar la Bóveda: {_be}")
         _doctrina_task = None
         _doctrina_frags = []          # definida ANTES de cualquier bifurcación
         try:
@@ -18794,6 +18848,51 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                             str(f["autor"]).split(",")[0].strip() for f in _doctrina_frags))
                         print(f"   📚 Doctrina: {len(_doctrina_frags)} fragmentos · {_autores}")
                         yield f"<!--PASO:doctrina|{_autores}-->"
+
+                # ── La Bóveda: los documentos del propio abogado ─────────
+                # Mismo punto común y mismo sistema de citas que la doctrina:
+                # entra a search_results y al doc_id_map, y su XML se añade al
+                # final. Son HECHOS del asunto, no normas.
+                if _boveda_task is not None:
+                    _bov_hs, _bov_carpeta = [], {}
+                    try:
+                        _bov_hs, _bov_carpeta = await asyncio.wait_for(asyncio.shield(_boveda_task), timeout=8.0)
+                    except HTTPException as _bhe:
+                        print(f"   🗄️ Bóveda negada en el chat: {_bhe.status_code}")
+                    except Exception as _bfe:
+                        print(f"   🗄️ Bóveda no llegó a tiempo: {type(_bfe).__name__}")
+                    _xml_bov = []
+                    import html as _html
+                    for _h in (_bov_hs or []):
+                        _ref = f"{_h.doc_nombre}, p. {_h.pagina}"
+                        _sr = SearchResult(
+                            id=_h.id, score=0.95, texto=_h.texto, ref=_ref,
+                            origen=f"Bóveda · {_h.doc_nombre}", silo="boveda",
+                            pagina=_h.pagina, llave=_h.doc_id,
+                            ancla=" ".join(_h.texto.split()[:15]))
+                        search_results.append(_sr)
+                        doc_id_map[str(_h.id)] = _sr
+                        _xml_bov.append(
+                            f'<documento id="{_h.id}" tipo="BOVEDA">'
+                            f'<archivo>{_html.escape(_h.doc_nombre)}</archivo>'
+                            f'<pagina>{_h.pagina}</pagina>'
+                            f'<contenido>{_html.escape(_h.texto)}</contenido>'
+                            f'</documento>')
+                    if _xml_bov:
+                        context_xml = (context_xml or "") + (
+                            '\n<boveda>\n'
+                            '<!-- INSTRUCCIÓN BÓVEDA: fragmentos de los DOCUMENTOS DEL PROPIO ABOGADO '
+                            '(su Bóveda de esta carpeta: contratos, escritos, constancias). Son hechos '
+                            'y pruebas del asunto, no normas. Si la pregunta trata de lo que dicen sus '
+                            'documentos, contesta CON ELLOS y cita cada afirmación con su [Doc ID: uuid] '
+                            '(uno por corchete; nunca «Doc IDs»), nombrando el archivo y la página '
+                            '(«contrato.pdf, p. 3»). Si citas textual, copia carácter por carácter entre '
+                            '« ». Si los fragmentos no contestan, dilo: no supongas lo que los documentos '
+                            'no dicen. El derecho aplicable sigue saliendo del acervo. -->\n'
+                            + "\n".join(_xml_bov) + '\n</boveda>')
+                        _n_docs = len({h.doc_id for h in _bov_hs})
+                        print(f"   🗄️ Bóveda: {len(_bov_hs)} fragmentos de {_n_docs} documento(s)")
+                        yield f"<!--PASO:boveda|{len(_bov_hs)} fragmentos de {_n_docs} documento(s)-->"
 
                 # ── La línea de la Corte IDH: igual que la doctrina ───────
                 # (25-sep-2026) Entra en este punto común, se suma a
@@ -19731,6 +19830,7 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                                 **_campos_coidh(_d),
                                 # Y la doctrina, con su página y su ancla.
                                 **_campos_doctrina(_d),
+                                **_campos_boveda(_d),          # Bóveda (oct-2026)
                                 # Sello de vigencia (25-sep-2026): sólo tesis que la perdieron.
                                 **_campos_vigencia(_d),
                             }
@@ -20813,6 +20913,7 @@ Evita contradicciones y estructura la respuesta de forma impecable usando format
                             "materia": doc.materia_meta or None,
                             **_campos_coidh(doc),
                             **_campos_doctrina(doc),
+                            **_campos_boveda(doc),          # Bóveda (oct-2026)
                             **_campos_vigencia(doc),
                         }
 
@@ -20846,6 +20947,7 @@ Evita contradicciones y estructura la respuesta de forma impecable usando format
                                 # Doctrina: la URL de la UNAM sin #page, con
                                 # `pagina` y `ancla` aparte (25-sep-2026).
                                 **_campos_doctrina(doc),
+                                **_campos_boveda(doc),          # Bóveda (oct-2026)
                                 # Sello de vigencia (25-sep-2026): sólo tesis que la perdieron.
                                 **_campos_vigencia(doc),
                             }
