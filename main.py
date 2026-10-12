@@ -6317,11 +6317,12 @@ async def _traer_articulo_tratado(query: str, existing_ids: set) -> list:
         pts = sorted(pts, key=lambda p: (p.payload or {}).get("chunk_index", 0))
         for p in pts:
             pl = p.payload or {}
-            if str(p.id) in existing_ids:
-                continue
+            # Aunque ya venga de la búsqueda por parecido: ahí puede quedar
+            # debajo de cuadernillos con más puntuación (medido: el 8 CADH
+            # salía sexto). El artículo citado por número va primero.
             existing_ids.add(str(p.id))
             fuera.append(SearchResult(
-                id=str(p.id), score=0.95, texto=pl.get("texto_visible") or pl.get("texto") or "",
+                id=str(p.id), score=2.0, texto=pl.get("texto_visible") or pl.get("texto") or "",
                 ref=pl.get("ref"), origen=pl.get("origen"), jurisdiccion=pl.get("jurisdiccion"),
                 entidad=pl.get("entidad"), silo=FIXED_SILOS["constitucional"],
                 pdf_url=pl.get("url_pdf") or pl.get("pdf_url") or pl.get("pdf"),
@@ -11616,7 +11617,8 @@ async def hybrid_search_all_silos(
         merged.extend(_nom_hits)
     _tratado_hits = await _traer_articulo_tratado(query, existing_ids)
     if _tratado_hits:
-        merged = _tratado_hits + merged
+        _ids_t = {r.id for r in _tratado_hits}
+        merged = _tratado_hits + [r for r in merged if r.id not in _ids_t]
     # Con el régimen decidido no hay respaldo: el CNPP/CNPCF de leyes_federales
     # metería justo lo que el régimen acaba de excluir.
     _materia_procesal = None if (_pf_hits or _pf_regs) else _detectar_consulta_procesal(query)
