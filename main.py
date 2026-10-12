@@ -3916,7 +3916,13 @@ async def lifespan(app: FastAPI):
             import asyncio
             loop = asyncio.get_event_loop()
             def _download():
-                return SparseTextEmbedding(model_name="Qdrant/bm25")
+                # En ESPAÑOL (12-oct-2026): las colecciones de leyes v4 se
+                # indexaron con el lematizador y las palabras vacías del
+                # español. Con el inglés por defecto «arrendamientos» y
+                # «arrendamiento» eran términos distintos y «de», «la», «que»
+                # contaban como palabras. Las demás colecciones con sparse
+                # (sentencias) siguen en modo denso, así que no les afecta.
+                return SparseTextEmbedding(model_name="Qdrant/bm25", language="spanish")
             sparse_encoder = await loop.run_in_executor(None, _download)
             print("   BM25 Encoder cargado")
         except Exception as e:
@@ -4605,7 +4611,7 @@ def get_filter_for_silo(
     if silo_name == "leyes_federales" and ley_federal_detectada:
         return Filter(
             must=[
-                FieldCondition(key="ley", match=MatchValue(value=ley_federal_detectada))
+                FieldCondition(key="ley", match=_match_ley(ley_federal_detectada))
             ]
         )
     
@@ -4755,6 +4761,21 @@ LEGAL_SYNONYMS = {
 
 # Mapa de alias → nombre EXACTO del campo 'ley' en Qdrant (payload.ley)
 # Orden: aliases más largos primero para evitar falsos positivos
+# DOS NOMBRES PARA LA MISMA LEY MIENTRAS DURA EL CAMBIO (12-oct-2026). El CNPP
+# se ingirió como «Codigo NACIONAL DE PROCEDIMIENTOS PENALES» y así lo citaba el
+# chat. Se renombra en Qdrant (reingesta/v4/renombrar_cnpp.py) DESPUÉS de que
+# este código esté desplegado: los filtros por nombre aceptan los dos, así que
+# no hay un minuto en que el filtro no encuentre la ley.
+_NOMBRES_EQUIVALENTES: Dict[str, List[str]] = {}
+for _a, _b in (("Codigo NACIONAL DE PROCEDIMIENTOS PENALES", "Código Nacional de Procedimientos Penales"),):
+    _NOMBRES_EQUIVALENTES[_a] = _NOMBRES_EQUIVALENTES[_b] = [_a, _b]
+
+
+def _match_ley(ley: str):
+    """Condición de Qdrant para el campo `ley` que acepta sus nombres equivalentes."""
+    return MatchAny(any=_NOMBRES_EQUIVALENTES.get(ley, [ley]))
+
+
 LEY_FEDERAL_ALIASES: Dict[str, str] = {
     # ── Códigos (nombres completos primero) ──
     "código nacional de procedimientos penales": "Codigo NACIONAL DE PROCEDIMIENTOS PENALES",
@@ -4954,6 +4975,7 @@ LEYES_FEDERALES_PRIORITARIAS: Dict[str, float] = {
     "Código de Comercio": 1.10,
     "Código Penal Federal": 1.10,
     "Codigo NACIONAL DE PROCEDIMIENTOS PENALES": 1.10,
+    "Código Nacional de Procedimientos Penales": 1.10,
     "Código Nacional de Procedimientos Civiles y Familiares": 1.10,
     "Código Fiscal de la Federación": 1.08,
     "Código Federal de Procedimientos Civiles": 1.08,
@@ -7493,7 +7515,7 @@ async def inject_cross_referenced_articles(
                     collection_name="leyes_federales",
                     limit=len(nums),
                     scroll_filter=Filter(must=[
-                        FieldCondition(key="ley", match=MatchValue(value=ley)),
+                        FieldCondition(key="ley", match=_match_ley(ley)),
                         FieldCondition(key="articulo_num", match=MatchAny(any=nums)),
                     ]),
                     with_payload=True,
@@ -8716,6 +8738,106 @@ _SOLO_DENSO = True
 # Alias histórico: el código de fallback lo enciende si reapareciera el bug.
 _HYBRID_PREFETCH_BROKEN = _SOLO_DENSO
 
+# ── LAS LEYES v4 SÍ VAN HÍBRIDAS (12-oct-2026) ───────────────────────────────
+# Lo de arriba sigue valiendo para las sentencias (1.4 M de trozos con un
+# índice sparse en disco). Las leyes se reingirieron (reingesta/v4) con un
+# BM25 de verdad: `modifier=IDF` —sin él Qdrant/bm25 no pondera por rareza y
+# las colecciones viejas nunca lo tuvieron— e índice sparse EN MEMORIA, que
+# para ~400 mil artículos cabe. Se reconocen solas por ese `modifier`, así que
+# una colección vieja (o un alias que todavía apunte a la vieja) sigue densa.
+_LEYES_HIBRIDO = os.getenv("LEYES_HIBRIDO", "1") == "1"
+_ES_HIBRIDA: Dict[str, bool] = {}
+
+# Los transitorios (los de cada decreto de reforma) quedan fuera salvo que la
+# pregunta sea de vigencia: antes eran «artículo 1», «artículo 2»… y ganaban
+# al artículo 1 de verdad.
+_RE_PIDE_TRANSITORIOS = re.compile(
+    r"transitori|entr[aóo]\w* en vigor|vigencia|r[ée]gimen transitorio|abroga|deroga|fecha de publicaci",
+    re.IGNORECASE)
+
+
+def _sin_transitorios(filtro: Optional[Filter]) -> Filter:
+    cond = FieldCondition(key="es_transitorio", match=MatchValue(value=True))
+    if filtro is None:
+        return Filter(must_not=[cond])
+    return Filter(must=filtro.must, should=filtro.should, min_should=getattr(filtro, "min_should", None),
+                  must_not=list(filtro.must_not or []) + [cond])
+
+
+_RERANK_LEYES = os.getenv("RERANK_LEYES", "1") == "1"
+
+
+async def _reordenar_leyes_con_modelo(query: str, estatales: list, federales: list,
+                                      n_est: int = 20, n_fed: int = 14) -> tuple:
+    """Un modelo barato lee la pregunta y los artículos candidatos y dice cuáles
+    la responden, en orden (12-oct-2026; el patrón que llevó las NOM a 10/10).
+
+    El parecido —denso o léxico— trae el vecindario; no distingue el artículo
+    que regula el supuesto de su vecino que lo define o lo remite. Una sola
+    llamada con las dos listas (estatal y federal), JSON, sin razonamiento, con
+    tope de 4 s: si falla o tarda, manda el orden que ya había. Las listas
+    conservan su escala de puntuación (sólo se reparte en el nuevo orden).
+    """
+    if chat_client is None or not (estatales or federales):
+        return estatales, federales
+    E, F = estatales[:n_est], federales[:n_fed]
+    if len(E) + len(F) < 3:
+        return estatales, federales
+
+    def _linea(clave, r):
+        txt = re.sub(r"\s+", " ", (r.texto or ""))[:420]
+        return f"[{clave}] {(r.origen or '')[:90]} — {r.ref or ''}\n{txt}"
+    cands = "\n\n".join([_linea(f"E{i + 1}", r) for i, r in enumerate(E)] +
+                         [_linea(f"F{i + 1}", r) for i, r in enumerate(F)])
+    try:
+        r = await asyncio.wait_for(chat_client.chat.completions.create(
+            model=BUSCAR_MODEL, reasoning_effort="none", max_completion_tokens=120,
+            response_format={"type": "json_object"},
+            messages=[{"role": "system", "content": (
+                "Ordenas artículos de ley para responder la consulta de un abogado mexicano. Devuelve SOLO JSON "
+                "{\"orden\": [claves]} con hasta 12 claves de los artículos que contienen la norma que responde, "
+                "del más al menos pertinente. Prefiere el precepto que regula directamente el supuesto (plazo, "
+                "requisito, sanción, procedencia) sobre definiciones generales, remisiones o artículos vecinos. "
+                "Omite los que no sirven.")},
+                {"role": "user", "content": f"Consulta: {query[:900]}\n\nArtículos:\n{cands}"}]), timeout=4)
+        orden = json.loads(r.choices[0].message.content or "{}").get("orden") or []
+    except Exception as e:
+        print(f"   ⚠️ Re-ranking de leyes: falló ({type(e).__name__}); se queda el orden por parecido")
+        return estatales, federales
+
+    def _aplicar(lista, pref, n):
+        elegidos = []
+        for k in orden:
+            m = re.fullmatch(pref + r"(\d+)", str(k).strip().upper())
+            if m and 1 <= int(m.group(1)) <= min(n, len(lista)):
+                i = int(m.group(1)) - 1
+                if i not in elegidos:
+                    elegidos.append(i)
+        if not elegidos:
+            return lista
+        nuevo = [lista[i] for i in elegidos] + [x for j, x in enumerate(lista) if j not in elegidos]
+        escala = sorted((x.score for x in lista), reverse=True)
+        for x, sc in zip(nuevo, escala):
+            x.score = sc
+        return nuevo
+    est2, fed2 = _aplicar(estatales, "E", n_est), _aplicar(federales, "F", n_fed)
+    print(f"   🧮 Re-ranking de leyes: {len(orden)} elegidos de {len(E)}+{len(F)} → "
+          f"{(est2[0].ref if est2 else '-')} | {(fed2[0].ref if fed2 else '-')}")
+    return est2, fed2
+
+
+def _remapear_puntuaciones(puntos: list, cosenos: list) -> list:
+    """Conserva el ORDEN de la fusión y le pone la escala del coseno.
+
+    Todo lo de después compara puntuaciones entre silos y con umbrales
+    pensados para cosenos (0.3 para vecinos, el umbral de materia, el
+    `merged.sort`). La fusión RRF devuelve 0.016-0.033: mezclada tal cual,
+    la ley estatal quedaría siempre detrás de la jurisprudencia. Se reparte el
+    mismo conjunto de cosenos, ordenado, sobre el orden fusionado.
+    """
+    orden = sorted(cosenos, reverse=True)
+    return [p.model_copy(update={"score": orden[i]}) for i, p in enumerate(puntos)]
+
 async def hybrid_search_single_silo(
     collection: str,
     query: str,
@@ -8760,6 +8882,36 @@ async def hybrid_search_single_silo(
         else:
             threshold = 0.03
         
+        _sp_cfg = (sparse_vectors_config or {}).get("sparse") if has_sparse else None
+        _idf = bool(_sp_cfg is not None and str(getattr(_sp_cfg, "modifier", "") or "").lower().endswith("idf"))
+        _ES_HIBRIDA[collection] = _idf
+        if _idf and _LEYES_HIBRIDO and sparse_vector is not None and sparse_vector.indices:
+            _flt = search_filter if _RE_PIDE_TRANSITORIOS.search(query or "") else _sin_transitorios(search_filter)
+            _res = await qdrant_client.query_points(
+                collection_name=collection,
+                prefetch=[
+                    Prefetch(query=dense_vector, using="dense", limit=max(top_k * 4, 40), filter=_flt),
+                    Prefetch(query=sparse_vector, using="sparse", limit=max(top_k * 4, 40), filter=_flt),
+                ],
+                query=FusionQuery(fusion=Fusion.RRF),
+                limit=top_k,
+                with_payload=True,
+                with_vectors=["dense"],
+            )
+            _pts = list(_res.points)
+            _cos = []
+            for _p in _pts:
+                _v = (_p.vector or {}).get("dense") if isinstance(_p.vector, dict) else _p.vector
+                _cos.append(float(sum(a * b for a, b in zip(dense_vector, _v))) if _v else 0.0)
+            _pts = [p.model_copy(update={"vector": None}) for p in _remapear_puntuaciones(_pts, _cos)]
+            return _types.SimpleNamespace(points=_pts)
+        if _idf:
+            # v4 sin el sparse de la consulta (el BM25 aún carga): densa, pero
+            # igual sin transitorios.
+            _flt = search_filter if _RE_PIDE_TRANSITORIOS.search(query or "") else _sin_transitorios(search_filter)
+            return await qdrant_client.query_points(
+                collection_name=collection, query=dense_vector, using="dense", limit=top_k,
+                query_filter=_flt, with_payload=True, score_threshold=threshold)
         if has_sparse and not _HYBRID_PREFETCH_BROKEN:
             # Prefetch con RRF fusion.
             # Para jurisprudencia_nacional_v2: triple prefetch (sparse + dense + ratio)
@@ -9889,6 +10041,21 @@ _DETERMINISTIC_COLLECTIONS = [
 ]
 
 
+def _variantes_articulo_ref(nums) -> List[str]:
+    """Cómo se escribe en `articulo_ref` (v4) un número que no es entero puro:
+    «7.624» tal cual; «5 bis» como «5 Bis». Los enteros no hacen falta aquí."""
+    out = []
+    for n in nums:
+        t = re.sub(r"\s+", " ", str(n)).strip()
+        if not t or t.isdigit():
+            continue
+        m = re.match(r"^(\d+(?:\.\d+)?)\s*[-–]?\s*(bis|ter|qu[aá]ter|quinquies|sexies)?$", t, re.IGNORECASE)
+        if m:
+            base = m.group(1) + (" " + m.group(2).title() if m.group(2) else "")
+            out += [base, base.upper()]
+    return list(dict.fromkeys(out))
+
+
 def _detect_article_numbers(query: str) -> List[str]:
     """Detecta menciones explícitas de artículos en la query.
     Retorna lista de números como strings: ['94', '1', '133']
@@ -10883,6 +11050,11 @@ async def hybrid_search_all_silos(
         except Exception as e:
             print(f"   ❌ CPEUM MULTI-INJECTION error: {err(e)}")
     
+    # Re-ranking de leyes por modelo (ver _reordenar_leyes_con_modelo): ANTES
+    # de las cuotas, porque la cuota corta por el orden de cada lista.
+    if _RERANK_LEYES and not skip_post_search:
+        estatales, federales = await _reordenar_leyes_con_modelo(query, estatales, federales)
+
     # === DIAGNOSTIC LOGGING: TOP-3 per silo para diagnóstico de relevancia ===
     print(f"\n   🔎 RAW RETRIEVAL SCORES (pre-merge):")
     for label, group in [("ESTATALES", estatales), ("FEDERALES", federales), ("JURIS", jurisprudencia), ("CONST", constitucional)]:
@@ -12117,16 +12289,20 @@ async def _traer_articulos(coleccion: str, nums: list) -> tuple:
                               # la razón tiene que salir igual
 
     for etiqueta, valores in (("int", [int(n) for n in nums if str(n).isdigit()]),
-                              ("str", [str(n) for n in nums])):
+                              ("str", [str(n) for n in nums]),
+                              # v4 (12-oct-2026): «7.624» de Edomex y «5 Bis» viven
+                              # en `articulo_ref`; en `articulo_num` sólo cabe el entero.
+                              ("ref", _variantes_articulo_ref(nums))):
         if not valores:
             continue
+        _campo = "articulo_ref" if etiqueta == "ref" else "articulo_num"
         puntos, cursor, paginas = [], None, 0
         try:
             while paginas < MAX_PAGINAS:
                 lote, cursor = await qdrant_client.scroll(
                     collection_name=coleccion,
                     scroll_filter=Filter(must=[FieldCondition(
-                        key="articulo_num", match=MatchAny(any=valores))]),
+                        key=_campo, match=MatchAny(any=valores))]),
                     limit=LOTE,
                     offset=cursor,
                     with_payload=True,
@@ -15310,7 +15486,7 @@ async def _articulo_federal_exacto(ley: str, art_num) -> list:
             pts, _ = await qdrant_client.scroll(
                 collection_name=FIXED_SILOS["federal"],
                 scroll_filter=Filter(must=[
-                    FieldCondition(key="ley", match=MatchValue(value=ley)),
+                    FieldCondition(key="ley", match=_match_ley(ley)),
                     FieldCondition(key="articulo_num", match=MatchValue(value=int(m.group()))),
                 ]),
                 limit=16, with_payload=True, with_vectors=False)
@@ -15903,14 +16079,16 @@ async def _buscar_articulos_citados(
                 # así que ese filtro no acota nada y sí añade otra cadena que
                 # puede no casar.
                 _por_numero = []
-                for _valores in ([int(art_num)] if str(art_num).isdigit() else [], [str(art_num)]):
+                for _campo_n, _valores in (("articulo_num", [int(art_num)] if str(art_num).isdigit() else []),
+                                           ("articulo_num", [str(art_num)]),
+                                           ("articulo_ref", _variantes_articulo_ref([art_num]))):
                     if not _valores:
                         continue
                     try:
                         _pts, _ = await qdrant_client.scroll(
                             collection_name=collection,
                             scroll_filter=Filter(must=[FieldCondition(
-                                key="articulo_num", match=MatchAny(any=_valores))]),
+                                key=_campo_n, match=MatchAny(any=_valores))]),
                             limit=8, with_payload=True, with_vectors=False,
                         )
                         if _pts:
