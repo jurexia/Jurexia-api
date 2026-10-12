@@ -472,6 +472,21 @@ async def boveda_borrar_documento(doc_id: str, authorization: str = Header(None)
     return {"borrado": True}
 
 
+class QuitarRequest(BaseModel):
+    ids: list[str] = Field(..., min_length=1, max_length=MAX_DOCS_CARPETA)
+
+
+@router.post("/boveda/carpeta/{carpeta_id}/quitar")
+async def boveda_quitar(carpeta_id: str, req: QuitarRequest, authorization: str = Header(None)):
+    """Quita varios documentos de una vez (p. ej. descartar una cotización)."""
+    u = await cobro.usuario_del_token(authorization)
+    await _carpeta_propia(u.id, carpeta_id)
+    r = await _db(lambda sb: sb.table("boveda_documentos").delete().in_("id", req.ids)
+                  .eq("user_id", u.id).eq("expediente_id", carpeta_id).execute())
+    await _purgar_ya()
+    return {"borrados": len(r.data or [])}
+
+
 @router.delete("/boveda/carpeta/{carpeta_id}")
 async def boveda_borrar_carpeta(carpeta_id: str, authorization: str = Header(None)):
     """Vacía la Bóveda de la carpeta (la carpeta y sus demás gavetas se quedan)."""
@@ -951,8 +966,23 @@ async def _ingerir(doc: dict) -> None:
           f"{n} fragmentos · {uso.tokens} tok · {time.perf_counter() - t0:.1f}s · usuario {doc['user_id'][:8]}")
 
 
+async def _latido(doc_id: str) -> None:
+    """Mientras se trabaja, renueva la toma cada 4 minutos: un expediente de
+    1,500 páginas escaneadas puede pasar de los 15 minutos tras los que la
+    cola da un trabajo por huérfano, y otro proceso lo retomaría y Azure
+    cobraría el OCR dos veces."""
+    while True:
+        await asyncio.sleep(240)
+        try:
+            await _db(lambda sb: sb.table("boveda_documentos").update({"tomado_en": _ahora()})
+                      .eq("id", doc_id).in_("estado", ["revisando", "procesando"]).execute())
+        except Exception:
+            pass
+
+
 async def _procesar_documento(doc: dict) -> None:
     revisando = doc["estado"] == "revisando"
+    latido = asyncio.ensure_future(_latido(doc["id"]))
     try:
         if revisando:
             await _revisar(doc)
@@ -970,6 +1000,8 @@ async def _procesar_documento(doc: dict) -> None:
             "error": "No se pudo procesar este documento." if agotado else None,
             "tomado_en": None, "actualizado_en": _ahora(),
         }).eq("id", doc["id"]).execute())
+    finally:
+        latido.cancel()
     if not revisando and doc.get("tanda_id"):
         await _cerrar_tanda(doc["tanda_id"])
 
