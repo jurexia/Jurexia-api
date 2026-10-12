@@ -6265,6 +6265,15 @@ _TRATADOS_ALIAS = [
     ("CAT", r"convenci[oó]n contra la tortura"),
     ("C169", r"convenio 169|\bC169\b"),
     ("CLH1980", r"sustracci[oó]n internacional de menores"),
+    ("CIPST", r"interamericana para prevenir y sancionar la tortura"),
+    ("CIDFP", r"desaparici[oó]n forzada de personas"),
+    ("CIRIM", r"restituci[oó]n internacional de menores"),
+    ("CIOA", r"obligaciones alimentarias"),
+    ("CER51", r"estatuto de los refugiados"),
+    ("C087", r"convenio 87\b"),
+    ("C098", r"convenio 98\b"),
+    ("C190", r"convenio 190\b"),
+    ("CNUCC", r"naciones unidas contra la corrupci[oó]n"),
 ]
 _RE_ART_TRATADO = re.compile(r"art[ií]culos?\.?\s*(\d{1,3})(?:\.(\d{1,2}))?", re.IGNORECASE)
 
