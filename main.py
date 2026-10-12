@@ -3457,6 +3457,10 @@ class SearchResult(BaseModel):
     # Qué código procesal rige (regimen_procesal.py, 11-oct-2026): se pega a lo
     # procesal y a lo local inyectado para que el XML se lo diga al modelo.
     nota_regimen: Optional[str] = None
+    # Leyes v4 (12-oct-2026): texto consolidado que puede no traer reformas
+    # recientes (compilaciones de Michoacán, leyes de tránsito que conviven
+    # con la nueva de movilidad). El modelo debe advertirlo al citarla.
+    advertencia_vigencia: Optional[str] = None
     # Campos de jurisprudencia/tesis para CITATION_META
     registro: Optional[str] = None
     tesis_num: Optional[str] = None
@@ -7736,6 +7740,13 @@ def format_results_as_xml(results: List[SearchResult], estado: Optional[str] = N
     # David: «no he visto la Convención citada en ninguna consulta, y eso que
     # está en el acervo». El material llegaba al prompt y el modelo pasaba de
     # largo, porque nada le decía qué hacer con él. Aquí se le dice.
+    if any(getattr(r, "advertencia_vigencia", None) for r in results):
+        xml_parts.append(
+            '<!-- INSTRUCCIÓN VIGENCIA: los documentos con advertencia_vigencia vienen de un texto '
+            'consolidado que puede no integrar reformas recientes. Si citas uno, cita igual el '
+            'artículo y añade en una línea, sin alarmismo, que conviene confirmar su redacción '
+            'vigente en el Periódico Oficial del Estado. No lo digas de los demás documentos. -->'
+        )
     if any(r.silo == "bloque_constitucional" for r in results):
         xml_parts.append(
             '<!-- INSTRUCCIÓN BLOQUE DE CONSTITUCIONALIDAD: aquí vienen cuatro '
@@ -7956,6 +7967,8 @@ def format_results_as_xml(results: List[SearchResult], estado: Optional[str] = N
             juris_attrs += _vig.atributos_xml(_vigencia_doc)
             if getattr(r, "clave_ambigua", None):
                 juris_attrs += f' clave_ambigua="{html.escape(str(r.clave_ambigua))}"'
+        if getattr(r, "advertencia_vigencia", None):
+            juris_attrs += f' advertencia_vigencia="{html.escape(str(r.advertencia_vigencia)[:300])}"'
 
         xml_parts.append(
             f'<documento id="{r.id}" ref="{escaped_ref}" '
@@ -9111,6 +9124,7 @@ async def hybrid_search_single_silo(
                 entidad=payload.get("entidad"),
                 silo=collection,
                 pdf_url=payload.get("pdf_url") or payload.get("url_pdf"),
+                advertencia_vigencia=payload.get("advertencia_vigencia"),
                 registro=registro,
                 tesis_num=tesis_num,
                 tipo_criterio=tipo_criterio,
