@@ -193,3 +193,40 @@ def error_de_saldo(resultado: dict) -> HTTPException:
         "disponibles": resultado.get("disponibles", 0),
         "requeridas": resultado.get("requeridas"),
     })
+
+
+# ── Para quien ya sabe quién llama (la Cronología, oct-2026) ───────────────
+async def usuario_por_id(user_id: str, email: Optional[str] = None) -> Usuario:
+    """Como `usuario_del_token`, pero cuando el endpoint ya verificó el token."""
+    sb = _cliente()
+    fila = None
+    for intento in (1, 2, 3):
+        try:
+            p = await asyncio.wait_for(asyncio.to_thread(
+                lambda: sb.table("user_profiles").select("subscription_type, email")
+                .eq("id", user_id).limit(1).execute()), timeout=6.0)
+            fila = p.data[0] if p.data else {}
+            break
+        except Exception:
+            if intento == 3:
+                raise HTTPException(status_code=503, detail="No se pudo leer tu plan; vuelve a intentarlo.")
+            await asyncio.sleep(0.4 * intento)
+    correo = (email or (fila or {}).get("email") or "").strip().lower()
+    return Usuario(id=user_id, email=correo, plan=(fila or {}).get("subscription_type"),
+                   es_admin=bool(correo) and correo in _lista_admins())
+
+
+async def exigir_platinum_id(user_id: str, email: Optional[str] = None) -> Usuario:
+    u = await usuario_por_id(user_id, email)
+    if not u.es_platinum:
+        raise HTTPException(status_code=403, detail={
+            "codigo": "solo_platinum", "mensaje": "Esta función es exclusiva del plan Platinum.", "plan": u.plan})
+    return u
+
+
+def consultas_por_paginas(paginas: int, n: int) -> int:
+    return consultas_por(paginas, n)
+
+
+saldo_consultas = consultas_disponibles     # el nombre que usa la Cronología
+devolver_cobro = devolver_consultas         # devolver_cobro(movimiento_id) devuelve todo lo cobrado
