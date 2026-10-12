@@ -238,9 +238,9 @@ Responde SOLO con un objeto JSON con esta forma:
 
 Reglas:
 - Hechos: uno por cada actuación (presentación de escritos, acuerdos, notificaciones, audiencias, resoluciones) y por cada hecho con fecha que narren las partes. Si el hecho lo afirma una parte y no es una actuación del órgano, dilo en "hecho" («según la actora, …»). "relevancia" alta = actuaciones que cambian el curso del juicio o hechos centrales de la litis; baja = trámite.
-- Toda fecha debe constar completa (día, mes y año) en la página citada, en letra o en cifras. Un hecho sin fecha completa en el texto NO se incluye. No deduzcas fechas.
+- Toda fecha debe constar completa (día, mes y año) en el texto, en letra o en cifras: en la página citada o en la misma actuación (los escritos de parte la llevan al pie, junto a la firma; si puedes, cita la página donde consta). Un hecho sin fecha completa en el texto NO se incluye. No deduzcas fechas.
 - "cita" y "texto_literal" se copian carácter por carácter del texto de la página, con sus errores de OCR: no los corrijas, no los resumas, no unas trozos separados.
-- Plazos: sólo los que un acuerdo, auto o resolución concede u ordena (no los que una parte menciona en abstracto). "fecha_notificacion" sólo si la página muestra la razón, constancia o cédula de notificación de ESE acuerdo.
+- Plazos: sólo los que un acuerdo, auto o resolución concede u ordena (no los que una parte menciona en abstracto). "fecha_notificacion" es la de la razón, constancia, cédula o publicación en boletín o lista de ESE acuerdo, aunque esté en una página posterior de las que recibes; si no aparece, null.
 - No inventes nada. Si las páginas no tienen hechos, cuestiones o plazos, devuelve listas vacías."""
 
 
@@ -320,8 +320,8 @@ def _ubicar(cita: str, pag_dicha: Optional[int], candidatas: list, indice: dict,
     return None, None
 
 
-def _fecha_consta(fecha: tuple, d: int, p: int, indice: dict) -> bool:
-    for q in (p, p - 1, p + 1):
+def _fecha_consta(fecha: tuple, d: int, p: int, indice: dict, despues: int = 1, antes: int = 1) -> bool:
+    for q in (p, *range(p - 1, p - 1 - antes, -1), *range(p + 1, p + 1 + despues)):
         pg = indice.get((d, q))
         if pg is not None and fecha in pg.fechas:
             return True
@@ -337,10 +337,17 @@ def _entero(v) -> Optional[int]:
 
 def verificar_lote(ext: dict, d: int, paginas: list, indice: dict, descartes: dict) -> dict:
     """Lo que el modelo sacó de un lote, sólo con lo que está escrito."""
-    def descartar(tipo, motivo):
+    def descartar(tipo, motivo, item=None):
         descartes[tipo] = descartes.get(tipo, 0) + 1
         clave = f"{tipo}:{motivo}"
         descartes["motivos"][clave] = descartes["motivos"].get(clave, 0) + 1
+        # Una muestra de lo descartado, para poder revisar el criterio.
+        muestras = descartes.setdefault("muestras", [])
+        if isinstance(item, dict) and len(muestras) < 30:
+            muestras.append({"tipo": tipo, "motivo": motivo, "documento": d,
+                             "pagina": item.get("pagina"), "fecha": item.get("fecha"),
+                             "texto": str(item.get("hecho") or item.get("cuestion") or item.get("acto") or "")[:200],
+                             "cita": str(item.get("cita") or item.get("texto_literal") or "")[:300]})
 
     hechos, cuestiones, plazos = [], [], []
     for h in (ext.get("hechos") or [])[:200]:
@@ -348,15 +355,19 @@ def verificar_lote(ext: dict, d: int, paginas: list, indice: dict, descartes: di
             continue
         f = fecha_iso(h.get("fecha"))
         if not f:
-            descartar("hechos", "sin_fecha")
+            descartar("hechos", "sin_fecha", h)
             continue
         p_dicha = _entero(h.get("pagina"))
         p, como = _ubicar(str(h.get("cita") or ""), p_dicha, paginas, indice, d)
         if p is None:
-            descartar("hechos", "cita_no_esta_en_la_pagina")
+            descartar("hechos", "cita_no_esta_en_la_pagina", h)
             continue
-        if not _fecha_consta(f, d, p, indice):
-            descartar("hechos", "fecha_no_consta")
+        # LA FECHA DE UN ESCRITO DE PARTE VA AL PIE, junto a la firma, y la
+        # cita suele ser de su primera página: medido en el expediente de
+        # muestra, las cuatro promociones tenían la fecha dos a cuatro páginas
+        # después. Se busca en la actuación, no sólo en la hoja.
+        if not _fecha_consta(f, d, p, indice, despues=4, antes=2):
+            descartar("hechos", "fecha_no_consta", h)
             continue
         hechos.append({
             "fecha": "%04d-%02d-%02d" % f, "hecho": str(h.get("hecho") or "").strip()[:600],
@@ -373,7 +384,7 @@ def verificar_lote(ext: dict, d: int, paginas: list, indice: dict, descartes: di
         p_dicha = _entero(c.get("pagina"))
         p, como = _ubicar(str(c.get("cita") or ""), p_dicha, paginas, indice, d)
         if p is None:
-            descartar("cuestiones", "cita_no_esta_en_la_pagina")
+            descartar("cuestiones", "cita_no_esta_en_la_pagina", c)
             continue
         cuestiones.append({
             "cuestion": str(c.get("cuestion") or "").strip()[:500],
@@ -390,10 +401,10 @@ def verificar_lote(ext: dict, d: int, paginas: list, indice: dict, descartes: di
         p, como = _ubicar(literal, p_dicha, paginas, indice, d)
         cantidad = _entero(t.get("cantidad"))
         if p is None:
-            descartar("plazos", "cita_no_esta_en_la_pagina")
+            descartar("plazos", "cita_no_esta_en_la_pagina", t)
             continue
         if cantidad is None or _pc.numero_de_texto(literal) != cantidad:
-            descartar("plazos", "numero_no_coincide")
+            descartar("plazos", "numero_no_coincide", t)
             continue
         plazos.append({**{k: t.get(k) for k in ("acto", "parte", "unidad", "tipo_dias", "fundamento_citado",
                                                  "fecha_acuerdo", "fecha_notificacion", "tipo_notificacion",
@@ -409,17 +420,31 @@ def _parecidos(a: str, b: str) -> float:
     return SequenceMatcher(None, _compacto(a)[:300], _compacto(b)[:300]).ratio()
 
 
+def _mismo_hecho(g: dict, h: dict) -> bool:
+    """Mismo día, mismo documento y misma cita; o, en páginas contiguas, el
+    mismo actor y un hecho casi igual. Sin el actor, «la actora ofrece
+    pruebas» y «la demandada ofrece pruebas» del mismo día se fundían en uno
+    (medido en el expediente de muestra: dos actuaciones perdidas)."""
+    if g["fecha"] != h["fecha"] or g["documento"] != h["documento"]:
+        return False
+    if _compacto(g["cita"]) == _compacto(h["cita"]):
+        return True
+    if abs(g["pagina"] - h["pagina"]) > 1:
+        return False
+    if g["actor"] and h["actor"] and _parecidos(g["actor"], h["actor"]) < 0.75:
+        return False
+    return _parecidos(g["hecho"], h["hecho"]) >= 0.82
+
+
 def deduplicar_hechos(hechos: list) -> list:
-    """La página de contexto y los lotes que se tocan sacan el mismo hecho
-    dos veces. Mismo día y (misma cita o hecho casi igual) = el mismo."""
+    """Los lotes que se tocan sacan el mismo hecho dos veces: se queda uno,
+    con la relevancia mayor."""
     rango = {"alta": 0, "media": 1, "baja": 2}
     fuera: list = []
     for h in sorted(hechos, key=lambda x: (x["fecha"], x["documento"], x["pagina"], rango[x["relevancia"]])):
         repetido = False
         for g in fuera[-40:]:
-            if g["fecha"] != h["fecha"]:
-                continue
-            if _compacto(g["cita"]) == _compacto(h["cita"]) or _parecidos(g["hecho"], h["hecho"]) >= 0.82:
+            if _mismo_hecho(g, h):
                 repetido = True
                 if rango[h["relevancia"]] < rango[g["relevancia"]]:
                     g["relevancia"] = h["relevancia"]
@@ -503,10 +528,12 @@ def computar_plazos(plazos: list, datos: dict, indice: dict, docs: list,
         avisos = []
         # LA FECHA BASE SÓLO SI CONSTA. Un vencimiento calculado sobre una
         # fecha que la página no dice es un vencimiento inventado.
+        # La razón de notificación o de publicación en el boletín suele ir
+        # después del auto, a veces dos o tres páginas: se busca hasta ahí.
         base, de_que = None, None
-        for campo in ("fecha_notificacion", "fecha_acuerdo"):
+        for campo, despues in (("fecha_notificacion", 3), ("fecha_acuerdo", 1)):
             f = fecha_iso(t.get(campo))
-            if f and _fecha_consta(f, d, p, indice):
+            if f and _fecha_consta(f, d, p, indice, despues):
                 base, de_que = "%04d-%02d-%02d" % f, campo
                 break
         if base is None:

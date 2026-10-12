@@ -112,9 +112,15 @@ ok([len(x[1]) for x in lotes] == [12, 12, 6, 1], f"12+12+6 de a.pdf y 1 de b.pdf
 ok(lotes[1][2] == 12 and lotes[0][2] is None, "cada lote lleva la última página del anterior como contexto")
 ok(lotes[3][0] == 1 and lotes[3][1] == [2], "los documentos no se mezclan y la página vacía no viaja")
 h = {"fecha": "2024-03-15", "hecho": "Se tiene por contestada la demanda", "documento": 0, "pagina": 3,
-     "relevancia": "media", "cita": "Se tiene por presentada la contestación"}
+     "actor": "Juzgado", "relevancia": "media", "cita": "Se tiene por presentada la contestación"}
 dd = cx.deduplicar_hechos([h, {**h, "relevancia": "alta"}, {**h, "fecha": "2024-03-16"}])
 ok(len(dd) == 2 and dd[0]["relevancia"] == "alta", "el mismo hecho dos veces queda una, con la relevancia mayor")
+a = {"fecha": "2026-03-13", "hecho": "La actora presentó escrito ofreciendo pruebas documentales y pericial",
+     "documento": 0, "pagina": 45, "actor": "Constructora Albarrán Hermanos, S.A. de C.V.", "relevancia": "media",
+     "cita": "ofrece las siguientes pruebas documentales"}
+b = {**a, "hecho": "La demandada presentó escrito ofreciendo pruebas documentales y pericial", "pagina": 46,
+     "actor": "Grupo Hotelero Puerta del Sol, S.A. de C.V.", "cita": "ofrece las pruebas de su intención"}
+ok(len(cx.deduplicar_hechos([a, b])) == 2, "actora y demandada el mismo día y en páginas contiguas no se funden")
 
 
 print("── agrupar cuestiones sin modelo ──")
