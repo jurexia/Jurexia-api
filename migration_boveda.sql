@@ -2,7 +2,7 @@
 -- Cientos de documentos por carpeta, indexados por usuario y carpeta, para
 -- preguntarles en conjunto (chat) y en tabla (filas = documentos, columnas =
 -- preguntas). Sólo Platinum; cobra consultas en proporción con
--- `consumir_consultas` (migration_cobro_consultas.sql, que va antes).
+-- `consumir_consultas` (migration_cobro_consultas.sql, de la Cronología: ya aplicada).
 --
 -- La carpeta ES el expediente que ya existe (`expedientes`): la Bóveda es una
 -- gaveta más de la carpeta, no un mundo aparte. Borrar la carpeta borra su
@@ -33,7 +33,7 @@ create table if not exists public.boveda_tandas (
   tabla_id       uuid,
   unidades       integer not null default 0,     -- páginas (ingesta) o celdas (tabla)
   consultas      integer not null default 0,     -- lo cobrado
-  movimiento_id  uuid references public.consultas_movimientos(id) on delete set null,
+  cobro_id       uuid references public.consultas_cobros(id) on delete set null,   -- migration_cobro_consultas.sql (compartida con la Cronología)
   devueltas      integer not null default 0,
   estado         text not null default 'en_curso' check (estado in ('en_curso', 'terminada')),
   creado_en      timestamptz not null default now(),

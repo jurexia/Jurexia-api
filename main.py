@@ -4024,13 +4024,12 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         print(f"   ⚠️ Fix Michoacán tipo (non-fatal): {err(e)}")
 
-    # La Bóveda: el cobro compartido usa el cliente y los administradores de
-    # aquí; el índice, el cliente de OpenAI. Su trabajador corre en cada uno
+    # La Bóveda usa el cliente y los administradores de aquí (el cobro es el
+    # compartido con la Cronología, cobro_consultas.py); el índice, OpenAI. Su trabajador corre en cada uno
     # de los tres procesos y se reparte la cola con SKIP LOCKED (boveda.py).
     try:
-        import cobro_consultas as _cobro
         import boveda_indice as _bov_idx
-        _cobro.configurar(supabase_admin, ADMIN_EMAILS)
+        _boveda.configurar(supabase_admin, ADMIN_EMAILS)
         _bov_idx.configurar(openai_client)
         _boveda.arrancar()
     except Exception as e:

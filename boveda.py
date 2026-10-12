@@ -36,7 +36,9 @@ import math
 import os
 import socket
 import time
+import threading
 import uuid
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Optional
 
@@ -48,6 +50,7 @@ import boveda_indice as bi
 import boveda_tabla as btab
 import boveda_texto as bt
 import cobro_consultas as cobro
+from esfuerzo_redaccion import PLANES_PLATINUM
 
 router = APIRouter()
 
@@ -87,6 +90,96 @@ ACTIVOS = ("en_cola", "procesando", "listo")
 PENDIENTES_DE_REVISION = ("subiendo", "subido", "revisando")
 
 
+# ═══ Sesión, plan y cliente ════════════════════════════════════════════════
+# El cobro y la puerta Platinum son los COMPARTIDOS con la Cronología
+# (cobro_consultas.py): aquí sólo se saca del token quién llama.
+_sb = None
+_admins: Optional[set] = None
+_por_hilo = threading.local()
+_ADMIN_BASE = {"administracion@iurexia.com", "jdm.juridico@gmail.com"}   # como ADMIN_EMAILS de main.py
+
+
+def configurar(supabase_admin=None, admin_emails=None) -> None:
+    """main.py presta su cliente (uno por hilo) y sus administradores."""
+    global _sb, _admins
+    if supabase_admin is not None:
+        _sb = supabase_admin
+    if admin_emails is not None:
+        _admins = {e.strip().lower() for e in admin_emails if e}
+
+
+def _cliente():
+    """El de main.py; si no lo prestó (pruebas), uno propio POR HILO: el
+    cliente de Supabase habla HTTP/2 por una conexión y compartido entre
+    hilos se rompe («ConnectionTerminated», 3-oct)."""
+    if _sb is not None:
+        return _sb
+    c = getattr(_por_hilo, "cliente", None)
+    if c is None:
+        from supabase import create_client
+        url, clave = os.getenv("SUPABASE_URL", ""), os.getenv("SUPABASE_SERVICE_KEY", "")
+        if not (url and clave):
+            raise HTTPException(status_code=503, detail="Servicio temporalmente no disponible")
+        c = _por_hilo.cliente = create_client(url, clave)
+    return c
+
+
+def _lista_admins() -> set:
+    if _admins is not None:
+        return _admins
+    return _ADMIN_BASE | {e.strip().lower() for e in os.getenv("ADMIN_EMAILS", "").split(",") if e.strip()}
+
+
+@dataclass
+class Usuario:
+    id: str
+    plan: Optional[str]
+    es_admin: bool
+    plan_leido: bool
+
+    @property
+    def es_platinum(self) -> bool:
+        return self.es_admin or (self.plan or "") in PLANES_PLATINUM
+
+
+async def _usuario(authorization: Optional[str]) -> Usuario:
+    """Quién llama. Manda el token, nunca un user_id del cuerpo."""
+    if not authorization:
+        raise HTTPException(status_code=401, detail="Autenticación requerida")
+    sb = _cliente()
+    try:
+        r = await asyncio.to_thread(sb.auth.get_user, authorization.replace("Bearer ", "").strip())
+        if not r.user:
+            raise HTTPException(status_code=401, detail="Token inválido")
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=401, detail="Token inválido o expirado")
+    uid = str(r.user.id)
+    plan, es_admin, leido = await cobro.plan_del_usuario(sb, uid, _lista_admins())
+    return Usuario(id=uid, plan=plan, es_admin=es_admin, plan_leido=leido)
+
+
+async def _platinum(authorization: Optional[str]) -> Usuario:
+    """El usuario si es Platinum (o Ultra, o administración); si no, el 403
+    de la puerta compartida (`requiere_platinum`), que el front convierte en
+    la invitación a mejorar el plan. Si el plan no se pudo leer, 503."""
+    u = await _usuario(authorization)
+    if u.es_platinum:
+        return u
+    if not u.plan_leido:
+        raise HTTPException(503, "No se pudo comprobar tu plan. Vuelve a intentarlo en un momento.")
+    raise HTTPException(403, {"codigo": "requiere_platinum",
+                              "mensaje": "La Bóveda es exclusiva del plan Platinum.", "plan": u.plan})
+
+
+async def _disponibles(u: Usuario) -> Optional[int]:
+    """Lo que le queda para cotizar; None = sin tope (o administración)."""
+    if u.es_admin:
+        return None
+    return (await cobro.saldo_consultas(_cliente(), u.id)).get("disponibles")
+
+
 # ═══ Utilidades ════════════════════════════════════════════════════════════
 def _ahora() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -94,7 +187,7 @@ def _ahora() -> str:
 
 async def _db(fn):
     """Una llamada síncrona a Supabase, fuera del bucle de eventos."""
-    return await asyncio.to_thread(fn, cobro.cliente())
+    return await asyncio.to_thread(fn, _cliente())
 
 
 def consultas_ingesta(paginas_ocr: int, paginas_texto: int) -> int:
@@ -103,7 +196,7 @@ def consultas_ingesta(paginas_ocr: int, paginas_texto: int) -> int:
 
 
 def consultas_celdas(celdas: int) -> int:
-    return cobro.consultas_por(celdas, CELDAS_POR_CONSULTA)
+    return 0 if celdas <= 0 else max(1, math.ceil(celdas / max(1, CELDAS_POR_CONSULTA)))
 
 
 def _ruta_paginas(storage_path: str) -> str:
@@ -182,11 +275,11 @@ def _avisar_trabajador() -> None:
 async def boveda_reglas(authorization: str = Header(None)):
     """Lo que el front necesita para pintar la Bóveda o el candado. No da 403:
     quien no es Platinum recibe `platinum: false` y ve la invitación."""
-    u = await cobro.usuario_del_token(authorization)
+    u = await _usuario(authorization)
     disponibles = None
     if u.es_platinum:
         try:
-            disponibles = (await cobro.consultas_disponibles(u.id)).get("disponibles")
+            disponibles = await _disponibles(u)
         except Exception:
             disponibles = None
     return {
@@ -236,7 +329,7 @@ def _cotizacion(docs: list[dict], disponibles: Optional[int], uso: dict) -> dict
 
 @router.get("/boveda/carpeta/{carpeta_id}")
 async def boveda_carpeta(carpeta_id: str, authorization: str = Header(None)):
-    u = await cobro.exigir_platinum(authorization)
+    u = await _platinum(authorization)
     await _carpeta_propia(u.id, carpeta_id)
     r = await _db(lambda sb: sb.table("boveda_documentos").select("*")
                   .eq("expediente_id", carpeta_id).eq("user_id", u.id)
@@ -250,7 +343,7 @@ async def boveda_carpeta(carpeta_id: str, authorization: str = Header(None)):
     por_cobrar = [d for d in docs if d["estado"] == "revisado"]
     cotizacion = None
     if por_cobrar:
-        disp = (await cobro.consultas_disponibles(u.id)).get("disponibles") if not u.es_admin else None
+        disp = await _disponibles(u)
         cotizacion = _cotizacion(por_cobrar, disp, await _uso_usuario(u.id))
     return {
         "carpeta_id": carpeta_id,
@@ -285,7 +378,7 @@ class SubidasRequest(BaseModel):
 async def boveda_subidas(carpeta_id: str, req: SubidasRequest, authorization: str = Header(None)):
     """Reserva los documentos y da una URL firmada por archivo. El navegador
     sube con supabase.storage.from('boveda').uploadToSignedUrl(path, token, file)."""
-    u = await cobro.exigir_platinum(authorization)
+    u = await _platinum(authorization)
     await _carpeta_propia(u.id, carpeta_id)
     en_carpeta = await _db(lambda sb: sb.table("boveda_documentos").select("id", count="exact")
                            .eq("expediente_id", carpeta_id).eq("user_id", u.id).limit(1).execute())
@@ -341,7 +434,7 @@ class ListasRequest(BaseModel):
 
 @router.post("/boveda/carpeta/{carpeta_id}/subidas/listas")
 async def boveda_subidas_listas(carpeta_id: str, req: ListasRequest, authorization: str = Header(None)):
-    u = await cobro.exigir_platinum(authorization)
+    u = await _platinum(authorization)
     await _carpeta_propia(u.id, carpeta_id)
     n = 0
     if req.ids:
@@ -359,14 +452,14 @@ async def boveda_subidas_listas(carpeta_id: str, req: ListasRequest, authorizati
 
 @router.post("/boveda/carpeta/{carpeta_id}/cotizar")
 async def boveda_cotizar(carpeta_id: str, authorization: str = Header(None)):
-    u = await cobro.exigir_platinum(authorization)
+    u = await _platinum(authorization)
     await _carpeta_propia(u.id, carpeta_id)
     r = await _db(lambda sb: sb.table("boveda_documentos").select("*")
                   .eq("expediente_id", carpeta_id).eq("user_id", u.id)
                   .in_("estado", ["revisado", *PENDIENTES_DE_REVISION]).execute())
     docs = r.data or []
     listos = [d for d in docs if d["estado"] == "revisado"]
-    disp = None if u.es_admin else (await cobro.consultas_disponibles(u.id)).get("disponibles")
+    disp = await _disponibles(u)
     c = _cotizacion(listos, disp, await _uso_usuario(u.id))
     c["pendientes_de_revision"] = len(docs) - len(listos)
     c["sin_costo"] = u.es_admin
@@ -382,7 +475,7 @@ class ConfirmarRequest(BaseModel):
 async def boveda_confirmar(carpeta_id: str, req: ConfirmarRequest, authorization: str = Header(None)):
     """Cobra la ingesta y la pone en cola. Si la cotización cambió desde que
     el abogado la vio, no cobra: devuelve la nueva (409)."""
-    u = await cobro.exigir_platinum(authorization)
+    u = await _platinum(authorization)
     await _carpeta_propia(u.id, carpeta_id)
     r = await _db(lambda sb: sb.table("boveda_documentos").select("*")
                   .in_("id", req.ids).eq("user_id", u.id).eq("expediente_id", carpeta_id)
@@ -400,24 +493,23 @@ async def boveda_confirmar(carpeta_id: str, req: ConfirmarRequest, authorization
                                                       "mensaje": "La cotización cambió; revísala de nuevo.",
                                                       "cotizacion": c})
     consultas = 0 if u.es_admin else c["consultas"]
-    cobro_res = {"movimiento_id": None, "disponibles": None}
-    if consultas:
-        cobro_res = await cobro.cobrar_consultas(
-            u.id, consultas, f"boveda:ingesta:{carpeta_id}:{len(docs)}docs:{c['paginas']}pag")
-        if not cobro_res.get("allowed"):
-            raise cobro.error_de_saldo(cobro_res)
     tanda_id = str(uuid.uuid4())
+    cobro_res: dict = {}
+    if consultas:   # 402 `saldo_insuficiente` si no alcanza: entonces no se cobró nada
+        cobro_res = await cobro.cobrar_consultas(
+            _cliente(), u.id, consultas, "boveda_ingesta",
+            f"tanda {tanda_id} · carpeta {carpeta_id} · {len(docs)} docs · {c['paginas']} pág")
     try:
         await _db(lambda sb: sb.table("boveda_tandas").insert({
             "id": tanda_id, "user_id": u.id, "expediente_id": carpeta_id, "tipo": "ingesta",
             "unidades": c["paginas"], "consultas": consultas,
-            "movimiento_id": cobro_res.get("movimiento_id")}).execute())
+            "cobro_id": cobro_res.get("cobro_id")}).execute())
         upd = await _db(lambda sb: sb.table("boveda_documentos")
                         .update({"estado": "en_cola", "tanda_id": tanda_id, "intentos": 0,
                                  "error": None, "actualizado_en": _ahora()})
                         .in_("id", [d["id"] for d in docs]).eq("estado", "revisado").execute())
     except Exception:
-        await cobro.devolver_consultas(cobro_res.get("movimiento_id"))
+        await cobro.devolver_cobro(_cliente(), cobro_res.get("cobro_id"))
         raise
     puestos = upd.data or []
     if len(puestos) < len(docs):
@@ -426,20 +518,20 @@ async def boveda_confirmar(carpeta_id: str, req: ConfirmarRequest, authorization
                                    sum(int(d.get("paginas") or 0) - int(d.get("paginas_ocr") or 0) for d in puestos))
         sobran = consultas - (0 if u.es_admin else justas)
         if sobran > 0:
-            await cobro.devolver_consultas(cobro_res.get("movimiento_id"), sobran)
+            await cobro.devolver_cobro(_cliente(), cobro_res.get("cobro_id"), sobran)
             consultas -= sobran
             await _db(lambda sb: sb.table("boveda_tandas").update({"consultas": consultas})
                       .eq("id", tanda_id).execute())
     _avisar_trabajador()
     return {"tanda_id": tanda_id, "documentos": len(puestos), "consultas_cobradas": consultas,
-            "disponibles": cobro_res.get("disponibles")}
+            "disponibles": cobro_res.get("restantes")}
 
 
 # ═══ Documentos: ver y borrar ══════════════════════════════════════════════
 @router.get("/boveda/documento/{doc_id}")
 async def boveda_documento(doc_id: str, authorization: str = Header(None)):
     """Metadatos y una URL firmada (1 h) para abrir el archivo en el visor."""
-    u = await cobro.exigir_platinum(authorization)
+    u = await _platinum(authorization)
     d = await _documento_propio(u.id, doc_id)
     s = await _db(lambda sb: sb.storage.from_(CUBO).create_signed_url(d["storage_path"], 3600))
     return _doc_publico(d) | {"url": s.get("signedURL") or s.get("signedUrl") or s.get("signed_url")}
@@ -449,7 +541,7 @@ async def boveda_documento(doc_id: str, authorization: str = Header(None)):
 async def boveda_documento_paginas(doc_id: str, authorization: str = Header(None)):
     """El texto de cada página (para Word, que no tiene páginas de verdad, y
     para resaltar el pasaje citado)."""
-    u = await cobro.exigir_platinum(authorization)
+    u = await _platinum(authorization)
     d = await _documento_propio(u.id, doc_id)
     if d["estado"] != "listo":
         raise HTTPException(status_code=409, detail="El documento todavía no está listo.")
@@ -465,7 +557,7 @@ async def _purgar_ya() -> None:
 
 @router.delete("/boveda/documento/{doc_id}")
 async def boveda_borrar_documento(doc_id: str, authorization: str = Header(None)):
-    u = await cobro.usuario_del_token(authorization)   # borrar lo suyo no exige Platinum
+    u = await _usuario(authorization)   # borrar lo suyo no exige Platinum
     await _documento_propio(u.id, doc_id)
     await _db(lambda sb: sb.table("boveda_documentos").delete().eq("id", doc_id).eq("user_id", u.id).execute())
     await _purgar_ya()
@@ -479,7 +571,7 @@ class QuitarRequest(BaseModel):
 @router.post("/boveda/carpeta/{carpeta_id}/quitar")
 async def boveda_quitar(carpeta_id: str, req: QuitarRequest, authorization: str = Header(None)):
     """Quita varios documentos de una vez (p. ej. descartar una cotización)."""
-    u = await cobro.usuario_del_token(authorization)
+    u = await _usuario(authorization)
     await _carpeta_propia(u.id, carpeta_id)
     r = await _db(lambda sb: sb.table("boveda_documentos").delete().in_("id", req.ids)
                   .eq("user_id", u.id).eq("expediente_id", carpeta_id).execute())
@@ -490,7 +582,7 @@ async def boveda_quitar(carpeta_id: str, req: QuitarRequest, authorization: str 
 @router.delete("/boveda/carpeta/{carpeta_id}")
 async def boveda_borrar_carpeta(carpeta_id: str, authorization: str = Header(None)):
     """Vacía la Bóveda de la carpeta (la carpeta y sus demás gavetas se quedan)."""
-    u = await cobro.usuario_del_token(authorization)
+    u = await _usuario(authorization)
     await _carpeta_propia(u.id, carpeta_id)
     await _db(lambda sb: sb.table("boveda_tablas").delete().eq("expediente_id", carpeta_id).eq("user_id", u.id).execute())
     r = await _db(lambda sb: sb.table("boveda_documentos").delete().eq("expediente_id", carpeta_id)
@@ -506,7 +598,7 @@ async def boveda_borrar_carpeta(carpeta_id: str, authorization: str = Header(Non
 @router.delete("/boveda/todo")
 async def boveda_borrar_todo(authorization: str = Header(None)):
     """Toda la Bóveda del usuario: documentos, tablas, vectores y archivos."""
-    u = await cobro.usuario_del_token(authorization)
+    u = await _usuario(authorization)
     await borrar_boveda_de_usuario(u.id)
     return {"borrado": True}
 
@@ -530,7 +622,7 @@ class BuscarRequest(BaseModel):
 
 @router.post("/boveda/carpeta/{carpeta_id}/buscar")
 async def boveda_buscar(carpeta_id: str, req: BuscarRequest, authorization: str = Header(None)):
-    u = await cobro.exigir_platinum(authorization)
+    u = await _platinum(authorization)
     await _carpeta_propia(u.id, carpeta_id)
     hs = await bi.buscar(req.pregunta, user_id=u.id, carpeta_id=carpeta_id, limite=req.limite)
     return {"resultados": [h.__dict__ for h in hs]}
@@ -541,7 +633,7 @@ async def fuentes_para_chat(authorization: Optional[str], carpeta_id: str, pregu
     """Para /chat: los fragmentos de la Bóveda de ESA carpeta del dueño del
     token. Lanza HTTPException si no hay token, no es Platinum o la carpeta no
     es suya: el chat lo atrapa y sigue sin Bóveda."""
-    u = await cobro.exigir_platinum(authorization)
+    u = await _platinum(authorization)
     carpeta = await _carpeta_propia(u.id, carpeta_id)
     return await bi.buscar(pregunta, user_id=u.id, carpeta_id=carpeta_id, limite=limite), carpeta
 
@@ -580,7 +672,7 @@ class TablaRequest(BaseModel):
 
 @router.post("/boveda/carpeta/{carpeta_id}/tablas")
 async def boveda_crear_tabla(carpeta_id: str, req: TablaRequest, authorization: str = Header(None)):
-    u = await cobro.exigir_platinum(authorization)
+    u = await _platinum(authorization)
     await _carpeta_propia(u.id, carpeta_id)
     cols = _columnas_limpias(req.columnas)
     r = await _db(lambda sb: sb.table("boveda_tablas").insert({
@@ -597,7 +689,7 @@ class TablaCambio(BaseModel):
 async def boveda_editar_tabla(tabla_id: str, req: TablaCambio, authorization: str = Header(None)):
     """Cambiar título o columnas. Una columna borrada se lleva sus celdas; una
     columna cuya PREGUNTA cambió deja sus celdas como «desactualizadas»."""
-    u = await cobro.exigir_platinum(authorization)
+    u = await _platinum(authorization)
     t = await _tabla_propia(u.id, tabla_id)
     cambio: dict[str, Any] = {"actualizado_en": _ahora()}
     if req.titulo is not None:
@@ -622,7 +714,7 @@ async def boveda_editar_tabla(tabla_id: str, req: TablaCambio, authorization: st
 
 @router.delete("/boveda/tablas/{tabla_id}")
 async def boveda_borrar_tabla(tabla_id: str, authorization: str = Header(None)):
-    u = await cobro.usuario_del_token(authorization)
+    u = await _usuario(authorization)
     await _tabla_propia(u.id, tabla_id)
     await _db(lambda sb: sb.table("boveda_tablas").delete().eq("id", tabla_id).eq("user_id", u.id).execute())
     return {"borrada": True}
@@ -650,7 +742,7 @@ async def _documentos_listos(user_id: str, carpeta_id: str) -> list[dict]:
 
 @router.get("/boveda/tablas/{tabla_id}")
 async def boveda_tabla(tabla_id: str, authorization: str = Header(None)):
-    u = await cobro.exigir_platinum(authorization)
+    u = await _platinum(authorization)
     t = await _tabla_propia(u.id, tabla_id)
     docs = await _documentos_listos(u.id, t["expediente_id"])
     celdas = await _celdas_de(tabla_id)
@@ -691,18 +783,18 @@ async def _celdas_a_correr(u, t: dict, req: CorridaRequest) -> tuple[list[tuple[
 
 @router.post("/boveda/tablas/{tabla_id}/cotizar")
 async def boveda_tabla_cotizar(tabla_id: str, req: CorridaRequest, authorization: str = Header(None)):
-    u = await cobro.exigir_platinum(authorization)
+    u = await _platinum(authorization)
     t = await _tabla_propia(u.id, tabla_id)
     pares, _ = await _celdas_a_correr(u, t, req)
     consultas = consultas_celdas(len(pares))
-    disp = None if u.es_admin else (await cobro.consultas_disponibles(u.id)).get("disponibles")
+    disp = await _disponibles(u)
     return {"celdas": len(pares), "consultas": consultas, "disponibles": disp,
             "alcanza": disp is None or disp >= consultas, "sin_costo": u.es_admin}
 
 
 @router.post("/boveda/tablas/{tabla_id}/ejecutar")
 async def boveda_tabla_ejecutar(tabla_id: str, req: CorridaRequest, authorization: str = Header(None)):
-    u = await cobro.exigir_platinum(authorization)
+    u = await _platinum(authorization)
     t = await _tabla_propia(u.id, tabla_id)
     pares, _ = await _celdas_a_correr(u, t, req)
     if not pares:
@@ -713,17 +805,16 @@ async def boveda_tabla_ejecutar(tabla_id: str, req: CorridaRequest, authorizatio
                                                       "mensaje": "La cotización cambió; revísala de nuevo.",
                                                       "cotizacion": {"celdas": len(pares), "consultas": consultas}})
     cobradas = 0 if u.es_admin else consultas
-    cobro_res = {"movimiento_id": None, "disponibles": None}
-    if cobradas:
-        cobro_res = await cobro.cobrar_consultas(u.id, cobradas, f"boveda:tabla:{tabla_id}:{len(pares)}celdas")
-        if not cobro_res.get("allowed"):
-            raise cobro.error_de_saldo(cobro_res)
     tanda_id = str(uuid.uuid4())
+    cobro_res: dict = {}
+    if cobradas:
+        cobro_res = await cobro.cobrar_consultas(
+            _cliente(), u.id, cobradas, "boveda_tabla", f"tanda {tanda_id} · tabla {tabla_id} · {len(pares)} celdas")
     try:
         await _db(lambda sb: sb.table("boveda_tandas").insert({
             "id": tanda_id, "user_id": u.id, "expediente_id": t["expediente_id"], "tipo": "tabla",
             "tabla_id": tabla_id, "unidades": len(pares), "consultas": cobradas,
-            "movimiento_id": cobro_res.get("movimiento_id")}).execute())
+            "cobro_id": cobro_res.get("cobro_id")}).execute())
         filas = [{"tabla_id": tabla_id, "documento_id": d, "columna_id": c, "user_id": u.id,
                   "estado": "en_cola", "respuesta": None, "tanda_id": tanda_id, "intentos": 0,
                   "actualizado_en": _ahora()} for d, c in pares]
@@ -732,11 +823,11 @@ async def boveda_tabla_ejecutar(tabla_id: str, req: CorridaRequest, authorizatio
             await _db(lambda sb: sb.table("boveda_celdas")
                       .upsert(lote, on_conflict="tabla_id,documento_id,columna_id").execute())
     except Exception:
-        await cobro.devolver_consultas(cobro_res.get("movimiento_id"))
+        await cobro.devolver_cobro(_cliente(), cobro_res.get("cobro_id"))
         raise
     _avisar_trabajador()
     return {"tanda_id": tanda_id, "celdas": len(pares), "consultas_cobradas": cobradas,
-            "disponibles": cobro_res.get("disponibles")}
+            "disponibles": cobro_res.get("restantes")}
 
 
 # ── Exportar ───────────────────────────────────────────────────────────────
@@ -857,7 +948,7 @@ def _docx(titulo: str, carpeta: str, columnas: list[dict], filas: list[dict], ce
 @router.get("/boveda/tablas/{tabla_id}/exportar")
 async def boveda_tabla_exportar(tabla_id: str, formato: str = Query("xlsx", pattern="^(xlsx|docx)$"),
                                 authorization: str = Header(None)):
-    u = await cobro.exigir_platinum(authorization)
+    u = await _platinum(authorization)
     t = await _tabla_propia(u.id, tabla_id)
     carpeta = await _carpeta_propia(u.id, t["expediente_id"])
     docs = await _documentos_listos(u.id, t["expediente_id"])
@@ -1086,8 +1177,8 @@ async def _cerrar_tanda(tanda_id: str) -> None:
         }).eq("id", tanda_id).eq("estado", "en_curso").execute())
         if not marcada.data:
             return   # otro proceso la cerró
-        if devolver and t.get("movimiento_id"):
-            await cobro.devolver_consultas(t["movimiento_id"], devolver)
+        if devolver and t.get("cobro_id"):
+            await cobro.devolver_cobro(_cliente(), t["cobro_id"], devolver)
             print(f"   🗄️ Bóveda: tanda {tanda_id[:8]} devuelve {devolver} consulta(s) de {t['consultas']}")
     except Exception as e:
         print(f"   ⚠️ Bóveda: no se pudo cerrar la tanda {tanda_id[:8]} ({type(e).__name__}: {str(e)[:160]})")

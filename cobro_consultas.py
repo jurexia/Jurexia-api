@@ -1,232 +1,162 @@
-"""COBRO PROPORCIONAL DE CONSULTAS Y PUERTA PLATINUM.   (oct-2026)
+"""COBRO PROPORCIONAL DE CONSULTAS Y PUERTA PLATINUM.   (12-oct-2026)
 
 David: «esto consumirá las consultas en proporción, sino el usuario con
 expedientes completos rebasaría el costo en servicios que lo que paga por su
 plan, desde luego que esto es exclusivo de platinum».
 
-Lo comparten la Bóveda y la Cronología del expediente: una sola puerta y un
-solo cobro, del MISMO contador que el chat (`queries_used`, y cuando se acaba,
-`consultas_recargadas`). Las funciones de Postgres están en
-migration_cobro_consultas.sql:
+Lo comparten la Cronología del expediente y la Bóveda: las dos leen
+expedientes enteros, las dos son de Platinum y las dos cobran por páginas.
+Vive fuera de main.py para que ninguna de las dos lo duplique.
 
-  consultas_disponibles(user)          → cuánto puede gastar ahora
-  consumir_consultas(user, n, motivo)  → todo o nada; deja un movimiento
-  devolver_consultas(movimiento, n?)   → regresa a su origen, nunca de más
+EL MISMO CONTADOR QUE EL CHAT. `consumir_consultas` (Supabase, ver
+migration_cobro_consultas.sql) descuenta de `queries_used` y, agotada la
+cuota del plan, de `consultas_recargadas`: lo mismo que `consume_query`, pero
+N de una vez y todo o nada. Cada cobro deja fila en `consultas_cobros`, y
+`devolver_cobro` devuelve exactamente lo cobrado si el trabajo falla.
 
-Los administradores no pagan (igual que en el chat): a ellos no se les cobra.
-
-Este módulo no importa main.py: crea su propio cliente de Supabase con la
-clave de servicio la primera vez que se le pide, o usa el que le pasen con
-`configurar()`. Así se prueba sin el arranque de la API.
+LA PUERTA SE COMPRUEBA EN EL SERVIDOR. Que la pantalla esconda el botón no
+basta: cualquiera puede llamar al endpoint. Mismo criterio que la redacción
+Platinum del chat (`_plan_para_redaccion` + `PLANES_PLATINUM`), y si el plan
+no se puede leer, NO se abre.
 """
 from __future__ import annotations
 
 import asyncio
 import math
 import os
-import threading
-from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Optional
 
 from fastapi import HTTPException
 
-try:  # la misma lista que usa el chat para «Redacción Platinum»
-    from esfuerzo_redaccion import PLANES_PLATINUM
-except Exception:  # pragma: no cover
-    PLANES_PLATINUM = {"platinum_monthly", "platinum_annual", "ultra_secretarios"}
+from esfuerzo_redaccion import PLANES_PLATINUM
 
-# Igual que ADMIN_EMAILS de main.py: la base va fija en el código.
-_ADMIN_BASE = {"administracion@iurexia.com", "jdm.juridico@gmail.com"}
-
-_sb = None
-_admins: Optional[set] = None
+# 1 consulta por cada N páginas, mínimo 1. Ver el informe de costos de la
+# Cronología (12-oct-2026): N=10 deja el margen del plan, contando OCR.
+PAGINAS_POR_CONSULTA = max(1, int(os.getenv("PAGINAS_POR_CONSULTA", "10")))
 
 
-def configurar(supabase_admin=None, admin_emails: Optional[set] = None) -> None:
-    """main.py le pasa su cliente y su lista de administradores al arrancar."""
-    global _sb, _admins  # noqa: PLW0603
-    if supabase_admin is not None:
-        _sb = supabase_admin
-    if admin_emails is not None:
-        _admins = {e.strip().lower() for e in admin_emails if e}
+def consultas_por_paginas(paginas: int, n: Optional[int] = None) -> int:
+    """max(1, ⌈páginas / N⌉)."""
+    n = max(1, int(n or PAGINAS_POR_CONSULTA))
+    return max(1, math.ceil(max(0, int(paginas or 0)) / n))
 
 
-_por_hilo = threading.local()
+async def plan_del_usuario(sb, user_id: str, admin_emails=()) -> tuple:
+    """(subscription_type, es_admin, leído), con tres intentos.
+
+    Un tropiezo de la base no es una falta de plan, pero tampoco abre la
+    puerta: quien llama decide con `leído`."""
+    if not user_id or sb is None:
+        return None, False, False
+
+    def _perfil():
+        return sb.table("user_profiles").select("subscription_type, email") \
+            .eq("id", user_id).limit(1).execute()
+
+    for intento in (1, 2, 3):
+        try:
+            r = await asyncio.wait_for(asyncio.to_thread(_perfil), timeout=6.0)
+            if r.data:
+                fila = r.data[0]
+                correo = (fila.get("email") or "").strip().lower()
+                return (fila.get("subscription_type"),
+                        bool(correo and correo in admin_emails), True)
+            return None, False, True
+        except Exception as e:
+            print(f"   ⚠️ plan del usuario, intento {intento}/3: {type(e).__name__}")
+            if intento < 3:
+                await asyncio.sleep(0.4 * intento)
+    return None, False, False
 
 
-def _cliente():
-    """El cliente de main.py si lo prestó (ya es uno por hilo); si no, uno
-    propio POR HILO: el cliente de Supabase habla HTTP/2 por una sola conexión
-    y compartida entre hilos se rompe («ConnectionTerminated», 3-oct)."""
-    if _sb is not None:
-        return _sb
-    c = getattr(_por_hilo, "cliente", None)
-    if c is None:
-        from supabase import create_client
-        url, clave = os.getenv("SUPABASE_URL", ""), os.getenv("SUPABASE_SERVICE_KEY", "")
-        if not (url and clave):
-            raise HTTPException(status_code=503, detail="Servicio temporalmente no disponible")
-        c = _por_hilo.cliente = create_client(url, clave)
-    return c
+async def exigir_platinum(sb, user_id: str, admin_emails=(), funcion: str = "Esta función") -> dict:
+    """403 si no es Platinum (ni Ultra, ni administración). 503 si no se pudo
+    leer el plan: se cierra, no se abre."""
+    plan, es_admin, leido = await plan_del_usuario(sb, user_id, admin_emails)
+    if es_admin or (plan in PLANES_PLATINUM):
+        return {"plan": plan, "es_admin": es_admin}
+    if not leido:
+        raise HTTPException(503, "No se pudo comprobar tu plan. Vuelve a intentarlo en un momento.")
+    raise HTTPException(403, {"codigo": "requiere_platinum",
+                              "mensaje": f"{funcion} es exclusiva del plan Platinum.",
+                              "plan": plan})
 
 
-def cliente():
-    """El cliente de Supabase con la clave de servicio (para los módulos que
-    cobran: Bóveda, Cronología)."""
-    return _cliente()
+async def saldo_consultas(sb, user_id: str) -> dict:
+    """Lo que le queda para cotizar ANTES de procesar. No cobra nada: el cobro
+    de verdad lo decide `consumir_consultas` bajo cerrojo."""
+    def _leer():
+        return sb.table("user_profiles") \
+            .select("queries_used, queries_limit, consultas_recargadas, suspendido_at, subscription_type") \
+            .eq("id", user_id).limit(1).execute()
+
+    r = await asyncio.to_thread(_leer)
+    if not r.data:
+        return {"ilimitado": False, "del_plan": 0, "recargadas": 0, "disponibles": 0}
+    f = r.data[0]
+    limite = int(f.get("queries_limit") or 0)
+    usadas = int(f.get("queries_used") or 0)
+    recargadas = int(f.get("consultas_recargadas") or 0)
+    if limite == -1:
+        return {"ilimitado": True, "del_plan": None, "recargadas": recargadas, "disponibles": None,
+                "suspendida": bool(f.get("suspendido_at"))}
+    del_plan = max(limite - usadas, 0)
+    return {"ilimitado": False, "del_plan": del_plan, "recargadas": recargadas,
+            "disponibles": del_plan + recargadas, "suspendida": bool(f.get("suspendido_at"))}
 
 
-def _lista_admins() -> set:
-    if _admins is not None:
-        return _admins
-    return _ADMIN_BASE | {e.strip().lower() for e in os.getenv("ADMIN_EMAILS", "").split(",") if e.strip()}
+_MENSAJES = {
+    "saldo_insuficiente": "No te alcanzan las consultas: hacen falta {necesarias} y te quedan {disponibles}.",
+    "cuenta_bloqueada": "Tu cuenta está bloqueada.",
+    "suscripcion_suspendida": "Tu suscripción está suspendida por un pago pendiente. Actualiza tu tarjeta para continuar.",
+    "email_no_verificado": "Verifica tu correo para continuar.",
+}
 
 
-def consultas_por(unidades: int, por_consulta: int) -> int:
-    """Cuántas consultas cuestan `unidades` (páginas, celdas…): hacia arriba.
-    Cero unidades no cuestan nada; una sola ya cuesta una consulta."""
-    if unidades <= 0:
-        return 0
-    return max(1, math.ceil(unidades / max(1, por_consulta)))
+async def cobrar_consultas(sb, user_id: str, unidades: int, motivo: str,
+                           referencia: Optional[str] = None) -> dict:
+    """Cobra `unidades` consultas de una vez, o ninguna.
 
-
-@dataclass
-class Usuario:
-    id: str
-    email: str
-    plan: Optional[str]
-    es_admin: bool
-
-    @property
-    def es_platinum(self) -> bool:
-        return self.es_admin or (self.plan or "") in PLANES_PLATINUM
-
-
-async def usuario_del_token(authorization: Optional[str]) -> Usuario:
-    """Quién llama. Manda el token, nunca un user_id del cuerpo."""
-    if not authorization:
-        raise HTTPException(status_code=401, detail="Autenticación requerida")
-    sb = _cliente()
-    token = authorization.replace("Bearer ", "").strip()
+    Devuelve {cobro_id, unidades, de_plan, de_recarga, restantes, ...}.
+    Lanza 402 si no alcanza (con `necesarias` y `disponibles`), 403 si la
+    cuenta no puede consultar, 503 si la base no respondió: SIN COBRO NO SE
+    PROCESA, al revés que el chat, porque aquí lo que se arriesga es el
+    expediente entero."""
+    def _rpc():
+        return sb.rpc("consumir_consultas", {"p_user_id": user_id, "p_unidades": int(unidades),
+                                              "p_motivo": motivo, "p_referencia": referencia}).execute()
     try:
-        r = await asyncio.to_thread(sb.auth.get_user, token)
-        u = r.user
-        if not u:
-            raise HTTPException(status_code=401, detail="Token inválido")
-    except HTTPException:
-        raise
-    except Exception:
-        raise HTTPException(status_code=401, detail="Token inválido o expirado")
-    correo = (u.email or "").strip().lower()
-    plan = None
-    # UN TROPIEZO NO ES UNA FALTA DE PLAN: tres intentos antes de negar.
-    for intento in (1, 2, 3):
-        try:
-            p = await asyncio.wait_for(asyncio.to_thread(
-                lambda: sb.table("user_profiles").select("subscription_type")
-                .eq("id", str(u.id)).limit(1).execute()), timeout=6.0)
-            plan = (p.data[0].get("subscription_type") if p.data else None)
-            break
-        except Exception:
-            if intento == 3:
-                raise HTTPException(status_code=503, detail="No se pudo leer tu plan; vuelve a intentarlo.")
-            await asyncio.sleep(0.4 * intento)
-    return Usuario(id=str(u.id), email=correo, plan=plan, es_admin=correo in _lista_admins())
+        r = await asyncio.to_thread(_rpc)
+    except Exception as e:
+        print(f"   ❌ cobrar_consultas({motivo}, {unidades}) falló: {type(e).__name__}: {str(e)[:200]}")
+        raise HTTPException(503, "No se pudo registrar el cobro. Vuelve a intentarlo; no se descontó nada.")
+    d = r.data or {}
+    if d.get("allowed"):
+        print(f"   🧾 cobro {motivo}: {unidades} consultas ({d.get('de_plan')} del plan, "
+              f"{d.get('de_recarga')} de recarga) · cobro {str(d.get('cobro_id'))[:8]}")
+        return d
+    codigo = d.get("error") or "rechazado"
+    mensaje = _MENSAJES.get(codigo, "No se pudo cobrar la consulta.").format(
+        necesarias=d.get("necesarias", unidades), disponibles=d.get("disponibles", 0))
+    raise HTTPException(402 if codigo == "saldo_insuficiente" else 403,
+                        {"codigo": codigo, "mensaje": mensaje,
+                         "necesarias": d.get("necesarias", unidades),
+                         "disponibles": d.get("disponibles")})
 
 
-async def exigir_platinum(authorization: Optional[str]) -> Usuario:
-    """El usuario si es Platinum (o Ultra, o administrador); si no, 403 con un
-    código que el front usa para mostrar la invitación a mejorar el plan."""
-    u = await usuario_del_token(authorization)
-    if not u.es_platinum:
-        raise HTTPException(status_code=403, detail={
-            "codigo": "solo_platinum",
-            "mensaje": "Esta función es exclusiva del plan Platinum.",
-            "plan": u.plan,
-        })
-    return u
-
-
-async def consultas_disponibles(user_id: str) -> dict:
-    sb = _cliente()
-    r = await asyncio.to_thread(lambda: sb.rpc("consultas_disponibles", {"p_user_id": user_id}).execute())
-    return r.data or {"puede": False, "disponibles": 0}
-
-
-async def cobrar_consultas(user_id: str, unidades: int, motivo: str) -> dict:
-    """Cobra `unidades` consultas de golpe (todo o nada). Devuelve el resultado
-    de la base: {allowed, movimiento_id, cobradas, disponibles, error?}.
-    Si no alcanzan, `allowed` es False y NO se cobró nada."""
-    if unidades <= 0:
-        return {"allowed": True, "movimiento_id": None, "cobradas": 0}
-    sb = _cliente()
-    r = await asyncio.to_thread(lambda: sb.rpc("consumir_consultas", {
-        "p_user_id": user_id, "p_unidades": int(unidades), "p_motivo": motivo[:300],
-    }).execute())
-    return r.data or {"allowed": False, "error": "sin_respuesta"}
-
-
-async def devolver_consultas(movimiento_id: Optional[str], unidades: Optional[int] = None) -> dict:
-    """Regresa hasta `unidades` (todas si es None) de un cobro. Idempotente."""
-    if not movimiento_id or (unidades is not None and unidades <= 0):
-        return {"devueltas": 0}
-    sb = _cliente()
-    params: dict[str, Any] = {"p_movimiento_id": movimiento_id}
-    if unidades is not None:
-        params["p_unidades"] = int(unidades)
-    r = await asyncio.to_thread(lambda: sb.rpc("devolver_consultas", params).execute())
-    return r.data or {"devueltas": 0}
-
-
-def error_de_saldo(resultado: dict) -> HTTPException:
-    """El 402 que ve el abogado cuando no le alcanza (o su cuenta está detenida)."""
-    motivo = resultado.get("error") or "sin_saldo"
-    mensajes = {
-        "sin_saldo": "No te alcanzan las consultas para esto.",
-        "suscripcion_suspendida": "Tu suscripción está suspendida por un pago pendiente.",
-        "cuenta_bloqueada": "Tu cuenta está detenida.",
-        "email_no_verificado": "Verifica tu correo para continuar.",
-    }
-    return HTTPException(status_code=402, detail={
-        "codigo": motivo,
-        "mensaje": mensajes.get(motivo, "No se pudo cobrar."),
-        "disponibles": resultado.get("disponibles", 0),
-        "requeridas": resultado.get("requeridas"),
-    })
-
-
-# ── Para quien ya sabe quién llama (la Cronología, oct-2026) ───────────────
-async def usuario_por_id(user_id: str, email: Optional[str] = None) -> Usuario:
-    """Como `usuario_del_token`, pero cuando el endpoint ya verificó el token."""
-    sb = _cliente()
-    fila = None
-    for intento in (1, 2, 3):
-        try:
-            p = await asyncio.wait_for(asyncio.to_thread(
-                lambda: sb.table("user_profiles").select("subscription_type, email")
-                .eq("id", user_id).limit(1).execute()), timeout=6.0)
-            fila = p.data[0] if p.data else {}
-            break
-        except Exception:
-            if intento == 3:
-                raise HTTPException(status_code=503, detail="No se pudo leer tu plan; vuelve a intentarlo.")
-            await asyncio.sleep(0.4 * intento)
-    correo = (email or (fila or {}).get("email") or "").strip().lower()
-    return Usuario(id=user_id, email=correo, plan=(fila or {}).get("subscription_type"),
-                   es_admin=bool(correo) and correo in _lista_admins())
-
-
-async def exigir_platinum_id(user_id: str, email: Optional[str] = None) -> Usuario:
-    u = await usuario_por_id(user_id, email)
-    if not u.es_platinum:
-        raise HTTPException(status_code=403, detail={
-            "codigo": "solo_platinum", "mensaje": "Esta función es exclusiva del plan Platinum.", "plan": u.plan})
-    return u
-
-
-def consultas_por_paginas(paginas: int, n: int) -> int:
-    return consultas_por(paginas, n)
-
-
-saldo_consultas = consultas_disponibles     # el nombre que usa la Cronología
-devolver_cobro = devolver_consultas         # devolver_cobro(movimiento_id) devuelve todo lo cobrado
+async def devolver_cobro(sb, cobro_id: Optional[str], unidades: Optional[int] = None) -> dict:
+    """Devuelve lo cobrado (todo, o `unidades`). Nunca lanza: una devolución
+    que falla se registra y se reintenta a mano, no tumba la respuesta."""
+    if not cobro_id or sb is None:
+        return {"devuelta": False, "error": "sin_cobro"}
+    try:
+        params = {"p_cobro_id": str(cobro_id)}
+        if unidades is not None:
+            params["p_unidades"] = int(unidades)
+        r = await asyncio.to_thread(lambda: sb.rpc("devolver_consultas", params).execute())
+        d = r.data or {}
+        print(f"   ↩️ devolución del cobro {str(cobro_id)[:8]}: {d}")
+        return d
+    except Exception as e:
+        print(f"   🚨 NO SE PUDO DEVOLVER el cobro {cobro_id}: {type(e).__name__}: {str(e)[:200]}")
+        return {"devuelta": False, "error": "fallo"}

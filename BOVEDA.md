@@ -83,6 +83,8 @@ Exporta a Excel (openpyxl, dependencia nueva) y Word (python-docx, ya está).
 
 ## Compartido con la Cronología
 
-`cobro_consultas.py` (`cobrar_consultas`, `devolver_consultas`, `consultas_disponibles`,
-`exigir_platinum`) y `migration_cobro_consultas.sql` (`consumir_consultas`, `devolver_consultas`,
-`consultas_disponibles`, tabla `consultas_movimientos`).
+El cobro y la puerta son los de la Cronología (rama `claude/cronologia-expediente`, 5054a7e), copiados
+tal cual: `cobro_consultas.py` (`plan_del_usuario`, `exigir_platinum`, `saldo_consultas`,
+`cobrar_consultas`, `devolver_cobro`) y `migration_cobro_consultas.sql` (tabla `consultas_cobros`,
+`consumir_consultas`, `devolver_consultas`; YA aplicada en producción por esa sesión). Motivos de la
+Bóveda: `boveda_ingesta` y `boveda_tabla`; la tanda va en `referencia`.
