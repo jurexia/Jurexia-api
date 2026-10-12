@@ -1080,8 +1080,9 @@ async def _procesar_documento(doc: dict) -> None:
         else:
             await _ingerir(doc)
     except Rechazo as r:
+        motivo = str(r)
         await _db(lambda sb: sb.table("boveda_documentos").update({
-            "estado": "error", "error": str(r), "tomado_en": None, "actualizado_en": _ahora(),
+            "estado": "error", "error": motivo, "tomado_en": None, "actualizado_en": _ahora(),
         }).eq("id", doc["id"]).execute())
     except Exception as e:  # nuestro: se reintenta hasta 3 veces
         print(f"   🗄️ Bóveda: {doc['id'][:8]} falló ({type(e).__name__}: {str(e)[:160]}) intento {doc.get('intentos')}")
