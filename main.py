@@ -8865,6 +8865,7 @@ def _sin_transitorios(filtro: Optional[Filter]) -> Filter:
 
 
 _RERANK_LEYES = os.getenv("RERANK_LEYES", "1") == "1"
+_RERANK_TIMEOUT = float(os.getenv("RERANK_TIMEOUT", "6"))
 
 
 async def _reordenar_leyes_con_modelo(query: str, estatales: list, federales: list,
@@ -8889,6 +8890,7 @@ async def _reordenar_leyes_con_modelo(query: str, estatales: list, federales: li
         return f"[{clave}] {(r.origen or '')[:90]} — {r.ref or ''}\n{txt}"
     cands = "\n\n".join([_linea(f"E{i + 1}", r) for i, r in enumerate(E)] +
                          [_linea(f"F{i + 1}", r) for i, r in enumerate(F)])
+    _t_rr = time.perf_counter()
     try:
         r = await asyncio.wait_for(chat_client.chat.completions.create(
             model=BUSCAR_MODEL, reasoning_effort="none", max_completion_tokens=120,
@@ -8899,10 +8901,10 @@ async def _reordenar_leyes_con_modelo(query: str, estatales: list, federales: li
                 "del más al menos pertinente. Prefiere el precepto que regula directamente el supuesto (plazo, "
                 "requisito, sanción, procedencia) sobre definiciones generales, remisiones o artículos vecinos. "
                 "Omite los que no sirven.")},
-                {"role": "user", "content": f"Consulta: {query[:900]}\n\nArtículos:\n{cands}"}]), timeout=4)
+                {"role": "user", "content": f"Consulta: {query[:900]}\n\nArtículos:\n{cands}"}]), timeout=_RERANK_TIMEOUT)
         orden = json.loads(r.choices[0].message.content or "{}").get("orden") or []
     except Exception as e:
-        print(f"   ⚠️ Re-ranking de leyes: falló ({type(e).__name__}); se queda el orden por parecido")
+        print(f"   ⚠️ Re-ranking de leyes: falló ({type(e).__name__}, {time.perf_counter() - _t_rr:.1f}s); se queda el orden por parecido")
         return estatales, federales
 
     def _aplicar(lista, pref, n):
@@ -8921,7 +8923,7 @@ async def _reordenar_leyes_con_modelo(query: str, estatales: list, federales: li
             x.score = sc
         return nuevo
     est2, fed2 = _aplicar(estatales, "E", n_est), _aplicar(federales, "F", n_fed)
-    print(f"   🧮 Re-ranking de leyes: {len(orden)} elegidos de {len(E)}+{len(F)} → "
+    print(f"   🧮 Re-ranking de leyes ({time.perf_counter() - _t_rr:.1f}s): {len(orden)} elegidos de {len(E)}+{len(F)} → "
           f"{(est2[0].ref if est2 else '-')} | {(fed2[0].ref if fed2 else '-')}")
     return est2, fed2
 
@@ -10136,10 +10138,32 @@ _ARTICLE_PATTERN = re.compile(
 )
 
 # Colecciones donde buscar artículos constitucionales y federales
+# Sólo la Constitución (12-oct-2026). Antes también leyes_federales con el ref
+# «Artículo N» a secas: traía el artículo N de TRES leyes cualesquiera con
+# puntuación 2.0, por encima de todo. La cita federal con su ley la resuelve la
+# búsqueda directa por ley + número (test_cita_federal_directa.py).
 _DETERMINISTIC_COLLECTIONS = [
     "bloque_constitucional",
-    "leyes_federales",
 ]
+_RE_PIDE_CPEUM = re.compile(r"constituci[oó]n|\bcpeum\b|constitucional|carta magna", re.IGNORECASE)
+_RE_OTRO_INSTRUMENTO = re.compile(
+    r"\b(ley|c[oó]digo|reglamento|convenci[oó]n|convenio|pacto|protocolo|tratado|declaraci[oó]n|"
+    r"nom-|cadh|pidcp|pidesc|cedaw|estatuto|norma oficial)\b", re.IGNORECASE)
+
+
+def _nums_para_cpeum(query: str, nums: List[str]) -> List[str]:
+    """Los números que de verdad apuntan a la Constitución.
+
+    «¿Qué dice el artículo 8 de la CADH?» metía el art. 8o de la CPEUM con 2.0
+    delante de la CADH; «artículo 6 del Convenio 169», el 6o constitucional.
+    Va a la Constitución el número que no es de un tratado citado y sólo si la
+    consulta la nombra o no nombra ningún otro instrumento."""
+    if not nums:
+        return []
+    de_tratado = {str(n) for _, n in _detectar_articulos_tratado(query)}
+    if not (_RE_PIDE_CPEUM.search(query or "") or not _RE_OTRO_INSTRUMENTO.search(query or "")):
+        return []
+    return [n for n in nums if n not in de_tratado]
 
 
 def _variantes_articulo_ref(nums) -> List[str]:
@@ -10555,7 +10579,7 @@ async def hybrid_search_all_silos(
     # Si la query menciona Art. X, recuperar el texto exacto antes de cualquier semántica
     # Garantiza que el LLM reciba el texto vigente (post-Reforma 2024) con prioridad máxima
     # ═══════════════════════════════════════════════════════════════════════════
-    detected_article_nums = _detect_article_numbers(query)
+    detected_article_nums = _nums_para_cpeum(query, _detect_article_numbers(query))
     deterministic_results: List[SearchResult] = []
     if detected_article_nums:
         print(f"   🔍 Números de artículo detectados: {detected_article_nums}")
