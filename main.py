@@ -6240,6 +6240,84 @@ async def _traer_normas_oficiales(query, dense_vector, existing_ids, skip=False)
     return fuera
 
 
+# ── CITA EXACTA DE TRATADOS (12-oct-2026) ───────────────────────────────────
+# «artículo 8 de la CADH», «art. 1.1 Convención Americana», «PIDCP, artículo 14»:
+# el número manda, no el parecido. Antes el bloque devolvía el cuadernillo que
+# más se parecía y el artículo pedido podía no entrar. Funciona sobre la v4 del
+# bloque, que es la que trae `articulo_num` e `instrumento` indexados en los
+# tratados; con la colección vieja la búsqueda falla en silencio y no estorba.
+_TRATADOS_ALIAS = [
+    ("CADH", r"\bCADH\b|convenci[oó]n americana(?: sobre derechos humanos)?|pacto de san jos[eé]"),
+    ("PIDCP", r"\bPIDCP\b|pacto internacional de derechos civiles"),
+    ("PIDESC", r"\bPIDESC\b|pacto internacional de derechos econ[oó]micos"),
+    ("CDN", r"\bCDN\b|convenci[oó]n (?:sobre|de) los derechos del ni[nñ]o"),
+    ("CEDAW", r"\bCEDAW\b|discriminaci[oó]n contra la mujer"),
+    ("CBdP", r"bel[eé]m do par[aá]"),
+    ("CRPD", r"\bCRPD\b|\bCDPD\b|derechos de las personas con discapacidad"),
+    ("DUDH", r"\bDUDH\b|declaraci[oó]n universal"),
+    ("ICERD", r"\bICERD\b|discriminaci[oó]n racial"),
+    ("CMW", r"trabajadores migratorios"),
+    ("PSS", r"protocolo de san salvador"),
+    ("CAT", r"convenci[oó]n contra la tortura"),
+    ("C169", r"convenio 169|\bC169\b"),
+    ("CLH1980", r"sustracci[oó]n internacional de menores"),
+]
+_RE_ART_TRATADO = re.compile(r"art[ií]culos?\.?\s*(\d{1,3})(?:\.(\d{1,2}))?", re.IGNORECASE)
+
+
+def _detectar_articulos_tratado(query: str) -> List[tuple]:
+    q = query or ""
+    pares = []
+    for sigla, patron in _TRATADOS_ALIAS:
+        for m in re.finditer(patron, q, re.IGNORECASE):
+            # El número va justo antes («artículo 8 de la CADH») o justo después
+            # («CADH, artículo 8»): ventana de 70 caracteres a cada lado.
+            # Primero el número pegado al nombre («8.1 de la Convención»): en
+            # «arts. 14 del PIDCP y 8.1 de la CADH» el 14 es del Pacto, no de la CADH.
+            pegado = re.search(r"(\d{1,3})(?:\.\d{1,2})?\s*(?:de la|del|de los|de)?\s*$", q[max(0, m.start() - 22):m.start()])
+            antes = list(_RE_ART_TRATADO.finditer(q[max(0, m.start() - 70):m.start()]))
+            despues = _RE_ART_TRATADO.search(q[m.end():m.end() + 40])
+            nums = ([int(pegado.group(1))] if pegado else [int(antes[-1].group(1))] if antes else []) + \
+                   ([int(despues.group(1))] if despues else [])
+            for n in nums:
+                par = (sigla, n)
+                if par not in pares:
+                    pares.append(par)
+    return pares[:4]
+
+
+async def _traer_articulo_tratado(query: str, existing_ids: set) -> list:
+    """Los artículos de tratado citados por número, como SearchResult. Nunca lanza."""
+    pares = _detectar_articulos_tratado(query)
+    if not pares:
+        return []
+    fuera = []
+    for sigla, num in pares:
+        try:
+            pts, _ = await qdrant_client.scroll(
+                collection_name=FIXED_SILOS["constitucional"], limit=6, with_payload=True,
+                scroll_filter=Filter(must=[FieldCondition(key="instrumento", match=MatchValue(value=sigla)),
+                                           FieldCondition(key="articulo_num", match=MatchValue(value=num))]))
+        except Exception as e:
+            print(f"   ⚠️ TRATADO: {sigla} art. {num} no se pudo traer ({type(e).__name__})")
+            continue
+        pts = sorted(pts, key=lambda p: (p.payload or {}).get("chunk_index", 0))
+        for p in pts:
+            pl = p.payload or {}
+            if str(p.id) in existing_ids:
+                continue
+            existing_ids.add(str(p.id))
+            fuera.append(SearchResult(
+                id=str(p.id), score=0.95, texto=pl.get("texto_visible") or pl.get("texto") or "",
+                ref=pl.get("ref"), origen=pl.get("origen"), jurisdiccion=pl.get("jurisdiccion"),
+                entidad=pl.get("entidad"), silo=FIXED_SILOS["constitucional"],
+                pdf_url=pl.get("url_pdf") or pl.get("pdf_url") or pl.get("pdf"),
+            ))
+    if fuera:
+        print(f"   🌐 TRATADO: +{len(fuera)} por cita exacta ({', '.join(f'{s} {n}' for s, n in pares)})")
+    return fuera
+
+
 PROCESAL_FEDERAL_ACTIVO = os.getenv("PROCESAL_FEDERAL_ACTIVO", "1").strip() != "0"
 
 
@@ -11489,6 +11567,9 @@ async def hybrid_search_all_silos(
     _nom_hits = await _traer_normas_oficiales(query, dense_vector, existing_ids, skip=skip_post_search)
     if _nom_hits:
         merged.extend(_nom_hits)
+    _tratado_hits = await _traer_articulo_tratado(query, existing_ids)
+    if _tratado_hits:
+        merged = _tratado_hits + merged
     # Con el régimen decidido no hay respaldo: el CNPP/CNPCF de leyes_federales
     # metería justo lo que el régimen acaba de excluir.
     _materia_procesal = None if (_pf_hits or _pf_regs) else _detectar_consulta_procesal(query)
