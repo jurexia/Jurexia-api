@@ -88,3 +88,53 @@ tal cual: `cobro_consultas.py` (`plan_del_usuario`, `exigir_platinum`, `saldo_co
 `cobrar_consultas`, `devolver_cobro`) y `migration_cobro_consultas.sql` (tabla `consultas_cobros`,
 `consumir_consultas`, `devolver_consultas`; YA aplicada en producción por esa sesión). Motivos de la
 Bóveda: `boveda_ingesta` y `boveda_tabla`; la tanda va en `referencia`.
+
+## Estado (12-oct-2026, aprobado por David: «adelante con los 5»)
+
+**Aplicado en producción** (sólo lo nuevo; nada existente se tocó):
+- Supabase: migración `boveda` = `migration_boveda.sql` → 5 tablas `boveda_*` con RLS (el usuario lee y borra lo
+  suyo; escribe sólo la API), disparador de purga, `boveda_tomar_documento` / `boveda_tomar_fila` sólo para
+  `service_role`, y el cubo privado `boveda` (50 MB; PDF, .docx y .gz). El cobro (`consultas_cobros`) lo aplicó antes
+  la Cronología y no se volvió a aplicar.
+- Qdrant: colección vacía `boveda` (vectores, HNSW por inquilino, int8 y payload en disco; `user_id` como índice
+  de inquilino). Sin grafo global: no compite con la reingesta de leyes.
+- Asesor de seguridad: lo único nuevo es `boveda_purgas` sin políticas (a propósito: sólo servicio).
+
+**Probado de punta a punta** (`prueba_boveda_punta_a_punta.py`, 45/45) con 15 archivos ficticios, la cuenta de
+prueba Platinum jdm.juridicoo@gmail.com y la gratuita test-trigger@jurexia.com (sólo lectura). Lo único
+simulado es el token (no se puede iniciar sesión como el usuario); plan, cobro, cola, Storage, Qdrant, Azure y
+gpt-6-luna son los reales:
+- Puerta: la gratuita recibe 403 `requiere_platinum` y no puede reservar subidas; sin token, 401; la clave pública
+  no puede escribir en el cubo.
+- Subida directa con URL firmada; PDF dañado y archivo repetido rechazados sin cobrar; `.txt` rechazado.
+- Cotización: 13 documentos · 46 páginas (9 escaneadas) → 2 consultas; con cotización distinta, 409 y no cobra.
+- Cobro del mismo contador del chat; un documento que falla tras cobrar se devuelve al cerrar la tanda (2 → 1).
+- Ingesta: 12 documentos en 30 s; 94 puntos en Qdrant = fragmentos. Búsqueda en 0.6 s; otra cuenta con la misma
+  carpeta no ve nada.
+- Tabla 12 × 7 = 84 celdas → 9 consultas, 45 s, 0.0076 USD; 82/82 citas verificadas; pena, monto, vigencia y
+  jurisdicción 12/12 contra la verdad. Excel y Word exportados.
+- Chat (main.py real, sin lifespan): 16 s, cita 3 fragmentos de la Bóveda con documento y página, y combina con el
+  art. 88 del Código de Comercio del acervo. La respuesta (10% y CDMX) es la correcta.
+- Borrar: 0 puntos en Qdrant, 0 archivos en Storage, purgas hechas, tablas borradas.
+- Saldo de la cuenta de prueba: 0 usadas / 560 antes y después (4 cobros devueltos completos; las filas quedan
+  en `consultas_cobros` como constancia).
+
+**No probado:** las pantallas con sesión real (no puedo iniciar sesión por el usuario). El front compila
+(`next build`) y pasa `tsc`.
+
+## Cómo desplegar (lo hace David; Claude no empuja a main)
+
+Primero la API (el front sin la API muestra la Bóveda vacía y sus llamadas dan 404), luego el front:
+
+    cd ~/Documents/IUREXIA-MAC/jurexia-api-git/.claude/worktrees/dreamy-montalcini-61c027
+    git fetch origin && git merge origin/main && .venv/bin/python test_boveda.py
+    git push origin boveda:main
+
+    cd ~/Documents/IUREXIA-MAC/wt-boveda-front
+    git fetch origin && git merge origin/main
+    git push origin boveda:main
+
+Variables opcionales en Render (todas con valor por omisión): `BOVEDA_PAGINAS_OCR_POR_CONSULTA` (10),
+`BOVEDA_PAGINAS_TEXTO_POR_CONSULTA` (100), `BOVEDA_CELDAS_POR_CONSULTA` (10), `BOVEDA_MAX_*` (cuotas),
+`BOVEDA_TRABAJADOR=0` (apaga la cola), `BOVEDA_DOCS_A_LA_VEZ` (1 por proceso), `BOVEDA_FILAS_A_LA_VEZ` (3).
+Para ver la cola en Render: «🗄️ Bóveda».
