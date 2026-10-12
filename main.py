@@ -1927,6 +1927,7 @@ from esfuerzo_redaccion import (  # noqa: E402
     ACABADO_PLATINUM, PLANES_PLATINUM, PLANES_PRO,
     detectar_redaccion, normalizar_esfuerzo,
 )
+import acceso_platinum as _acceso  # noqa: E402
 
 
 def extract_session_context(messages: list) -> dict:
@@ -3718,37 +3719,36 @@ def resolver_pdf(pdf_en_payload: Optional[str], origen: Optional[str], silo: Opt
     return None
 
 
+async def _acceso_platinum(user_id: Optional[str]) -> "_acceso.Acceso":
+    """Plan, administración y cortesía del perfil, con tres intentos.
+
+    Las herramientas de Platinum (Sentencia, Precedentes, Toulmin,
+    Jurimetría, la redacción Platinum) preguntan `.platinum`: Platinum, Ultra,
+    administración o cortesía (testers y Jenica, ver acceso_platinum.py).
+    `.es_admin` sigue siendo sólo `ADMIN_EMAILS`."""
+    return await _acceso.acceso_del_usuario(supabase_admin, user_id, ADMIN_EMAILS)
+
+
+async def _exigir_platinum(user_id: Optional[str], funcion: str) -> "_acceso.Acceso":
+    """403 `requiere_platinum` si no tiene Platinum; 503 si no se pudo leer
+    el plan. Va ANTES de `consume_query`: la consulta rechazada no se cobra."""
+    return await _acceso.exigir(supabase_admin, user_id, ADMIN_EMAILS, funcion)
+
+
 async def _plan_para_redaccion(user_id: Optional[str]) -> tuple:
     """(subscription_type, es_admin, leído) del perfil, con tres intentos.
 
     Ver «UN TROPIEZO NO ES UNA FALTA DE PLAN» en chat_endpoint. Sin usuario o
     sin perfil devuelve (None, False, …): se sirve el escalón base.
+
+    `es_admin` es sólo `ADMIN_EMAILS`: lo usa también la puerta del piloto de
+    la Corte IDH (`_coidh_puerta`), que la cortesía no abre. Para Platinum,
+    `_acceso_platinum`.
     """
     if not user_id or not supabase_admin:
         return None, False, False
-
-    def _perfil():
-        return supabase_admin.table('user_profiles') \
-            .select('subscription_type, email') \
-            .eq('id', user_id) \
-            .limit(1) \
-            .execute()
-
-    for _intento in (1, 2, 3):
-        try:
-            _res = await asyncio.wait_for(asyncio.to_thread(_perfil), timeout=6.0)
-            if _res.data:
-                _fila = _res.data[0]
-                _correo = (_fila.get('email') or '').strip().lower()
-                return (_fila.get('subscription_type'),
-                        bool(_correo and _correo in ADMIN_EMAILS), True)
-            # Sin filas: el perfil no existe. Reintentar no lo va a crear.
-            return None, False, True
-        except Exception as _e:
-            print(f"   ⚠️ Plan para redacción, intento {_intento}/3: {err(_e)}")
-            if _intento < 3:
-                await asyncio.sleep(0.4 * _intento)
-    return None, False, False
+    _a = await _acceso_platinum(user_id)
+    return _a.plan, _a.es_admin, _a.leido
 
 
 class ChatRequest(BaseModel):
@@ -16674,6 +16674,18 @@ async def _smart_rag_for_document(
 # ENDPOINT: CHAT (STREAMING SSE CON THINKING MODE + RAG)
 # ══════════════════════════════════════════════════════════════════════════════
 
+def herramienta_platinum_del_chat(ultimo_mensaje: str) -> Optional[str]:
+    """La herramienta de Platinum que pide el último mensaje del usuario, dicha
+    para el aviso («… es exclusiva del plan Platinum»), o None. Mismas
+    condiciones que `is_sentencia` e `is_precedentes_mode` en chat_endpoint."""
+    m = ultimo_mensaje or ""
+    if "SENTENCIA_INICIO" in m or "AUDITAR_SENTENCIA" in m:
+        return "La auditoría de sentencias"
+    if "[MODO_PRECEDENTES]" in m:
+        return "La búsqueda de Precedentes"
+    return None
+
+
 @app.post("/chat")
 async def chat_endpoint(request: ChatRequest, http_request: Request):
     """
@@ -16732,6 +16744,25 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
     except (ImportError, Exception) as e:
         print(f"⚠️ Sanitizer warning: {str(e)}")
         pass 
+
+    # ── LAS HERRAMIENTAS DE PLATINUM, ANTES DEL COBRO (12-oct-2026) ──────
+    # Sentencia y Precedentes viajan por aquí, con su marcador en el último
+    # mensaje: los mismos que encienden `is_sentencia` e `is_precedentes_mode`
+    # más abajo. La web esconde los botones a quien no es Platinum, pero el
+    # marcador se puede escribir a mano, y la app móvil todavía ofrece
+    # Precedentes desde Pro. Se comprueba AQUÍ, antes de lanzar
+    # `consume_query`: la consulta rechazada no se cobra. Pasan Platinum,
+    # Ultra, administración y la cortesía (acceso_platinum.py).
+    #
+    # El usuario es `request.user_id`, el del cuerpo, que es también a quien
+    # cobra `consume_query`: el /chat entero se fía de él.
+    _ultimo_usuario = next((m.content or "" for m in reversed(request.messages)
+                            if m.role == "user"), "")
+    _herramienta_platinum = herramienta_platinum_del_chat(_ultimo_usuario)
+    if _herramienta_platinum:
+        _acc_herr = await _exigir_platinum(request.user_id, _herramienta_platinum)
+        print(f"   💎 {_herramienta_platinum}: acceso Platinum "
+              f"({'administración' if _acc_herr.es_admin else 'cortesía' if _acc_herr.cortesia else _acc_herr.plan})")
 
     # ─────────────────────────────────────────────────────────────────────
     # PARALLEL STEP 1: Launch Infrastructure & Security Checks in background
@@ -17059,9 +17090,12 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
     # comprueban aquí. Sin plan Platinum, el marcador cae a Pro (como
     # siempre); el campo cae a lo que su plan permita.
     if is_chat_drafting_platinum or (_esfuerzo_por_campo and is_chat_drafting_pro):
-        _plan_red, _admin_red, _plan_leido = await _plan_para_redaccion(request.user_id)
-        _tiene_platinum = _admin_red or _plan_red in PLANES_PLATINUM
-        _tiene_pro = _admin_red or _plan_red in PLANES_PRO
+        # Con la cortesía (testers y Jenica, acceso_platinum.py): «quedan
+        # con todo», así que también con el escalón Platinum y el Pro.
+        _acc_red = await _acceso_platinum(request.user_id)
+        _plan_red, _plan_leido = _acc_red.plan, _acc_red.leido
+        _tiene_platinum = _acc_red.platinum
+        _tiene_pro = _tiene_platinum or _plan_red in PLANES_PRO
         if is_chat_drafting_platinum and not _tiene_platinum:
             is_chat_drafting_platinum = False
             if _plan_leido:
@@ -22046,7 +22080,7 @@ def _can_access_sentencia(user_email: str) -> bool:
 
 # ══════════════════════════════════════════════════════════════════════════════
 # JURIMETRÍA — Predicción de sentido basada en precedentes + documentos reales
-# Acceso exclusivo: ultra_secretarios + admins
+# Acceso: Platinum, Ultra Secretarios, administración y cortesía (acceso_platinum.py)
 # Escalable: opera sobre sentencias_holdings unificada sin hardcodear circuitos
 # ══════════════════════════════════════════════════════════════════════════════
 
@@ -22075,25 +22109,30 @@ PLANES_CON_JURISCONSULTO = PLANES_CON_JURIMETRIA | {
 }
 
 
-def _can_access_jurimetria(user_email: str) -> bool:
-    """Platinum, Ultra Secretarios y admins."""
-    email_lower = user_email.strip().lower()
-    if email_lower in ADMIN_EMAILS:
-        return True
-    if supabase_admin:
+async def _acceso_jurimetria(user_email: str, authorization: Optional[str]) -> "_acceso.Acceso":
+    """Platinum, Ultra Secretarios, administración y cortesía (testers y
+    Jenica, ver acceso_platinum.py).
+
+    QUIÉN LLAMA (12-oct-2026). Si llega el token —la app móvil lo manda—,
+    manda el token. La web todavía no lo envía (JurimetriaModal.tsx sólo pone
+    `user_email` en el formulario), así que sin token se lee el correo del
+    formulario, como siempre, y ése lo puede escribir cualquiera. Cuando la
+    web mande el token, quitar este repliegue y exigirlo: el aviso de abajo
+    dice cuántas veces se usa todavía."""
+    if authorization:
+        if not supabase_admin:
+            raise HTTPException(503, "Servicio temporalmente no disponible")
         try:
-            result = (
-                supabase_admin.table("user_profiles")
-                .select("subscription_type")
-                .eq("email", email_lower)
-                .limit(1)
-                .execute()
-            )
-            if result.data:
-                return result.data[0].get("subscription_type") in PLANES_CON_JURIMETRIA
-        except Exception as e:
-            print(f"   ⚠️ jurimetria access check error for {correo_opaco(email_lower)}: {err(e)}")
-    return False
+            r = await asyncio.to_thread(supabase_admin.auth.get_user,
+                                        authorization.replace("Bearer ", "").strip())
+            uid = str(r.user.id) if r and r.user else None
+        except Exception:
+            uid = None
+        if not uid:
+            raise HTTPException(401, "Token inválido o expirado")
+        return await _acceso_platinum(uid)
+    print("   ⚠️ Jurimetría sin token: se usa el correo del formulario")
+    return await _acceso.acceso_por_correo(supabase_admin, user_email, ADMIN_EMAILS)
 
 
 def _can_access_jurisconsulto(user_email: str) -> bool:
@@ -22572,6 +22611,7 @@ async def jurimetria_endpoint(
     materia:         Optional[str] = Form(None),
     ratio_decidendi: Optional[UploadFile] = File(None),
     causa_petendi:   Optional[UploadFile] = File(None),
+    authorization:   Optional[str] = Header(None),
 ):
     """
     Predice el sentido probable de un asunto basándose en el corpus de precedentes.
@@ -22580,7 +22620,7 @@ async def jurimetria_endpoint(
     Modo secretario → adjunta ratio_decidendi (sentencia/acto reclamado) y/o
                       causa_petendi (agravios/conceptos de violación) como PDF/DOCX.
 
-    Acceso: ultra_secretarios + admins.
+    Acceso: Platinum, Ultra Secretarios, administración y cortesía (_acceso_jurimetria).
     Escalabilidad: busca en sentencias_holdings global; cualquier nuevo circuito
                    ingested contribuye automáticamente sin cambios de código.
     """
@@ -22588,8 +22628,13 @@ async def jurimetria_endpoint(
     t0 = _t.time()
 
     # ── Acceso ──────────────────────────────────────────────────────────────
-    if not _can_access_jurimetria(user_email):
-        raise HTTPException(403, "Jurimetría requiere suscripción Ultra Secretarios")
+    # El detalle va en texto, no con `codigo`: la web lo pinta tal cual
+    # (JurimetriaModal.tsx) y la app convierte el 403 en su propio aviso.
+    _acc_jur = await _acceso_jurimetria(user_email, authorization)
+    if not _acc_jur.platinum:
+        if not _acc_jur.leido:
+            raise HTTPException(503, "No se pudo comprobar tu plan. Vuelve a intentarlo en un momento.")
+        raise HTTPException(403, "La Jurimetría es exclusiva del plan Platinum.")
 
     # ── Extraer texto de documentos adjuntos ─────────────────────────────
     texto_rd: str = ""
@@ -22903,6 +22948,10 @@ async def toulmin_stream(payload: ToulminRequest, authorization: str = Header(No
         raise
     except Exception:
         raise HTTPException(status_code=401, detail="Token invalido o expirado")
+
+    # Platinum (12-oct-2026), antes del cobro: la consulta rechazada no se
+    # cobra. Ver acceso_platinum.py.
+    await _exigir_platinum(user_id, "La herramienta Toulmin")
 
     # SÓLO SE DEVUELVE LO QUE SE COBRÓ. Si `consume_query` falla, la petición
     # sigue (no se deja al abogado sin servicio por un tropiezo de la base),

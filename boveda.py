@@ -46,6 +46,7 @@ from fastapi import APIRouter, Header, HTTPException, Query
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
+import acceso_platinum
 import boveda_indice as bi
 import boveda_tabla as btab
 import boveda_texto as bt
@@ -136,10 +137,13 @@ class Usuario:
     plan: Optional[str]
     es_admin: bool
     plan_leido: bool
+    # Testers y Jenica (acceso_platinum.py): pasan la puerta como Platinum,
+    # pero pagan como Platinum. Lo que no se cobra es sólo de `es_admin`.
+    cortesia: bool = False
 
     @property
     def es_platinum(self) -> bool:
-        return self.es_admin or (self.plan or "") in PLANES_PLATINUM
+        return self.es_admin or self.cortesia or (self.plan or "") in PLANES_PLATINUM
 
 
 async def _usuario(authorization: Optional[str]) -> Usuario:
@@ -156,8 +160,8 @@ async def _usuario(authorization: Optional[str]) -> Usuario:
     except Exception:
         raise HTTPException(status_code=401, detail="Token inválido o expirado")
     uid = str(r.user.id)
-    plan, es_admin, leido = await cobro.plan_del_usuario(sb, uid, _lista_admins())
-    return Usuario(id=uid, plan=plan, es_admin=es_admin, plan_leido=leido)
+    a = await acceso_platinum.acceso_del_usuario(sb, uid, _lista_admins())
+    return Usuario(id=uid, plan=a.plan, es_admin=a.es_admin, plan_leido=a.leido, cortesia=a.cortesia)
 
 
 async def _platinum(authorization: Optional[str]) -> Usuario:
