@@ -3806,6 +3806,12 @@ class ChatRequest(BaseModel):
     # que se cuenta en los registros de Render. Sólo números y un texto corto.
     reintento: Optional[Dict[str, Any]] = Field(
         None, description="Si es un reintento del cliente: intento, tipo de falla, status y error.")
+    # LA RESPUESTA SE GUARDA TAMBIÉN AQUÍ (14-oct-2026). Con `peticion_id` la
+    # API deja su propia copia en `respuestas_chat` para que el navegador la
+    # recupere si no alcanzó a guardarla. Ver respuesta_guardada.py.
+    peticion_id: Optional[str] = Field(None, max_length=64, description="UUID de este envío (el mismo en los reintentos).")
+    conversation_id: Optional[str] = Field(None, max_length=64, description="Conversación a la que pertenece la respuesta.")
+    expediente_id: Optional[str] = Field(None, max_length=64, description="Carpeta de la conversación, para recuperarla en su sitio.")
 
 
 class AuditRequest(BaseModel):
@@ -11980,6 +11986,12 @@ app.include_router(_flujo_router)
 import boveda as _boveda  # noqa: E402
 app.include_router(_boveda.router)
 
+# La copia de cada respuesta del chat, para que el navegador la recupere si no
+# alcanzó a guardarla (14-oct-2026). Ver respuesta_guardada.py.
+import respuesta_guardada as _respaldo  # noqa: E402
+_respaldo.configurar(supabase_admin)
+app.include_router(_respaldo.router)
+
 
 # ═══════════════════════════════════════════════════════════════════════════
 # UN ERROR TIENE QUE LLEGAR AL NAVEGADOR, Y HOY NO LLEGABA
@@ -16708,6 +16720,11 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
         if _lr:
             print(f"   {_lr}")
 
+    # La pregunta tal como la guarda el navegador, ANTES de la limpieza de
+    # abajo: es la que se respalda en `respuestas_chat` (respuesta_guardada.py).
+    _pregunta_para_respaldo = next((m.content or "" for m in reversed(request.messages)
+                                    if m.role == "user"), "")
+
     # ─────────────────────────────────────────────────────────────────────
     # INPUT SANITIZATION: XSS, SQL injection, enhanced prompt injection
     # ─────────────────────────────────────────────────────────────────────
@@ -21245,7 +21262,15 @@ Evita contradicciones y estructura la respuesta de forma impecable usando format
                            "soporte y lo revisamos.")
         
         return StreamingResponse(
-            generate_stream(),
+            _respaldo.con_respaldo(
+                generate_stream(),
+                authorization=http_request.headers.get("authorization"),
+                peticion_id=request.peticion_id,
+                conversation_id=request.conversation_id,
+                expediente_id=request.expediente_id,
+                pregunta=_pregunta_para_respaldo,
+                estado=request.estado,
+            ),
             media_type="text/event-stream",
             headers={
                 "Cache-Control": "no-cache",
