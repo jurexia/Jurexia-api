@@ -84,7 +84,17 @@ SUBIDAS_POR_LLAMADA = 100
 DOCS_A_LA_VEZ = _ent("BOVEDA_DOCS_A_LA_VEZ", 1)      # por proceso (3 procesos en Render)
 FILAS_A_LA_VEZ = _ent("BOVEDA_FILAS_A_LA_VEZ", 3)
 OCR_A_LA_VEZ = _ent("BOVEDA_OCR_A_LA_VEZ", 2)
-ESPERA_MAXIMA_S = 30
+# EL SONDEO, MEDIDO (13-oct-2026). Con tope de 30 s, seis procesos (2
+# instancias × 3) sin nada que hacer mandaban ~29 mil peticiones al día a
+# Supabase —el 53 % de toda la API REST— y el proyecto agotaba su Disk IO.
+# Ahora la espera crece de 5 s a 15 min y lo nuevo DESPIERTA al trabajador:
+# el proceso que cobra una tanda avisa al suyo, y la pantalla que pregunta
+# por el avance despierta al proceso que la atiende. Sin trabajo, ~1,500 al día.
+ESPERA_INICIAL_S = 5.0
+ESPERA_MAXIMA_S = float(os.getenv("BOVEDA_ESPERA_MAXIMA_S", "900"))
+PURGA_CADA_S = float(os.getenv("BOVEDA_PURGA_CADA_S", "1800"))
+LIMPIEZA_CADA_S = 6 * 3600
+DESPERTAR_DESDE_PANTALLA_CADA_S = 15.0
 TRABAJADOR = f"{socket.gethostname()}:{os.getpid()}"
 
 ACTIVOS = ("en_cola", "procesando", "listo")
@@ -274,6 +284,19 @@ def _avisar_trabajador() -> None:
         _despertar.set()
 
 
+_ultimo_despertar_pantalla = 0.0
+
+
+def _despertar_desde_pantalla(hay_trabajo: bool) -> None:
+    """La pantalla pregunta por el avance cada 3 s y cae en cualquiera de los
+    procesos. Si hay trabajo pendiente, despierta al trabajador de ese proceso
+    (como mucho una vez cada 15 s): así la cola no depende de su siesta."""
+    global _ultimo_despertar_pantalla
+    if hay_trabajo and time.time() - _ultimo_despertar_pantalla > DESPERTAR_DESDE_PANTALLA_CADA_S:
+        _ultimo_despertar_pantalla = time.time()
+        _avisar_trabajador()
+
+
 # ═══ Puerta y reglas ═══════════════════════════════════════════════════════
 @router.get("/boveda/reglas")
 async def boveda_reglas(authorization: str = Header(None)):
@@ -345,6 +368,7 @@ async def boveda_carpeta(carpeta_id: str, authorization: str = Header(None)):
     for d in docs:
         estados[d["estado"]] = estados.get(d["estado"], 0) + 1
     por_cobrar = [d for d in docs if d["estado"] == "revisado"]
+    _despertar_desde_pantalla(any(d["estado"] in ("subido", "revisando", "en_cola", "procesando") for d in docs))
     cotizacion = None
     if por_cobrar:
         disp = await _disponibles(u)
@@ -750,6 +774,7 @@ async def boveda_tabla(tabla_id: str, authorization: str = Header(None)):
     t = await _tabla_propia(u.id, tabla_id)
     docs = await _documentos_listos(u.id, t["expediente_id"])
     celdas = await _celdas_de(tabla_id)
+    _despertar_desde_pantalla(any(c["estado"] in ("en_cola", "procesando") for c in celdas))
     return {
         "tabla": {k: t[k] for k in ("id", "titulo", "columnas", "expediente_id", "actualizado_en")},
         "filas": [{"id": d["id"], "nombre": d["nombre"], "paginas": d["paginas"],
@@ -1209,12 +1234,15 @@ async def _purgar_pendientes(lote: int = 50) -> int:
     return len(filas)
 
 
-async def _mantenimiento() -> None:
+async def _purgar_todo() -> None:
     try:
         while await _purgar_pendientes():
             pass
     except Exception as e:
         print(f"   🗄️ Bóveda: purga pendiente ({type(e).__name__}: {str(e)[:120]})")
+
+
+async def _limpiar_reservas() -> None:
     try:
         # Reservas que nunca se subieron (el navegador se cerró a media subida).
         await _db(lambda sb: sb.table("boveda_documentos").delete().eq("estado", "subiendo")
@@ -1226,12 +1254,17 @@ async def _mantenimiento() -> None:
 
 async def _bucle() -> None:
     """Un despachador por proceso: toma trabajo mientras tenga lugares libres;
-    sin trabajo, duerme cada vez más (hasta 30 s) salvo que lo despierten."""
+    sin trabajo, duerme cada vez más (de 5 s a 15 min) salvo que lo despierten."""
     global _despertar
     _despertar = asyncio.Event()
     docs_activos: set = set()
     filas_activas: set = set()
-    espera, ultimo_mant = 1.0, 0.0
+    import random
+    espera = ESPERA_INICIAL_S
+    # Cada proceso arranca su reloj de mantenimiento desfasado: seis procesos
+    # que nacen juntos en un despliegue no deben purgar todos a la vez.
+    ultima_purga = time.time() - random.uniform(0, PURGA_CADA_S)
+    ultima_limpieza = time.time() - random.uniform(0, LIMPIEZA_CADA_S)
     sin_tablas = False
     print(f"   🗄️ Bóveda: trabajador {TRABAJADOR} en marcha")
     while True:
@@ -1254,9 +1287,12 @@ async def _bucle() -> None:
                 filas_activas.add(tarea)
                 tarea.add_done_callback(lambda t: (filas_activas.discard(t), _avisar_trabajador()))
                 hubo = True
-            if time.time() - ultimo_mant > 60:
-                ultimo_mant = time.time()
-                await _mantenimiento()
+            if time.time() - ultima_purga > PURGA_CADA_S:
+                ultima_purga = time.time()
+                await _purgar_todo()
+            if time.time() - ultima_limpieza > LIMPIEZA_CADA_S:
+                ultima_limpieza = time.time()
+                await _limpiar_reservas()
             sin_tablas = False
         except Exception as e:
             texto = str(e)
@@ -1267,11 +1303,13 @@ async def _bucle() -> None:
                 await asyncio.sleep(600)
                 continue
             print(f"   🗄️ Bóveda: el despachador tropezó ({type(e).__name__}: {texto[:160]})")
-        espera = 1.0 if hubo else min(espera * 2, ESPERA_MAXIMA_S)
+        # Con trabajo, 1 s; sin trabajo, la espera se dobla hasta el tope (con
+        # un poco de azar para que los procesos no sondeen al unísono).
+        espera = 1.0 if hubo else min(max(espera, ESPERA_INICIAL_S / 2) * 2, ESPERA_MAXIMA_S)
         _despertar.clear()
         try:
-            await asyncio.wait_for(_despertar.wait(), timeout=espera)
-            espera = 1.0
+            await asyncio.wait_for(_despertar.wait(), timeout=espera * random.uniform(0.9, 1.1))
+            espera = ESPERA_INICIAL_S / 2    # despertado: la siguiente vuelta mira ya y vuelve a 5 s
         except asyncio.TimeoutError:
             pass
 
