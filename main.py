@@ -12009,6 +12009,32 @@ app.include_router(_respaldo.router)
 # Este manejador devuelve el error COMO RESPUESTA NORMAL, con sus cabeceras, y
 # con un texto que se puede leer sin ser programador. La traza va al registro,
 # no al usuario: ahí dentro viajan rutas y datos del expediente.
+#
+# VUELVE EL 25-oct-2026. El 19-sep se borró como «código muerto» (22e29c5):
+# nadie lo llama por su nombre porque lo registra el decorador. Desde entonces
+# cada 500 volvió a llegar como «Failed to fetch», y en el chat un documento
+# que fallaba en el servidor se leía como «Se cortó la conexión». Lleva también
+# `detail`, que es lo que lee el frontend.
+@app.exception_handler(Exception)
+async def _error_legible(request: Request, exc: Exception):
+    import traceback as _tb
+    import uuid as _uuid
+    from fastapi.responses import JSONResponse as _JR
+    huella = _uuid.uuid4().hex[:8]
+    print(f"❌ [{huella}] {request.method} {request.url.path} → "
+          f"{type(exc).__name__}: {exc}")
+    print(_tb.format_exc()[:4000])
+    return _JR(
+        status_code=500,
+        content={"detail": ("No se pudo completar la operación por un error del servidor. "
+                            f"Vuelva a intentarlo; si se repite, envíe a soporte esta huella: {huella}"),
+                 "error": "No se pudo completar la operación.",
+                 "detalle": f"{type(exc).__name__}: {str(exc)[:200]}",
+                 "huella": huella,
+                 "que_hacer": "Vuelva a intentarlo. Si se repite, envíe esta "
+                              f"huella a soporte: {huella}"},
+        headers={"Access-Control-Allow-Origin": "*",
+                 "Access-Control-Expose-Headers": "*"})
 
 # Rate limiting middleware (sliding window per user/IP)
 try:
@@ -13719,6 +13745,44 @@ async def analyze_document(
             print(f"   ⚠️ No se pudo contar páginas ({_e_pag}) — se deja pasar")
 
     tope_paginas = PAGINAS_POR_PLAN.get(plan_actual, 30)
+
+    # ── LA MUESTRA DEL PLAN GRATUITO (25-oct-2026, David) ───────────────────
+    # Al gratuito con un documento más largo que su tope ya no se le rechaza:
+    # se leen sus primeras hojas, la respuesta lo dice en su primera línea y la
+    # pantalla invita al plan que lo lee entero. Un rechazo sin salida era
+    # justo donde un usuario nuevo se iba sin ver lo que hace Iurexia. No es el
+    # recorte silencioso de antes (ver abajo): aquí todo el mundo se entera de
+    # qué se leyó, y sólo vale para el gratuito; los planes de pago siguen con
+    # su rechazo, sin cobro. Costo de la muestra: ≤ 20 hojas de OCR (0.03 USD).
+    lectura_de_muestra = None
+    nota_muestra = ""
+    if paginas_doc and not es_admin and paginas_doc > tope_paginas and plan_actual == "gratuito":
+        try:
+            import fitz
+            with fitz.open(stream=content, filetype="pdf") as _d:
+                _d.select(list(range(tope_paginas)))
+                content = _d.tobytes(garbage=3, deflate=True)
+            lectura_de_muestra = {
+                "leidas": tope_paginas,
+                "total": paginas_doc,
+                "plan": "Pro" if paginas_doc <= 100 else ("Platinum" if paginas_doc <= 600 else None),
+            }
+            nota_muestra = (
+                f"\n\n[NOTA: El documento tiene {paginas_doc} páginas y el plan gratuito del usuario "
+                f"lee hasta {tope_paginas}: sólo recibes las primeras {tope_paginas}. Empieza tu "
+                f"respuesta con una sola línea que lo diga, por ejemplo: «Leí las primeras "
+                f"{tope_paginas} de las {paginas_doc} hojas de su documento (el plan gratuito lee "
+                f"hasta {tope_paginas}).» Basa el análisis sólo en esas páginas y no supongas el "
+                f"contenido de las demás; si lo que se pide depende de ellas, dilo. No hables de "
+                f"precios ni de planes más allá de esa línea.]"
+            )
+            print(f"   📏 Gratuito: documento de {paginas_doc} págs → se leen las primeras "
+                  f"{tope_paginas} y se le ofrece el plan {lectura_de_muestra['plan']}")
+            paginas_doc = tope_paginas
+        except Exception as _e_muestra:
+            lectura_de_muestra, nota_muestra = None, ""
+            print(f"   ⚠️ No se pudo recortar a {tope_paginas} págs ({_e_muestra}) — se rechaza como antes")
+
     if paginas_doc and not es_admin and paginas_doc > tope_paginas:
         # Se rechaza ANTES de cobrar y ANTES del OCR: no se le quita una
         # consulta al abogado por un documento que no vamos a leer entero.
@@ -14083,7 +14147,7 @@ async def analyze_document(
         _marcador_previas = _marcador_fuentes_previas(search_results) if _con_acervo else ""
 
         # ── Step 3: Send to Gemini 3 Flash via OpenRouter (streaming) ──
-        full_user_message = f"""DOCUMENTO ADJUNTO: "{filename}" ({original_len:,} caracteres){truncation_note}
+        full_user_message = f"""DOCUMENTO ADJUNTO: "{filename}" ({original_len:,} caracteres){truncation_note}{nota_muestra}
 
     CONSULTA DEL USUARIO:
     {prompt}
@@ -14207,6 +14271,11 @@ async def analyze_document(
                     }}, ensure_ascii=False) + "\n\n"
             except Exception as _e_doc:
                 print(f"   ⚠️ El texto del documento no viajó a la pantalla: {_e_doc}")
+
+            # La pantalla pinta la invitación al plan que lee el documento entero.
+            if lectura_de_muestra:
+                yield "data: " + json.dumps({"limite_plan": lectura_de_muestra},
+                                            ensure_ascii=False) + "\n\n"
 
             t_llm_start = _time.time()
 
