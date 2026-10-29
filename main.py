@@ -71,7 +71,31 @@ from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_excep
 # Limitan peticiones simultáneas por servicio para prevenir 429s y cascadas
 # ══════════════════════════════════════════════════════════════════════════════
 OPENAI_SEM   = asyncio.Semaphore(80)    # OpenAI embeddings + HyDE
-QDRANT_SEM   = asyncio.Semaphore(100)   # Búsquedas vectoriales
+# QDRANT: 6 A LA VEZ POR WORKER, NO 100 (29-oct-2026). El clúster es un nodo de
+# 0.5 vCPU y pasado un puñado de búsquedas simultáneas no atiende más, sólo
+# tarda más en todas. Medido el 28-oct sobre leyes_federales: 30 ms con una
+# búsqueda sola, 308 ms con 5 a la vez y 800 / 1,600 ms (p50 / p95) con 20; o
+# sea, con 5 a la vez ya despacha la mitad por segundo que con una. Con 100 el
+# semáforo no frenaba nada —y además sólo envolvía el `get_collection`, no la
+# búsqueda—: una consulta sin estado soltaba 50 llamadas juntas y unas 240 al
+# día morían a los 30 s («ResponseHandlingException»). En Render corren 2
+# workers por instancia y de 2 a 4 instancias: 6 por worker (más los 2 de
+# precedentes, abajo) son 32-64 en el peor caso, que el clúster ya encola por
+# su cuenta. QDRANT_CONCURRENCIA en Render lo cambia sin desplegar.
+QDRANT_SEM   = asyncio.Semaphore(int(os.getenv("QDRANT_CONCURRENCIA", "6")))
+# LOS PRECEDENTES DEL CHAT VAN POR SU CARRIL (29-oct-2026). Corren junto con la
+# búsqueda principal y son complemento: siete consultas a sentencias_holdings
+# de 0.4-1.4 s cada una (en frío) que, con un solo semáforo de 6, salían
+# primero, ocupaban los seis lugares y la búsqueda de la ley esperaba detrás.
+# Medido con preguntas nuevas (caché fría) y un solo usuario, consulta con
+# estado, mediana de seis: fase de búsqueda 4.3 s con un semáforo de 6 para
+# todo, 3.2 s sin tope y 3.6 s con este carril de 2 aparte —la diferencia que
+# queda es de pregunta a pregunta: la búsqueda de la ley ya arranca sin
+# esperar—. La búsqueda principal conserva sus 6 y el total por worker queda
+# en 8. Sólo los usa la tarea de precedentes del chat
+# (ver _CARRIL_QDRANT); el modo Precedentes, donde ésa ES la búsqueda, sigue en
+# QDRANT_SEM. QDRANT_CONCURRENCIA_PRECEDENTES lo cambia sin desplegar.
+QDRANT_SEM_PRECEDENTES = asyncio.Semaphore(int(os.getenv("QDRANT_CONCURRENCIA_PRECEDENTES", "2")))
 
 # HTTP Connection Pool — initialized in lifespan (after event loop exists)
 _http_pool: httpx.AsyncClient = None
@@ -628,6 +652,13 @@ FIXED_SILOS = {
 from contextvars import ContextVar
 
 _CANAL_PASOS: ContextVar[Optional[asyncio.Queue]] = ContextVar("_canal_pasos", default=None)
+# El semáforo de Qdrant que usan las búsquedas de precedentes en ESTA tarea
+# (ver QDRANT_SEM_PRECEDENTES). None = QDRANT_SEM.
+_CARRIL_QDRANT: ContextVar[Optional[asyncio.Semaphore]] = ContextVar("_carril_qdrant", default=None)
+
+
+def _carril_qdrant() -> asyncio.Semaphore:
+    return _CARRIL_QDRANT.get() or QDRANT_SEM
 
 
 def paso(nombre: str, detalle: str = "") -> None:
@@ -731,6 +762,52 @@ def _silo_del_estado(estado: Optional[str]) -> Optional[str]:
         return None
     return ESTADO_SILO.get(normalizado) or ESTADO_SILO.get(
         estado.upper().strip().replace(" ", "_"))
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# SIN ESTADO ELEGIDO NO SE ABREN LAS 32 COLECCIONES ESTATALES (29-oct-2026)
+# ═══════════════════════════════════════════════════════════════════════════
+# Una búsqueda sin estado (ni en el selector ni en la pregunta) abría todas
+# las colecciones estatales a la vez: «Sin fuero/estado → buscando en 39
+# silos» —eran 36 entradas de ESTADO_SILO porque CDMX, Edomex y Nuevo León
+# tienen alias, así que leyes_edomex se buscaba TRES veces— más las dos de
+# holdings y las de respaldo: 41 a 44 búsquedas juntas en un Qdrant de 0.5
+# vCPU. Medido del 21 al 28-oct: 47 búsquedas «en 41 silos» con p50 de 31 s y
+# p95 de 40 s, y unas 240 búsquedas al día muertas a los 30 s
+# («ResponseHandlingException»), que además arrastraban a las de los demás
+# usuarios. Reproducido el 29-oct desde fuera con el código de producción: 41
+# silos, 31-32 s de fase de búsqueda y 26-39 búsquedas caídas por consulta.
+#
+# Y lo que traían no servía: sin entidad, la «ley estatal» era la del estado
+# cuyo código se parecía más a la pregunta —el Código Penal de Sinaloa para
+# quien no dijo dónde litiga, lo mismo que _silo_del_estado ya prohíbe cuando
+# la entidad no tiene colección—, y en el reparto de cuotas ocupaba hasta 24
+# lugares del contexto.
+#
+# Ahora: el estado que NOMBRA la pregunta, si nombra uno solo (el mismo
+# detector que usa el chat, `detect_single_estado_from_query`), o ninguno; lo
+# federal, el bloque constitucional y la jurisprudencia rigen en toda la
+# República y se buscan siempre. Quien eligió estado no cambia en nada.
+# Excepción: si el abogado dejó encendido SÓLO lo estatal en el selector y no
+# dijo dónde, no queda otra cosa que buscar y se abren como antes.
+#
+# REVERSA SIN DESPLIEGUE: ABANICO_ESTATAL=todos en Render vuelve a abrir las
+# 32 (ya sin repetir ninguna).
+_ABANICO_ESTATAL_COMPLETO = os.getenv("ABANICO_ESTATAL", "").strip().lower() == "todos"
+
+
+def _estatales_sin_estado(query: str) -> List[str]:
+    """Las colecciones estatales de una búsqueda SIN estado elegido."""
+    todas = list(dict.fromkeys(ESTADO_SILO.values()))
+    if _ABANICO_ESTATAL_COMPLETO:
+        return todas
+    silo = _silo_del_estado(detect_single_estado_from_query(query or "", avisar=False))
+    if silo:
+        return [silo]
+    if (fuentes_sel.excluye("federal") and fuentes_sel.excluye("constitucional")
+            and not fuentes_sel.excluye("estatal")):
+        return todas
+    return []
 
 
 # Silos de SENTENCIAS DE EJEMPLO — usados como few-shot por el redactor multi-pass.
@@ -4577,7 +4654,7 @@ def detect_multi_state_query(query: str) -> Optional[List[str]]:
     return None
 
 
-def detect_single_estado_from_query(query: str) -> Optional[str]:
+def detect_single_estado_from_query(query: str, avisar: bool = True) -> Optional[str]:
     """
     Auto-detecta un ÚNICO estado mencionado en el texto de la query.
     Se usa como fallback cuando el usuario NO seleccionó un estado en el dropdown.
@@ -4605,9 +4682,12 @@ def detect_single_estado_from_query(query: str) -> Optional[str]:
             remaining = remaining.replace(keyword, "")
     
     # Only return if exactly 1 state found
+    # `avisar=False`: sólo la respuesta, sin el registro ni el paso de pantalla
+    # (para quien pregunta lo mismo por segunda vez en la consulta).
     if len(found_states) == 1:
-        print(f"   🔍 AUTO-DETECT: Estado '{found_states[0]}' detectado en query")
-        paso("jurisdiccion", found_states[0])
+        if avisar:
+            print(f"   🔍 AUTO-DETECT: Estado '{found_states[0]}' detectado en query")
+            paso("jurisdiccion", found_states[0])
         return found_states[0]
     
     return None
@@ -6898,16 +6978,25 @@ def _recency_multiplier(fecha_str: str) -> float:
     return 1.0 + (_RECENCY_MAX_BOOST * ratio)
 
 
+# Lo único que se lee de cada sentencia (29-oct-2026). El payload trae además
+# agravios, cuestiones, hechos y tesis citadas: unos 2.5 KB por punto de los que
+# aquí se usan ~0.8. Pedir sólo esto no cambia ningún resultado.
+_CAMPOS_HOLDING = ["tribunal", "expediente", "fecha_sentencia", "sentido", "materia",
+                   "holding", "pdf_url", "circuito"]
+
+
 async def search_precedentes_holdings(
     query: str,
     tribunal: Optional[str] = None,
-    circuit: str = "22",
+    circuit: Any = "22",
     limit: int = 12,
 ) -> List[SearchResult]:
     """
     Búsqueda híbrida (RRF dense+sparse) en sentencias_holdings_{circuit}.
     Fallback a dense-only si Prefetch/RRF falla (e.g. qdrant-client Union bug).
-    circuit: número de circuito como string ("22", "1", etc.)
+    circuit: número de circuito como string ("22", "1", etc.), o una LISTA de
+             circuitos para buscarlos todos en una sola consulta (ver
+             search_precedentes_global con `una_busqueda`).
     tribunal: ID del tribunal ("1TCC", "2TCC", "TCCPA", etc.) o None (todos)
     """
     # Colección unificada — filtramos por circuito en payload
@@ -6925,8 +7014,10 @@ async def search_precedentes_holdings(
 
     # Filtro por circuito (payload) + tribunal si se especifica
     # circuito is stored as string for all circuits (keyword index)
+    _varios = isinstance(circuit, (list, tuple))
     filter_conditions = [
-        FieldCondition(key="circuito", match=MatchValue(value=str(circuit)))
+        FieldCondition(key="circuito", match=(MatchAny(any=[str(c) for c in circuit]) if _varios
+                                              else MatchValue(value=str(circuit))))
     ]
     if tribunal:
         _TIPO_CODES = {"ADM", "CIV", "LAB", "PEN"}
@@ -6953,25 +7044,27 @@ async def search_precedentes_holdings(
         if _SOLO_DENSO:
             # Ver el comentario de _SOLO_DENSO: el índice sparse no cabe en la
             # RAM del clúster y una ráfaga híbrida lo tira a timeouts.
-            response = await qdrant_client.query_points(
-                collection_name=COLLECTION,
-                query=dense_vec,
-                using="dense",
-                limit=limit,
-                query_filter=qdrant_filter,
-                with_payload=True,
-            )
+            async with _carril_qdrant():
+                response = await qdrant_client.query_points(
+                    collection_name=COLLECTION,
+                    query=dense_vec,
+                    using="dense",
+                    limit=limit,
+                    query_filter=qdrant_filter,
+                    with_payload=_CAMPOS_HOLDING,
+                )
         else:
-            response = await qdrant_client.query_points(
-                collection_name=COLLECTION,
-                prefetch=[
-                    Prefetch(query=dense_vec, using="dense", limit=limit * 2, filter=qdrant_filter),
-                    Prefetch(query=sparse_vec, using="sparse", limit=limit * 2, filter=qdrant_filter),
-                ],
-                query=FusionQuery(fusion=Fusion.RRF),
-                limit=limit,
-                with_payload=True,
-            )
+            async with _carril_qdrant():
+                response = await qdrant_client.query_points(
+                    collection_name=COLLECTION,
+                    prefetch=[
+                        Prefetch(query=dense_vec, using="dense", limit=limit * 2, filter=qdrant_filter),
+                        Prefetch(query=sparse_vec, using="sparse", limit=limit * 2, filter=qdrant_filter),
+                    ],
+                    query=FusionQuery(fusion=Fusion.RRF),
+                    limit=limit,
+                    with_payload=_CAMPOS_HOLDING,
+                )
         points = response.points
         print(f"   ⚖️ Búsqueda OK — {len(points)} puntos")
     except Exception as rrf_err:
@@ -6983,7 +7076,7 @@ async def search_precedentes_holdings(
                 using="dense",
                 limit=limit,
                 query_filter=qdrant_filter,
-                with_payload=True,
+                with_payload=_CAMPOS_HOLDING,
             )
             points = response.points
             print(f"   ⚖️ Dense-only OK — {len(points)} puntos")
@@ -7008,14 +7101,17 @@ async def search_precedentes_holdings(
         # Recency boost: criterios más recientes tienen más peso
         raw_score = p.score if p.score is not None else 0.0
         boosted = raw_score * _recency_multiplier(fecha)
+        # Con varios circuitos en una consulta, el de cada sentencia lo dice
+        # su payload (el mismo campo por el que se filtró).
+        _circ = str(pay.get("circuito") or "") if _varios else circuit
 
         results.append(SearchResult(
             id=str(p.id),
             score=boosted,
             texto=holding_text,
             ref=ref,
-            origen=f"{trib} — {circuit}° Circuito — {materia}",
-            silo=f"sentencias_{circuit}_circuito",
+            origen=f"{trib} — {_circ}° Circuito — {materia}",
+            silo=f"sentencias_{_circ}_circuito",
             pdf_url=pay.get("pdf_url"),
         ))
 
@@ -7024,28 +7120,60 @@ async def search_precedentes_holdings(
     return results
 
 
+# ── LOS SIETE CIRCUITOS EN UNA SOLA CONSULTA (29-oct-2026) ──────────────────
+# Los «precedentes relacionados» del chat buscaban circuito por circuito: siete
+# consultas filtradas a sentencias_holdings (más la de la Corte) en cada
+# pregunta, junto con la búsqueda principal. Medido el 28-oct: 577 ms de
+# servidor por cada una (p95 1.5 s) en un clúster de 0.5 vCPU. Con `una_busqueda`
+# se pide una sola con `circuito ∈ {los siete}` y el mínimo por circuito se
+# reparte después sobre ese resultado. Lo usa el chat cuando no hay estado (ver
+# _PRECEDENTES_UNA_BUSQUEDA); el modo Precedentes, donde el abogado pidió
+# todos los circuitos, sigue con una por circuito.
+#
+# Cuántas por circuito: medido el 29-oct con 6 preguntas contra la búsqueda
+# EXACTA de los 8 primeros de cada circuito, las siete consultas aciertan el
+# 97%; una sola con 16 por circuito (112), el 94.6%, y con 24 (168), el 97%:
+# lo mismo que las siete. Las dos se equivocan en sentencias distintas, así
+# que las 24 finales coinciden en ~90% entre ellas, no en 100%.
+# PRECEDENTES_UNA_BUSQUEDA=0 en Render vuelve a las siete.
+_TCC_POR_CIRCUITO_EN_UNA = int(os.getenv("PRECEDENTES_TCC_POR_CIRCUITO", "24"))
+_PRECEDENTES_UNA_BUSQUEDA = os.getenv("PRECEDENTES_UNA_BUSQUEDA", "1") == "1"
+
+
 async def search_precedentes_global(
     query: str,
     tribunal: Optional[str] = None,
     circuits: Optional[List[str]] = None,
     limit: int = 15,
+    una_busqueda: bool = False,
 ) -> List[SearchResult]:
     """
     Búsqueda global en paralelo sobre todos los circuitos activos.
     Garantiza representación mínima de cada circuito (evita que un circuito con
     scores sistemáticamente más altos monopolice los resultados).
     circuits: lista explícita de circuitos; None = _ACTIVE_CIRCUITS.
+    una_busqueda: una sola consulta para todos los circuitos en vez de una por
+                  circuito (ver _TCC_POR_CIRCUITO_EN_UNA).
     """
     targets = circuits if circuits is not None else _ACTIVE_CIRCUITS
     n = len(targets)
     # Minimum guaranteed results per circuit; remaining slots filled by score
     min_per = max(3, limit // n)
     limit_per_circuit = min_per + 5   # fetch extra so score top-up has candidates
-    tasks = [
-        search_precedentes_holdings(query, tribunal=tribunal, circuit=c, limit=limit_per_circuit)
-        for c in targets
-    ]
-    per_circuit = await asyncio.gather(*tasks, return_exceptions=True)
+    if una_busqueda:
+        todos = await search_precedentes_holdings(
+            query, tribunal=tribunal, circuit=list(targets),
+            limit=max(limit_per_circuit, _TCC_POR_CIRCUITO_EN_UNA) * n)
+        por_silo: Dict[str, List[SearchResult]] = {}
+        for r in todos:
+            por_silo.setdefault(r.silo, []).append(r)
+        per_circuit = [por_silo.get(f"sentencias_{c}_circuito", [])[:limit_per_circuit] for c in targets]
+    else:
+        tasks = [
+            search_precedentes_holdings(query, tribunal=tribunal, circuit=c, limit=limit_per_circuit)
+            for c in targets
+        ]
+        per_circuit = await asyncio.gather(*tasks, return_exceptions=True)
 
     guaranteed: List[SearchResult] = []
     leftovers:  List[SearchResult] = []
@@ -7109,14 +7237,15 @@ async def search_precedentes_scjn(
     try:
         if _SOLO_DENSO:
             # Ver el comentario de _SOLO_DENSO.
-            response = await qdrant_client.query_points(
-                collection_name=COLLECTION,
-                query=dense_vec,
-                using="dense",
-                limit=limit,
-                query_filter=qdrant_filter,
-                with_payload=True,
-            )
+            async with _carril_qdrant():
+                response = await qdrant_client.query_points(
+                    collection_name=COLLECTION,
+                    query=dense_vec,
+                    using="dense",
+                    limit=limit,
+                    query_filter=qdrant_filter,
+                    with_payload=True,
+                )
         else:
             response = await qdrant_client.query_points(
                 collection_name=COLLECTION,
@@ -7183,14 +7312,18 @@ async def search_precedentes_unified(
     query: str,
     limit_scjn: int = 10,
     limit_tcc: int = 8,
+    una_busqueda_tcc: bool = False,
 ) -> List[SearchResult]:
     """
     Búsqueda unificada: SCJN al frente + TCC en paralelo.
     Garantiza representación mínima de ambos para que el usuario vea
     primero la corte suprema y después los criterios de circuito.
+    una_busqueda_tcc: los circuitos en una sola consulta (ver
+                      search_precedentes_global).
     """
     scjn_task = search_precedentes_scjn(query=query, sala=None, limit=limit_scjn)
-    tcc_task  = search_precedentes_global(query=query, tribunal=None, limit=limit_tcc)
+    tcc_task  = search_precedentes_global(query=query, tribunal=None, limit=limit_tcc,
+                                          una_busqueda=una_busqueda_tcc)
     scjn_results, tcc_results = await asyncio.gather(scjn_task, tcc_task, return_exceptions=True)
 
     combined: List[SearchResult] = []
@@ -8962,6 +9095,99 @@ def _remapear_puntuaciones(puntos: list, cosenos: list) -> list:
     orden = sorted(cosenos, reverse=True)
     return [p.model_copy(update={"score": orden[i]}) for i, p in enumerate(puntos)]
 
+
+# ── LA FICHA DE CADA COLECCIÓN, UNA VEZ CADA DIEZ MINUTOS (29-oct-2026) ─────
+# Cada búsqueda por silo pedía antes `get_collection` para saber si la
+# colección trae vector sparse: unas 185,000 llamadas desde el 11-oct, una por
+# búsqueda, y en una consulta sin estado eran 41 a la vez antes de buscar
+# nada. La configuración de vectores no cambia entre consultas; lo único que la
+# mueve es cambiar un alias a otra versión (v3 → v4), y por eso caduca a los
+# diez minutos en vez de guardarse para siempre. QDRANT_INFO_TTL_S lo cambia.
+_INFO_COLECCION: Dict[str, tuple] = {}
+_INFO_COLECCION_TTL = float(os.getenv("QDRANT_INFO_TTL_S", "600"))
+
+
+async def _info_coleccion(coleccion: str):
+    """`get_collection(coleccion)`, guardado _INFO_COLECCION_TTL segundos."""
+    guardada = _INFO_COLECCION.get(coleccion)
+    if guardada and time.time() - guardada[0] < _INFO_COLECCION_TTL:
+        return guardada[1]
+    async with QDRANT_SEM:
+        info = await qdrant_client.get_collection(coleccion)
+    _INFO_COLECCION[coleccion] = (time.time(), info)
+    return info
+
+
+# ── EL PREFETCH DE LAS LEYES, CON TOPE (29-oct-2026) ────────────────────────
+# Era `top_k * 4` por cada lado: 260 candidatos densos y 260 léxicos en
+# leyes_federales (top_k 65) y 520 + 520 en la colección del estado elegido
+# (top_k 130). En las leyes v4 los vectores viven EN DISCO y el clúster tiene
+# la RAM llena, así que el HNSW lee de disco casi cada vector que visita, y
+# visita más cuanto mayor es el límite. Medido el 29-oct con 20 preguntas
+# nuevas (caché fría, la primera llamada de cada una):
+#
+#                         servidor p50    p90
+#     estatal  520 →130:    8.0 → 2.8 s   11.5 → 4.4 s
+#     federal  260 →100:   356 → 163 ms   483 → 332 ms
+#
+# Esa llamada a la colección del estado era el palo largo de toda consulta con
+# estado: 8.5 s de una fase de búsqueda de 10.6.
+#
+# Lo recuperado casi no se mueve. Con 12 preguntas en federal, Querétaro y
+# Jalisco: la búsqueda densa encuentra lo mismo que la búsqueda EXACTA con
+# límite 100/130 que con 260/520 (recall@30 = 1.00), y de los 30 primeros de
+# la fusión cambia el 1.8% (26 de 1,440), casi todo en los puestos 26-30 y con
+# el mismo coseno medio (0.50 los que salen, 0.50 los que entran).
+#
+# El bloque constitucional NO entra: ahí el límite 100 sí pierde el vecino más
+# cercano en 1 de 12 preguntas (recall@1 0.92 contra 1.00 con 260) y la
+# llamada ya era barata (95 ms p50 en frío). Nunca baja de top_k (la fusión no
+# llenaría el límite) ni de 40. PREFETCH_LEYES en Render lo cambia sin
+# desplegar; PREFETCH_LEYES=0 vuelve a top_k × 4.
+_PREFETCH_LEYES = int(os.getenv("PREFETCH_LEYES", "100"))
+
+
+def _prefetch_hibrido(coleccion: str, top_k: int) -> int:
+    viejo = max(top_k * 4, 40)
+    if _PREFETCH_LEYES <= 0 or not str(coleccion or "").startswith("leyes_"):
+        return viejo
+    return max(top_k, min(viejo, _PREFETCH_LEYES))
+
+
+async def _cosenos_por_id(coleccion: str, vector: List[float], puntos: list) -> List[float]:
+    """El coseno de cada punto de la fusión, SIN traer sus vectores.
+
+    POR QUÉ (29-oct-2026). La búsqueda híbrida pedía `with_vectors=["dense"]`
+    sólo para multiplicar aquí cada vector por el de la consulta y sacar el
+    coseno que necesita `_remapear_puntuaciones`. Eran 1,536 flotantes en JSON
+    por punto: medido el 28-oct, 1.4 MB por llamada en leyes_federales (top_k
+    65) y 2.8 MB en la del estado (top_k 130), con el servidor en 114-334 ms y
+    el reloj en 2.3-4.9 s: el resto era leer de disco y mover esos megas.
+    Ahora se pide a Qdrant el coseno de esos mismos ids —un filtro `has_id`,
+    sin payload ni vectores, unos pocos KB—. Medido el 29-oct, 12 preguntas en
+    cuatro colecciones (p50): 2.7 MB → 262 KB, servidor 450 → 33 ms, reloj
+    2.4 → 0.34 s. Es el mismo número: Qdrant normaliza al guardar y su
+    puntuación de coseno es el producto punto que se hacía aquí; comparados
+    4,680 puntos, la diferencia máxima fue 0.00027 y no faltó ninguno.
+
+    Si la consulta falla, cosenos en cero como hacía el código anterior con un
+    punto sin vector: se pierde la escala, no los resultados."""
+    if not puntos:
+        return []
+    ids = [p.id for p in puntos]
+    try:
+        async with QDRANT_SEM:
+            r = await qdrant_client.query_points(
+                collection_name=coleccion, query=vector, using="dense",
+                query_filter=Filter(must=[models.HasIdCondition(has_id=ids)]),
+                limit=len(ids), with_payload=False, with_vectors=False)
+    except Exception as e:
+        print(f"   ⚠️ Cosenos por id fallaron en {coleccion}: {err(e)}")
+        return [0.0] * len(puntos)
+    por_id = {str(p.id): float(p.score or 0.0) for p in r.points}
+    return [por_id.get(str(p.id), 0.0) for p in puntos]
+
+
 async def hybrid_search_single_silo(
     collection: str,
     query: str,
@@ -8992,11 +9218,14 @@ async def hybrid_search_single_silo(
         dense_vector = await _embedding_juris(query)
 
     async def _do_search(search_filter: Optional[Filter]) -> list:
-        """Ejecuta la búsqueda con el filtro dado (protegida por semáforo)."""
-        async with QDRANT_SEM:
-            col_info = await qdrant_client.get_collection(collection)
-            sparse_vectors_config = col_info.config.params.sparse_vectors
-            has_sparse = sparse_vectors_config is not None and len(sparse_vectors_config) > 0
+        """Ejecuta la búsqueda con el filtro dado (protegida por semáforo).
+
+        El semáforo envuelve CADA llamada a Qdrant, no la ficha de la colección
+        (hasta el 29-oct-2026 era al revés: protegía el `get_collection` y la
+        búsqueda salía sin freno). La ficha viene de `_info_coleccion`."""
+        col_info = await _info_coleccion(collection)
+        sparse_vectors_config = col_info.config.params.sparse_vectors
+        has_sparse = sparse_vectors_config is not None and len(sparse_vectors_config) > 0
         
         # Threshold diferenciado: jurisprudencia y silos estatales necesitan mayor recall
         if collection in JURIS_SILOS:
@@ -9011,31 +9240,31 @@ async def hybrid_search_single_silo(
         _ES_HIBRIDA[collection] = _idf
         if _idf and _LEYES_HIBRIDO and sparse_vector is not None and sparse_vector.indices:
             _flt = search_filter if _RE_PIDE_TRANSITORIOS.search(query or "") else _sin_transitorios(search_filter)
-            _res = await qdrant_client.query_points(
-                collection_name=collection,
-                prefetch=[
-                    Prefetch(query=dense_vector, using="dense", limit=max(top_k * 4, 40), filter=_flt),
-                    Prefetch(query=sparse_vector, using="sparse", limit=max(top_k * 4, 40), filter=_flt),
-                ],
-                query=FusionQuery(fusion=Fusion.RRF),
-                limit=top_k,
-                with_payload=True,
-                with_vectors=["dense"],
-            )
+            _pf = _prefetch_hibrido(collection, top_k)
+            async with QDRANT_SEM:
+                _res = await qdrant_client.query_points(
+                    collection_name=collection,
+                    prefetch=[
+                        Prefetch(query=dense_vector, using="dense", limit=_pf, filter=_flt),
+                        Prefetch(query=sparse_vector, using="sparse", limit=_pf, filter=_flt),
+                    ],
+                    query=FusionQuery(fusion=Fusion.RRF),
+                    limit=top_k,
+                    with_payload=True,
+                    # Sin vectores: el coseno lo da `_cosenos_por_id`.
+                    with_vectors=False,
+                )
             _pts = list(_res.points)
-            _cos = []
-            for _p in _pts:
-                _v = (_p.vector or {}).get("dense") if isinstance(_p.vector, dict) else _p.vector
-                _cos.append(float(sum(a * b for a, b in zip(dense_vector, _v))) if _v else 0.0)
-            _pts = [p.model_copy(update={"vector": None}) for p in _remapear_puntuaciones(_pts, _cos)]
-            return _types.SimpleNamespace(points=_pts)
+            _cos = await _cosenos_por_id(collection, dense_vector, _pts)
+            return _types.SimpleNamespace(points=_remapear_puntuaciones(_pts, _cos))
         if _idf:
             # v4 sin el sparse de la consulta (el BM25 aún carga): densa, pero
             # igual sin transitorios.
             _flt = search_filter if _RE_PIDE_TRANSITORIOS.search(query or "") else _sin_transitorios(search_filter)
-            return await qdrant_client.query_points(
-                collection_name=collection, query=dense_vector, using="dense", limit=top_k,
-                query_filter=_flt, with_payload=True, score_threshold=threshold)
+            async with QDRANT_SEM:
+                return await qdrant_client.query_points(
+                    collection_name=collection, query=dense_vector, using="dense", limit=top_k,
+                    query_filter=_flt, with_payload=True, score_threshold=threshold)
         if has_sparse and not _HYBRID_PREFETCH_BROKEN:
             # Prefetch con RRF fusion.
             # Para jurisprudencia_nacional_v2: triple prefetch (sparse + dense + ratio)
@@ -9064,25 +9293,27 @@ async def hybrid_search_single_silo(
                         filter=search_filter,
                     )
                 )
-            return await qdrant_client.query_points(
-                collection_name=collection,
-                prefetch=prefetches,
-                query=FusionQuery(fusion=Fusion.RRF),
-                limit=top_k,
-                query_filter=search_filter,
-                with_payload=True,
-                score_threshold=None,  # RRF scores are on a different scale
-            )
+            async with QDRANT_SEM:
+                return await qdrant_client.query_points(
+                    collection_name=collection,
+                    prefetch=prefetches,
+                    query=FusionQuery(fusion=Fusion.RRF),
+                    limit=top_k,
+                    query_filter=search_filter,
+                    with_payload=True,
+                    score_threshold=None,  # RRF scores are on a different scale
+                )
         else:
-            return await qdrant_client.query_points(
-                collection_name=collection,
-                query=dense_vector,
-                using=_vector_de(collection),
-                limit=top_k,
-                query_filter=search_filter,
-                with_payload=True,
-                score_threshold=threshold,
-            )
+            async with QDRANT_SEM:
+                return await qdrant_client.query_points(
+                    collection_name=collection,
+                    query=dense_vector,
+                    using=_vector_de(collection),
+                    limit=top_k,
+                    query_filter=search_filter,
+                    with_payload=True,
+                    score_threshold=threshold,
+                )
     
     def _parse_results(results) -> List[SearchResult]:
         """Convierte puntos de Qdrant en SearchResult."""
@@ -9192,21 +9423,22 @@ async def hybrid_search_single_silo(
         # reintentar con SOLO dense. Esto ocurre cuando el sparse prefetch no encuentra
         # candidatos (ej: modelo BM25 diferente entre indexación y query).
         if not search_results:
-            col_info = await qdrant_client.get_collection(collection)
+            col_info = await _info_coleccion(collection)
             sparse_cfg = col_info.config.params.sparse_vectors
             has_sparse = sparse_cfg is not None and len(sparse_cfg) > 0
             if has_sparse:
                 print(f"   ⚠️ Hybrid devolvió 0 en {collection}, fallback a dense-only...")
                 threshold = 0.02 if collection in JURIS_SILOS else 0.03
-                dense_results = await qdrant_client.query_points(
-                    collection_name=collection,
-                    query=dense_vector,
-                    using=_vector_de(collection),
-                    limit=top_k,
-                    query_filter=filter_,
-                    with_payload=True,
-                    score_threshold=threshold,
-                )
+                async with QDRANT_SEM:
+                    dense_results = await qdrant_client.query_points(
+                        collection_name=collection,
+                        query=dense_vector,
+                        using=_vector_de(collection),
+                        limit=top_k,
+                        query_filter=filter_,
+                        with_payload=True,
+                        score_threshold=threshold,
+                    )
                 search_results = _parse_results(dense_results)
                 print(f"   ✅ Dense-only fallback: {len(search_results)} resultados en {collection}")
         
@@ -9338,8 +9570,8 @@ async def _jurisprudencia_boost_search(query: str, exclude_ids: set) -> List[Sea
                         else await get_dense_embedding(query))
         sparse_vector = get_sparse_embedding(query)
 
-        # Verificar si tiene sparse vectors
-        col_info = await qdrant_client.get_collection(_col_juris)
+        # Verificar si tiene sparse vectors (la ficha, guardada: _info_coleccion)
+        col_info = await _info_coleccion(_col_juris)
         sparse_vectors_config = col_info.config.params.sparse_vectors
         has_sparse = sparse_vectors_config is not None and len(sparse_vectors_config) > 0
 
@@ -9371,15 +9603,16 @@ async def _jurisprudencia_boost_search(query: str, exclude_ids: set) -> List[Sea
                     score_threshold=0.01,
                 )
         else:
-            results = await qdrant_client.query_points(
-                collection_name=FIXED_SILOS["jurisprudencia"],
-                query=dense_vector,
-                using=_vector_de(FIXED_SILOS["jurisprudencia"]),
-                limit=10,
-                query_filter=None,
-                with_payload=True,
-                score_threshold=0.01,  # Muy bajo para máximo recall
-            )
+            async with QDRANT_SEM:
+                results = await qdrant_client.query_points(
+                    collection_name=FIXED_SILOS["jurisprudencia"],
+                    query=dense_vector,
+                    using=_vector_de(FIXED_SILOS["jurisprudencia"]),
+                    limit=10,
+                    query_filter=None,
+                    with_payload=True,
+                    score_threshold=0.01,  # Muy bajo para máximo recall
+                )
 
         search_results = []
         for point in results.points:
@@ -10704,9 +10937,12 @@ async def hybrid_search_all_silos(
                 if _silo_est:
                     silos_set.add(_silo_est)
                 elif not estado:
-                    # Sin entidad elegida sí tiene sentido abrir todos: el
-                    # abogado no dijo dónde litiga.
-                    silos_set.update(ESTADO_SILO.values())
+                    # Sin entidad elegida ya NO se abren las 32 (29-oct-2026):
+                    # la que nombre la pregunta, y si no nombra ninguna, lo que
+                    # rige en toda la República ocupa su lugar. Ver
+                    # _estatales_sin_estado.
+                    _est_txt = _estatales_sin_estado(query)
+                    silos_set.update(_est_txt or (FIXED_SILOS["federal"], FIXED_SILOS["constitucional"]))
                 # Si eligió entidad y no está ingestada, NO se abren los demás
                 # estados: ver la explicación en _silo_del_estado.
 
@@ -10724,8 +10960,11 @@ async def hybrid_search_all_silos(
                 print(f"   📍 Estado '{estado}' SIN colección propia → "
                       f"sólo federal, constitucional y jurisprudencia")
         else:
-            silos_to_search.extend(ESTADO_SILO.values())
-            print(f"   📍 Sin fuero/estado → buscando en {len(ESTADO_SILO) + len(FIXED_SILOS)} silos")
+            # Ver _estatales_sin_estado: ya no se abren las 32 (29-oct-2026).
+            _est_txt = _estatales_sin_estado(query)
+            silos_to_search.extend(_est_txt)
+            print(f"   📍 Sin fuero/estado → buscando en {len(silos_to_search)} silos"
+                  + (f" (estatal: {_est_txt[0]}, nombrado en la pregunta)" if len(_est_txt) == 1 else ""))
     
     # ═══════════════════════════════════════════════════════════════════════════
     # HOLDINGS JUDICIALES: Siempre incluir — contexto clave de interpretación
@@ -16755,6 +16994,91 @@ async def _smart_rag_for_document(
 # ENDPOINT: CHAT (STREAMING SSE CON THINKING MODE + RAG)
 # ══════════════════════════════════════════════════════════════════════════════
 
+# ── EL FILTRO DE CONTENIDO DE OPENAI YA NO DEVUELVE LA CONSULTA (29-oct-2026) ──
+# El 28-oct, entre las 00:28 y las 00:47Z, gpt-6-luna rechazó 10 de 10
+# llamadas del chat con «APIError: Invalid prompt: your prompt was flagged as
+# potentially violating our usage policy». Eran preguntas jurídicas —delitos,
+# violencia, lo que un abogado consulta todos los días— y el filtro las tomó
+# por otra cosa. Sin una letra entregada, la consulta se devolvía y el abogado
+# se quedaba sin respuesta: cuatro usuarios en veinte minutos. gpt-5.6-terra,
+# con el mismo contexto, sí contestaba.
+#
+# Ahora, si ese error llega ANTES de la primera letra —al abrir el flujo o a
+# mitad del razonamiento—, se reintenta UNA vez con otro modelo, con el mismo
+# contexto ya armado (no se vuelve a buscar nada). Si ya había texto, no: lo
+# entregado se queda y manda el aviso de siempre. En el registro queda
+# «🛡️ filtro de OpenAI → respaldo con X». Terra cuesta unas veinte veces luna
+# (2 / 12 USD por millón frente a 0.10 / 0.50): unos 0.25 USD por consulta
+# rescatada, sólo cuando el filtro dispara.
+#
+# RESPALDO_FILTRO_MODELO en Render elige el modelo (cualquiera de OpenAI);
+# vacío, apaga el respaldo.
+_RESPALDO_FILTRO_MODELO = os.getenv("RESPALDO_FILTRO_MODELO", "gpt-5.6-terra").strip()
+
+
+def _es_filtro_openai(e: BaseException) -> bool:
+    """¿Es el rechazo del filtro de contenido de OpenAI («invalid_prompt»)?"""
+    texto = str(e or "").lower()
+    codigo = str(getattr(e, "code", "") or "").lower()
+    return ("flagged as potentially violating" in texto or "invalid_prompt" in texto
+            or codigo == "invalid_prompt")
+
+
+def _kwargs_respaldo_filtro(kw: dict) -> Optional[dict]:
+    """La misma llamada con el modelo de respaldo, o None si no hay a cuál ir."""
+    modelo = str(kw.get("model") or "")
+    respaldo = _RESPALDO_FILTRO_MODELO
+    if not respaldo or respaldo == modelo or "deepseek" in modelo.lower() or "gemini" in modelo.lower():
+        return None
+    nuevo = dict(kw)
+    nuevo["model"] = respaldo
+    nuevo.pop("extra_body", None)   # parámetros de DeepSeek/OpenRouter: OpenAI los rechaza
+    # La familia 5.6 sólo entiende none/low/medium/high/xhigh: `minimal`
+    # (el de gpt-5-mini) le da 400.
+    if nuevo.get("reasoning_effort") not in (None, "none", "low", "medium", "high", "xhigh"):
+        nuevo["reasoning_effort"] = "low"
+    return nuevo
+
+
+async def _flujo_con_respaldo_filtro(cliente, kw: dict, uso: dict):
+    """`cliente.chat.completions.create(**kw)` en flujo, con UN reintento con
+    otro modelo si el filtro de contenido de OpenAI lo rechaza antes de la
+    primera letra. Si hubo respaldo, `uso` queda con {"modelo", "kwargs"}."""
+
+    async def _respaldo(e: BaseException):
+        kw2 = _kwargs_respaldo_filtro(kw)
+        if kw2 is None:
+            raise e
+        print(f"   🛡️ filtro de OpenAI → respaldo con {kw2['model']} "
+              f"({kw.get('model')} rechazó la consulta antes de escribir)")
+        uso["modelo"], uso["kwargs"] = kw2["model"], kw2
+        return await cliente.chat.completions.create(**kw2)
+
+    try:
+        flujo = await cliente.chat.completions.create(**kw)
+    except Exception as e:
+        if not _es_filtro_openai(e):
+            raise
+        return await _respaldo(e)
+
+    async def _trozos():
+        hubo_texto = False
+        try:
+            async for trozo in flujo:
+                if not hubo_texto and trozo.choices and getattr(trozo.choices[0].delta, "content", None):
+                    hubo_texto = True
+                yield trozo
+            return
+        except Exception as e:
+            if hubo_texto or not _es_filtro_openai(e):
+                raise
+            flujo2 = await _respaldo(e)
+        async for trozo in flujo2:
+            yield trozo
+
+    return _trozos()
+
+
 def herramienta_platinum_del_chat(ultimo_mensaje: str) -> Optional[str]:
     """La herramienta de Platinum que pide el último mensaje del usuario, dicha
     para el aviso («… es exclusiva del plan Platinum»), o None. Mismas
@@ -18681,10 +19005,23 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                     # Con el hilo: «relaciona lo anterior con jurisprudencia»
                     # buscaba precedentes sobre la palabra «jurisprudencia».
                     async def _precedentes_con_hilo():
+                        # Su propio carril de Qdrant (ver QDRANT_SEM_PRECEDENTES):
+                        # la tarea tiene su copia del contexto, así que esto no
+                        # toca a la búsqueda principal.
+                        _CARRIL_QDRANT.set(QDRANT_SEM_PRECEDENTES)
+                        _consulta_prec = await _hilo_task
+                        # Sin estado elegido ni nombrado en la pregunta, los
+                        # siete circuitos van en UNA consulta y no en siete
+                        # (29-oct-2026, ver _TCC_POR_CIRCUITO_EN_UNA): es la
+                        # consulta que además abría las 32 colecciones
+                        # estatales y se moría a los 30 s.
+                        _sin_estado_prec = not (request.estado or detect_single_estado_from_query(
+                            _consulta_prec or "", avisar=False))
                         return await search_precedentes_unified(
-                            query=await _hilo_task,
+                            query=_consulta_prec,
                             limit_scjn=int(os.getenv("PRECEDENTES_SCJN", "12")),
                             limit_tcc=int(os.getenv("PRECEDENTES_TCC", "24")),
+                            una_busqueda_tcc=_PRECEDENTES_UNA_BUSQUEDA and _sin_estado_prec,
                         )
                     _precedentes_task = asyncio.create_task(_precedentes_con_hilo())
 
@@ -20751,7 +21088,10 @@ Evita contradicciones y estructura la respuesta de forma impecable usando format
                     print(f"   🔌 API CALL: max_tokens={api_kwargs.get('max_tokens', 'N/A')} max_completion_tokens={api_kwargs.get('max_completion_tokens', 'N/A')}")
                     _t_api_call = time.perf_counter()
                     
-                    stream = await active_client.chat.completions.create(**api_kwargs)
+                    # Con respaldo si el filtro de contenido de OpenAI rechaza la
+                    # consulta antes de escribir (ver _flujo_con_respaldo_filtro).
+                    _uso_flujo: dict = {}
+                    stream = await _flujo_con_respaldo_filtro(active_client, api_kwargs, _uso_flujo)
                     print(f"   ⏱ STREAM CREATED: {time.perf_counter() - _t_api_call:.2f}s (connection established)")
                     
                     _chunk_count = 0
@@ -20803,6 +21143,11 @@ Evita contradicciones y estructura la respuesta de forma impecable usando format
                                 content_buffer += content
                                 yield content
                                 _last_yield_time = time.perf_counter()
+
+                    # Si contestó el respaldo, lo que sigue (el reintento sin
+                    # razonar) habla con ESE modelo, no con el que se negó.
+                    if _uso_flujo.get("modelo"):
+                        active_model, api_kwargs = _uso_flujo["modelo"], _uso_flujo["kwargs"]
                     
                     # Edge case: thinking mode produced reasoning but ZERO content
                     if use_thinking and reasoning_buffer and not content_buffer.strip():
