@@ -29,6 +29,17 @@ y los bundles viejos siguen exactamente como antes.
 
 Nada de esto puede tumbar una consulta: cada escritura es en segundo plano y
 sus fallos sólo se anotan («💾 RESPALDO»).
+
+TAMBIÉN EL ANÁLISIS DE DOCUMENTOS (28-oct-2026). Un Platinum del Tribunal
+Colegiado de Tlaxcala (folio 3640-01) trabajaba tras Cisco Umbrella, que
+retiene el streaming y lo entrega entero al terminar. De sus cuatro análisis,
+la pantalla abortó tres a los 75 s de silencio aunque el servidor los terminó
+(144, 110 y 101 s), y /analyze-document no guardaba copia: se perdieron el
+análisis y el texto leído del documento. Ahora la ruta pasa por aquí con
+`formato="documento"`: su flujo son eventos SSE, y la copia se arma como la
+armaría la pantalla —la pregunta con el documento oculto dentro, la respuesta
+con los `token`— para que la pantalla la espere cuando la red retiene el flujo
+y la recuperación la pase al historial si nadie lo hizo.
 """
 from __future__ import annotations
 
@@ -136,6 +147,87 @@ def texto_para_historial(crudo: str) -> str:
     return texto
 
 
+# ── El análisis de un documento, como lo guardaría la pantalla ────────────
+#
+# /analyze-document no manda texto plano sino eventos SSE (`data: {…}`), y
+# `handleDocumentSubmit` (src/app/chat/page.tsx) arma con ellos dos mensajes:
+#
+#   · la PREGUNTA: lo que el abogado ve («📄 **Documento adjunto:** …») y,
+#     oculto entre DOCUMENTO_INICIO y DOCUMENTO_FIN, el texto que se leyó del
+#     documento (evento `documento`), para que los turnos siguientes lo tengan;
+#   · la RESPUESTA: los `token` uno tras otro, tal cual llegan; un `error` la
+#     sustituye por «❌ Error al analizar documento: …».
+#
+# `progreso`, `limite_plan`, `done` y los latidos no se guardan.
+
+_ERROR_DOCUMENTO = "❌ Error al analizar documento: "
+
+
+def encabezado_de_adjunto(nombre: str, pregunta: str) -> str:
+    """Espejo de `encabezadoDeAdjunto` (src/lib/memoria-conversacion.ts): lo
+    que ve el abogado cuando la pantalla no mandó su `mensaje_visible`."""
+    return f"📄 **Documento adjunto:** {nombre}\n\n{pregunta}"
+
+
+def mensaje_con_documento(visible: str, nombre: str, texto: str, recortado: bool = False) -> str:
+    """Espejo de `mensajeConDocumento` (src/lib/memoria-conversacion.ts)."""
+    aviso = "; es la primera parte, el documento es más largo" if recortado else ""
+    return (f"{visible}\n\n<!-- DOCUMENTO_INICIO -->\n"
+            f"CONTENIDO DEL DOCUMENTO ADJUNTO «{nombre}» (texto leído por Iurexia{aviso}):\n\n"
+            f"{texto}\n<!-- DOCUMENTO_FIN -->")
+
+
+def _pregunta_con_documento(visible: str, nombre: str, texto: str, recortado: bool) -> str:
+    """Con el tope de la columna: si no cabe se recorta el DOCUMENTO, no el
+    mensaje, para que el cierre <!-- DOCUMENTO_FIN --> no se pierda."""
+    m = mensaje_con_documento(visible, nombre, texto, recortado)
+    if len(m) <= TOPE_PREGUNTA:
+        return m
+    sobra = len(m) - TOPE_PREGUNTA + 100   # el aviso de «primera parte» también ocupa
+    return mensaje_con_documento(visible, nombre, texto[:max(0, len(texto) - sobra)], True)
+
+
+def _eventos_sse(crudo: str):
+    for bloque in crudo.split("\n\n"):
+        for linea in bloque.split("\n"):
+            if not linea.startswith("data: "):
+                continue
+            try:
+                d = json.loads(linea[6:])
+            except ValueError:
+                continue
+            if isinstance(d, dict):
+                yield d
+
+
+def armar_documento(crudo: str, visible: str) -> tuple[str, str]:
+    """(pregunta, respuesta) de un /analyze-document, con el mismo orden de
+    preguntas que la pantalla hace a cada evento."""
+    pregunta, respuesta = visible, ""
+    for d in _eventos_sse(crudo):
+        if d.get("token"):
+            respuesta += str(d["token"])
+        elif d.get("progreso"):
+            continue
+        elif isinstance(d.get("documento"), dict) and d["documento"].get("texto"):
+            doc = d["documento"]
+            pregunta = _pregunta_con_documento(visible, str(doc.get("nombre") or ""),
+                                               str(doc["texto"]), bool(doc.get("recortado")))
+        elif d.get("limite_plan"):
+            continue
+        elif d.get("error"):
+            respuesta = _ERROR_DOCUMENTO + str(d["error"])
+    return pregunta, respuesta
+
+
+def _armar_chat(crudo: str, pregunta: str) -> tuple[str, str]:
+    return pregunta, texto_para_historial(crudo)
+
+
+# Cómo se convierte lo que salió por el flujo en (pregunta, respuesta).
+_ARMADORES = {"chat": _armar_chat, "documento": armar_documento}
+
+
 # ── Escrituras ─────────────────────────────────────────────────────────────
 
 async def _usuario_del_token(authorization: Optional[str]) -> Optional[str]:
@@ -162,19 +254,28 @@ async def _abrir(fila: dict) -> bool:
 
 
 async def _cerrar(apertura: "asyncio.Task", peticion_id: str, user_id_task: "asyncio.Task",
-                  crudo: str, terminada: bool) -> None:
+                  crudo: str, terminada: bool, formato: str = "chat", pregunta: str = "") -> None:
     try:
         if not await apertura:
             return
-        respuesta = texto_para_historial(crudo)[:TOPE_RESPUESTA]
+        armar = _ARMADORES.get(formato, _armar_chat)
+        pregunta_final, respuesta = armar(crudo, pregunta)
+        respuesta = respuesta[:TOPE_RESPUESTA]
         estado = "terminada" if terminada else "interrumpida"
+        cambios = {
+            "respuesta": respuesta,
+            "estado": estado,
+            "terminada_at": datetime.now(timezone.utc).isoformat(),
+        }
+        # El documento leído entra a la pregunta al cerrar: al abrir la fila
+        # todavía no se había leído.
+        if pregunta_final != pregunta:
+            cambios["pregunta"] = pregunta_final[:TOPE_PREGUNTA]
         await asyncio.to_thread(
-            lambda: _sb.table("respuestas_chat").update({
-                "respuesta": respuesta,
-                "estado": estado,
-                "terminada_at": datetime.now(timezone.utc).isoformat(),
-            }).eq("peticion_id", peticion_id).eq("user_id", user_id_task.result()).execute())
-        print(f"   💾 RESPALDO {estado}: {peticion_id} ({len(respuesta):,} car.)")
+            lambda: _sb.table("respuestas_chat").update(cambios)
+            .eq("peticion_id", peticion_id).eq("user_id", user_id_task.result()).execute())
+        print(f"   💾 RESPALDO {estado}: {peticion_id} ({len(respuesta):,} car.)"
+              + (f" · {formato}" if formato != "chat" else ""))
     except Exception as e:
         print(f"   💾 RESPALDO: no pude cerrar {peticion_id}: {type(e).__name__}: {str(e)[:160]}")
 
@@ -195,8 +296,13 @@ async def con_respaldo(
     expediente_id: Optional[str],
     pregunta: str,
     estado: Optional[str],
+    formato: str = "chat",
 ) -> AsyncIterator[str]:
     """Deja pasar el stream tal cual y guarda una copia de lo que salió.
+
+    `formato` dice cómo leer lo que salió: "chat" (texto con marcadores) o
+    "documento" (los eventos SSE de /analyze-document; `pregunta` es entonces
+    lo que ve el abogado, sin el documento).
 
     Sin `peticion_id` válido (o sin token, o sin Supabase) es un paso directo:
     ni una línea de comportamiento distinto."""
@@ -238,7 +344,8 @@ async def con_respaldo(
         # Aquí puede llegarse por cancelación (el navegador se fue): no se
         # espera nada en este punto, la escritura va en su propia tarea.
         if partes or terminada:
-            _en_segundo_plano(_cerrar(apertura, peticion, quien, "".join(partes), terminada))
+            _en_segundo_plano(_cerrar(apertura, peticion, quien, "".join(partes), terminada,
+                                      formato, pregunta or ""))
         # Si a ESTE generador lo cerraron a medias (aclose), el de dentro se
         # cierra ya, como se cerraba antes de existir la envoltura, y no
         # cuando el recolector de basura lo encuentre.
