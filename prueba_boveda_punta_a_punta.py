@@ -63,6 +63,22 @@ async def usuario_falso(authorization):
 
 boveda._usuario = usuario_falso
 
+# La puerta de la sesión (29-oct-2026, puerta_sesion.py) comprueba el token
+# del /chat contra Supabase porque el cuerpo dice `user_id`: aquí acepta el
+# mismo testigo de prueba que la Bóveda.
+import puerta_sesion as _ps  # noqa: E402
+_sesion_de_verdad = _ps.sesion_del_token
+
+
+async def _sesion_de_prueba(authorization, ruta=""):
+    tok = _ps._extraer(authorization)
+    if tok.startswith("prueba:"):
+        return _ps.Sesion(id=tok.split(":", 1)[1].strip().lower(), correo="")
+    return await _sesion_de_verdad(authorization, ruta)
+
+
+_ps.sesion_del_token = _sesion_de_prueba
+
 
 def sb():
     return boveda._cliente()

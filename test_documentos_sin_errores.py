@@ -251,9 +251,27 @@ class _Motor:
         return gen()
 
 
+def _token(uid: str) -> str:
+    """Un token con forma de JWT que dice de quién es. Desde el 29-oct-2026 el
+    `user_id` sin token se atiende como anónimo (puerta_sesion.py): para que la
+    ruta lea el plan, la petición tiene que traer el token de esa cuenta."""
+    import base64
+    import time
+    carga = base64.urlsafe_b64encode(json.dumps({"sub": uid, "exp": time.time() + 3600}).encode())
+    return f"e30.{carga.decode().rstrip('=')}.firma"
+
+
 class _Sb:
     def __init__(self, plan="pro_monthly"):
         self.plan, self.rpcs = plan, []
+        self.auth = types.SimpleNamespace(get_user=self._get_user)
+
+    @staticmethod
+    def _get_user(tok):
+        import base64
+        carga = tok.split(".")[1]
+        uid = json.loads(base64.urlsafe_b64decode(carga + "=" * (-len(carga) % 4)))["sub"]
+        return types.SimpleNamespace(user=types.SimpleNamespace(id=uid, email="abogada@ejemplo.mx"))
 
     def table(self, nombre):
         sb = self
@@ -293,11 +311,13 @@ async def _analizar(sb, motor, archivo, campos=None, nombre="agravios.pdf"):
     main.supabase_admin = sb
     main._via_documento = lambda modelo, esfuerzo=None: (motor, {})
     transporte = httpx.ASGITransport(app=main.app)
+    uid = str(uuid.uuid4())
     async with httpx.AsyncClient(transport=transporte, base_url="http://prueba", timeout=60) as c:
         r = await c.post("/analyze-document",
+                         headers={"Authorization": f"Bearer {_token(uid)}"},
                          files={"file": (nombre, archivo, "application/pdf")},
                          data={"prompt": "¿Qué agravios hace valer?", "usar_acervo": "0",
-                               "user_id": str(uuid.uuid4()), **(campos or {})})
+                               "user_id": uid, **(campos or {})})
     for _ in range(100):
         if not main._DEVOLUCIONES:
             break

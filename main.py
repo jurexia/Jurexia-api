@@ -12187,11 +12187,25 @@ async def hybrid_search_multi_state(
 # APP FASTAPI
 # ══════════════════════════════════════════════════════════════════════════════
 
+# QUIÉN PIDE LO DICE EL TOKEN, NO EL FORMULARIO (29-oct-2026). Sin token, la
+# API contestaba con los datos de una cuenta a quien supiera su correo —el
+# .docx de sus proyectos incluido— y dejaba usar su cuota y su plan. La puerta
+# es de TODA la app, no de cada endpoint: lo que diga `user_email` o `user_id`
+# se demuestra con el token de esa cuenta (401 sin él, 403 con el de otra), y
+# el taller exige sesión siempre. Ver puerta_sesion.py.
+#
+# El cliente se lee al pedirlo, no al importar: las pruebas sustituyen
+# `supabase_admin` después de cargar main.py.
+from fastapi import Depends  # noqa: E402
+import puerta_sesion as _puerta  # noqa: E402
+_puerta.configurar(lambda: supabase_admin)
+
 app = FastAPI(
     title="Iurexia Core API",
     description="Motor de Producción para Plataforma LegalTech con RAG Híbrido",
     version="1.0.0",
     lifespan=lifespan,
+    dependencies=[Depends(_puerta.puerta)],
 )
 
 # CORS para Next.js frontend (allow all origins for production flexibility)
@@ -12210,7 +12224,11 @@ app.add_middleware(
                     # X-Supervisor (3-oct-2026): el camino plano dice cuántas
                     # correcciones hizo el supervisor y, sin exponerla, el
                     # navegador la leía siempre como null.
-                    "X-Version", "X-Supervisor", "Content-Disposition"],
+                    "X-Version", "X-Supervisor", "Content-Disposition",
+                    # X-Sesion (29-oct-2026): «falta», «caducada» o «ajena» en
+                    # los 401/403 de puerta_sesion.py. La pantalla la lee para
+                    # renovar la sesión y repetir UNA vez en vez de rendirse.
+                    "X-Sesion"],
 )
 
 # El agente de los flujos de trabajo (25-sep-2026): un ayudante sin estado que
@@ -13851,6 +13869,13 @@ async def analyze_document(
     from starlette.responses import StreamingResponse
 
     t0 = _time.time()
+
+    # EL user_id SIN TOKEN NO SE CREE (29-oct-2026). La app móvil publicada lo
+    # manda sin token: se la atiende como anónima —límites del gratuito, sin
+    # cobrarle a nadie— en vez de leer el plan y la cuota de quien diga ese
+    # id. Con token, la puerta ya comprobó que el id es el suyo (o dio 403).
+    # Ver TOLERAN_ANONIMO en puerta_sesion.py.
+    user_id = _puerta.id_verificado(http_request, user_id)
 
     # El historial que llega como archivo se lee AQUÍ, antes de devolver el
     # flujo: los archivos subidos se cierran al salir de esta función.
@@ -17362,7 +17387,9 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
     # Ultra, administración y la cortesía (acceso_platinum.py).
     #
     # El usuario es `request.user_id`, el del cuerpo, que es también a quien
-    # cobra `consume_query`: el /chat entero se fía de él.
+    # cobra `consume_query`: el /chat entero se fía de él. Desde el 29-oct-2026
+    # ya no a ciegas: si viene, la puerta (puerta_sesion.py) exigió el token
+    # de esa misma cuenta —401 sin él, 403 con el de otra—.
     _ultimo_usuario = next((m.content or "" for m in reversed(request.messages)
                             if m.role == "user"), "")
     _herramienta_platinum = herramienta_platinum_del_chat(_ultimo_usuario)
@@ -22762,11 +22789,11 @@ async def _acceso_jurimetria(user_email: str, authorization: Optional[str]) -> "
     Jenica, ver acceso_platinum.py).
 
     QUIÉN LLAMA (12-oct-2026). Si llega el token —la app móvil lo manda—,
-    manda el token. La web todavía no lo envía (JurimetriaModal.tsx sólo pone
-    `user_email` en el formulario), así que sin token se lee el correo del
-    formulario, como siempre, y ése lo puede escribir cualquiera. Cuando la
-    web mande el token, quitar este repliegue y exigirlo: el aviso de abajo
-    dice cuántas veces se usa todavía."""
+    manda el token. Sin token se leía el correo del formulario, y ése lo puede
+    escribir cualquiera. DESDE EL 29-OCT-2026 la puerta (puerta_sesion.py) ya
+    no deja llegar aquí un `user_email` sin token —401— ni con el token de otra
+    cuenta —403—, y la web lo manda (JurimetriaModal.tsx). El repliegue de
+    abajo sólo se alcanza con la palanca SESION_EXIGIR=0."""
     if authorization:
         if not supabase_admin:
             raise HTTPException(503, "Servicio temporalmente no disponible")
@@ -33450,7 +33477,12 @@ async def connect_search_lawyers(req: LawyerSearchRequest):
         
         result = query.limit(req.limit).execute()
         lawyers = result.data or []
-        
+        # El teléfono sólo si el abogado eligió enseñarlo (29-oct-2026): con
+        # `select("*")` salía siempre, `phone_visible` o no.
+        for _abogado in lawyers:
+            if not _abogado.get("phone_visible"):
+                _abogado["phone"] = None
+
         return {
             "lawyers": lawyers,
             "total": len(lawyers),
@@ -33463,43 +33495,47 @@ async def connect_search_lawyers(req: LawyerSearchRequest):
 
 # ── Lawyer Profile Index ──────────────────────────────────────────────────────
 
+# LO QUE EL ABOGADO PUEDE TOCAR DE SU PROPIO PERFIL (29-oct-2026). Esta ruta
+# escribía con la llave de servicio el diccionario que llegara, buscando la
+# fila por su cédula y SIN sesión: cualquiera reescribía el perfil de otro
+# abogado —y su «verified»— o daba de alta uno falso en el directorio. Ahora
+# exige la sesión (EXIGEN_SESION en puerta_sesion.py), sólo toca la fila cuyo
+# `id` es el de esa sesión y sólo estos campos. La verificación y el «pro» no
+# se escriben desde aquí. La pantalla (ConnectLawyerSection.tsx) ya guardó el
+# perfil en Supabase con su propia sesión antes de llamar; esto es lo que
+# queda del «índice» y su fallo no le estorba.
+_PERFIL_ABOGADO_EDITABLE = ("full_name", "specialties", "bio", "office_address", "avatar_url")
+
+
 @app.post("/connect/lawyers/index")
-async def connect_index_lawyer(profile: dict):
-    """Index a lawyer profile in Supabase."""
+async def connect_index_lawyer(profile: dict, request: Request):
+    """Actualiza el perfil de abogado DE QUIEN LLAMA."""
     if not supabase_admin:
         raise HTTPException(503, "Supabase no configurado")
-    
+    sesion = _puerta.sesion_de(request)
+    if not sesion:
+        # Con la palanca SESION_EXIGIR=0 la puerta deja pasar sin token; esta
+        # ruta escribe, y no se abre con la palanca.
+        raise HTTPException(401, _puerta.MENSAJE_SIN_SESION, headers={"X-Sesion": "falta"})
+
+    cedula = str(profile.get("cedula_number") or "").strip()
+    if not cedula:
+        raise HTTPException(400, "Se requiere cedula_number")
+    cambios = {k: profile[k] for k in _PERFIL_ABOGADO_EDITABLE if k in profile}
     try:
-        # Upsert by cedula_number
-        cedula = profile.get("cedula_number", "")
-        if not cedula:
-            raise HTTPException(400, "Se requiere cedula_number")
-        
-        # Check if already exists
-        existing = supabase_admin.table("lawyer_profiles")\
-            .select("id")\
-            .eq("cedula_number", cedula)\
-            .execute()
-        
-        if existing.data:
-            # Update
-            supabase_admin.table("lawyer_profiles")\
-                .update(profile)\
-                .eq("cedula_number", cedula)\
-                .execute()
-            return {"indexed": True, "point_id": existing.data[0]["id"], "action": "updated"}
-        else:
-            # Insert
-            result = supabase_admin.table("lawyer_profiles")\
-                .insert(profile)\
-                .execute()
-            new_id = result.data[0]["id"] if result.data else ""
-            return {"indexed": True, "point_id": new_id, "action": "created"}
-    except HTTPException:
-        raise
+        existing = await asyncio.to_thread(
+            lambda: supabase_admin.table("lawyer_profiles").select("id")
+            .eq("id", sesion.id).eq("cedula_number", cedula).limit(1).execute())
+        if not existing.data:
+            return {"indexed": False, "point_id": "", "action": "sin_perfil"}
+        if cambios:
+            await asyncio.to_thread(
+                lambda: supabase_admin.table("lawyer_profiles").update(cambios)
+                .eq("id", sesion.id).eq("cedula_number", cedula).execute())
+        return {"indexed": True, "point_id": existing.data[0]["id"], "action": "updated"}
     except Exception as e:
         print(f"❌ Lawyer index error: {err(e)}")
-        raise HTTPException(500, f"Error al indexar perfil: {str(e)}")
+        raise HTTPException(500, "No se pudo actualizar el perfil.")
 
 
 # ── Admin: Register Lawyer (batch entry) ──────────────────────────────────────
@@ -39452,9 +39488,11 @@ async def taller_extension():
 
 @app.post("/taller/desde-sise")
 async def taller_desde_sise(
-    # EL TOKEN MANDA SOBRE EL CUERPO. `user_email` se queda por compatibilidad
-    # con las extensiones ya instaladas, pero en cuanto llega una sesión de
-    # verdad es ella quien dice de quién son las constancias.
+    # EL TOKEN MANDA SOBRE EL CUERPO. `user_email` se queda porque el
+    # complemento 3.0 lo sigue mandando; desde el 29-oct-2026 la puerta
+    # (puerta_sesion.py) exige el token y que ese correo sea el suyo, así que
+    # las extensiones viejas, que no mandaban token, reciben un 401 que les
+    # dice que se vuelvan a bajar.
     authorization: str = Header(default=""),
     user_email: str = Form(""),
     numero: str = Form(...),
@@ -39687,12 +39725,10 @@ async def taller_desde_sise(
 @app.get("/taller/sise-pendiente")
 async def taller_sise_pendiente(user_email: str = "", numero: str = "",
                                 authorization: str = Header(default="")):
-    # Aquí el token es opcional a propósito: la pantalla del taller ya sabe
-    # quién entró y pregunta con su correo. Si viene, manda él.
-    try:
-        correo = await _correo_de_la_sesion(authorization, user_email)
-    except HTTPException:
-        correo = (user_email or "").strip().lower()
+    # El token ya no es opcional (29-oct-2026): con sólo el correo, cualquiera
+    # leía lo que esperaba a otro secretario. La puerta (puerta_sesion.py) lo
+    # exige en todo /taller/ y comprobó que el correo, si viene, es el suyo.
+    correo = await _correo_de_la_sesion(authorization, user_email)
     if not (correo and supabase_admin):
         return {"pendientes": []}
     try:
@@ -39802,24 +39838,17 @@ async def _correo_de_la_sesion(authorization: str, dicho: str) -> str:
     cualquiera podía dejar constancias a nombre de cualquier cuenta. El token
     lo firma Supabase y no se puede inventar.
 
-    Se conserva el correo del cuerpo como respaldo mientras queden extensiones
-    viejas instaladas, pero cuando hay token, MANDA EL TOKEN.
+    DESDE EL 29-OCT-2026 EL RESPALDO DEL CUERPO YA NO SE ALCANZA. /taller/*
+    exige sesión en `puerta_sesion.puerta`: sin token contesta 401 antes de
+    llegar aquí, y con el de otra cuenta, 403. Las extensiones anteriores a la
+    3.0 —que no mandaban token— tienen que volver a bajarse; el 401 se lo dice.
+    El correo del cuerpo sólo cuenta con la palanca SESION_EXIGIR=0. Y el token
+    se comprueba con la misma caché que la puerta, no con un segundo viaje.
     """
-    tok = (authorization or "").replace("Bearer ", "").strip()
-    if not tok:
-        return (dicho or "").strip().lower()
-    if not supabase_admin:
-        raise HTTPException(503, "No se puede comprobar la sesión ahora mismo.")
-    try:
-        r = await asyncio.to_thread(supabase_admin.auth.get_user, tok)
-        u = r.user
-        if u and u.email:
-            return u.email.strip().lower()
-    except Exception:
-        pass
-    raise HTTPException(401,
-        "Tu sesión de Iurexia caducó. Abre iurexia.com en una pestaña, entra, "
-        "y vuelve a pulsar: el complemento la recoge solo.")
+    sesion = await _puerta.sesion_del_token(authorization)
+    if sesion and sesion.correo:
+        return sesion.correo
+    return (dicho or "").strip().lower()
 
 
 def _soltar_constancias(correo: str, numero: str) -> None:

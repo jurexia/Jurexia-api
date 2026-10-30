@@ -64,16 +64,35 @@ class _Consulta:
 class _Usuario:
     def __init__(self, uid):
         self.id = uid
-        self.email = None
+        self.email = next((p["email"] for p in PERFILES if p["id"] == uid), None)
+
+
+def tok(uid):
+    """Un token con forma de JWT (29-oct-2026): la puerta de la sesión
+    (puerta_sesion.py) descarta sin preguntar lo que no la tiene, y desde
+    entonces el `user_id` o el `user_email` de la petición se demuestran con
+    el token de esa cuenta."""
+    import base64
+    import json
+    import time
+    carga = base64.urlsafe_b64encode(json.dumps({"sub": uid, "exp": time.time() + 3600}).encode())
+    return f"e30.{carga.decode().rstrip('=')}.firma"
 
 
 class _Auth:
     def get_user(self, token):
-        if not token.startswith("tok-"):
+        if token.startswith("tok-"):
+            uid = token[4:]
+        elif token.count(".") == 2:
+            import base64
+            import json
+            carga = token.split(".")[1]
+            uid = json.loads(base64.urlsafe_b64decode(carga + "=" * (-len(carga) % 4)))["sub"]
+        else:
             raise ValueError("token inválido")
 
         class R:
-            user = _Usuario(token[4:])
+            user = _Usuario(uid)
         return R()
 
 
@@ -249,9 +268,11 @@ def chat(sb, user_id, texto, historia=()):
     main.supabase_admin = sb
     mensajes = [{"role": r, "content": c} for r, c in historia] + [{"role": "user", "content": texto}]
     cuerpo = {"messages": mensajes}
+    cabeceras = {}
     if user_id:
         cuerpo["user_id"] = user_id
-    with cliente.stream("POST", "/chat", json=cuerpo) as r:
+        cabeceras["Authorization"] = f"Bearer {tok(user_id)}"
+    with cliente.stream("POST", "/chat", json=cuerpo, headers=cabeceras) as r:
         if r.status_code != 200:
             r.read()
             return r.status_code, r.json() if r.headers.get("content-type", "").startswith("application/json") else r.text
@@ -387,16 +408,21 @@ def jurimetria(sb, correo, token=None):
         main.qdrant_client = viejo
 
 
-s, c = jurimetria(sb, "abogada@ejemplo.mx")
-ok(s == 403 and c["detail"] == "La Jurimetría es exclusiva del plan Platinum.", f"Pro por correo → 403 en texto ({s}: {c})")
-s, c = jurimetria(sb, "socio@ejemplo.mx", token="tok-u-pro")
-ok(s == 403, f"el token manda: correo de un Platinum con token de un Pro → 403 ({s})")
-s, c = jurimetria(sb, "abogada@ejemplo.mx", token="tok-u-plat")
-ok(s != 403, f"token de un Platinum → pasa la puerta ({s})")
+s, c = jurimetria(sb, "abogada@ejemplo.mx", token=tok("u-pro"))
+ok(s == 403 and c["detail"] == "La Jurimetría es exclusiva del plan Platinum.", f"Pro con su token → 403 en texto ({s}: {c})")
+# Desde el 29-oct-2026 el correo solo ya no basta (puerta_sesion.py): sin
+# token, 401; con el token de otra cuenta, 403 antes de mirar ningún plan.
+s, c = jurimetria(sb, "socio@ejemplo.mx")
+ok(s == 401, f"el correo de un Platinum SIN token → 401, ya no el repliegue al correo ({s})")
+s, c = jurimetria(sb, "socio@ejemplo.mx", token=tok("u-pro"))
+ok(s == 403 and c["detail"] != "La Jurimetría es exclusiva del plan Platinum.",
+   f"correo de un Platinum con el token de un Pro → 403 de la puerta ({s})")
+s, c = jurimetria(sb, "socio@ejemplo.mx", token=tok("u-plat"))
+ok(s not in (401, 403), f"un Platinum con su token → pasa la puerta ({s})")
 s, c = jurimetria(sb, "socio@ejemplo.mx", token="basura")
 ok(s == 401, f"token inválido → 401, no el repliegue al correo ({s})")
-s, c = jurimetria(sb, "jenycampos@hotmail.com")
-ok(s != 403, f"Jenica por correo → pasa la puerta ({s})")
+s, c = jurimetria(sb, "jenycampos@hotmail.com", token=tok("u-jenica"))
+ok(s not in (401, 403), f"Jenica con su token → pasa la puerta ({s})")
 
 
 # ── Con la base real: sólo lee user_profiles ────────────────────────────
