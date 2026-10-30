@@ -244,10 +244,18 @@
     // cuerpo y `sesion()` reventaba en su primera línea con un
     // ReferenceError que `node --check` no ve.
     const cuenta = await leerSesion();
-    if (!cuenta) {
+    // UNA SESIÓN VENCIDA ES COMO NO TENERLA (29-oct-2026). Desde entonces el
+    // taller ya no acepta el correo solo: exige el token, y `sesion.js` sólo lo
+    // renueva mientras haya una pestaña de iurexia.com abierta. Sin esto el
+    // secretario esperaba a que bajaran todas las constancias del SISE para
+    // recibir al final un 401. Un minuto de margen para el viaje.
+    const vencida = !!cuenta && cuenta.caduca > 0 && cuenta.caduca * 1000 < Date.now() + 60000;
+    if (!cuenta || vencida) {
       panel.append(nota(
-        'Para saber en qué taller dejar las constancias hace falta tu sesión de '
-      + 'Iurexia. Abre iurexia.com en otra pestaña, entra con tu cuenta, y '
+        (vencida
+          ? 'Tu sesión de Iurexia en este navegador ya venció. '
+          : 'Para saber en qué taller dejar las constancias hace falta tu sesión de Iurexia. ')
+      + 'Abre iurexia.com en otra pestaña, entra con tu cuenta, y '
       + 'vuelve a pulsar aquí: se recoge sola.', 'iux-aviso'));
       const ir = $('a', 'iux-enviar', 'Abrir Iurexia');
       ir.href = 'https://www.iurexia.com/tcc-beta';
@@ -349,8 +357,9 @@
       estado.textContent = `Enviando ${bajados.length} constancias a Iurexia…`;
 
       const fd = new FormData();
-      // Se sigue mandando por compatibilidad, pero el servidor hace caso al
-      // token: un correo suelto lo puede escribir cualquiera.
+      // Se sigue mandando, pero el servidor hace caso al token y comprueba
+      // que este correo sea el suyo: un correo suelto lo puede escribir
+      // cualquiera (sin token, 401 desde el 29-oct-2026).
       fd.append('user_email', correo);
       fd.append('numero', s.numero || String(s.neun));
       fd.append('tipo_sise', s.tipoAsunto || '');

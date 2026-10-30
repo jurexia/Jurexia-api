@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Iurexia · Taller desde el Expediente Electrónico",
-  "version": "3.0.0",
+  "version": "3.0.1",
   "description": "Trae al taller de sentencias las constancias del expediente que tienes abierto. No pide correo ni contraseña: usa la sesión de Iurexia que ya tienes en el navegador.",
   "permissions": [
     "storage"
