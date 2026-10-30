@@ -13793,6 +13793,7 @@ def _intercalar_resultados(lotes: List[List["SearchResult"]], tope: int = 36) ->
 
 @app.post("/analyze-document")
 async def analyze_document(
+    http_request: Request,
     file: UploadFile = File(...),
     prompt: str = Form("Analiza este documento y genera un resumen ejecutivo completo"),
     user_id: str = Form(None),
@@ -13810,6 +13811,15 @@ async def analyze_document(
     # adjuntos pasa de eso. El campo de texto queda por compatibilidad.
     historial: str = Form(None),
     historial_archivo: Optional[UploadFile] = File(None),
+    # LA COPIA DEL ANÁLISIS EN EL SERVIDOR (28-oct-2026), como la del /chat:
+    # con `peticion_id` (y el token en la cabecera) el análisis y el texto
+    # leído quedan en `respuestas_chat`. Ver respuesta_guardada.py y el final
+    # de esta función. `mensaje_visible` es el mensaje del abogado tal como
+    # lo pinta la pantalla.
+    peticion_id: str = Form(None),
+    conversation_id: str = Form(None),
+    expediente_id: str = Form(None),
+    mensaje_visible: str = Form(None),
 ):
     """
     Analiza un documento completo con Gemini Flash vía OpenRouter.
@@ -14777,8 +14787,25 @@ async def analyze_document(
             _msg = f"No pudimos completar el análisis de este documento. {_cobro}{_consejo}"
             yield f"data: {json.dumps({'error': _msg})}\n\n"
 
+    # ── LA RED QUE RETIENE EL FLUJO (28-oct-2026) ───────────────────────────
+    # Tras Cisco Umbrella el navegador no recibe nada hasta que el servidor
+    # termina, y la pantalla abortaba a los 75 s de silencio: tres análisis
+    # terminados (144, 110 y 101 s) se perdieron con el documento que leyeron.
+    # Con la copia, la pantalla que deja de oír el flujo la espera aquí, y si
+    # nadie la guarda la pasa al historial la recuperación. El formulario
+    # multipart llega con los saltos de línea en CRLF (así lo serializan el
+    # navegador y undici) y la pantalla guarda LF: se vuelven LF.
     return StreamingResponse(
-        stream_analysis(),
+        _respaldo.con_respaldo(
+            stream_analysis(),
+            authorization=http_request.headers.get("authorization"),
+            peticion_id=peticion_id,
+            conversation_id=conversation_id,
+            expediente_id=expediente_id,
+            pregunta=(mensaje_visible or _respaldo.encabezado_de_adjunto(filename, prompt)).replace("\r\n", "\n"),
+            estado=_estado_doc_selector,
+            formato="documento",
+        ),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",

@@ -128,6 +128,7 @@ def test_pasa_el_stream_tal_cual_y_guarda():
     assert (t2, op2) == ("respuestas_chat", "update")
     assert d2["estado"] == "terminada"
     assert d2["respuesta"] == "Primera parte. Segunda.\n\n<!-- CITATION_META:{} -->"
+    assert "pregunta" not in d2   # el chat no reescribe la pregunta al cerrar
     assert ("peticion_id", PET) in f2 and ("user_id", USR) in f2
 
 
@@ -184,6 +185,89 @@ def test_aclose_cierra_el_de_dentro():
 
     asyncio.run(correr())
     assert cerrado == [True]
+
+
+# ── /analyze-document: la copia se arma como la armaría la pantalla ───────
+
+VISIBLE = "📄 **Documento adjunto:** agravios.pdf\n\n¿Qué agravios hace valer la recurrente?"
+
+
+def _sse(d):
+    import json as _j
+    return "data: " + _j.dumps(d, ensure_ascii=False) + "\n\n"
+
+
+async def _correr_doc(sb, trozos, corta_en=None):
+    rg.configurar(sb)
+    salida = []
+    gen = rg.con_respaldo(_flujo(trozos, corta_en), authorization="Bearer buen-token", peticion_id=PET,
+                          conversation_id=CONV, expediente_id=None, pregunta=VISIBLE, estado="TLAXCALA",
+                          formato="documento")
+    try:
+        async for t in gen:
+            salida.append(t)
+    except asyncio.CancelledError:
+        pass
+    for _ in range(50):
+        if not rg._tareas:
+            break
+        await asyncio.sleep(0.01)
+    return salida
+
+
+def test_mensaje_con_documento_es_espejo_del_front():
+    # El mismo texto que arma `mensajeConDocumento` (src/lib/memoria-conversacion.ts).
+    assert rg.mensaje_con_documento("V", "a.pdf", "TEXTO") == (
+        "V\n\n<!-- DOCUMENTO_INICIO -->\n"
+        "CONTENIDO DEL DOCUMENTO ADJUNTO «a.pdf» (texto leído por Iurexia):\n\n"
+        "TEXTO\n<!-- DOCUMENTO_FIN -->")
+    assert "(texto leído por Iurexia; es la primera parte, el documento es más largo):" in \
+        rg.mensaje_con_documento("V", "a.pdf", "T", recortado=True)
+    assert rg.encabezado_de_adjunto("a.pdf", "¿Procede?") == "📄 **Documento adjunto:** a.pdf\n\n¿Procede?"
+
+
+def test_documento_guarda_la_pregunta_con_el_documento_y_los_tokens():
+    sb = _SbFalso()
+    trozos = [_sse({"progreso": "Leyendo el documento…"}), ": latido\n\n",
+              _sse({"documento": {"nombre": "agravios.pdf", "texto": "PRIMER AGRAVIO. La sentencia…",
+                                  "recortado": False}}),
+              _sse({"limite_plan": {"leidas": 20, "total": 31, "plan": "Pro"}}),
+              _sse({"token": "## Agravios\n\n"}), _sse({"token": "La recurrente sostiene…"}),
+              _sse({"token": "\n<!-- CITATION_META:{} -->"}),
+              _sse({"done": True, "filename": "agravios.pdf", "chars_analyzed": 30})]
+    salida = asyncio.run(_correr_doc(sb, trozos))
+    assert salida == trozos                                   # el flujo pasa intacto
+    (_, op1, d1, _), (_, op2, d2, _) = sb.llamadas
+    assert op1 == "upsert" and d1["pregunta"] == VISIBLE and d1["estado"] == "en_curso"
+    assert op2 == "update" and d2["estado"] == "terminada"
+    assert d2["respuesta"] == "## Agravios\n\nLa recurrente sostiene…\n<!-- CITATION_META:{} -->"
+    assert d2["pregunta"] == rg.mensaje_con_documento(VISIBLE, "agravios.pdf", "PRIMER AGRAVIO. La sentencia…")
+
+
+def test_documento_error_sustituye_a_lo_escrito():
+    sb = _SbFalso()
+    asyncio.run(_correr_doc(sb, [_sse({"token": "Empiezo"}),
+                                 _sse({"error": "No pudimos completar el análisis de este documento."})]))
+    d = sb.llamadas[-1][2]
+    assert d["estado"] == "terminada"
+    assert d["respuesta"] == "❌ Error al analizar documento: No pudimos completar el análisis de este documento."
+    assert "pregunta" not in d                                # nunca se leyó el documento
+
+
+def test_documento_cortado_queda_interrumpida_con_el_documento():
+    sb = _SbFalso()
+    trozos = [_sse({"documento": {"nombre": "a.pdf", "texto": "HECHOS", "recortado": True}}),
+              _sse({"token": "Va "}), _sse({"token": "a medias"}), _sse({"token": "nunca llega"})]
+    asyncio.run(_correr_doc(sb, trozos, corta_en=3))
+    d = sb.llamadas[-1][2]
+    assert d["estado"] == "interrumpida" and d["respuesta"] == "Va a medias"
+    assert d["pregunta"] == rg.mensaje_con_documento(VISIBLE, "a.pdf", "HECHOS", recortado=True)
+
+
+def test_documento_enorme_cabe_en_la_columna_con_su_cierre():
+    p, _ = rg.armar_documento(_sse({"documento": {"nombre": "x.pdf", "texto": "palabra " * 40_000}}), VISIBLE)
+    assert len(p) <= rg.TOPE_PREGUNTA
+    assert p.endswith("\n<!-- DOCUMENTO_FIN -->") and "es la primera parte" in p
 
 
 def test_traba():
