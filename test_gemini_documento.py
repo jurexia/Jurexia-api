@@ -180,7 +180,9 @@ ok(main.DOCUMENT_MODEL_PLATINUM == main.DOCUMENT_MODEL,
 fuente = Path("main.py").read_text(encoding="utf-8")
 ok('"gemini-3.1-pro-preview" if _gemini_doc.disponible() else DOCUMENT_MODEL' in fuente,
    "con la clave, Platinum pasa por omisión a gemini-3.1-pro-preview")
-i = fuente.index("response = await _abrir(model_to_use, esfuerzo_doc)")
+# Desde el 29-oct el repliegue vive en `_abrir_con_repliegue`, que abre dentro
+# de la tarea con latido (flujo_con_latido.py).
+i = fuente.index("return await _abrir(model_to_use, esfuerzo_doc)")
 tramo = fuente[i:i + 900]
 ok("_repliegue = (DOCUMENT_MODEL, esfuerzo_doc or DOCUMENT_ESFUERZO)" in tramo,
    "si Gemini no abre, Platinum cae a luna con SU esfuerzo (medium), no al low de todos")

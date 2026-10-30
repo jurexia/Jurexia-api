@@ -12231,6 +12231,19 @@ import respuesta_guardada as _respaldo  # noqa: E402
 _respaldo.configurar(supabase_admin)
 app.include_router(_respaldo.router)
 
+# El análisis de documentos late también mientras el modelo piensa (29-oct-2026).
+# Ver flujo_con_latido.py; cada cuánto, sin desplegar.
+import flujo_con_latido as _latido  # noqa: E402
+DOCUMENTO_LATIDO_S = float(os.getenv("DOCUMENTO_LATIDO_S", "5"))
+# Y lo que pasa del tope de hojas del plan se lee en parte en vez de
+# rechazarse (ver lectura_por_plan.py). DOCUMENTO_LECTURA_PARCIAL=0 devuelve
+# los planes de pago al 413 de antes sin desplegar.
+import lectura_por_plan as _lectura  # noqa: E402
+# Lo que el archivo es por dentro y el Word hecho de imágenes (formato_documento.py).
+import formato_documento as _formato  # noqa: E402
+# El chat no responde como si tuviera un adjunto que no se leyó (documento_sin_leer.py).
+import documento_sin_leer as _sin_leer  # noqa: E402
+
 
 # ═══════════════════════════════════════════════════════════════════════════
 # UN ERROR TIENE QUE LLEGAR AL NAVEGADOR, Y HOY NO LLEGABA
@@ -13768,6 +13781,8 @@ def _marcadores_del_sello(texto: str, doc_id_map: Dict[str, "SearchResult"],
 # referencias débiles a sus tareas y una de tres minutos puede ser recogida a
 # medias si nadie la sujeta.
 _PREPARANDO: set = set()
+# Lo mismo para las devoluciones que se lanzan cuando el navegador se fue.
+_DEVOLUCIONES: set = set()
 
 
 def _intercalar_resultados(lotes: List[List["SearchResult"]], tope: int = 36) -> List["SearchResult"]:
@@ -13820,6 +13835,10 @@ async def analyze_document(
     conversation_id: str = Form(None),
     expediente_id: str = Form(None),
     mensaje_visible: str = Form(None),
+    # LAS HOJAS SIGUIENTES (29-oct-2026). Un documento que pasa del tope del
+    # plan se lee en parte (ver lectura_por_plan.py) y la pantalla ofrece el
+    # resto con un botón: el mismo archivo, leído desde esta hoja (1-based).
+    desde_hoja: str = Form(None),
 ):
     """
     Analiza un documento completo con Gemini Flash vía OpenRouter.
@@ -13866,6 +13885,11 @@ async def analyze_document(
     sub_type = "gratuito"
     user_email = None
     is_platinum_or_admin = False
+    # Sin perfil (sin user_id, o si Supabase falla al leerlo) `is_pro` no se
+    # asignaba, y un documento de más de 200 mil caracteres caía en la nota de
+    # recorte con «NameError: cannot access free variable 'is_pro'» (26-oct,
+    # 04:30 UTC): un análisis perdido por una variable sin valor inicial.
+    is_pro = False
     # Sólo los administradores quedan exentos del cobro. Un platinum SÍ gasta
     # de sus consultas: para eso las paga.
     es_admin = False
@@ -13950,94 +13974,96 @@ async def analyze_document(
     print(f"\n📄 [ANALYZE-DOC] Archivo: {filename} ({len(content)/1024:.0f}KB), Prompt: {prompt[:80]}...")
     print(f"   ⏱️ File read: {t_read - t0:.2f}s")
 
+    # ── SE LEE LO QUE EL ARCHIVO ES, NO LO QUE DICE SU NOMBRE (29-oct-2026) ─
+    # Un .docx que por dentro es un .doc viejo, RTF o HTML («File is not a
+    # zip file», ocho análisis del mismo abogado Pro) y un .doc que es otra
+    # cosa («not an OLE2 structured storage file»). Word los abre sin avisar;
+    # aquí se mira la firma de los bytes. Ver formato_documento.py.
+    _real = _formato.formato_real(content)
+    if _real and _real != extension:
+        print(f"   🔎 «{filename}» se llama .{extension} pero es {_real}: se lee como {_real}")
+        extension = _real
+
     # ── CUÁNTAS HOJAS LEE CADA PLAN ──────────────────────────────────────
-    #
-    # Medido sobre 365 documentos reales subidos entre el 8 y el 16-ago-2026:
-    # la mediana tiene 15 páginas, el percentil 90 llega a 64 y el mayor visto
-    # fue de 522. Un documento con texto seleccionable trae 2,191 caracteres
-    # por página de mediana. El 47 % entra escaneado y hay que pasarlo por OCR
-    # de Gemini, que es la parte cara: por eso el tope se mide en HOJAS y no
-    # en caracteres — es lo que de verdad cuesta, y además es lo que un
-    # abogado sabe contar.
-    #
-    # Los topes cubren, con los datos de arriba:
-    #   20 hojas  → el 62 % de los documentos (una promoción corta)
-    #   50 hojas  → el 85 %
-    #  100 hojas  → el 93 %
-    #  600 hojas  → todo lo medido, con margen sobre el máximo de 522
-    #
-    # El salto de 100 a 600 es deliberado: el expediente completo de tribunal
-    # es justo lo que distingue a Platinum, y es donde el OCR cuesta de verdad.
-    PAGINAS_POR_PLAN = {
-        "gratuito": 20,
-        "basico_monthly": 50, "basico_annual": 50,
-        "pro_monthly": 100, "pro_annual": 100,
-        "platinum_monthly": 600, "platinum_annual": 600,
-        "ultra_secretarios": 600,
-    }
-    PLAN_QUE_CUBRE = [(50, "Básico"), (100, "Pro"), (600, "Platinum")]
-
-    def _plan_necesario(paginas: int) -> Optional[str]:
-        """El plan más barato que sí leería un documento de este tamaño."""
-        for tope, nombre in PLAN_QUE_CUBRE:
-            if paginas <= tope:
-                return nombre
-        return None
-
+    # Los topes y su porqué viven en lectura_por_plan.py (gratuito 20, Básico
+    # 50, Pro 100, Platinum 600). El salto de 100 a 600 es deliberado: el
+    # expediente completo de tribunal es justo lo que distingue a Platinum, y
+    # es donde el OCR cuesta de verdad.
     paginas_doc = 0
+    _pdf_con_clave = False
     if extension == "pdf":
         try:
             import fitz
             with fitz.open(stream=content, filetype="pdf") as _d:
                 paginas_doc = _d.page_count
+                _pdf_con_clave = bool(_d.needs_pass)
         except Exception as _e_pag:
             print(f"   ⚠️ No se pudo contar páginas ({_e_pag}) — se deja pasar")
+    if _pdf_con_clave:
+        # Antes de cobrar: sin la contraseña no hay texto ni OCR que valga, y
+        # el «no se pudo extraer texto» de siempre no le decía qué hacer.
+        print(f"   🔒 PDF protegido con contraseña ({paginas_doc} págs) — no se cobra")
+        raise HTTPException(status_code=400, detail=(
+            "Su PDF está protegido con contraseña y así no se puede leer. Ábralo, quítele "
+            "la contraseña (o imprímalo como PDF) y vuelva a adjuntarlo. No se le descontó "
+            "la consulta."))
 
-    tope_paginas = PAGINAS_POR_PLAN.get(plan_actual, 30)
+    tope_paginas = _lectura.tope_del_plan(plan_actual)
 
-    # ── LA MUESTRA DEL PLAN GRATUITO (25-oct-2026, David) ───────────────────
-    # Al gratuito con un documento más largo que su tope ya no se le rechaza:
-    # se leen sus primeras hojas, la respuesta lo dice en su primera línea y la
-    # pantalla invita al plan que lo lee entero. Un rechazo sin salida era
-    # justo donde un usuario nuevo se iba sin ver lo que hace Iurexia. No es el
-    # recorte silencioso de antes (ver abajo): aquí todo el mundo se entera de
-    # qué se leyó, y sólo vale para el gratuito; los planes de pago siguen con
-    # su rechazo, sin cobro. Costo de la muestra: ≤ 20 hojas de OCR (0.03 USD).
+    # ── LO QUE PASA DEL TOPE SE LEE EN PARTE (25 y 29-oct-2026, David) ──────
+    # El 25-oct el gratuito dejó de recibir un rechazo: se leían sus primeras
+    # 20 hojas. El 29-oct, todos los planes: 53 rechazos 413 a 32 usuarios de
+    # pago en 30 días, y un abogado recién pasado a Pro con tres seguidos
+    # (201, 201 y 101 hojas). Se leen las primeras N del plan —o las que pidió
+    # la pantalla con `desde_hoja`—, la respuesta empieza con una línea que
+    # escribe el servidor (siempre igual, siempre presente) y la pantalla
+    # ofrece las hojas siguientes. No es el recorte silencioso de antes del
+    # 16-ago: aquí todo el mundo se entera de qué se leyó. Se cobra como un
+    # análisis: lo es. Costo: ≤ N hojas de OCR, las mismas que un documento
+    # que cabe.
     lectura_de_muestra = None
     nota_muestra = ""
-    if paginas_doc and not es_admin and paginas_doc > tope_paginas and plan_actual == "gratuito":
+    linea_de_muestra = ""
+    _parcial = plan_actual == "gratuito" or (
+        os.getenv("DOCUMENTO_LECTURA_PARCIAL", "1").strip() != "0")
+    _desde = _lectura.desde_valido(desde_hoja)
+    if paginas_doc and not es_admin and _parcial:
         try:
-            import fitz
-            with fitz.open(stream=content, filetype="pdf") as _d:
-                _d.select(list(range(tope_paginas)))
-                content = _d.tobytes(garbage=3, deflate=True)
-            lectura_de_muestra = {
-                "leidas": tope_paginas,
-                "total": paginas_doc,
-                "plan": "Pro" if paginas_doc <= 100 else ("Platinum" if paginas_doc <= 600 else None),
-            }
-            nota_muestra = (
-                f"\n\n[NOTA: El documento tiene {paginas_doc} páginas y el plan gratuito del usuario "
-                f"lee hasta {tope_paginas}: sólo recibes las primeras {tope_paginas}. Empieza tu "
-                f"respuesta con una sola línea que lo diga, por ejemplo: «Leí las primeras "
-                f"{tope_paginas} de las {paginas_doc} hojas de su documento (el plan gratuito lee "
-                f"hasta {tope_paginas}).» Basa el análisis sólo en esas páginas y no supongas el "
-                f"contenido de las demás; si lo que se pide depende de ellas, dilo. No hables de "
-                f"precios ni de planes más allá de esa línea.]"
-            )
-            print(f"   📏 Gratuito: documento de {paginas_doc} págs → se leen las primeras "
-                  f"{tope_paginas} y se le ofrece el plan {lectura_de_muestra['plan']}")
-            paginas_doc = tope_paginas
-        except Exception as _e_muestra:
-            lectura_de_muestra, nota_muestra = None, ""
-            print(f"   ⚠️ No se pudo recortar a {tope_paginas} págs ({_e_muestra}) — se rechaza como antes")
+            _tramo = _lectura.tramo(paginas_doc, tope_paginas, _desde)
+        except ValueError as _e_tramo:
+            # Hoja de inicio fuera del documento: antes de cobrar, con el motivo.
+            raise HTTPException(status_code=400, detail=str(_e_tramo))
+        if _tramo:
+            _primera, _ultima = _tramo
+            try:
+                def _recortar(_c, _a, _b):
+                    import fitz
+                    with fitz.open(stream=_c, filetype="pdf") as _d:
+                        _d.select(list(range(_a - 1, _b)))
+                        return _d.tobytes(garbage=3, deflate=True)
+                # En un hilo: un expediente escaneado de cientos de hojas son
+                # segundos de PyMuPDF, y aquí todavía no hay flujo que lata.
+                content = await asyncio.to_thread(_recortar, content, _primera, _ultima)
+                lectura_de_muestra = _lectura.aviso(plan_actual, tope_paginas, paginas_doc,
+                                                    _primera, _ultima)
+                nota_muestra = _lectura.nota_para_el_modelo(tope_paginas, paginas_doc,
+                                                            _primera, _ultima)
+                linea_de_muestra = _lectura.primera_linea(plan_actual, tope_paginas, paginas_doc,
+                                                          _primera, _ultima)
+                print(f"   📏 Lectura parcial ({plan_actual}): documento de {paginas_doc} págs → "
+                      f"se leen las hojas {_primera} a {_ultima} (tope {tope_paginas}) y se le "
+                      f"ofrece el plan {lectura_de_muestra['plan']}")
+                paginas_doc = _ultima - _primera + 1
+            except Exception as _e_muestra:
+                lectura_de_muestra, nota_muestra, linea_de_muestra = None, "", ""
+                print(f"   ⚠️ No se pudo recortar a las hojas {_primera}-{_ultima} ({_e_muestra}) "
+                      f"— se rechaza como antes")
 
     if paginas_doc and not es_admin and paginas_doc > tope_paginas:
-        # Se rechaza ANTES de cobrar y ANTES del OCR: no se le quita una
-        # consulta al abogado por un documento que no vamos a leer entero.
-        # Antes esto se resolvía recortando en silencio: se leía media
-        # demanda, se cobraba igual y nadie se enteraba.
-        sugerido = _plan_necesario(paginas_doc)
+        # Sólo llega aquí con DOCUMENTO_LECTURA_PARCIAL=0 o si el recorte
+        # falló. Se rechaza ANTES de cobrar y ANTES del OCR: no se le quita
+        # una consulta al abogado por un documento que no vamos a leer.
+        sugerido = _lectura.plan_necesario(paginas_doc)
         print(f"   📏 Documento de {paginas_doc} págs supera el tope de {tope_paginas} "
               f"del plan {plan_actual} — no se cobra")
         if sugerido:
@@ -14049,7 +14075,7 @@ async def analyze_document(
         else:
             detalle = (
                 f"Este documento tiene {paginas_doc} páginas y el máximo que leemos "
-                f"de una sola vez son {PLAN_QUE_CUBRE[-1][0]}. Divídelo en partes y "
+                f"de una sola vez son {_lectura.PLAN_QUE_CUBRE[-1][0]}. Divídelo en partes y "
                 f"súbelas por separado: la carpeta las junta igual."
             )
         raise HTTPException(status_code=413, detail=detalle)
@@ -14256,6 +14282,43 @@ async def analyze_document(
                 import lectura_docx
                 extracted_text = await lectura_docx.leer_docx(content, "\n\n")
                 print(f"   📝 DOCX procesado: {len(extracted_text):,} chars")
+                # EL WORD HECHO DE FOTOS (29-oct-2026): escaneos o capturas
+                # pegados como imágenes. 11 de los 22 «no se pudo extraer texto»
+                # de 30 días («imagenescontrato.docx», «COMPLETO.docx» de 20 MB,
+                # «limon.docx»). Si el texto no alcanza para ser el documento
+                # —mismo juez que un PDF: `_texto_nativo_sirve`—, sus imágenes
+                # pasan por el OCR, una por hoja, con el tope de hojas del plan.
+                _imgs = await asyncio.to_thread(_formato.imagenes_docx, content,
+                                                tope_paginas if not es_admin else 600)
+                if _imgs and not _texto_nativo_sirve(extracted_text, max(len(_imgs), 1)):
+                    _paso(f"Reconociendo el texto de {len(_imgs)} imágenes del documento…")
+                    _pdf_imgs = await asyncio.to_thread(_formato.pdf_de_imagenes, _imgs)
+                    _t_img = _time.time()
+                    _ocr_imgs = ""
+                    if _pdf_imgs:
+                        try:
+                            _ocr_imgs = await _extract_text_from_upload(
+                                _SubidaDeBytes(_pdf_imgs, filename.rsplit(".", 1)[0] + "-imagenes.pdf"))
+                        except Exception as _e_img:
+                            print(f"   ⚠️ DOCX: el OCR de sus imágenes falló ({type(_e_img).__name__}: {str(_e_img)[:120]})")
+                    print(f"   🖼️ DOCX con {len(_imgs)} imágenes y {len(extracted_text.strip()):,} chars de texto "
+                          f"→ OCR: {len(_ocr_imgs or ''):,} chars en {_time.time() - _t_img:.1f}s")
+                    if _ocr_imgs and _ocr_imgs.strip():
+                        extracted_text = (extracted_text.strip() + "\n\n" if extracted_text.strip() else "") + _ocr_imgs.strip()
+                        is_scanned_pdf = True
+                    elif not (extracted_text or "").strip():
+                        raise HTTPException(status_code=400, detail=(
+                            f"Su archivo de Word no tiene texto: son {len(_imgs)} imágenes "
+                            f"(fotos o escaneos) y no pudimos reconocer letras en ellas. "
+                            f"Si son fotografías, tómelas con buena luz y sin sombras, o escanee el "
+                            f"documento a PDF, y vuelva a adjuntarlo."))
+
+            elif extension in ("rtf", "html", "texto", "odt"):
+                # Archivos con nombre de Word que son otra cosa (ver arriba).
+                _lector = {"rtf": _formato.texto_rtf, "html": _formato.texto_html,
+                           "texto": _formato.texto_plano, "odt": _formato.texto_odt}[extension]
+                extracted_text = await asyncio.to_thread(_lector, content)
+                print(f"   📝 {extension.upper()} procesado: {len(extracted_text):,} chars")
 
             elif extension == "doc":
                 import olefile
@@ -14283,15 +14346,36 @@ async def analyze_document(
                     extracted_text = await asyncio.to_thread(_leer_doc_ole, content)
                     print(f"   📝 DOC procesado: {len(extracted_text):,} chars")
                 except Exception as doc_err:
-                    raise HTTPException(status_code=400, detail=f"Error al procesar .doc: {str(doc_err)}")
+                    print(f"   ❌ DOC ilegible: {type(doc_err).__name__}: {str(doc_err)[:160]}")
+                    raise HTTPException(status_code=400, detail=(
+                        "No pudimos abrir su archivo .doc: es un formato antiguo de Word y éste parece "
+                        "dañado. Ábralo en Word, use «Guardar como → Documento de Word (.docx)» o PDF, y "
+                        "vuelva a adjuntarlo."))
 
             if not extracted_text or len(extracted_text.strip()) < 20:
-                raise HTTPException(status_code=400, detail="No se pudo extraer texto del documento. El archivo puede estar vacío, corrupto o ser una imagen sin texto reconocible.")
+                # QUÉ HACER, SEGÚN LO QUE PASÓ (29-oct-2026). El mensaje de
+                # siempre —«puede estar vacío, corrupto o ser una imagen»— no
+                # decía qué hacer, y el abogado lo volvía a subir igual.
+                if is_scanned_pdf:
+                    _detalle = (f"No pudimos reconocer el texto de su documento: sus {total_pages or 'hojas'} "
+                                f"{'hojas son' if total_pages else 'son'} imágenes y el reconocimiento no encontró "
+                                f"letras (pasa con escaneos muy claros o borrosos y con fotografías). Escanéelo de "
+                                f"nuevo a 300 ppp, en blanco y negro, y vuelva a adjuntarlo.")
+                elif extension == "pdf":
+                    _detalle = ("Su PDF no tiene texto que podamos leer. Ábralo y use «Imprimir → Guardar como "
+                                "PDF», o escanéelo de nuevo, y vuelva a adjuntarlo.")
+                else:
+                    _detalle = ("Su archivo no tiene texto que podamos leer: está vacío o sólo tiene formas o "
+                                "dibujos. Ábralo en Word, use «Guardar como → PDF» y adjunte ese PDF.")
+                raise HTTPException(status_code=400, detail=_detalle)
 
         except HTTPException:
             raise
         except Exception as extract_err:
-            raise HTTPException(status_code=500, detail=f"Error al extraer texto: {str(extract_err)}")
+            print(f"   ❌ Lectura del documento ({extension}): {type(extract_err).__name__}: {str(extract_err)[:200]}")
+            raise HTTPException(status_code=500, detail=(
+                f"No pudimos abrir su archivo: parece dañado o no es un .{extension} válido. Ábralo "
+                f"en Word (o en su visor de PDF), use «Guardar como → PDF» y adjunte ese PDF."))
 
         # La memoria que usó la lectura, de vuelta al sistema (el DOCX ya lo hace
         # dentro de `leer_docx`). Sin esto la instancia sube en escalones que no
@@ -14481,8 +14565,14 @@ async def analyze_document(
                 # el motivo se cuenta por el flujo, que es donde la pantalla
                 # sabe leerlo.
                 print(f"   ❌ Preparación del documento: {_hp.detail}")
-                await asyncio.to_thread(_devolver_si_no_hubo_nada, False)
-                yield f"data: {json.dumps({'error': str(_hp.detail)})}\n\n"
+                _dev_prep = await asyncio.to_thread(_devolver_si_no_hubo_nada, False)
+                # Y se dice, como en los errores del modelo: si la consulta
+                # volvió (o no se cobró), que lo sepa; si no, a quién pedirla.
+                _det_prep = str(_hp.detail)
+                if "descontó" not in _det_prep:
+                    _det_prep += (" No se le descontó la consulta." if (_dev_prep or not _cobrada) else
+                                  " Si se le descontó la consulta, escríbanos a soporte@iurexia.com y se la reintegramos.")
+                yield f"data: {json.dumps({'error': _det_prep})}\n\n"
                 return
             original_len = _p["original_len"]
             search_results = _p["search_results"]
@@ -14611,23 +14701,32 @@ async def analyze_document(
             # Si el que no abre es Gemini directo (27-sep-2026), Platinum cae
             # a luna con SU razonamiento (medium), no al low de todos: el
             # repliegue no debe castigar además el plan.
-            try:
-                response = await _abrir(model_to_use, esfuerzo_doc)
-            except Exception as _e_abrir:
-                if model_to_use != DOCUMENT_MODEL:
-                    _repliegue = (DOCUMENT_MODEL, esfuerzo_doc or DOCUMENT_ESFUERZO)
-                elif esfuerzo_doc != DOCUMENT_ESFUERZO:
-                    _repliegue = (DOCUMENT_MODEL, DOCUMENT_ESFUERZO)
-                else:
-                    raise
-                print(f"   ⚠️ {model_to_use} ({esfuerzo_doc}) no abrió ({type(_e_abrir).__name__}: "
-                      f"{str(_e_abrir)[:140]}) — se sigue con {_repliegue[0]} ({_repliegue[1]})")
-                model_to_use, esfuerzo_doc = _repliegue
-                response = await _abrir(model_to_use, esfuerzo_doc)
+            async def _abrir_con_repliegue():
+                nonlocal model_to_use, esfuerzo_doc
+                try:
+                    return await _abrir(model_to_use, esfuerzo_doc)
+                except Exception as _e_abrir:
+                    if model_to_use != DOCUMENT_MODEL:
+                        _repliegue = (DOCUMENT_MODEL, esfuerzo_doc or DOCUMENT_ESFUERZO)
+                    elif esfuerzo_doc != DOCUMENT_ESFUERZO:
+                        _repliegue = (DOCUMENT_MODEL, DOCUMENT_ESFUERZO)
+                    else:
+                        raise
+                    print(f"   ⚠️ {model_to_use} ({esfuerzo_doc}) no abrió ({type(_e_abrir).__name__}: "
+                          f"{str(_e_abrir)[:140]}) — se sigue con {_repliegue[0]} ({_repliegue[1]})")
+                    model_to_use, esfuerzo_doc = _repliegue
+                    return await _abrir(model_to_use, esfuerzo_doc)
+
             first_token = True
             _hubo_texto = False
             _trozos: List[str] = []
             _previas_pendiente = _marcador_previas
+            # La línea de la lectura parcial («Leí las primeras 100 de las 201
+            # hojas…») sale pegada al PRIMER token del modelo y no antes: la
+            # pantalla apaga «Redactando el análisis…» con el primer dato, y la
+            # línea sola dejaría al abogado mirando una frase sin indicador
+            # mientras el modelo piensa.
+            _linea_pendiente = linea_de_muestra
             # El aviso de memoria llena viaja con el mapa de fuentes, después
             # del primer párrafo (ver abajo por qué no antes).
             if _memoria_doc and _memoria_doc.get("despues", 0) < _memoria_doc.get("antes", 0):
@@ -14640,68 +14739,112 @@ async def analyze_document(
             # frase no deja rastro de por qué.
             _motivo_fin = None
             _motivo_nativo = None
-            async for chunk in response:
-                if chunk.choices and getattr(chunk.choices[0], "finish_reason", None):
-                    _motivo_fin = chunk.choices[0].finish_reason
-                    _extra = getattr(chunk.choices[0], "model_extra", None) or {}
-                    _motivo_nativo = _extra.get("native_finish_reason") or getattr(chunk.choices[0], "native_finish_reason", None)
-                if chunk.choices and chunk.choices[0].delta and chunk.choices[0].delta.content:
-                    token = chunk.choices[0].delta.content
-                    _hubo_texto = True
-                    _trozos.append(token)
-                    if first_token:
-                        first_token = False
-                        t_first_token = _time.time()
-                        print(f"   ⚡ TTFT (time-to-first-token): {t_first_token - t_llm_start:.2f}s (total elapsed: {t_first_token - t0:.2f}s)")
-                    yield f"data: {json.dumps({'token': token})}\n\n"
-                    if _previas_pendiente and "\n" in token:
-                        # El mapa de fuentes viaja DESPUÉS del primer token y no
-                        # antes: el frontend apaga el indicador «analizando» con
-                        # el primer dato que llega, y un comentario HTML solo
-                        # pintaría una burbuja vacía. El marcador es invisible y
-                        # ChatMessage lo lee esté donde esté.
-                        #
-                        # PERO ESPERA AL FIN DE UN PÁRRAFO (18-sep-2026). Salía
-                        # pegado al PRIMER token, o sea a media oración, y la
-                        # pantalla —que sólo enseña hasta el último salto de
-                        # línea— se quedaba en «…con base en tu instrucción, he
-                        # realizado» mientras el bloque viajaba. Una abogada lo
-                        # leyó como que Iurexia no le daba la respuesta
-                        # completa. Entre párrafos no parte ninguna frase.
-                        yield f"data: {json.dumps({'token': _previas_pendiente})}\n\n"
-                        _previas_pendiente = ""
+
+            async def _recorrer(abrir):
+                """Abre y lee un flujo del motor con su latido; cada trozo de
+                texto sale a la pantalla. Ver flujo_con_latido.py: mientras
+                el modelo piensa —hasta 66 s antes del primer token en
+                Platinum, del 22 al 29-oct— sale `: latido` cada DOCUMENTO_LATIDO_S."""
+                nonlocal first_token, _hubo_texto, _previas_pendiente, _linea_pendiente
+                nonlocal _motivo_fin, _motivo_nativo
+                async for chunk in _latido.con_latido(abrir, DOCUMENTO_LATIDO_S):
+                    if chunk is _latido.LATIDO:
+                        yield ": latido\n\n"
+                        continue
+                    if chunk.choices and getattr(chunk.choices[0], "finish_reason", None):
+                        _motivo_fin = chunk.choices[0].finish_reason
+                        _extra = getattr(chunk.choices[0], "model_extra", None) or {}
+                        _motivo_nativo = _extra.get("native_finish_reason") or getattr(chunk.choices[0], "native_finish_reason", None)
+                    if chunk.choices and chunk.choices[0].delta and chunk.choices[0].delta.content:
+                        token = chunk.choices[0].delta.content
+                        _hubo_texto = True
+                        _trozos.append(token)
+                        if first_token:
+                            first_token = False
+                            t_first_token = _time.time()
+                            print(f"   ⚡ TTFT (time-to-first-token): {t_first_token - t_llm_start:.2f}s (total elapsed: {t_first_token - t0:.2f}s)")
+                        if _linea_pendiente:
+                            yield f"data: {json.dumps({'token': _linea_pendiente})}\n\n"
+                            _linea_pendiente = ""
+                        yield f"data: {json.dumps({'token': token})}\n\n"
+                        if _previas_pendiente and "\n" in token:
+                            # El mapa de fuentes viaja DESPUÉS del primer token y no
+                            # antes: el frontend apaga el indicador «analizando» con
+                            # el primer dato que llega, y un comentario HTML solo
+                            # pintaría una burbuja vacía. El marcador es invisible y
+                            # ChatMessage lo lee esté donde esté.
+                            #
+                            # PERO ESPERA AL FIN DE UN PÁRRAFO (18-sep-2026). Salía
+                            # pegado al PRIMER token, o sea a media oración, y la
+                            # pantalla —que sólo enseña hasta el último salto de
+                            # línea— se quedaba en «…con base en tu instrucción, he
+                            # realizado» mientras el bloque viajaba. Una abogada lo
+                            # leyó como que Iurexia no le daba la respuesta
+                            # completa. Entre párrafos no parte ninguna frase.
+                            yield f"data: {json.dumps({'token': _previas_pendiente})}\n\n"
+                            _previas_pendiente = ""
+
+            async for _sse in _recorrer(_abrir_con_repliegue):
+                yield _sse
+            print(f"   🏁 Documento: fin del stream · finish_reason={_motivo_fin} · nativo={_motivo_nativo} · {len(_trozos)} trozos · {sum(len(t) for t in _trozos):,} chars")
+            # ── UN ANÁLISIS VACÍO NO SE DA POR BUENO (29-oct-2026) ──────────
+            # El motor puede cerrar sin una sola letra (Gemini con un STOP o
+            # un RECITATION de entrada). Antes salía `done` y nada más: la
+            # pantalla guardaba la pregunta sola, el abogado veía una burbuja
+            # vacía —o ninguna— y la consulta quedaba cobrada. Si el que calló
+            # fue el motor de Platinum, se repite UNA vez con el de todos;
+            # si también calla, es un fallo: se devuelve la consulta y se dice.
+            if not _hubo_texto and model_to_use != DOCUMENT_MODEL:
+                print(f"   🔁 Documento: {model_to_use} cerró sin texto "
+                      f"(finish_reason={_motivo_fin} · nativo={_motivo_nativo}) → se repite con {DOCUMENT_MODEL}")
+                model_to_use, esfuerzo_doc = DOCUMENT_MODEL, (esfuerzo_doc or DOCUMENT_ESFUERZO)
+                _motivo_fin, _motivo_nativo = None, None
+                async for _sse in _recorrer(lambda: _abrir(model_to_use, esfuerzo_doc)):
+                    yield _sse
+                print(f"   🏁 Documento: fin del stream (repetición) · finish_reason={_motivo_fin} · "
+                      f"nativo={_motivo_nativo} · {len(_trozos)} trozos · {sum(len(t) for t in _trozos):,} chars")
+            if not _hubo_texto:
+                raise RuntimeError(f"el motor cerró sin texto (finish_reason={_motivo_fin}, "
+                                   f"nativo={_motivo_nativo})")
             if _previas_pendiente:
                 # Una respuesta de un solo párrafo no trae saltos: el mapa se
                 # suelta al cerrar, que es mejor que perderlo.
                 yield f"data: {json.dumps({'token': _previas_pendiente})}\n\n"
                 _previas_pendiente = ""
-            print(f"   🏁 Documento: fin del stream · finish_reason={_motivo_fin} · nativo={_motivo_nativo} · {len(_trozos)} trozos · {sum(len(t) for t in _trozos):,} chars")
             # ── Si el motor paró por recitación, se continúa con Flash ──────
             # Gemini Pro corta a media frase cuando transcribe un artículo
             # (filtro RECITATION); ver documento_acervo.py. No se degrada a
             # Platinum de entrada: se le da su motor, y sólo si éste se calla
             # se termina la respuesta con el que no recita, desde el último
-            # carácter. Una vez. Si también se corta, se dice.
+            # carácter. Una vez. Si también se corta, se dice. La continuación
+            # late igual mientras abre: es otra espera de decenas de segundos.
             if _hubo_texto and (_motivo_nativo == "RECITATION" or _motivo_fin in ("content_filter", "error")):
                 print(f"   🔁 Documento: el motor paró por {_motivo_nativo or _motivo_fin} → se continúa con {DOCUMENT_MODEL}")
                 _fin2, _nativo2, _n2 = None, None, 0
                 try:
                     _cliente2, _parametros2 = _via_documento(DOCUMENT_MODEL, DOCUMENT_ESFUERZO)
-                    _resp2 = await _crear_con_amortiguador(
-                        _cliente2,
-                        etiqueta="analyze-document-continuacion",
-                        model=DOCUMENT_MODEL,
-                        messages=[
-                            {"role": "system", "content": system_documento},
-                            *_historial_para(DOCUMENT_MODEL, sum(len(t) for t in _trozos)),
-                            {"role": "user", "content": full_user_message},
-                            {"role": "assistant", "content": "".join(_trozos)},
-                            {"role": "user", "content": INSTRUCCION_CONTINUAR},
-                        ],
-                        stream=True,
-                        **_parametros2,
-                    )
-                    async for chunk in _resp2:
+                    _mensajes2 = [
+                        {"role": "system", "content": system_documento},
+                        *_historial_para(DOCUMENT_MODEL, sum(len(t) for t in _trozos)),
+                        {"role": "user", "content": full_user_message},
+                        {"role": "assistant", "content": "".join(_trozos)},
+                        {"role": "user", "content": INSTRUCCION_CONTINUAR},
+                    ]
+
+                    async def _abrir_continuacion():
+                        return await _crear_con_amortiguador(
+                            _cliente2,
+                            etiqueta="analyze-document-continuacion",
+                            model=DOCUMENT_MODEL,
+                            messages=_mensajes2,
+                            stream=True,
+                            **_parametros2,
+                        )
+
+                    async for chunk in _latido.con_latido(_abrir_continuacion, DOCUMENTO_LATIDO_S):
+                        if chunk is _latido.LATIDO:
+                            yield ": latido\n\n"
+                            continue
                         if chunk.choices and getattr(chunk.choices[0], "finish_reason", None):
                             _fin2 = chunk.choices[0].finish_reason
                             _extra2 = getattr(chunk.choices[0], "model_extra", None) or {}
@@ -14786,6 +14929,33 @@ async def analyze_document(
 
             _msg = f"No pudimos completar el análisis de este documento. {_cobro}{_consejo}"
             yield f"data: {json.dumps({'error': _msg})}\n\n"
+        except BaseException:
+            # EL NAVEGADOR SE FUE ANTES DE LA PRIMERA LETRA (29-oct-2026). Al
+            # cerrarse la conexión, Starlette cancela este flujo (o lo cierra
+            # el recolector): CancelledError o GeneratorExit, que no son
+            # Exception, así que el bloque de arriba nunca corría y la
+            # consulta se quedaba cobrada sin que el abogado recibiera una
+            # sola letra. Pasaba justo en los silencios largos —la red móvil
+            # o el proxy que cierran la conexión callada—. Se devuelve en
+            # segundo plano: aquí ya no se puede esperar nada. Y la lectura
+            # que siguiera en marcha se detiene: no la va a leer nadie.
+            _tuvo = bool(locals().get('_hubo_texto', False))
+            _prep = locals().get('_tarea_prep')
+            if _prep is not None and not _prep.done():
+                _prep.cancel()
+            _n_chars = sum(len(t) for t in (locals().get('_trozos') or []))
+            print("   🔌 Documento: la conexión se cerró "
+                  + (f"a media respuesta ({_n_chars:,} chars) — la consulta se queda cobrada"
+                     if _tuvo else "antes de la primera letra — se devuelve la consulta"))
+            if not _tuvo:
+                try:
+                    _t_dev = asyncio.get_running_loop().create_task(
+                        asyncio.to_thread(_devolver_si_no_hubo_nada, False))
+                    _DEVOLUCIONES.add(_t_dev)
+                    _t_dev.add_done_callback(_DEVOLUCIONES.discard)
+                except RuntimeError:
+                    pass
+            raise
 
     # ── LA RED QUE RETIENE EL FLUJO (28-oct-2026) ───────────────────────────
     # Tras Cisco Umbrella el navegador no recibe nada hasta que el servidor
@@ -19938,6 +20108,18 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                 if len(request.messages) > 1:
                     dynamic_injections.append(REGLA_COHERENCIA_HILO)
 
+                # Un adjunto cuyo texto no se leyó no se trata como leído
+                # (29-oct-2026, ver documento_sin_leer.py): 48 fallas de
+                # documento en la web siguieron con una pregunta sobre él.
+                try:
+                    _nota_sin_leer = _sin_leer.nota_documentos_sin_leer(request.messages)
+                    if _nota_sin_leer:
+                        dynamic_injections.append(_nota_sin_leer)
+                        print(f"   📄 ADJUNTOS SIN TEXTO en la conversación: "
+                              f"{len(_sin_leer.adjuntos_sin_texto(request.messages))}")
+                except Exception as _e_sl:
+                    print(f"   ⚠️ No pude revisar los adjuntos sin texto: {type(_e_sl).__name__}")
+
                 # Agregar historial conversacional, con tope. Ver
                 # `_recortar_historial`: una conversación que no cabe en la
                 # ventana del modelo no falla «a veces», falla SIEMPRE y desde
@@ -22930,6 +23112,27 @@ async def _extract_text_from_upload(file: UploadFile) -> str:
                 print("   ⚠️ ni por tramos; se prueba con Gemini")
             except Exception as e:
                 print(f"   ⚠️ Azure OCR falló ({err(e)}); se cae a Gemini")
+                # EL PDF QUE EL OCR RECHAZA POR SU ESTRUCTURA (29-oct-2026). Un
+                # escaneo de una multifuncional (MX-4071, 9 hojas): Azure
+                # respondió «400 Bad Request» y Gemini «400 INVALID_ARGUMENT»
+                # con el mismo archivo, y el abogado recibió «no se pudo
+                # extraer texto». PyMuPDF sí lo abre y lo dibuja: la copia en
+                # imágenes la lee cualquiera. Una vez, y sólo si es un 400.
+                _st = getattr(getattr(e, "response", None), "status_code", None)
+                if _st == 400:
+                    try:
+                        _raster = await asyncio.to_thread(_formato.pdf_rasterizado, content)
+                        if _raster:
+                            t0 = time.time()
+                            texto_az = await _ocr_azure(_raster, paginas_esperadas=n_pages)
+                            print(f"   ⚡ Azure OCR (copia en imágenes): {len(texto_az or '')} chars en "
+                                  f"{time.time()-t0:.0f}s ({n_pages} pág)")
+                            if texto_az and len(texto_az) > 400:
+                                cache_ocr.guardar_en_segundo_plano(supabase_admin, _huella,
+                                                                   texto_az, n_pages)
+                                return texto_az
+                    except Exception as e3:
+                        print(f"   ⚠️ Azure OCR con la copia en imágenes también falló ({err(e3)})")
 
         # ── 3. Gemini como respaldo ──────────────────────────────
         try:

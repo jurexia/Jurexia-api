@@ -390,6 +390,11 @@ async def chat_traba(request: Request):
     usuario = _uuid_o_none(d.get("user_id")) or "-"
     oculta = "1" if d.get("oculta") else "0"
     pestanas = str(d.get("pestanas") or "")[:3]
+    # EL DOCUMENTO QUE NO SALIÓ (29-oct-2026). 7 de 16 «se cortó la conexión»
+    # de la última semana nunca llegaron a Render: desde aquí no se ve por qué.
+    # La pantalla manda ahora el error, el peso, el tipo y el intento; sólo
+    # caracteres simples y recortado, que es un renglón de registro.
+    detalle = re.sub(r"[^\w .:/|=+%-]", "", str(d.get("detalle") or ""))[:160]
     print(f"   ⏳ ENVIO_TRABADO etapa={etapa} ms={ms} oculta={oculta} pestanas={pestanas or '-'} "
-          f"peticion={peticion} usuario={usuario}")
+          f"peticion={peticion} usuario={usuario}" + (f" detalle={detalle}" if detalle else ""))
     return {"ok": True}
