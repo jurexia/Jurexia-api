@@ -12200,12 +12200,19 @@ from fastapi import Depends  # noqa: E402
 import puerta_sesion as _puerta  # noqa: E402
 _puerta.configurar(lambda: supabase_admin)
 
+# SIN CATÁLOGO PÚBLICO (29-oct-2026). /docs, /redoc y /openapi.json le daban
+# a cualquiera el mapa entero de la API —cada ruta con sus parámetros— y
+# ninguna pantalla, la extensión ni la app los usan. Ese día un escaneo desde
+# Google Cloud recorrió 402 rutas buscando .env y credenciales.
 app = FastAPI(
     title="Iurexia Core API",
     description="Motor de Producción para Plataforma LegalTech con RAG Híbrido",
     version="1.0.0",
     lifespan=lifespan,
     dependencies=[Depends(_puerta.puerta)],
+    docs_url=None,
+    redoc_url=None,
+    openapi_url=None,
 )
 
 # CORS para Next.js frontend (allow all origins for production flexibility)
