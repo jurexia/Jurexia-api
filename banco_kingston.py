@@ -58,6 +58,10 @@ from comparar import sentido as sentido_del_oro, calificaciones  # noqa: E402
 
 BASE = "https://jurexia-api.onrender.com"
 CORREO = "administracion@iurexia.com"     # de casa: sin tope, y no ensucia el historial de David
+# DESDE EL 29-OCT-2026 EL CORREO NO BASTA: /taller/* exige la sesión de esa
+# cuenta. `cabecera_sesion` la saca con la llave de servicio y la renueva sola;
+# se pide en cada petición porque un caso dura más que un token.
+from sesion_banco import cabecera_sesion  # noqa: E402
 CASOS = "/Users/josedavidalcantarmendoza/Documents/IUREXIA-MAC/redactor-sentencias/corpus/casos"
 # EN EL CHECKOUT PRINCIPAL, no junto al archivo: en un worktree la carpeta no
 # existía y banco_deliberacion leía un «hoy» vacío.
@@ -275,12 +279,14 @@ async def correr_caso(caso: dict, etapa: str, sem: asyncio.Semaphore,
                     }
                     with open(acto, "rb") as fa, open(dem, "rb") as fd:
                         r = await cx.post(f"{BASE}/taller/adelanto", data=datos,
+                                          headers=cabecera_sesion(CORREO),
                                           files={"acto": ("acto.pdf", fa, "application/pdf"),
                                                  "conceptos": ("demanda.pdf", fd, "application/pdf")})
                     if r.status_code != 200:
                         raise RuntimeError(f"adelanto {r.status_code}: {r.text[:200]}")
                     fila["t_adelanto"] = round(time.time() - t)
                     r = await cx.post(f"{BASE}/taller/consultar",
+                                      headers=cabecera_sesion(CORREO),
                                       data={"numero": numero, "user_email": CORREO,
                                             "coleccion_estatal": "leyes_queretaro"})
                     if r.status_code != 200:
@@ -293,7 +299,8 @@ async def correr_caso(caso: dict, etapa: str, sem: asyncio.Semaphore,
 
                 _dp = {"numero": numero, "user_email": CORREO, "recalcular": "1",
                        "banderas": json.dumps(banderas)}
-                r = await cx.post(f"{BASE}/taller/proponer", data=_dp)
+                r = await cx.post(f"{BASE}/taller/proponer", data=_dp,
+                                  headers=cabecera_sesion(CORREO))
                 if r.status_code != 200:
                     raise RuntimeError(f"proponer {r.status_code}: {r.text[:200]}")
                 p = r.json()

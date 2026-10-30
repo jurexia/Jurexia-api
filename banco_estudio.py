@@ -646,9 +646,13 @@ def quedo_corriendo(fila: dict) -> bool:
 
 
 async def correr_una(cx, base: str, caso: Caso, var: Variante, k: int, formato: str,
-                     etiqueta: str, raiz: Path = AQUI, timeout: float = TIMEOUT_S) -> tuple:
+                     etiqueta: str, raiz: Path = AQUI, timeout: float = TIMEOUT_S,
+                     sesion: dict | None = None) -> tuple:
     """Una corrida: (fila para el .json, bytes del .docx o None). Nunca lanza:
-    cualquier fallo queda escrito en la fila como error."""
+    cualquier fallo queda escrito en la fila como error.
+
+    `sesion`: la cabecera Authorization de la cuenta de casa. Desde el
+    29-oct-2026 /taller/* no se fía del `user_email` solo (ver sesion_banco)."""
     acc = Acumulador()
     status = None
     try:
@@ -662,7 +666,8 @@ async def correr_una(cx, base: str, caso: Caso, var: Variante, k: int, formato: 
         # FormData de verdad (multipart), como la pantalla: los tres campos
         # largos del 93 pasan de 2 KB y así viajan igual que en producción.
         partes = [(k2, (None, v)) for k2, v in campos.items()]
-        async with cx.stream("POST", base.rstrip("/") + RUTA_STREAM, files=partes) as r:
+        async with cx.stream("POST", base.rstrip("/") + RUTA_STREAM, files=partes,
+                             headers=sesion or {}) as r:
             status = r.status_code
             if r.status_code != 200:
                 cuerpo = (await r.aread()).decode("utf-8", "replace")
@@ -764,8 +769,15 @@ async def correr(casos: list, vars_: list, corridas: int, formato: str, etiqueta
                         huella0 = h
                 else:
                     h = None
+                # LA SESIÓN, SÓLO CON EL CLIENTE PROPIO: uno que venga de fuera
+                # (las pruebas, con su transporte simulado) no habla con Supabase.
+                # Se pide en cada corrida: una tanda dura más que un token.
+                sesion = None
+                if propio:
+                    from sesion_banco import cabecera_sesion
+                    sesion = cabecera_sesion(c.correo)
                 fila, docx_bytes = await correr_una(cx, base, c, v, k, formato, etiqueta,
-                                                    raiz, timeout)
+                                                    raiz, timeout, sesion=sesion)
             fila["huella_sesion"] = h
             # Antes era la hora de TERMINAR con el nombre de la de empezar.
             fila["t_inicio"] = t_inicio
