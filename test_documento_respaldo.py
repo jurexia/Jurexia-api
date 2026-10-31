@@ -94,15 +94,22 @@ def _trozo(texto=None, fin=None):
     return types.SimpleNamespace(choices=[types.SimpleNamespace(delta=delta, finish_reason=fin, model_extra={})])
 
 
+PAUSA = {"s": 0.01}
+MOTOR = {"trozos": 0, "termino": False}
+
+
 class _Motor:
     def __init__(self):
         self.chat = types.SimpleNamespace(completions=types.SimpleNamespace(create=self._create))
 
     async def _create(self, **kw):
         async def gen():
+            MOTOR.update(trozos=0, termino=False)
             for t in ANALISIS:
-                await asyncio.sleep(0.01)
+                await asyncio.sleep(PAUSA["s"])
+                MOTOR["trozos"] += 1
                 yield _trozo(t)
+            MOTOR["termino"] = True
             yield _trozo(None, "stop")
         return gen()
 
@@ -187,6 +194,52 @@ print("\n4 · SIN mensaje_visible: la pregunta se arma como la arma ChatInput")
 sb4 = _Sb()
 asyncio.run(_analizar(sb4, {"peticion_id": str(uuid.uuid4())}, {"Authorization": "Bearer buen-token"}))
 ok(sb4.llamadas and sb4.llamadas[0][2]["pregunta"] == VISIBLE, "«📄 **Documento adjunto:** nombre» + la instrucción")
+
+print("\n5 · EL TELÉFONO QUE SE VA (30-oct-2026): uvicorn de verdad, el cliente cuelga al primer token")
+import socket  # noqa: E402
+import threading  # noqa: E402
+import time  # noqa: E402
+import uvicorn  # noqa: E402
+
+sb6 = _Sb()
+rg.configurar(sb6)
+_s = socket.socket()
+_s.bind(("127.0.0.1", 0))
+_puerto = _s.getsockname()[1]
+_s.close()
+# Sin lifespan: el arranque toca las cachés de producción.
+_srv = uvicorn.Server(uvicorn.Config(main.app, host="127.0.0.1", port=_puerto, log_level="warning", lifespan="off"))
+_hilo = threading.Thread(target=_srv.run, daemon=True)
+_hilo.start()
+for _ in range(200):
+    if _srv.started:
+        break
+    time.sleep(0.05)
+PAUSA["s"] = 0.4
+PET6 = str(uuid.uuid4())
+vistos = []
+with httpx.Client(timeout=30) as c:
+    with c.stream("POST", f"http://127.0.0.1:{_puerto}/analyze-document",
+                  headers={"Authorization": "Bearer buen-token"},
+                  files={"file": ("agravios.pdf", _pdf(), "application/pdf")},
+                  data={"prompt": "¿Qué agravios hace valer la recurrente?", "usar_acervo": "0",
+                        "peticion_id": PET6, "conversation_id": CONV, "mensaje_visible": VISIBLE}) as r6:
+        for linea in r6.iter_lines():
+            if linea.startswith("data: ") and "token" in linea:
+                vistos.append(linea)
+                break                       # el teléfono se va a WhatsApp
+for _ in range(100):
+    cierres = [x for x in sb6.llamadas if x[1] == "update"]
+    if cierres and MOTOR["termino"]:
+        break
+    time.sleep(0.1)
+ok(len(vistos) == 1, "la pantalla sólo alcanzó a ver el primer trozo")
+ok(MOTOR["termino"] and MOTOR["trozos"] == len(ANALISIS), "el servidor escribió el análisis hasta el final")
+cierres = [x for x in sb6.llamadas if x[1] == "update"]
+ok(bool(cierres) and cierres[-1][2]["estado"] == "terminada" and cierres[-1][2]["respuesta"] == "".join(ANALISIS),
+   "y la copia queda terminada con todo, para que la pantalla o la recuperación la traigan")
+_srv.should_exit = True
+_hilo.join(timeout=10)
 
 print()
 if FALLOS:

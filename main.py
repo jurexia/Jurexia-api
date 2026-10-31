@@ -4133,6 +4133,13 @@ async def lifespan(app: FastAPI):
     yield
     
     # Shutdown
+    # Lo que se sigue escribiendo sin pantalla (respuesta_guardada.py) usa
+    # Qdrant y el pool HTTP: se le dan unos segundos ANTES de cerrarlos. El
+    # apagado elegante de gunicorn es de 30 s en total.
+    try:
+        await _respaldo.esperar_productores(20)
+    except Exception as e:
+        print(f"   ⚠️ No pude esperar las respuestas en curso: {err(e)}")
     print(" Cerrando conexiones...")
     await qdrant_client.close()
     await _http_pool.aclose()

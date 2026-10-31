@@ -132,7 +132,9 @@ def test_pasa_el_stream_tal_cual_y_guarda():
     assert ("peticion_id", PET) in f2 and ("user_id", USR) in f2
 
 
-def test_corte_del_navegador_queda_interrumpida():
+def test_flujo_cancelado_queda_interrumpida():
+    """Si el flujo de dentro se cancela (Detener, tope, apagado), la copia
+    queda interrumpida con lo que hubiera."""
     sb = _SbFalso()
     asyncio.run(_correr(sb, ["Va ", "a medias", "nunca llega"], corta_en=2))
     assert sb.llamadas[-1][1] == "update"
@@ -160,31 +162,117 @@ def test_supabase_caido_no_rompe_la_consulta():
     assert salida == ["la ", "respuesta"]
 
 
-def test_aclose_cierra_el_de_dentro():
-    """Starlette puede cerrar el generador de fuera con aclose(): el de dentro
-    tiene que cerrarse en ese momento (su finally corre), como antes."""
-    cerrado = []
+def test_la_pantalla_se_va_y_el_de_dentro_sigue():
+    """EL TRABAJO NO SE VA CON LA PANTALLA (30-oct-2026). Starlette cierra el
+    generador de fuera (aclose) cuando el navegador se va: el de dentro ya no
+    se corta ahí, sigue hasta el final y la copia queda terminada y entera."""
+    eventos = []
 
     async def dentro():
         try:
             yield "uno"
+            await asyncio.sleep(0.05)
             yield "dos"
+            await asyncio.sleep(0.05)
+            yield "tres"
+            eventos.append("terminó")
         finally:
-            cerrado.append(True)
+            eventos.append("cerrado")
+
+    sb = _SbFalso()
 
     async def correr():
-        rg.configurar(_SbFalso())
+        rg.configurar(sb)
         gen = rg.con_respaldo(dentro(), authorization="Bearer buen-token", peticion_id=PET,
                               conversation_id=None, expediente_id=None, pregunta="", estado=None)
         assert await gen.__anext__() == "uno"
-        await gen.aclose()
-        for _ in range(50):
-            if not rg._tareas:
+        await gen.aclose()                     # la pantalla se fue
+        assert eventos == []                   # y el de dentro sigue vivo
+        for _ in range(100):
+            if not rg._tareas and not rg._productores:
                 break
             await asyncio.sleep(0.01)
 
     asyncio.run(correr())
-    assert cerrado == [True]
+    assert eventos == ["terminó", "cerrado"]
+    cierre = sb.llamadas[-1][2]
+    assert cierre["estado"] == "terminada" and cierre["respuesta"] == "unodostres"
+
+
+class _SbConEstado(_SbFalso):
+    """Como _SbFalso, y además contesta el `select estado` con lo que diga
+    `self.estado`: así la pantalla «pulsa Detener»."""
+    def __init__(self):
+        super().__init__()
+        self.estado = "en_curso"
+
+    def table(self, nombre):
+        c = _Consulta(self, nombre)
+        sb = self
+
+        def select(_cols):
+            c.op = "select"
+            return c
+
+        def limit(_n):
+            return c
+
+        ejecutar = c.execute
+
+        def execute():
+            if c.op == "select":
+                return types.SimpleNamespace(data=[{"estado": sb.estado}])
+            return ejecutar()
+
+        c.select, c.limit, c.execute = select, limit, execute
+        return c
+
+
+async def _sin_fin(eventos):
+    try:
+        i = 0
+        while True:
+            yield f"[{i}]"
+            i += 1
+            await asyncio.sleep(0.02)
+    except BaseException:
+        eventos.append("cancelado")
+        raise
+
+
+def _correr_sin_pantalla(sb, eventos, *, tope, al_irse=None):
+    async def correr():
+        rg.configurar(sb)
+        gen = rg.con_respaldo(_sin_fin(eventos), authorization="Bearer buen-token", peticion_id=PET,
+                              conversation_id=None, expediente_id=None, pregunta="", estado=None,
+                              tope_sin_pantalla_s=tope, mirar_cada_s=0.05)
+        await gen.__anext__()
+        await gen.aclose()
+        if al_irse:
+            al_irse()
+        for _ in range(300):
+            if not rg._tareas and not rg._productores:
+                break
+            await asyncio.sleep(0.01)
+    asyncio.run(correr())
+
+
+def test_detener_corta_el_de_dentro_aunque_no_haya_pantalla():
+    """Sin pantalla, la copia puesta en «interrumpida» (el botón Detener) corta
+    el flujo: el de dentro se cancela —y ahí /analyze-document devuelve la
+    consulta si no escribió nada— y la copia queda interrumpida."""
+    sb, eventos = _SbConEstado(), []
+    _correr_sin_pantalla(sb, eventos, tope=60, al_irse=lambda: setattr(sb, "estado", "interrumpida"))
+    assert eventos == ["cancelado"]
+    cierre = sb.llamadas[-1][2]
+    assert cierre["estado"] == "interrumpida" and cierre["respuesta"].startswith("[0]")
+
+
+def test_el_tope_sin_pantalla_corta():
+    sb, eventos = _SbConEstado(), []
+    _correr_sin_pantalla(sb, eventos, tope=0.2)
+    assert eventos == ["cancelado"]
+    assert sb.llamadas[-1][2]["estado"] == "interrumpida"
 
 
 # ── /analyze-document: la copia se arma como la armaría la pantalla ───────

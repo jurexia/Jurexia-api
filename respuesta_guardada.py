@@ -12,8 +12,9 @@ conversación que el navegador dice, en `respuestas_chat`:
 
   · al empezar, una fila «en_curso» con la pregunta;
   · al terminar, la respuesta tal como la guardaría el navegador
-    (`texto_para_historial`), «terminada»; si el navegador cortó a medias,
-    «interrumpida» con lo que hubiera.
+    (`texto_para_historial`), «terminada» —también si el navegador se fue a
+    la mitad: desde el 30-oct el flujo sigue sin él, ver «El trabajo no se
+    va con la pantalla»—; si se detuvo, «interrumpida» con lo que hubiera.
 
 QUIÉN LA PASA A `messages`, SIN DUPLICAR. La fila se RECLAMA: el navegador que
 guarda pone `guardada_at` con un UPDATE condicionado a que siga en null (sólo
@@ -287,6 +288,92 @@ def _en_segundo_plano(coro) -> "asyncio.Task":
     return t
 
 
+# ── El trabajo no se va con la pantalla ───────────────────────────────────
+#
+# EL TELÉFONO QUE SE VA A WHATSAPP (30-oct-2026). Rubén Ávila (Platinum,
+# Android) pidió el 29-oct dos análisis seguidos:
+#
+#   · el primero lo terminó el servidor y Render le entregó los 170 KB en
+#     103 s (10:49:32 CDMX), pero su pantalla ya no estaba para pintarlos y
+#     a las 10:52:29 guardó «❌ Error al analizar documento. network error»;
+#   · el segundo lo cortó su propio teléfono a los 1.8 s —la página se
+#     recargó al volver de WhatsApp, de donde sacó el PDF—, y entonces el
+#     servidor DEJÓ de escribir: cerrar la conexión cancelaba el flujo, la
+#     copia quedaba «interrumpida» y vacía, y no hubo nada que recuperar.
+#
+# En los catorce días anteriores, 53 análisis acabaron en «Error al analizar
+# documento» y cada día entre 4 y 15 respuestas del chat quedaron
+# «interrumpidas». La pantalla ya sabe esperar la copia y pasarla al
+# historial (src/lib/analisis-documento.ts y respuestas-servidor.ts en el
+# front); lo que faltaba era que hubiera algo que esperar.
+#
+# Ahora, con copia, el flujo corre en SU PROPIA TAREA y la respuesta HTTP
+# sólo lo va leyendo. Si la pantalla se va —se cayó la red, el teléfono
+# congeló la pestaña, se cerró el navegador—, la tarea sigue hasta el final
+# y la copia queda «terminada»: la pantalla que espera la recibe, y si ya
+# no hay pantalla, la recuperación la pone en su conversación.
+#
+# Sólo se corta en dos casos:
+#   · el abogado pulsó «Detener»: la pantalla pone su copia en
+#     «interrumpida» mientras sigue «en_curso» (la política de la tabla le
+#     deja actualizar sus propias filas) y aquí se mira cada pocos segundos;
+#   · pasó TOPE_SIN_PANTALLA_S sin pantalla, que ningún análisis necesita.
+# En los dos el flujo se cancela como antes —y devuelve la consulta si no
+# había escrito nada— y la copia queda «interrumpida» con lo que hubiera.
+
+TOPE_SIN_PANTALLA_S = 20 * 60
+MIRAR_CADA_S = 3.0
+
+# Las tareas que escriben respuestas con copia, para que el apagado las espere.
+_productores: set = set()
+
+_FIN = object()
+
+
+class _Fallo:
+    """Una excepción del flujo que viaja por la cola hasta la pantalla."""
+    __slots__ = ("error",)
+
+    def __init__(self, error: BaseException):
+        self.error = error
+
+
+async def _la_detuvo_la_pantalla(peticion: str) -> bool:
+    """¿La pantalla pidió parar? Ante la duda, no: seguir escribiendo sólo
+    cuesta tokens; parar por un fallo de lectura tiraría el trabajo."""
+    try:
+        r = await asyncio.to_thread(
+            lambda: _sb.table("respuestas_chat").select("estado")
+            .eq("peticion_id", peticion).limit(1).execute())
+        filas = r.data or []
+        return bool(filas) and filas[0].get("estado") == "interrumpida"
+    except Exception:
+        return False
+
+
+async def _sin_pantalla(productor: "asyncio.Task", peticion: str,
+                        tope_s: float, cada_s: float) -> None:
+    """Acompaña a un flujo que se quedó sin pantalla hasta que termine, y lo
+    corta sólo si la pantalla lo pide o si pasa del tope."""
+    print(f"   📵 SIN PANTALLA: {peticion} se sigue escribiendo en el servidor")
+    loop = asyncio.get_running_loop()
+    limite = loop.time() + tope_s
+    motivo = None
+    while not productor.done():
+        await asyncio.wait({productor}, timeout=cada_s)
+        if productor.done():
+            break
+        if loop.time() >= limite:
+            motivo = f"pasó de {tope_s:.0f} s sin pantalla"
+        elif await _la_detuvo_la_pantalla(peticion):
+            motivo = "la pantalla pidió detenerla"
+        if motivo:
+            productor.cancel()
+            break
+    if motivo:
+        print(f"   📵 SIN PANTALLA: {peticion} se corta: {motivo}")
+
+
 async def con_respaldo(
     flujo: AsyncIterator[str],
     *,
@@ -297,15 +384,19 @@ async def con_respaldo(
     pregunta: str,
     estado: Optional[str],
     formato: str = "chat",
+    tope_sin_pantalla_s: float = TOPE_SIN_PANTALLA_S,
+    mirar_cada_s: float = MIRAR_CADA_S,
 ) -> AsyncIterator[str]:
-    """Deja pasar el stream tal cual y guarda una copia de lo que salió.
+    """Deja pasar el stream tal cual y guarda una copia de lo que salió. Con
+    copia, el stream se escribe aunque la pantalla se vaya (ver arriba).
 
     `formato` dice cómo leer lo que salió: "chat" (texto con marcadores) o
     "documento" (los eventos SSE de /analyze-document; `pregunta` es entonces
     lo que ve el abogado, sin el documento).
 
     Sin `peticion_id` válido (o sin token, o sin Supabase) es un paso directo:
-    ni una línea de comportamiento distinto."""
+    ni una línea de comportamiento distinto —incluido que cerrar la conexión
+    corta el flujo, porque sin copia no habría dónde dejar lo escrito—."""
     peticion = _uuid_o_none(peticion_id)
     if not peticion or _sb is None or not authorization:
         async for trozo in flujo:
@@ -333,27 +424,79 @@ async def con_respaldo(
     quien = _en_segundo_plano(_usuario_del_token(authorization))
     apertura = _en_segundo_plano(_abrir_fila())
 
-    partes: list[str] = []
-    terminada = False
-    try:
-        async for trozo in flujo:
-            partes.append(trozo)
-            yield trozo
-        terminada = True
-    finally:
-        # Aquí puede llegarse por cancelación (el navegador se fue): no se
-        # espera nada en este punto, la escritura va en su propia tarea.
-        if partes or terminada:
+    cola: asyncio.Queue = asyncio.Queue()
+    vivo = {"pantalla": True, "acabo": False}
+
+    async def producir() -> None:
+        partes: list[str] = []
+        terminada = False
+        try:
+            async for trozo in flujo:
+                partes.append(trozo)
+                if vivo["pantalla"]:
+                    cola.put_nowait(trozo)
+            terminada = True
+        except Exception as e:
+            # Un error del flujo llega a la pantalla igual que antes.
+            if vivo["pantalla"]:
+                cola.put_nowait(_Fallo(e))
+        finally:
+            vivo["acabo"] = True
+            # La escritura va en su propia tarea: aquí se puede llegar por
+            # cancelación (Detener, tope o apagado) y no se espera nada. Se
+            # cierra SIEMPRE, también sin una letra: una copia que se queda
+            # «en_curso» la pantalla la esperaría hasta su tope.
             _en_segundo_plano(_cerrar(apertura, peticion, quien, "".join(partes), terminada,
                                       formato, pregunta or ""))
-        # Si a ESTE generador lo cerraron a medias (aclose), el de dentro se
-        # cierra ya, como se cerraba antes de existir la envoltura, y no
-        # cuando el recolector de basura lo encuentre.
-        if not terminada:
-            try:
-                await flujo.aclose()
-            except Exception:
-                pass
+            # Cortado a medias: el de dentro se cierra ya, para que su propio
+            # final (la devolución de la consulta sin una letra) corra ahora.
+            if not terminada:
+                try:
+                    await flujo.aclose()
+                except BaseException:
+                    pass
+            cola.put_nowait(_FIN)
+
+    productor = asyncio.create_task(producir())
+    _productores.add(productor)
+    productor.add_done_callback(_productores.discard)
+
+    try:
+        while True:
+            item = await cola.get()
+            if item is _FIN:
+                return
+            if isinstance(item, _Fallo):
+                raise item.error
+            yield item
+    finally:
+        # Aquí se llega también cuando la pantalla se fue: Starlette cancela
+        # esta lectura o la cierra. El productor NO se cancela: se le deja de
+        # pasar lo que escribe a una cola que ya nadie lee y se le acompaña
+        # hasta el final. Nada se espera aquí.
+        if not vivo["acabo"]:
+            vivo["pantalla"] = False
+            _en_segundo_plano(_sin_pantalla(productor, peticion, tope_sin_pantalla_s, mirar_cada_s))
+
+
+async def esperar_productores(segundos: float) -> None:
+    """Al apagar el servidor (despliegue o reciclaje del worker): lo que se
+    sigue escribiendo sin pantalla tiene unos segundos para acabar; lo demás
+    se corta y su copia queda «interrumpida» con lo escrito, en vez de
+    quedarse «en_curso» para siempre."""
+    vivos = [t for t in _productores if not t.done()]
+    if not vivos:
+        return
+    print(f"   📵 Apagado: {len(vivos)} respuesta(s) en curso; se esperan hasta {segundos:.0f} s")
+    _, pendientes = await asyncio.wait(vivos, timeout=segundos)
+    for t in pendientes:
+        t.cancel()
+    if pendientes:
+        print(f"   📵 Apagado: {len(pendientes)} respuesta(s) cortadas; su copia queda interrumpida")
+        await asyncio.wait(pendientes, timeout=5)
+    cierres = [t for t in _tareas if not t.done()]
+    if cierres:
+        await asyncio.wait(cierres, timeout=5)
 
 
 # ── Dónde se atora el envío ───────────────────────────────────────────────
