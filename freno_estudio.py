@@ -44,7 +44,8 @@ DÓNDE SE APLICA (precios-nov2/estudio-hoy/api/decisiones.md):
   · /extract-text (el PDF de Sentencia): sin OCR pagado si llega la sesión
     de un Estudio frenado (revisión del 2-nov).
   · Bóveda y Cronología: sólo lo que quepa en lo que queda de las 560
-    (`exigir_elite`, desde `cobro_consultas.cobrar_consultas(plan=…)`).
+    (`exigir_elite`, desde `cobro_consultas.cobrar_consultas(plan=…)`), y lo
+    dicen ya al cotizar, con el aviso y no con una recarga que no les sirve.
 """
 from __future__ import annotations
 

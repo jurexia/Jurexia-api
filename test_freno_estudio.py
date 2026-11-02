@@ -291,6 +291,119 @@ async def _cobros():
 asyncio.run(_cobros())
 
 
+async def _cotizar_boveda():
+    """La cotización de la Bóveda a un Estudio frenado: el aviso, no «compra
+    una recarga» (revisión del 2-nov, hallazgo 2)."""
+    CARPETA = "6f1c2a52-6c55-4a43-9a43-1a2b3c4d5e6f"
+    doc = {"id": "d1", "nombre": "expediente.pdf", "estado": "revisado", "paginas": 300,
+           "paginas_ocr": 300, "tamano": 1000, "mime_type": "application/pdf", "creado_en": "x"}
+    necesarias = boveda.consultas_ingesta(300, 0)
+    estado = {"u": None, "respuestas": [], "saldo": None, "pares": []}
+
+    async def _platinum(_a):
+        return estado["u"]
+
+    async def _nada(*a, **k):
+        return {}
+
+    async def _uso(_uid):
+        return {"documentos": 0, "bytes": 0, "paginas": 0}
+
+    async def _db(_fn):
+        return _Res(estado["respuestas"].pop(0) if estado["respuestas"] else [])
+
+    async def _saldo(_sb, _uid):
+        return estado["saldo"]
+
+    async def _celdas(_u, _t, _req):
+        return estado["pares"], []
+
+    nombres = ("_platinum", "_carpeta_propia", "_uso_usuario", "_db", "_tabla_propia",
+               "_celdas_a_correr", "_despertar_desde_pantalla", "_cliente")
+    viejos = {n: getattr(boveda, n) for n in nombres}
+    viejo_saldo = boveda.cobro.saldo_consultas
+    boveda._platinum, boveda._carpeta_propia, boveda._uso_usuario = _platinum, _nada, _uso
+    boveda._db, boveda._tabla_propia, boveda._celdas_a_correr = _db, _nada, _celdas
+    boveda._despertar_desde_pantalla = lambda *a, **k: None
+    boveda._cliente = lambda: None          # el saldo es `_saldo`; nada llega a la base
+    boveda.cobro.saldo_consultas = _saldo
+
+    def usuario(plan=E, usadas=600, admin=False):
+        return boveda.Usuario(id="u", plan=plan, es_admin=admin, plan_leido=True, usadas=usadas)
+
+    async def cotizar(u):
+        estado["u"], estado["respuestas"] = u, [[doc]]
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            try:
+                return await boveda.boveda_cotizar(CARPETA, "Bearer x"), buf.getvalue()
+            except HTTPException as e:
+                return e, buf.getvalue()
+
+    async def carpeta(u):
+        estado["u"], estado["respuestas"] = u, [[doc], []]
+        with contextlib.redirect_stdout(io.StringIO()):
+            return await boveda.boveda_carpeta(CARPETA, "Bearer x")
+
+    async def tabla(u, celdas):
+        estado["u"], estado["pares"] = u, [("d", f"c{i}") for i in range(celdas)]
+        with contextlib.redirect_stdout(io.StringIO()):
+            try:
+                return await boveda.boveda_tabla_cotizar("t", boveda.CorridaRequest(), "Bearer x")
+            except HTTPException as e:
+                return e
+
+    try:
+        r, txt = await cotizar(usuario(usadas=600))
+        ok(isinstance(r, HTTPException) and r.status_code == 402 and r.detail["codigo"] == "freno_estudio"
+           and r.detail["mensaje"] == APROBADO and "freno de Estudio: boveda_ingesta" in txt,
+           "cotizar la ingesta con las 560 gastadas → 402 freno_estudio con el aviso aprobado")
+        r, _ = await cotizar(usuario(usadas=550))
+        ok(isinstance(r, HTTPException) and r.status_code == 402
+           and f"necesita {necesarias} consultas" in r.detail["mensaje"] and "le quedan 10" in r.detail["mensaje"]
+           and "recarga" not in r.detail["mensaje"],
+           f"quedan 10 y la ingesta pide {necesarias} → 402 con su número, sin hablar de recargas")
+        r, _ = await cotizar(usuario(usadas=500))
+        ok(isinstance(r, dict) and r["alcanza"] and r["freno"] is None and r["disponibles"] == 60,
+           "quedan 60 y pide 30 → la cotización de siempre")
+        r, _ = await cotizar(usuario(usadas=600, admin=True))
+        ok(isinstance(r, dict) and r["sin_costo"] and r["freno"] is None,
+           "la administración no paga la Bóveda: ni freno ni 402")
+        estado["saldo"] = {"disponibles": 0}
+        r, _ = await cotizar(usuario(plan="platinum_monthly", usadas=560))
+        ok(isinstance(r, dict) and r["alcanza"] is False and r["freno"] is None and r["disponibles"] == 0,
+           "Platinum sin consultas → la cotización de siempre (a él la recarga sí le sirve)")
+        estado["saldo"] = {"disponibles": 0, "freno": fe.resumen(E, 600)}
+        r, _ = await cotizar(usuario(usadas=None))
+        ok(isinstance(r, HTTPException) and r.status_code == 402 and r.detail["mensaje"] == APROBADO,
+           "sin contador en la puerta, el del saldo: también frena")
+
+        d = await carpeta(usuario(usadas=600))
+        cot = d["cotizacion"]
+        ok(cot["alcanza"] is False and cot["freno"]["codigo"] == "freno_estudio"
+           and cot["freno"]["mensaje"] == APROBADO and d["documentos"],
+           "la carpeta se lista igual y su cotización trae el aviso en `freno` (sin 402)")
+        estado["saldo"] = {"disponibles": 0}
+        d = await carpeta(usuario(plan="pro_monthly", usadas=140))
+        ok(d["cotizacion"]["freno"] is None, "la carpeta de cualquier otro plan: `freno` None")
+
+        r = await tabla(usuario(usadas=600), 25)
+        ok(isinstance(r, HTTPException) and r.status_code == 402 and r.detail["codigo"] == "freno_estudio",
+           "cotizar una tabla con celdas por correr y las 560 gastadas → 402 freno_estudio")
+        r = await tabla(usuario(usadas=600), 0)
+        ok(isinstance(r, dict) and r["consultas"] == 0, "una tabla sin celdas pendientes se abre como siempre")
+        estado["saldo"] = {"disponibles": 0}
+        r = await tabla(usuario(plan="platinum_annual", usadas=560), 25)
+        ok(isinstance(r, dict) and r["alcanza"] is False, "Platinum: la cotización de la tabla de siempre")
+    finally:
+        for n, f in viejos.items():
+            setattr(boveda, n, f)
+        boveda.cobro.saldo_consultas = viejo_saldo
+
+
+asyncio.run(_cotizar_boveda())
+
+
 print("\n── 4-6. Con main.py, sin arranque ──")
 import dotenv  # noqa: E402
 

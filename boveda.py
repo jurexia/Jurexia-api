@@ -205,6 +205,35 @@ async def _disponibles(u: Usuario) -> Optional[int]:
     return (await cobro.saldo_consultas(_cliente(), u.id)).get("disponibles")
 
 
+def _freno_de_la_cotizacion(u: Usuario, disponibles: Optional[int], consultas: int) -> Optional[dict]:
+    """EL PLAN ESTUDIO NO SE COTIZA CONTRA UNA RECARGA.   (2-nov-2026)
+
+    Con sus 560 de élite gastadas, la cotización le decía a un Estudio
+    `disponibles: 0, alcanza: false`, y la pantalla lo pintaba como «Te quedan
+    0 consultas. No te alcanzan: compra una recarga…» en un plan que se vende
+    con consultas ilimitadas. Y la recarga no le abre la Bóveda:
+    `consumir_consultas` cobra primero del plan (revisión de la API del 2-nov,
+    hallazgo 2). Aquí sale el detalle del 402 `freno_estudio`, con el aviso
+    aprobado o con su número si quedan algunas, como en la Cronología.
+
+    `disponibles` es lo de `_disponibles`, que para Estudio ya es lo que le
+    queda de las 560, venga de la lectura de la puerta o de la del saldo. None
+    para cualquier otro plan, para la administración (no paga) o si cabe."""
+    if (u.es_admin or not consultas or disponibles is None
+            or not freno_estudio.es_estudio(u.plan) or disponibles >= consultas):
+        return None
+    return freno_estudio.rechazo(disponibles, consultas).detail
+
+
+def _exigir_freno(u: Usuario, disponibles: Optional[int], consultas: int, donde: str) -> None:
+    """402 `freno_estudio` al cotizar si a Estudio no le cabe la tarea."""
+    freno = _freno_de_la_cotizacion(u, disponibles, consultas)
+    if freno:
+        print(f"   🧭 freno de Estudio: {donde} pide {consultas} y le quedan {disponibles} "
+              f"de {freno_estudio.CONSULTAS_ELITE} de élite — se avisa al cotizar")
+        raise HTTPException(status_code=402, detail=freno)
+
+
 # ═══ Utilidades ════════════════════════════════════════════════════════════
 def _ahora() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -388,6 +417,10 @@ async def boveda_carpeta(carpeta_id: str, authorization: str = Header(None)):
     if por_cobrar:
         disp = await _disponibles(u)
         cotizacion = _cotizacion(por_cobrar, disp, await _uso_usuario(u.id))
+        # Estudio (2-nov-2026): la carpeta se lista siempre, así que aquí no
+        # hay 402; va el aviso en `cotizacion.freno` para que la pantalla lo
+        # pinte en vez de ofrecer una recarga. None para los demás planes.
+        cotizacion["freno"] = _freno_de_la_cotizacion(u, disp, cotizacion["consultas"])
     return {
         "carpeta_id": carpeta_id,
         "documentos": [_doc_publico(d) for d in docs],
@@ -504,6 +537,10 @@ async def boveda_cotizar(carpeta_id: str, authorization: str = Header(None)):
     listos = [d for d in docs if d["estado"] == "revisado"]
     disp = await _disponibles(u)
     c = _cotizacion(listos, disp, await _uso_usuario(u.id))
+    # Estudio (2-nov-2026): si no le cabe, 402 `freno_estudio` con el aviso,
+    # como `cronologia_cotizar`; no un «no te alcanza» que invita a recargar.
+    _exigir_freno(u, disp, c["consultas"], "boveda_ingesta")
+    c["freno"] = None
     c["pendientes_de_revision"] = len(docs) - len(listos)
     c["sin_costo"] = u.es_admin
     return c
@@ -835,6 +872,10 @@ async def boveda_tabla_cotizar(tabla_id: str, req: CorridaRequest, authorization
     pares, _ = await _celdas_a_correr(u, t, req)
     consultas = consultas_celdas(len(pares))
     disp = await _disponibles(u)
+    # Estudio (2-nov-2026): con celdas por correr que no le caben, 402
+    # `freno_estudio`; la pantalla de la tabla pinta `detail.mensaje`. Sin
+    # celdas pendientes no cuesta nada y la tabla se abre como siempre.
+    _exigir_freno(u, disp, consultas, "boveda_tabla")
     return {"celdas": len(pares), "consultas": consultas, "disponibles": disp,
             "alcanza": disp is None or disp >= consultas, "sin_costo": u.es_admin}
 
