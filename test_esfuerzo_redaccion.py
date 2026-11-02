@@ -151,6 +151,10 @@ def main() -> None:
     assert esfuerzo_permitido("platinum", None, es_admin=True) == "platinum"
     assert esfuerzo_permitido(None, "platinum_monthly") == "basico"
     assert esfuerzo_permitido("platino", "ultra_secretarios") == "platinum"
+    # Plan Estudio (2-nov-2026): es Platinum sin cupo; el freno de 560 lo baja
+    # a Pro en /chat (freno_estudio.py), no aquí.
+    assert esfuerzo_permitido("platinum", "platinum_estudio") == "platinum"
+    assert esfuerzo_permitido("pro", "platinum_estudio") == "pro"
     assert normalizar_esfuerzo("Profesional") == "basico"
     assert normalizar_esfuerzo("cualquiera") is None
 

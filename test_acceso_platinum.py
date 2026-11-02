@@ -130,6 +130,13 @@ PERFILES = [
     {"id": "u-tester-sin", "email": "inventado@iurexia.com", "subscription_type": "gratuito", "email_verificado_at": None},
     {"id": "u-jenica", "email": "jenycampos@hotmail.com", "subscription_type": "pro_monthly", "email_verificado_at": V},
     {"id": "u-imitador", "email": "alguien@iurexia.com.mx", "subscription_type": "pro_monthly", "email_verificado_at": V},
+    # Plan Estudio (2-nov-2026): pasa todas las puertas de Platinum; con 560
+    # consultas de élite usadas, el freno (freno_estudio.py) le cierra la
+    # Bóveda, la Cronología y el OCR, no la puerta.
+    {"id": "u-estudio", "email": "despacho@ejemplo.mx", "subscription_type": "platinum_estudio",
+     "email_verificado_at": V, "queries_used": 120},
+    {"id": "u-estudio-560", "email": "despacho2@ejemplo.mx", "subscription_type": "platinum_estudio",
+     "email_verificado_at": V, "queries_used": 560},
 ]
 ADMINS = {"administracion@iurexia.com", "jdm.juridico@gmail.com"}
 
@@ -142,7 +149,7 @@ ok(not ap.tiene_platinum("pro_monthly", "a@b.mx", ADMINS, True), "Pro no")
 ok(not ap.tiene_platinum("pro_annual", "a@b.mx", ADMINS, True), "Pro anual no")
 ok(not ap.tiene_platinum("gratuito", None), "gratuito sin correo no")
 ok(not ap.tiene_platinum(None, None), "sin plan ni correo no")
-for p in ("platinum_monthly", "platinum_annual", "ultra_secretarios"):
+for p in ("platinum_monthly", "platinum_annual", "ultra_secretarios", "platinum_estudio"):
     ok(ap.tiene_platinum(p, "a@b.mx", ADMINS), f"{p} sí")
 ok(ap.tiene_platinum("gratuito", " JDM.Juridico@gmail.com ", ADMINS), "administración sí (sin importar mayúsculas ni espacios)")
 ok(ap.tiene_platinum("gratuito", "prueba@iurexia.com", ADMINS, True), "tester del dominio, verificado: sí")
@@ -169,6 +176,11 @@ async def _acceso():
     ok(a["u-jenica"].platinum and a["u-jenica"].cortesia and not a["u-jenica"].es_admin,
        "Jenica → sí, por cortesía, NO administración")
     ok(not a["u-imitador"].platinum, "@iurexia.com.mx → no")
+    ok(a["u-estudio"].platinum and a["u-estudio"].usadas == 120 and not a["u-estudio"].frenado,
+       "Estudio con 120 usadas → pasa, trae su contador en la misma lectura, sin freno")
+    ok(a["u-estudio-560"].platinum and a["u-estudio-560"].frenado,
+       "Estudio con 560 usadas → pasa la puerta y va con el freno puesto")
+    ok(not a["u-plat"].frenado, "Platinum nunca va con el freno de Estudio")
     sin = await ap.acceso_del_usuario(sb, "u-no-existe", ADMINS)
     ok(not sin.platinum and sin.leido, "perfil inexistente → no, leído (no es un tropiezo)")
     nadie = await ap.acceso_del_usuario(sb, None, ADMINS)
@@ -201,7 +213,11 @@ async def _acceso():
 
     print("\n── cobro_consultas (la puerta que comparten Cronología y Bóveda) ──")
     r = await cc.exigir_platinum(sb, "u-tester", ADMINS, "La Cronología")
-    ok(r == {"plan": "gratuito", "es_admin": False, "cortesia": True}, f"tester → pasa sin ser administración ({r})")
+    ok(r == {"plan": "gratuito", "es_admin": False, "cortesia": True, "usadas": None},
+       f"tester → pasa sin ser administración ({r})")
+    r = await cc.exigir_platinum(sb, "u-estudio", ADMINS, "La Cronología")
+    ok(r["plan"] == "platinum_estudio" and r["usadas"] == 120,
+       f"Estudio → pasa, con `usadas` de la misma lectura para el freno ({r})")
     try:
         await cc.exigir_platinum(sb, "u-pro", ADMINS, "La Cronología")
         ok(False, "Pro → 403 en la Cronología")
@@ -313,9 +329,12 @@ sb.caida = True
 chat_rechaza(sb, "u-plat", PREC, "Platinum con la base caída", codigo=503)
 sb.caida = False
 
+chat_pasa(sb, "u-estudio", PREC, "Estudio")
+
 print("\n── /chat: Sentencia ──")
 chat_rechaza(sb, "u-pro", SENT, "Pro")
 chat_pasa(sb, "u-anual", SENT, "Platinum anual")
+chat_pasa(sb, "u-estudio-560", SENT, "Estudio con 560 usadas (el freno cambia el motor, no la puerta)")
 
 print("\n── /chat: lo demás no cambia ──")
 chat_pasa(sb, "u-pro", "¿Qué es el amparo directo?", "Pro con una consulta normal")
@@ -337,7 +356,8 @@ def registro(uid):
 
 
 ok("REDACCIÓN PLATINUM sin plan Platinum" in registro("u-pro"), "Pro → cae a Redacción Pro")
-for uid, que in (("u-plat", "Platinum"), ("u-jenica", "Jenica"), ("u-tester", "tester con plan gratuito")):
+for uid, que in (("u-plat", "Platinum"), ("u-jenica", "Jenica"), ("u-tester", "tester con plan gratuito"),
+                 ("u-estudio", "Estudio")):
     r = registro(uid)
     ok("REDACCIÓN PLATINUM sin plan" not in r and "PLATINUM DEGRADADO" not in r, f"{que} → se queda en Platinum")
 
@@ -371,6 +391,8 @@ s, _ = toulmin(sb, "u-plat")
 ok("u-plat" in sb.cobros(), f"Platinum → pasa la puerta y se cobra ({s})")
 s, _ = toulmin(sb, "u-jenica")
 ok("u-jenica" in sb.cobros(), f"Jenica → pasa ({s})")
+s, _ = toulmin(sb, "u-estudio-560")
+ok("u-estudio-560" in sb.cobros(), f"Estudio con 560 usadas → Toulmin sigue ({s})")
 
 
 print("\n── /expediente/cronologia/cotizar (usa cobro_consultas.exigir_platinum) ──")
@@ -390,6 +412,14 @@ s, c = cotizar(sb, "u-jenica")
 ok(s == 200 and c.get("consultas") == 2, f"Jenica → cotiza 20 páginas en 2 consultas ({s}: {c.get('consultas')})")
 s, c = cotizar(sb, "u-tester-sin")
 ok(s == 403, f"@iurexia.com sin verificar → 403 ({s})")
+import freno_estudio  # noqa: E402
+s, c = cotizar(sb, "u-estudio")
+ok(s == 200 and c.get("consultas") == 2 and c["saldo"]["disponibles"] == 440 and c.get("alcanza"),
+   f"Estudio con 120 usadas → cotiza contra lo que le queda de las 560: 440 ({s}: {c.get('saldo')})")
+s, c = cotizar(sb, "u-estudio-560")
+ok(s == 402 and c["detail"]["codigo"] == "freno_estudio"
+   and c["detail"]["mensaje"] == freno_estudio.MENSAJE_AGOTADAS,
+   f"Estudio con 560 usadas → 402 freno_estudio con el aviso aprobado ({s}: {str(c)[:120]})")
 
 
 print("\n── /api/jurimetria ──")
@@ -423,6 +453,8 @@ s, c = jurimetria(sb, "socio@ejemplo.mx", token="basura")
 ok(s == 401, f"token inválido → 401, no el repliegue al correo ({s})")
 s, c = jurimetria(sb, "jenycampos@hotmail.com", token=tok("u-jenica"))
 ok(s not in (401, 403), f"Jenica con su token → pasa la puerta ({s})")
+s, c = jurimetria(sb, "despacho2@ejemplo.mx", token=tok("u-estudio-560"))
+ok(s not in (401, 402, 403), f"Estudio con 560 usadas y sin adjuntos → la Jurimetría sigue ({s})")
 
 
 # ── Con la base real: sólo lee user_profiles ────────────────────────────
