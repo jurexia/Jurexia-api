@@ -87,6 +87,14 @@ ok(fe.frenado_tras_cobro({}) is None and fe.frenado_tras_cobro(None) is None
 ok(fe.usadas_antes_del_cobro(c(1)) == 0 and fe.usadas_antes_del_cobro(c(3100, recarga=True)) == 3100,
    "usadas antes del cobro: del plan resta 1; de recarga, no")
 
+# La lectura de la redacción en /chat corre con el cobro ya lanzado: puede
+# traer la consulta de ahora sumada (revisión del 2-nov, hallazgo 4).
+ok(fe.sin_la_de_ahora(560) == 559 and not fe.frenado(E, fe.sin_la_de_ahora(560))
+   and fe.frenado(E, fe.sin_la_de_ahora(561)),
+   "lectura con el cobro en marcha: 560 (ya con la de ahora) no frena; 561 sí")
+ok(fe.sin_la_de_ahora(0) == 0 and fe.sin_la_de_ahora(None) is None and fe.sin_la_de_ahora("x") == "x",
+   "sin_la_de_ahora: nunca baja de 0; sin contador lo deja tal cual para que se registre")
+
 ok(fe.elite_restantes(E, 500) == 60 and fe.elite_restantes(E, 700) == 0
    and fe.elite_restantes(E, None) is None and fe.elite_restantes("platinum_monthly", 10) is None,
    "elite_restantes: lo que queda de las 560; None sin freno o sin contador")
@@ -686,6 +694,11 @@ ok(0 < chat_src.find("if _estudio_frenado:", i_sent) < chat_src.find("_ap_m.mode
 ok(chat_src.find("_cobro_chat.update(q_data)") > 0, "/chat: el cobro de consume_query se guarda para el freno")
 ok("_acc_freno_chat.plan, _acc_freno_chat.usadas" in chat_src,
    "/chat: sin cobro, el respaldo es la lectura del perfil de la puerta")
+ok("_acc_freno_chat or _dc_replace(\n            _acc_red, usadas=_freno.sin_la_de_ahora(_acc_red.usadas))" in chat_src,
+   "/chat: el respaldo que sale de la lectura de la redacción (con el cobro lanzado) resta la de ahora")
+import dataclasses  # noqa: E402
+_a = dataclasses.replace(ap.Acceso(E, False, False, True, usadas=560), usadas=fe.sin_la_de_ahora(560))
+ok(_a.usadas == 559 and not _a.frenado and _a.platinum, "Acceso con la de ahora restada: la 560 sigue con élite")
 doc_src = _cuerpo("analyze_document")
 ok("select('subscription_type, email, estado, queries_used')" in doc_src
    and doc_src.find("_freno.frenado(sub_type") < doc_src.find("rpc('consume_query'"),

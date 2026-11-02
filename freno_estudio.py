@@ -147,6 +147,22 @@ def frenado_tras_cobro(cobro: Optional[dict]) -> Optional[bool]:
     return es_estudio(cobro.get("subscription_type")) and usadas >= CONSULTAS_ELITE
 
 
+def sin_la_de_ahora(usadas):
+    """`queries_used` de una lectura del perfil hecha cuando el cobro de ESTA
+    consulta ya pudo haberse hecho, con la de ahora restada.   (2-nov-2026)
+
+    Es la lectura de la redacción en /chat (`_acc_red`): corre con
+    `consume_query` ya lanzado en paralelo, y puede traer «previas + 1». Sin
+    restarla, la consulta 560 —todavía de élite— salía con el freno
+    (revisión de la API del 2-nov, hallazgo 4). Restando: si la lectura llegó
+    después del cobro, exacto; si llegó antes, el freno llega una consulta
+    tarde, a favor del abogado, el mismo criterio que «sin contador, como
+    Platinum». Sin contador legible se devuelve tal cual, para que `frenado`
+    lo registre."""
+    n = _contador(usadas)
+    return usadas if n is None else max(0, n - 1)
+
+
 def mensaje_insuficientes(restantes: int, necesarias: int) -> str:
     """El aviso cuando quedan algunas de las 560 pero no las que pide la
     tarea (una Cronología de 300 hojas son 30); sin ninguna, el aprobado."""

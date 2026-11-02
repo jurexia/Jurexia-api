@@ -2009,6 +2009,7 @@ import acceso_platinum as _acceso  # noqa: E402
 # freno_estudio.py y rango_planes.py.
 import freno_estudio as _freno  # noqa: E402
 import rango_planes as _rango  # noqa: E402
+from dataclasses import replace as _dc_replace  # noqa: E402
 
 
 def extract_session_context(messages: list) -> dict:
@@ -17484,7 +17485,9 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
     # con lo que contesta `consume_query` (`_cobro_chat`, más abajo); si ese
     # cobro no llega, con la lectura del perfil que ya se hizo aquí o en la
     # puerta de la redacción, que traen `queries_used`. Las dos aparecen justo
-    # cuando el freno importa: Sentencia y el escalón Platinum.
+    # cuando el freno importa: Sentencia y el escalón Platinum. La de aquí va
+    # ANTES del cobro; la de la redacción, con el cobro ya lanzado, y por eso
+    # se guarda sin la consulta de ahora (`_freno.sin_la_de_ahora`).
     _acc_freno_chat: Optional["_acceso.Acceso"] = None
     if _herramienta_platinum:
         _acc_herr = await _exigir_platinum(request.user_id, _herramienta_platinum)
@@ -17831,7 +17834,11 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
         # Con la cortesía (testers y Jenica, acceso_platinum.py): «quedan
         # con todo», así que también con el escalón Platinum y el Pro.
         _acc_red = await _acceso_platinum(request.user_id)
-        _acc_freno_chat = _acc_freno_chat or _acc_red
+        # Para el respaldo del freno, sin la consulta de ahora: esta lectura
+        # corre con `consume_query` ya lanzado y puede traerla sumada; sin
+        # restarla, la 560 —todavía de élite— salía frenada (2-nov-2026).
+        _acc_freno_chat = _acc_freno_chat or _dc_replace(
+            _acc_red, usadas=_freno.sin_la_de_ahora(_acc_red.usadas))
         _plan_red, _plan_leido = _acc_red.plan, _acc_red.leido
         _tiene_platinum = _acc_red.platinum
         _tiene_pro = _tiene_platinum or _plan_red in PLANES_PRO

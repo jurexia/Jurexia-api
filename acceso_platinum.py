@@ -85,10 +85,13 @@ class Acceso:
 
     @property
     def frenado(self) -> bool:
-        """Estudio con sus 560 consultas de élite ya gastadas, leído ANTES de
-        cobrar la consulta de ahora. Sólo el plan y el contador: la cortesía
-        y la administración no lo saltan (freno_estudio.py). Sin contador
-        legible, como Platinum y con su línea en el registro."""
+        """Estudio con sus 560 consultas de élite ya gastadas. Supone que
+        `usadas` se leyó ANTES de cobrar la consulta de ahora; quien lo lee
+        con el cobro ya en marcha (la redacción en /chat) le resta la de
+        ahora con `freno_estudio.sin_la_de_ahora`. Sólo el plan y el
+        contador: la cortesía y la administración no lo saltan
+        (freno_estudio.py). Sin contador legible, como Platinum y con su
+        línea en el registro."""
         return freno_estudio.frenado(self.plan, self.usadas, "lectura del acceso")
 
 
