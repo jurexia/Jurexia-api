@@ -34055,15 +34055,18 @@ def _escribir_plan(user_id: str, plan: str, origen: dict) -> str:
     Deja el plan del usuario en `user_profiles`, el mismo campo que actualiza el
     webhook de Stripe. Es la única fuente de verdad: ni la app ni la web deciden.
 
-    LA TIENDA NO PISA UN PLAN DE LA WEB MAYOR (2-nov-2026, A8 del inventario
-    de precios). Con una suscripción de Stripe viva en el perfil, la tienda
-    sólo escribe un plan de rango ESTRICTAMENTE mayor (rango_planes.py). Sin
-    esto, quien paga Estudio en la web y compra «Pro» en la app instalada
-    —que no conoce Estudio y se lo ofrece— quedaba en `pro_monthly` y el
-    trigger le dejaba 140 consultas; y el aviso de que caducó una suscripción
-    vieja de la tienda escribía `gratuito` encima del plan que paga en Stripe.
+    LA TIENDA NO PISA UN ESTUDIO PAGADO EN LA WEB (2-nov-2026, A8 del
+    inventario de precios). Si el perfil es Estudio con una suscripción de
+    Stripe viva, la tienda sólo escribe un plan de rango ESTRICTAMENTE mayor
+    (rango_planes.py; hoy ninguno). Sin esto, quien paga Estudio en la web y
+    compra «Pro» en la app instalada —que no conoce Estudio y se lo ofrece—
+    quedaba en `pro_monthly` y el trigger le dejaba 140 consultas; y el aviso
+    de que caducó una suscripción vieja de la tienda escribía `gratuito`
+    encima del Estudio que paga. Para cualquier otro plan, la tienda escribe
+    como siempre (revisión de la API del 2-nov, hallazgo 3).
 
-    Devuelve el plan que QUEDÓ en el perfil: es lo que la app guarda.
+    Devuelve el plan que QUEDÓ en el perfil (para el registro y las pruebas;
+    a la app se le contesta lo que compró, ver `verificar_compra_apple`).
     """
     if not supabase_admin:
         raise HTTPException(status_code=503, detail="Supabase no está configurado")
@@ -34074,12 +34077,11 @@ def _escribir_plan(user_id: str, plan: str, origen: dict) -> str:
     fila = (r.data or [{}])[0]
     actual = fila.get("subscription_type")
     if not _rango.tienda_puede_escribir(actual, fila.get("stripe_subscription_id"), plan):
-        # Esta línea es la que hay que buscar si alguien paga en las dos
-        # partes: la tienda cobró y aquí no se escribió nada. Si la tienda le
-        # había dado un plan MAYOR que el de Stripe y ése caduca, también
-        # cae aquí y conserva el mayor: se revisa a mano (rango_planes.py).
+        # Esta línea es la que hay que buscar si alguien paga Estudio en la
+        # web y además la tienda: la tienda cobró y aquí no se escribió nada.
+        # Se revisa a mano (rango_planes.py).
         print(f"🍎 Tienda → user={user_id} NO escribe {plan}: se queda {actual} "
-              f"(suscripción de Stripe viva y de rango mayor o igual) {origen}")
+              f"(Estudio con suscripción de Stripe viva) {origen}")
         return actual or plan
 
     supabase_admin.table("user_profiles").update(
@@ -34178,9 +34180,13 @@ async def verificar_compra_apple(
             status_code=403, detail="Esta compra pertenece a otra cuenta de Iurexia."
         )
 
-    # 5) Ya se puede conceder. Lo que se devuelve es lo que quedó: con un
-    #    plan de la web mayor (Estudio, p. ej.), ése, no el comprado.
-    plan_guardado = await asyncio.to_thread(
+    # 5) Ya se puede conceder. A la app se le contesta lo que compró, como
+    #    siempre, aunque el perfil se quede en Estudio (rango_planes.py): la
+    #    app 1.5.0 no conoce `platinum_estudio`, lo leería como gratuito y le
+    #    diría al abogado que acaba de pagar que su plan es el gratuito
+    #    (revisión de la API del 2-nov, hallazgo 3). El plan de verdad lo
+    #    vuelve a leer del perfil.
+    await asyncio.to_thread(
         _escribir_plan,
         user_id,
         compra.plan,
@@ -34189,7 +34195,7 @@ async def verificar_compra_apple(
 
     return {
         "success": True,
-        "subscription_type": plan_guardado or compra.plan,
+        "subscription_type": compra.plan,
         "product_id": compra.product_id,
         "expira_ms": compra.expira_ms,
         "entorno": compra.entorno,

@@ -18,7 +18,8 @@ Se comprueba:
      las 560, sin llamar a `consumir_consultas` si no cabe;
   4. el OCR: con el freno, la caché sí y Azure no; y /extract-text, que
      es por donde Sentencia manda sus PDF, frena con la sesión de Estudio;
-  5. la tienda (A8): no pisa un plan de Stripe mayor;
+  5. la tienda (A8): no pisa un Estudio pagado en Stripe, y a los demás
+     planes los escribe como siempre;
   6. en /chat y en /analyze-document el freno va antes de elegir motor.
 """
 import asyncio
@@ -632,16 +633,31 @@ def tienda(actual, stripe_id, nuevo):
     return queda, sb.escrito
 
 
-print("\n── 5. La tienda no pisa un plan de Stripe mayor (A8) ──")
+print("\n── 5. La tienda no pisa un Estudio pagado en la web (A8), y a nadie más le cambia nada ──")
 ok(tienda(E, "sub_1", "pro_monthly") == (E, None), "Estudio en Stripe + «Pro» en la app → se queda Estudio, nada se escribe")
-ok(tienda(E, "sub_1", "gratuito") == (E, None), "aviso EXPIRED de la tienda con Stripe vivo → no escribe gratuito")
+ok(tienda(E, "sub_1", "gratuito") == (E, None), "aviso EXPIRED de la tienda con Stripe vivo → no escribe gratuito encima de Estudio")
+ok(tienda(E, None, "gratuito") == ("gratuito", "gratuito"),
+   "Estudio sin Stripe: la tienda manda como siempre (dio el plan y lo quita)")
 ok(tienda("pro_monthly", "sub_1", "platinum_monthly") == ("platinum_monthly", "platinum_monthly"),
-   "Stripe Pro + Platinum en la app (mayor) → se escribe")
+   "Stripe Pro + Platinum en la app → se escribe")
+ok(tienda("platinum_monthly", "sub_1", "pro_monthly") == ("pro_monthly", "pro_monthly"),
+   "Stripe Platinum + Pro en la app (menor) → se escribe, como en main (revisión del 2-nov, hallazgo 3)")
+ok(tienda("pro_monthly", "sub_1", "gratuito") == ("gratuito", "gratuito"),
+   "Stripe Pro + aviso EXPIRED de la tienda → escribe gratuito, como en main")
 ok(tienda("platinum_monthly", None, "gratuito") == ("gratuito", "gratuito"),
-   "sin Stripe la tienda manda como siempre (dio el plan y lo quita)")
+   "sin Stripe la tienda manda como siempre")
 ok(tienda("gratuito", "", "pro_monthly") == ("pro_monthly", "pro_monthly"), "id de Stripe vacío = sin Stripe")
-ok(rp.tienda_puede_escribir("pro_monthly", "sub_1", "pro_monthly") is False,
-   "mismo plan con Stripe: no hay nada que escribir")
+EXISTENTES = [p for p in rp.PLAN_RANK if p != E]
+ok(all(rp.tienda_puede_escribir(a, s_id, n) for a in EXISTENTES + [None, "raro"]
+       for s_id in ("sub_1", "", None) for n in EXISTENTES),
+   f"los {len(EXISTENTES)} planes que ya existían: la tienda escribe siempre, con o sin Stripe, como en main")
+ok(not any(rp.tienda_puede_escribir(E, "sub_1", n) for n in rp.PLAN_RANK),
+   "Estudio con Stripe vivo: ninguna compra ni aviso de la tienda lo pisa")
+ver_src = ast.get_source_segment(fuente_main, next(
+    n for n in ast.walk(arbol_main)
+    if isinstance(n, ast.AsyncFunctionDef) and n.name == "verificar_compra_apple"))
+ok('"subscription_type": compra.plan,' in ver_src and "plan_guardado" not in ver_src,
+   "a la app se le contesta el plan que compró, como en main (1.5.0 no conoce platinum_estudio)")
 
 
 print("\n── 6. El freno va antes de elegir motor ──")
