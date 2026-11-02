@@ -41,6 +41,8 @@ DÓNDE SE APLICA (precios-nov2/estudio-hoy/api/decisiones.md):
   · /analyze-document: motor de documentos de Pro y sin OCR pagado (la caché
     del OCR sí). Lee `queries_used` en la misma lectura del perfil.
   · Jurimetría con adjuntos: sin OCR pagado.
+  · /extract-text (el PDF de Sentencia): sin OCR pagado si llega la sesión
+    de un Estudio frenado (revisión del 2-nov).
   · Bóveda y Cronología: sólo lo que quepa en lo que queda de las 560
     (`exigir_elite`, desde `cobro_consultas.cobrar_consultas(plan=…)`).
 """

@@ -16,7 +16,8 @@ Se comprueba:
      100 flujos, rango 8, y el limitador no cambia para nadie más;
   3. el cobro de la Bóveda y la Cronología: con Estudio, sólo lo que cabe en
      las 560, sin llamar a `consumir_consultas` si no cabe;
-  4. el OCR: con el freno, la caché sí y Azure no;
+  4. el OCR: con el freno, la caché sí y Azure no; y /extract-text, que
+     es por donde Sentencia manda sus PDF, frena con la sesión de Estudio;
   5. la tienda (A8): no pisa un plan de Stripe mayor;
   6. en /chat y en /analyze-document el freno va antes de elegir motor.
 """
@@ -361,6 +362,116 @@ async def _ocr():
 
 
 asyncio.run(_ocr())
+
+
+print("\n── 4b. /extract-text (el PDF de Sentencia) con el freno ──")
+
+
+def _pdf_con_texto() -> bytes:
+    """Una hoja con texto de verdad: no necesita OCR. Variado, porque
+    `_texto_nativo_sirve` mide la riqueza (un sello repetido no pasa)."""
+    import fitz
+    d = fitz.open()
+    p = d.new_page()
+    parrafo = ("PRIMERO. Se confirma la sentencia recurrida. El tribunal colegiado estudia los "
+               "agravios del quejoso sobre la valoración de pruebas, la competencia del juzgado, "
+               "la oportunidad de la demanda, el interés jurídico, la suplencia de la queja y "
+               "la motivación del acto reclamado. ")
+    extra = " ".join(f"concepto{chr(97 + i % 26)}{chr(97 + i // 26)} razonado" for i in range(130))
+    p.insert_textbox(fitz.Rect(30, 30, 580, 820), parrafo + extra, fontsize=7)
+    b = d.tobytes()
+    d.close()
+    return b
+
+
+async def _extract_text():
+    from starlette.datastructures import UploadFile as _UF
+    pdf, pdf_txt = _pdf_escaneado(), _pdf_con_texto()
+    azure, sesiones, lecturas = [], [], []
+
+    async def _azure(contenido, paginas_esperadas=0, **k):
+        azure.append(paginas_esperadas)
+        return "TEXTO RECONOCIDO " * 40
+
+    async def _sin_cache(_c, _h):
+        return None
+
+    perfiles = {"tok-estudio-600": (E, 600), "tok-estudio-559": (E, 559),
+                "tok-platinum": ("platinum_monthly", 9999)}
+
+    async def _sesion(authorization, ruta=""):
+        tok = main._puerta._extraer(authorization)
+        sesiones.append(ruta)
+        if tok == "tok-caido":
+            raise HTTPException(503, "Supabase caído")
+        if tok not in perfiles:
+            raise HTTPException(401, "token que no vale")
+        return main._puerta.Sesion(id=tok, correo=f"{tok}@x.mx")
+
+    async def _acceso(uid):
+        lecturas.append(uid)
+        plan, usadas = perfiles[uid]
+        return ap.Acceso(plan, False, False, True, usadas=usadas)
+
+    async def pedir(contenido, nombre, token=None):
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            try:
+                r = await main.extract_text_from_document(
+                    file=_UF(file=io.BytesIO(contenido), filename=nombre),
+                    authorization=(f"Bearer {token}" if token else None))
+            except Exception as e:      # noqa: BLE001 — se devuelve para mirarla
+                r = e
+        return r, buf.getvalue()
+
+    viejos = (main._ocr_azure, main.cache_ocr.leer, main.cache_ocr.guardar_en_segundo_plano,
+              main._puerta.sesion_del_token, main._acceso_platinum)
+    main._ocr_azure, main.cache_ocr.leer = _azure, _sin_cache
+    main.cache_ocr.guardar_en_segundo_plano = lambda *a, **k: None
+    main._puerta.sesion_del_token, main._acceso_platinum = _sesion, _acceso
+    try:
+        r, _ = await pedir(pdf, "sentencia.pdf", "tok-estudio-600")
+        ok(isinstance(r, fe.SinElite) and r.status_code == 402 and r.detail == APROBADO and not azure,
+           "Estudio con 560 usadas manda un escaneo → 402 con el aviso aprobado, y Azure NO se llama")
+        r, _ = await pedir(pdf_txt, "sentencia.pdf", "tok-estudio-600")
+        ok(isinstance(r, dict) and "Se confirma la sentencia" in r.get("text", "") and not azure,
+           "Estudio frenado con un PDF que trae su texto → se lee (no cuesta OCR)")
+        r, _ = await pedir(pdf, "sentencia.pdf", "tok-estudio-559")
+        ok(isinstance(r, dict) and r["text"].startswith("TEXTO RECONOCIDO") and azure == [2],
+           "Estudio con 559 usadas → todavía con OCR, como Platinum")
+        azure.clear()
+        r, _ = await pedir(pdf, "sentencia.pdf", "tok-platinum")
+        ok(isinstance(r, dict) and azure == [2], "Platinum (9,999 usadas) → OCR como siempre")
+        azure.clear(), sesiones.clear(), lecturas.clear()
+        r, _ = await pedir(pdf, "sentencia.pdf")
+        ok(isinstance(r, dict) and azure == [2] and not sesiones and not lecturas,
+           "sin token → como antes de Estudio: OCR y ni una lectura más")
+        azure.clear()
+        r, _ = await pedir(pdf, "sentencia.pdf", "tok-inventado")
+        ok(isinstance(r, HTTPException) and r.status_code == 401 and not azure,
+           "un token que no vale → 401, como en el resto de la API (la web renueva y repite)")
+        r, txt = await pedir(pdf, "sentencia.pdf", "tok-caido")
+        ok(isinstance(r, dict) and azure == [2] and "FRENO DE ESTUDIO SIN SESIÓN (/extract-text)" in txt,
+           "Supabase no contesta → como Platinum, y queda la línea en el registro")
+        sesiones.clear(), lecturas.clear()
+        import lectura_docx
+
+        async def _docx(_c, _sep):
+            return "Texto de un Word que se lee en el servidor. " * 5
+        viejo_docx = lectura_docx.leer_docx
+        lectura_docx.leer_docx = _docx
+        try:
+            r, _ = await pedir(b"PK-falso", "demanda.docx", "tok-estudio-600")
+        finally:
+            lectura_docx.leer_docx = viejo_docx
+        ok(isinstance(r, dict) and not sesiones and not lecturas,
+           "un .docx no pasa por el OCR: ni se comprueba el token ni se lee el perfil")
+    finally:
+        (main._ocr_azure, main.cache_ocr.leer, main.cache_ocr.guardar_en_segundo_plano,
+         main._puerta.sesion_del_token, main._acceso_platinum) = viejos
+
+
+asyncio.run(_extract_text())
 
 
 class SbTienda:

@@ -13481,20 +13481,61 @@ async def eliminar_cuenta(request: Request):
 
 from fastapi import File, UploadFile
 
+
+async def _ocr_permitido_en_extract_text(authorization: Optional[str]) -> bool:
+    """¿Puede /extract-text pagar el OCR de este PDF?   (2-nov-2026)
+
+    EL PDF DE SENTENCIA PASABA POR AQUÍ Y NO POR EL FRENO. SentenciaModal
+    manda los PDF a /extract-text, no a /analyze-document, y esta ruta leía el
+    escaneo con Azure para cualquiera: un Estudio con sus 560 de élite
+    gastadas seguía pagando OCR en cada auditoría, y hasta 3,100 al mes
+    (revisión de la API del 2-nov, hallazgo 1). El aviso aprobado dice que
+    los documentos escaneados vuelven con su siguiente periodo.
+
+    La ruta no pide sesión (es anterior a Estudio y no dice de quién es, así
+    que la puerta no la mira): sin token, como siempre. Con token se
+    comprueba —uno que no vale es 401, como en el resto de la API, y la web
+    renueva y repite—, y si es un Estudio frenado, sin OCR pagado: la caché
+    sí, y si hay que pagar, `SinElite` (402 con el aviso). Si Supabase no
+    contesta, como Platinum y con su línea en el registro."""
+    if not (authorization or "").strip():
+        return True
+    try:
+        sesion = await _puerta.sesion_del_token(authorization, "/extract-text")
+    except HTTPException as e:
+        if e.status_code == 401:
+            raise
+        print(f"   🚨 FRENO DE ESTUDIO SIN SESIÓN (/extract-text): no se pudo "
+              f"comprobar el token ({e.status_code}) — se lee como Platinum")
+        return True
+    if sesion is None:
+        return True
+    acc = await _acceso_platinum(sesion.id)
+    if acc.frenado:
+        print(f"   🧭 /extract-text: ESTUDIO tras sus {_freno.CONSULTAS_ELITE} consultas "
+              f"de élite ({acc.usadas} usadas) — sin OCR pagado")
+        return False
+    return True
+
+
 @app.post("/extract-text")
-async def extract_text_from_document(file: UploadFile = File(...)):
+async def extract_text_from_document(file: UploadFile = File(...),
+                                     authorization: str = Header(None)):
     """
     Extrae texto de documentos .doc, .docx y .pdf
     Soporta formato Word 97-2003 (.doc) que no puede procesarse en el navegador.
+
+    `authorization` (2-nov-2026): opcional. Sólo cuenta para el PDF, el único
+    que puede pasar por el OCR: ver `_ocr_permitido_en_extract_text`.
     """
     import io
-    
+
     filename = file.filename or "unknown"
     extension = filename.split(".")[-1].lower()
-    
+
     # Leer contenido del archivo
     content = await file.read()
-    
+
     try:
         if extension == "docx":
             # Por flujo y en un hilo (30-sep-2026): ver `lectura_docx`.
@@ -13551,8 +13592,16 @@ async def extract_text_from_document(file: UploadFile = File(...)):
             # camino del auditor de sentencias. Ahora, el mismo lector que
             # /analyze-document y el taller: el texto nativo en un hilo y, si es
             # un escaneo, Azure con Gemini de repliegue, sin bloquear y con caché.
+            #
+            # Con el freno del plan Estudio (2-nov-2026) sin OCR pagado, y su
+            # 402 sale tal cual: el `except Exception` de abajo lo convertía en
+            # un 500 «Fallo al leer el PDF».
+            _ocr_ok = await _ocr_permitido_en_extract_text(authorization)
             try:
-                text = await _extract_text_from_upload(_SubidaDeBytes(content, filename))
+                text = await _extract_text_from_upload(_SubidaDeBytes(content, filename),
+                                                       permitir_ocr=_ocr_ok)
+            except _freno.SinElite:
+                raise
             except Exception as e:
                 raise ValueError(f"Fallo al leer el PDF: {str(e)}")
             import lectura_docx
