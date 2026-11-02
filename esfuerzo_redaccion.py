@@ -35,11 +35,19 @@ from typing import Any, Iterable, Optional
 
 ESFUERZOS = ("basico", "pro", "platinum")
 
+# Estudio (`platinum_estudio`, 2-nov-2026) entra en las dos: es Platinum sin
+# cupo mensual. De PLANES_PLATINUM heredan acceso_platinum.py (todas las
+# herramientas), la Bóveda, la Cronología y la redacción Platinum; el freno
+# de 560 (freno_estudio.py) lo baja a los motores de Pro donde toca, no aquí.
+# PLANES_PRO es además la lista de «Pro o más» de main.py (la web en el chat y
+# en los documentos, la redacción profesional): un solo sitio que cambiar.
 PLANES_PRO = {
     "pro_monthly", "pro_annual",
     "platinum_monthly", "platinum_annual", "ultra_secretarios",
+    "platinum_estudio",
 }
-PLANES_PLATINUM = {"platinum_monthly", "platinum_annual", "ultra_secretarios"}
+PLANES_PLATINUM = {"platinum_monthly", "platinum_annual", "ultra_secretarios",
+                   "platinum_estudio"}
 
 
 def _plano(texto: str, lineas: bool = False) -> str:

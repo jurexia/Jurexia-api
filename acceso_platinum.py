@@ -6,7 +6,10 @@ habilitarle todo. Igual los testers quedan con todo».
 
 Las herramientas: Sentencia y Precedentes (viajan por /chat), Toulmin,
 Jurimetría, Cronología, Bóveda y el escalón Platinum de la redacción. Pasan:
-  · Platinum (mensual o anual) y Ultra Secretarios (`PLANES_PLATINUM`);
+  · Platinum (mensual o anual), Estudio y Ultra Secretarios
+    (`PLANES_PLATINUM`). Estudio pasa siempre esta puerta; tras sus 560
+    consultas de élite cambian el motor y lo que pasa por OCR, y eso lo
+    decide cada herramienta con `Acceso.frenado` (freno_estudio.py);
   · la administración (`ADMIN_EMAILS` de main.py, que se recibe de fuera);
   · la CORTESÍA: los testers (todo el dominio @iurexia.com) y Jenica
     (jenycampos@hotmail.com, cuenta pro_monthly).
@@ -35,6 +38,7 @@ from typing import Iterable, Optional
 
 from fastapi import HTTPException
 
+import freno_estudio
 from esfuerzo_redaccion import PLANES_PLATINUM
 
 DOMINIOS_CORTESIA = ("@iurexia.com",)          # los testers
@@ -69,10 +73,23 @@ class Acceso:
     es_admin: bool      # sólo ADMIN_EMAILS: lo que no se cobra y el panel
     cortesia: bool
     leido: bool         # False = la base no respondió, no «no tiene plan»
+    # PLAN ESTUDIO (2-nov-2026): `queries_used` del perfil, en la MISMA
+    # lectura que el plan. Sirve al freno de 560 (freno_estudio.py) sin otro
+    # viaje a la base. Con valor por omisión para que quien construye un
+    # Acceso a mano no tenga que saberlo.
+    usadas: Optional[int] = None
 
     @property
     def platinum(self) -> bool:
         return self.es_admin or self.cortesia or (self.plan or "") in PLANES_PLATINUM
+
+    @property
+    def frenado(self) -> bool:
+        """Estudio con sus 560 consultas de élite ya gastadas, leído ANTES de
+        cobrar la consulta de ahora. Sólo el plan y el contador: la cortesía
+        y la administración no lo saltan (freno_estudio.py). Sin contador
+        legible, como Platinum y con su línea en el registro."""
+        return freno_estudio.frenado(self.plan, self.usadas, "lectura del acceso")
 
 
 async def _leer(sb, campo: str, valor: str, admin_emails: Iterable[str]) -> Acceso:
@@ -83,7 +100,8 @@ async def _leer(sb, campo: str, valor: str, admin_emails: Iterable[str]) -> Acce
         return Acceso(None, False, False, False)
 
     def _perfil():
-        return sb.table("user_profiles").select("subscription_type, email, email_verificado_at") \
+        return sb.table("user_profiles") \
+            .select("subscription_type, email, email_verificado_at, queries_used") \
             .eq(campo, valor).limit(1).execute()
 
     admins = {_correo(e) for e in admin_emails}
@@ -95,7 +113,8 @@ async def _leer(sb, campo: str, valor: str, admin_emails: Iterable[str]) -> Acce
             fila = r.data[0]
             c = _correo(fila.get("email"))
             return Acceso(fila.get("subscription_type"), bool(c and c in admins),
-                          es_cortesia(c, bool(fila.get("email_verificado_at"))), True)
+                          es_cortesia(c, bool(fila.get("email_verificado_at"))), True,
+                          usadas=fila.get("queries_used"))
         except Exception as e:
             print(f"   ⚠️ acceso Platinum, intento {intento}/3: {type(e).__name__}")
             if intento < 3:

@@ -42,14 +42,20 @@ PAGINAS_POR_PLAN: Dict[str, int] = {
     "pro_monthly": 100, "pro_annual": 100,
     "platinum_monthly": 600, "platinum_annual": 600,
     "ultra_secretarios": 600,
+    # Estudio (2-nov-2026): lo mismo que Platinum, también después de sus 560
+    # consultas de élite. La tarjeta promete «documentos de hasta 600 hojas»;
+    # lo que el freno quita es el OCR y el motor de élite (freno_estudio.py).
+    "platinum_estudio": 600,
 }
 # Un plan que no está en la tabla (uno nuevo, o un nombre raro) lee como
 # antes del 16-ago: 30 hojas.
 TOPE_DESCONOCIDO = 30
 PLAN_QUE_CUBRE = [(50, "Básico"), (100, "Pro"), (600, "Platinum")]
 
-_NOMBRES = (("platinum", "Platinum"), ("ultra", "Ultra Secretarios"), ("pro", "Pro"),
-            ("basico", "Básico"))
+# Estudio va ANTES que «platinum»: por prefijo se llamaría Platinum en la
+# línea que encabeza la lectura parcial.
+_NOMBRES = (("platinum_estudio", "Estudio"), ("platinum", "Platinum"),
+            ("ultra", "Ultra Secretarios"), ("pro", "Pro"), ("basico", "Básico"))
 
 
 def tope_del_plan(subscription_type: Optional[str]) -> int:

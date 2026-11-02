@@ -2005,6 +2005,10 @@ from esfuerzo_redaccion import (  # noqa: E402
     detectar_redaccion, normalizar_esfuerzo,
 )
 import acceso_platinum as _acceso  # noqa: E402
+# Plan Estudio (2-nov-2026): el freno de 560 y el orden de los planes. Ver
+# freno_estudio.py y rango_planes.py.
+import freno_estudio as _freno  # noqa: E402
+import rango_planes as _rango  # noqa: E402
 
 
 def extract_session_context(messages: list) -> dict:
@@ -13934,13 +13938,18 @@ async def analyze_document(
     es_admin = False
     # El plan hace falta fuera del try para decidir cuántas hojas se leen.
     plan_actual = "gratuito"
+    # PLAN ESTUDIO (2-nov-2026): con sus 560 consultas de élite del periodo ya
+    # usadas, el documento va con el motor de Pro y sin OCR (freno_estudio.py).
+    # `queries_used` viaja en la misma lectura del perfil, y se lee ANTES de
+    # cobrar esta consulta: es el número exacto de las ya gastadas.
+    _freno_doc = False
 
     if user_id and supabase_admin:
         try:
             # Ejecutar consulta de Supabase en un pool de hilos para no bloquear
             def _fetch_profile():
                 return supabase_admin.table('user_profiles') \
-                    .select('subscription_type, email, estado') \
+                    .select('subscription_type, email, estado, queries_used') \
                     .eq('id', user_id) \
                     .limit(1) \
                     .execute()
@@ -13959,13 +13968,16 @@ async def analyze_document(
                 plan_actual = sub_type or "gratuito"
                 user_email = row.get('email', '').strip().lower()
                 
-                # Check si es plan premium o admin
+                # Check si es plan premium o admin. PLANES_PLATINUM ya trae
+                # Estudio: el millón de caracteres y las 600 hojas se quedan
+                # aun con el freno puesto, que sólo cambia motor y OCR.
                 es_admin = bool(user_email and user_email in ADMIN_EMAILS)
-                is_platinum_or_admin = (
-                    sub_type in ('platinum_monthly', 'platinum_annual', 'ultra_secretarios')
-                    or es_admin
-                )
+                is_platinum_or_admin = sub_type in PLANES_PLATINUM or es_admin
                 is_pro = sub_type in ('pro_monthly', 'pro_annual')
+                _freno_doc = _freno.frenado(sub_type, row.get('queries_used'), "/analyze-document")
+                if _freno_doc:
+                    print(f"   🧭 ESTUDIO con sus {_freno.CONSULTAS_ELITE} de élite usadas "
+                          f"({row.get('queries_used')}): motor de documentos de Pro y sin OCR")
 
                 if is_platinum_or_admin:
                     effective_max_chars = 1_000_000  # 1M caracteres ~ 250K tokens (ideal para 60-150 páginas)
@@ -14304,8 +14316,13 @@ async def analyze_document(
                           if total_pages else "Reconociendo el texto del documento…")
                     t_ocr_start = _time.time()
                     try:
+                        # Estudio con el freno puesto: sólo la caché del OCR
+                        # (gratis); si hay que pagar Azure, 402 con el aviso, y
+                        # el flujo devuelve la consulta (ver `stream_analysis`).
                         extracted_text = await _extract_text_from_upload(
-                            _SubidaDeBytes(content, filename))
+                            _SubidaDeBytes(content, filename), permitir_ocr=not _freno_doc)
+                    except _freno.SinElite:
+                        raise
                     except Exception as ocr_err:
                         raise HTTPException(
                             status_code=500,
@@ -14337,7 +14354,10 @@ async def analyze_document(
                     if _pdf_imgs:
                         try:
                             _ocr_imgs = await _extract_text_from_upload(
-                                _SubidaDeBytes(_pdf_imgs, filename.rsplit(".", 1)[0] + "-imagenes.pdf"))
+                                _SubidaDeBytes(_pdf_imgs, filename.rsplit(".", 1)[0] + "-imagenes.pdf"),
+                                permitir_ocr=not _freno_doc)
+                        except _freno.SinElite:
+                            raise
                         except Exception as _e_img:
                             print(f"   ⚠️ DOCX: el OCR de sus imágenes falló ({type(_e_img).__name__}: {str(_e_img)[:120]})")
                     print(f"   🖼️ DOCX con {len(_imgs)} imágenes y {len(extracted_text.strip()):,} chars de texto "
@@ -14529,8 +14549,12 @@ async def analyze_document(
 
         _paso("Redactando el análisis…")
         t_pre_llm = _time.time()
-        model_to_use = DOCUMENT_MODEL_PLATINUM if is_platinum_or_admin else DOCUMENT_MODEL
-        esfuerzo_doc = DOCUMENT_ESFUERZO_PLATINUM if is_platinum_or_admin else DOCUMENT_ESFUERZO
+        # El motor de élite, salvo a Estudio con el freno puesto: ése elige
+        # como Pro (freno_estudio.py), con el mismo millón de caracteres de
+        # Platinum.
+        _doc_elite = is_platinum_or_admin and not _freno_doc
+        model_to_use = DOCUMENT_MODEL_PLATINUM if _doc_elite else DOCUMENT_MODEL
+        esfuerzo_doc = DOCUMENT_ESFUERZO_PLATINUM if _doc_elite else DOCUMENT_ESFUERZO
         _via_doc = ("OpenRouter" if "/" in model_to_use
                     else "Gemini directo" if _gemini_doc.es_modelo_gemini_directo(model_to_use)
                     else f"OpenAI, razonamiento {esfuerzo_doc}")
@@ -14545,10 +14569,10 @@ async def analyze_document(
         _web_tasks_doc = []
         # Mismo freno que en /chat: la capa web sólo corre desde Pro. `sub_type` ya
         # viene leído arriba para el límite de caracteres, así que no cuesta otra
-        # consulta a Supabase.
+        # consulta a Supabase. «Pro o más» es PLANES_PRO (con Estudio desde el
+        # 2-nov-2026): una sola lista, no una copia por sitio.
         _web_permitida_doc = (
-            sub_type in ('pro_monthly', 'pro_annual', 'platinum_monthly',
-                         'platinum_annual', 'ultra_secretarios')
+            sub_type in PLANES_PRO
             or (user_email and user_email in ADMIN_EMAILS)
         )
         if str(fuentes_web).strip().lower() in ("1", "true", "si", "sí") and not _web_permitida_doc:
@@ -17407,14 +17431,28 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
     _ultimo_usuario = next((m.content or "" for m in reversed(request.messages)
                             if m.role == "user"), "")
     _herramienta_platinum = herramienta_platinum_del_chat(_ultimo_usuario)
+    # EL RESPALDO DEL FRENO DE ESTUDIO (2-nov-2026). El freno de /chat decide
+    # con lo que contesta `consume_query` (`_cobro_chat`, más abajo); si ese
+    # cobro no llega, con la lectura del perfil que ya se hizo aquí o en la
+    # puerta de la redacción, que traen `queries_used`. Las dos aparecen justo
+    # cuando el freno importa: Sentencia y el escalón Platinum.
+    _acc_freno_chat: Optional["_acceso.Acceso"] = None
     if _herramienta_platinum:
         _acc_herr = await _exigir_platinum(request.user_id, _herramienta_platinum)
+        _acc_freno_chat = _acc_herr
         print(f"   💎 {_herramienta_platinum}: acceso Platinum "
               f"({'administración' if _acc_herr.es_admin else 'cortesía' if _acc_herr.cortesia else _acc_herr.plan})")
 
     # ─────────────────────────────────────────────────────────────────────
     # PARALLEL STEP 1: Launch Infrastructure & Security Checks in background
     # ─────────────────────────────────────────────────────────────────────
+    # LO QUE CONTESTÓ `consume_query` (2-nov-2026): su plan y su contador,
+    # leídos bajo cerrojo al cobrar ESTA consulta. Con ellos decide el freno
+    # del plan Estudio (`_freno.frenado_tras_cobro`) sin otro viaje a la base
+    # y sin carrera con el cobro, que corre en paralelo. Vacío si no hubo
+    # cobro: entonces no frena.
+    _cobro_chat: dict = {}
+
     async def _run_infra_checks():
         """Combined check for blocked users and quota consumption."""
         if not request.user_id or not supabase_admin:
@@ -17486,6 +17524,8 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                         "status_code": 403
                     }
                 print(f"✅ Quota OK: {q_data.get('used')}/{q_data.get('limit')}")
+                if isinstance(q_data, dict):
+                    _cobro_chat.update(q_data)
             
             return None
         except Exception as e:
@@ -17632,10 +17672,11 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                 if _rw.data:
                     _fw = _rw.data[0]
                     _cw = (_fw.get('email') or '').strip().lower()
+                    # «Pro o más» es PLANES_PRO (esfuerzo_redaccion.py), con
+                    # Estudio desde el 2-nov-2026: una sola lista, no una
+                    # copia por sitio que se olvida al crear un plan.
                     _web_permitida = (
-                        _fw.get('subscription_type') in (
-                            'pro_monthly', 'pro_annual', 'platinum_monthly',
-                            'platinum_annual', 'ultra_secretarios')
+                        _fw.get('subscription_type') in PLANES_PRO
                         or (_cw and _cw in ADMIN_EMAILS)
                     )
             except Exception as _e:
@@ -17741,6 +17782,7 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
         # Con la cortesía (testers y Jenica, acceso_platinum.py): «quedan
         # con todo», así que también con el escalón Platinum y el Pro.
         _acc_red = await _acceso_platinum(request.user_id)
+        _acc_freno_chat = _acc_freno_chat or _acc_red
         _plan_red, _plan_leido = _acc_red.plan, _acc_red.leido
         _tiene_platinum = _acc_red.platinum
         _tiene_pro = _tiene_platinum or _plan_red in PLANES_PRO
@@ -17783,10 +17825,9 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                 if _rp.data:
                     _f = _rp.data[0]
                     _c = (_f.get('email') or '').strip().lower()
+                    # PLANES_PRO: Pro o más, Estudio incluido (2-nov-2026).
                     _plan_alto = (
-                        _f.get('subscription_type') in (
-                            'pro_monthly', 'pro_annual', 'platinum_monthly',
-                            'platinum_annual', 'ultra_secretarios')
+                        _f.get('subscription_type') in PLANES_PRO
                         or (_c and _c in ADMIN_EMAILS)
                     )
             except Exception as _e:
@@ -19206,7 +19247,9 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
             try:
                 # _resolved_genio_ids is assigned later in this generator (model selection block)
                 # so Python would treat it as local — nonlocal makes it read from outer scope first.
-                nonlocal _resolved_genio_ids
+                # `is_chat_drafting_platinum`, igual: el freno del plan Estudio
+                # la apaga aquí dentro, ya con el cobro hecho (2-nov-2026).
+                nonlocal _resolved_genio_ids, is_chat_drafting_platinum
                 # Las tareas que nacen en la ruta ya heredan el selector; esto
                 # lo asegura también si el servidor itera el flujo en otro
                 # contexto. Es idempotente.
@@ -19301,6 +19344,27 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                     yield f"<!--PASO:{_p}-->"
                 infra_error, (search_results, doc_id_map, context_xml), _cached = _gather_future.result()
                 print(f"   ⏱ TOTAL GATHER (infra+RAG+cache): {time.perf_counter() - _t_gather:.2f}s")
+
+                # ── EL FRENO DEL PLAN ESTUDIO (2-nov-2026) ─────────────────
+                # Desde su consulta 561 del periodo, Estudio elige motores como
+                # Pro (freno_estudio.py): el escalón Platinum de la redacción
+                # cae al de Pro y la auditoría de sentencias se redacta con el
+                # motor de Pro. El chat de siempre no cambia: su motor es el
+                # mismo en todos los planes. Va AQUÍ, después del cobro, porque
+                # lo decide lo que contestó `consume_query` para esta misma
+                # consulta (`_cobro_chat`): ni otra lectura ni carrera. Sin
+                # cobro que leer, la lectura del perfil de la puerta
+                # (`_acc_freno_chat`); sin ninguna de las dos, como Platinum.
+                _estudio_frenado = _freno.frenado_tras_cobro(_cobro_chat)
+                if _estudio_frenado is None:
+                    _estudio_frenado = bool(_acc_freno_chat) and _freno.frenado(
+                        _acc_freno_chat.plan, _acc_freno_chat.usadas, "/chat sin cobro")
+                if _estudio_frenado:
+                    print(f"   🧭 ESTUDIO tras sus {_freno.CONSULTAS_ELITE} consultas de élite "
+                          f"(cobro {_cobro_chat.get('used')}/{_cobro_chat.get('limit')}): motores de Pro"
+                          f"{' · la redacción Platinum va como Pro' if is_chat_drafting_platinum else ''}"
+                          f"{' · la auditoría con el motor de Pro' if is_sentencia else ''}")
+                    is_chat_drafting_platinum = False
 
                 # ── Lo que ya estaba verificado entra sin buscarse ────────
                 # Ver `_fuentes_ya_verificadas`. Van DELANTE de lo recién
@@ -20302,7 +20366,14 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                     # Revisión de Sentencia: Requiere la IA más potente disponible (OpenAI GPT-5.2)
                     # GPT-5.2 ofrece el máximo nivel de inteligencia y análisis de Iurexia
                     use_gemini = False
-                    if _auditor is not None:
+                    if _estudio_frenado:
+                        # Estudio tras sus 560 de élite (freno_estudio.py): la
+                        # nota la redacta el motor de la Redacción Pro, con su
+                        # esfuerzo. El catálogo del tribunal (`_auditor`) se
+                        # queda: lo arma el lector, que no es de élite.
+                        active_model = REDACTOR_PRO_MODEL
+                        _esfuerzo_redaccion = REDACTOR_PRO_ESFUERZO
+                    elif _auditor is not None:
                         # David, 29-sep-2026: «el de Terra en su versión Low». Ver
                         # `auditor_precedentes.modelo/esfuerzo` (AUDITOR_MODELO,
                         # AUDITOR_ESFUERZO). El esfuerzo viaja por la misma vía que
@@ -22781,6 +22852,9 @@ PLANES_CON_JURIMETRIA = {
     "platinum_monthly",
     "platinum_annual",
     "ultra_secretarios",
+    # Estudio (2-nov-2026): «Todo lo de Platinum». Por unión entra también en
+    # PLANES_CON_JURISCONSULTO.
+    "platinum_estudio",
 }
 
 # Jurisconsulto tiene su propia lista, y a proposito NO reusa la de Jurimetria.
@@ -23055,15 +23129,20 @@ def _texto_nativo_sirve(texto: str, paginas: int) -> bool:
     return True
 
 
-async def _extract_text_from_upload(file: UploadFile) -> str:
+async def _extract_text_from_upload(file: UploadFile, permitir_ocr: bool = True) -> str:
     """Extrae texto de PDF/DOCX subido.
-    
+
     Flujo para PDF:
       1. Intenta extracción nativa con PyMuPDF (rápido, gratuito).
       2. Si el PDF es escaneado (< 200 chars), usa Gemini 3.1 Pro OCR:
          - Para PDFs <= 20 páginas: procesa completo de una vez.
          - Para PDFs > 20 páginas: divide en chunks de 15 páginas y
            procesa cada chunk en paralelo con Gemini 3.1 Pro.
+
+    `permitir_ocr=False` (2-nov-2026, el freno del plan Estudio): el texto
+    nativo y la caché del OCR, que no cuestan, sí; si hubiera que pagar el
+    OCR, `freno_estudio.SinElite` (402) con el aviso aprobado. Quien llama la
+    deja pasar entre sus `except Exception`.
     """
     import io
     content = await file.read()
@@ -23105,6 +23184,14 @@ async def _extract_text_from_upload(file: UploadFile) -> str:
             print(f"   💾 OCR de caché: {len(_guardado)} chars ({n_pages} pág) — "
                   f"Azure no se vuelve a pagar (huella {_huella[:12]})")
             return _guardado
+
+        # ── 1c. Estudio con sus 560 de élite gastadas: el OCR espera ──
+        # Lo que pasa por OCR cuenta dentro de las 560 (ESTUDIO-PRECIOS.md
+        # §4): 46 documentos de 600 hojas sin caché bastan para comerse lo
+        # que Estudio deja sobre Platinum. Se corta AQUÍ, después de la caché.
+        if not permitir_ocr:
+            print(f"   🧭 OCR no permitido (Estudio tras el freno): {n_pages} pág sin caché — no se lee")
+            raise _freno.SinElite()
 
         # ── 2. Azure Document Intelligence — el OCR rápido ───────
         #
@@ -23350,12 +23437,17 @@ async def jurimetria_endpoint(
     texto_rd: str = ""
     texto_cp: str = ""
     modo = "basico"
+    # Estudio con sus 560 de élite gastadas: la Jurimetría sigue (sus motores
+    # no son los de élite), pero un adjunto escaneado no pasa por el OCR
+    # (freno_estudio.py). La lectura de `_acc_jur` trae `queries_used`, y aquí
+    # no se cobra consulta: es exacta.
+    _ocr_jur = not _acc_jur.frenado
 
     if ratio_decidendi and ratio_decidendi.filename:
-        texto_rd = await _extract_text_from_upload(ratio_decidendi)
+        texto_rd = await _extract_text_from_upload(ratio_decidendi, permitir_ocr=_ocr_jur)
         modo = "secretario"
     if causa_petendi and causa_petendi.filename:
-        texto_cp = await _extract_text_from_upload(causa_petendi)
+        texto_cp = await _extract_text_from_upload(causa_petendi, permitir_ocr=_ocr_jur)
         modo = "secretario"
 
     # ── Análisis de documentos con Gemini (modo secretario) ──────────────
@@ -31665,6 +31757,9 @@ SALVAME_LIMITS = {
     "platinum_monthly":  {"daily": 10, "monthly": 30},
     "platinum_annual":   {"daily": 10, "monthly": 30},
     "ultra_secretarios": {"daily": 10, "monthly": 30},
+    # Estudio (2-nov-2026), como Platinum. Sin la entrada caía en el gratuito
+    # (2 al día, 5 al mes): menos que el plan de abajo.
+    "platinum_estudio":  {"daily": 10, "monthly": 30},
 }
 SALVAME_COOLDOWN_SECONDS = 60  # Minimum seconds between requests
 
@@ -33906,19 +34001,44 @@ class VerificarCompraAppleRequest(BaseModel):
     product_id: Optional[str] = None
 
 
-def _escribir_plan(user_id: str, plan: str, origen: dict) -> None:
+def _escribir_plan(user_id: str, plan: str, origen: dict) -> str:
     """
     Deja el plan del usuario en `user_profiles`, el mismo campo que actualiza el
     webhook de Stripe. Es la única fuente de verdad: ni la app ni la web deciden.
+
+    LA TIENDA NO PISA UN PLAN DE LA WEB MAYOR (2-nov-2026, A8 del inventario
+    de precios). Con una suscripción de Stripe viva en el perfil, la tienda
+    sólo escribe un plan de rango ESTRICTAMENTE mayor (rango_planes.py). Sin
+    esto, quien paga Estudio en la web y compra «Pro» en la app instalada
+    —que no conoce Estudio y se lo ofrece— quedaba en `pro_monthly` y el
+    trigger le dejaba 140 consultas; y el aviso de que caducó una suscripción
+    vieja de la tienda escribía `gratuito` encima del plan que paga en Stripe.
+
+    Devuelve el plan que QUEDÓ en el perfil: es lo que la app guarda.
     """
     if not supabase_admin:
         raise HTTPException(status_code=503, detail="Supabase no está configurado")
+
+    r = supabase_admin.table("user_profiles").select(
+        "subscription_type, stripe_subscription_id"
+    ).eq("id", user_id).limit(1).execute()
+    fila = (r.data or [{}])[0]
+    actual = fila.get("subscription_type")
+    if not _rango.tienda_puede_escribir(actual, fila.get("stripe_subscription_id"), plan):
+        # Esta línea es la que hay que buscar si alguien paga en las dos
+        # partes: la tienda cobró y aquí no se escribió nada. Si la tienda le
+        # había dado un plan MAYOR que el de Stripe y ése caduca, también
+        # cae aquí y conserva el mayor: se revisa a mano (rango_planes.py).
+        print(f"🍎 Tienda → user={user_id} NO escribe {plan}: se queda {actual} "
+              f"(suscripción de Stripe viva y de rango mayor o igual) {origen}")
+        return actual or plan
 
     supabase_admin.table("user_profiles").update(
         {"subscription_type": plan}
     ).eq("id", user_id).execute()
 
     print(f"🍎 Apple → user={user_id} plan={plan} {origen}")
+    return plan
 
 
 @app.post("/api/apple/verificar-compra")
@@ -34009,8 +34129,9 @@ async def verificar_compra_apple(
             status_code=403, detail="Esta compra pertenece a otra cuenta de Iurexia."
         )
 
-    # 5) Ya se puede conceder.
-    await asyncio.to_thread(
+    # 5) Ya se puede conceder. Lo que se devuelve es lo que quedó: con un
+    #    plan de la web mayor (Estudio, p. ej.), ése, no el comprado.
+    plan_guardado = await asyncio.to_thread(
         _escribir_plan,
         user_id,
         compra.plan,
@@ -34019,7 +34140,7 @@ async def verificar_compra_apple(
 
     return {
         "success": True,
-        "subscription_type": compra.plan,
+        "subscription_type": plan_guardado or compra.plan,
         "product_id": compra.product_id,
         "expira_ms": compra.expira_ms,
         "entorno": compra.entorno,
@@ -34573,7 +34694,10 @@ class CronologiaCotizar(BaseModel):
 async def cronologia_cotizar(payload: CronologiaCotizar, authorization: str = Header("")):
     """Cuántas consultas costará y si le alcanzan. No cobra ni procesa nada."""
     uid, _correo = await _crono_usuario(authorization)
-    await _crono_platinum(uid)
+    _acc_crono = await _crono_platinum(uid)
+    # Plan Estudio (2-nov-2026): con sus 560 de élite gastadas, el aviso
+    # antes de contar páginas ni bajar nada (freno_estudio.py).
+    _freno.exigir_elite(_acc_crono.get("plan"), _acc_crono.get("usadas"), donde="Cronología")
     paginas = int(payload.paginas or 0)
     if payload.documento_ids:
         docs = await _crono_docs_de_carpeta(uid, payload.documento_ids)
@@ -34581,6 +34705,10 @@ async def cronologia_cotizar(payload: CronologiaCotizar, authorization: str = He
     if paginas <= 0:
         raise HTTPException(400, "No hay páginas que leer.")
     consultas = _cobro.consultas_por_paginas(paginas)
+    # Y si quedan algunas pero no las que pide este expediente, también se
+    # dice aquí, con su número: la pantalla ofrecería una recarga que a
+    # Estudio no le abre la Cronología (ver cobro_consultas.saldo_consultas).
+    _freno.exigir_elite(_acc_crono.get("plan"), _acc_crono.get("usadas"), consultas, donde="Cronología")
     saldo = await _cobro.saldo_consultas(supabase_admin, uid)
     return {"paginas": paginas, "consultas": consultas,
             "paginas_por_consulta": _cobro.PAGINAS_POR_CONSULTA,
@@ -34597,7 +34725,10 @@ async def cronologia_crear(archivos: List[UploadFile] = File(default_factory=lis
                            carpeta_id: str = Form(""),
                            authorization: str = Header("")):
     uid, _correo = await _crono_usuario(authorization)
-    await _crono_platinum(uid)
+    _acc_crono = await _crono_platinum(uid)
+    # Plan Estudio (2-nov-2026): sin consultas de élite no se lee ni se baja
+    # nada; la cuenta exacta contra las páginas la hace el cobro, abajo.
+    _freno.exigir_elite(_acc_crono.get("plan"), _acc_crono.get("usadas"), donde="Cronología")
 
     docs, peso = [], 0
     for f in archivos[:40]:
@@ -34630,7 +34761,10 @@ async def cronologia_crear(archivos: List[UploadFile] = File(default_factory=lis
                                              f"consultas. Confirma de nuevo."})
 
     job_id = str(uuid.uuid4())
-    cobro = await _cobro.cobrar_consultas(supabase_admin, uid, consultas, _CRONO_MOTIVO, job_id)
+    # Con `plan` y `usadas` de la puerta: Estudio sólo cobra lo que quepa en
+    # sus 560 de élite (402 `freno_estudio` sin cobrar), sin otra lectura.
+    cobro = await _cobro.cobrar_consultas(supabase_admin, uid, consultas, _CRONO_MOTIVO, job_id,
+                                          plan=_acc_crono.get("plan"), usadas=_acc_crono.get("usadas"))
     documentos = [{"nombre": n, "paginas": p, "ruta": r} for (n, _b, r), p in zip(docs, paginas_doc)]
     titulo = (titulo or "").strip()[:200] or (docs[0][0].rsplit(".", 1)[0] + (f" y {len(docs) - 1} más" if len(docs) > 1 else ""))
     try:

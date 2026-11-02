@@ -39,6 +39,8 @@ from typing import Any, Literal, Optional
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
+import freno_estudio
+
 router = APIRouter()
 
 FLUJO_MODELO = os.getenv("FLUJO_MODELO", "gpt-6-luna")
@@ -271,8 +273,16 @@ def _es_admin(correo: str) -> bool:
 
 def limite_flujos(plan: Optional[str]) -> int:
     """Espejo de `public.limite_flujos` en Supabase (y de `limiteFlujos` en el
-    frontend). Si cambia aquí, cambia en los tres."""
+    frontend). Si cambia aquí, cambia en los tres.
+
+    Estudio (2-nov-2026): 100 al mes, lo que promete su tarjeta
+    (`freno_estudio.FLUJOS_AL_MES`). Va antes del prefijo «platinum», que le
+    daría 60. OJO: aquí sólo abre la puerta; el que CUENTA es
+    `public.limite_flujos` (lo llama `consumir_flujo`), y hasta que la base y
+    `limiteFlujos` del front digan 100, Estudio recibe 60 (D4 del inventario)."""
     plan = (plan or "").strip()
+    if freno_estudio.es_estudio(plan):
+        return freno_estudio.FLUJOS_AL_MES
     if plan.startswith("platinum") or plan == "ultra_secretarios":
         return 60
     if plan.startswith("pro"):

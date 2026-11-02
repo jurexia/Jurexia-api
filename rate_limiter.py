@@ -23,6 +23,9 @@ RATE_LIMITS = {
     "platinum_monthly": 60,
     "platinum_annual": 60,
     "ultra_secretarios": 40,
+    # Estudio (2-nov-2026), como Platinum. Hoy no surte efecto: el limitador
+    # nunca conoce el plan y todos quedan en 10 por minuto (A9 del inventario).
+    "platinum_estudio": 60,
 }
 DEFAULT_RATE_LIMIT = 10  # Unknown/missing tier
 

@@ -51,6 +51,7 @@ import boveda_indice as bi
 import boveda_tabla as btab
 import boveda_texto as bt
 import cobro_consultas as cobro
+import freno_estudio
 from esfuerzo_redaccion import PLANES_PLATINUM
 
 router = APIRouter()
@@ -150,6 +151,9 @@ class Usuario:
     # Testers y Jenica (acceso_platinum.py): pasan la puerta como Platinum,
     # pero pagan como Platinum. Lo que no se cobra es sólo de `es_admin`.
     cortesia: bool = False
+    # Plan Estudio (2-nov-2026): `queries_used` de la misma lectura que el
+    # plan, para el freno de 560 (freno_estudio.py) sin otro viaje.
+    usadas: Optional[int] = None
 
     @property
     def es_platinum(self) -> bool:
@@ -171,7 +175,8 @@ async def _usuario(authorization: Optional[str]) -> Usuario:
         raise HTTPException(status_code=401, detail="Token inválido o expirado")
     uid = str(r.user.id)
     a = await acceso_platinum.acceso_del_usuario(sb, uid, _lista_admins())
-    return Usuario(id=uid, plan=a.plan, es_admin=a.es_admin, plan_leido=a.leido, cortesia=a.cortesia)
+    return Usuario(id=uid, plan=a.plan, es_admin=a.es_admin, plan_leido=a.leido, cortesia=a.cortesia,
+                   usadas=a.usadas)
 
 
 async def _platinum(authorization: Optional[str]) -> Usuario:
@@ -188,9 +193,15 @@ async def _platinum(authorization: Optional[str]) -> Usuario:
 
 
 async def _disponibles(u: Usuario) -> Optional[int]:
-    """Lo que le queda para cotizar; None = sin tope (o administración)."""
+    """Lo que le queda para cotizar; None = sin tope (o administración).
+    Con Estudio, lo que le queda de sus 560 de élite, de la lectura que ya
+    trajo el plan: la Bóveda entera cuenta dentro de ellas (freno_estudio.py).
+    Si esa lectura no trajo el contador, el saldo de siempre, que lo relee."""
     if u.es_admin:
         return None
+    elite = freno_estudio.elite_restantes(u.plan, u.usadas)
+    if elite is not None:
+        return elite
     return (await cobro.saldo_consultas(_cliente(), u.id)).get("disponibles")
 
 
@@ -309,8 +320,12 @@ async def boveda_reglas(authorization: str = Header(None)):
             disponibles = await _disponibles(u)
         except Exception:
             disponibles = None
+    # Estudio (2-nov-2026): lo que le queda de sus 560 de élite y, gastadas,
+    # el aviso del freno (`freno.mensaje`), para decirlo ANTES de que suba
+    # nada. Los demás planes reciben `freno: None`, como si no existiera.
+    freno = None if u.es_admin else freno_estudio.resumen(u.plan, u.usadas)
     return {
-        "platinum": u.es_platinum, "plan": u.plan, "disponibles": disponibles,
+        "platinum": u.es_platinum, "plan": u.plan, "disponibles": disponibles, "freno": freno,
         "reglas": {"paginas_ocr_por_consulta": PAG_OCR_POR_CONSULTA,
                    "paginas_texto_por_consulta": PAG_TEXTO_POR_CONSULTA,
                    "celdas_por_consulta": CELDAS_POR_CONSULTA},
@@ -524,9 +539,12 @@ async def boveda_confirmar(carpeta_id: str, req: ConfirmarRequest, authorization
     tanda_id = str(uuid.uuid4())
     cobro_res: dict = {}
     if consultas:   # 402 `saldo_insuficiente` si no alcanza: entonces no se cobró nada
+        # Con `plan`: Estudio sólo ingiere dentro de sus 560 de élite (el OCR
+        # es lo caro), y si no le alcanzan, 402 `freno_estudio` sin cobrar.
         cobro_res = await cobro.cobrar_consultas(
             _cliente(), u.id, consultas, "boveda_ingesta",
-            f"tanda {tanda_id} · carpeta {carpeta_id} · {len(docs)} docs · {c['paginas']} pág")
+            f"tanda {tanda_id} · carpeta {carpeta_id} · {len(docs)} docs · {c['paginas']} pág",
+            plan=u.plan, usadas=u.usadas)
     try:
         await _db(lambda sb: sb.table("boveda_tandas").insert({
             "id": tanda_id, "user_id": u.id, "expediente_id": carpeta_id, "tipo": "ingesta",
@@ -838,7 +856,8 @@ async def boveda_tabla_ejecutar(tabla_id: str, req: CorridaRequest, authorizatio
     cobro_res: dict = {}
     if cobradas:
         cobro_res = await cobro.cobrar_consultas(
-            _cliente(), u.id, cobradas, "boveda_tabla", f"tanda {tanda_id} · tabla {tabla_id} · {len(pares)} celdas")
+            _cliente(), u.id, cobradas, "boveda_tabla", f"tanda {tanda_id} · tabla {tabla_id} · {len(pares)} celdas",
+            plan=u.plan, usadas=u.usadas)
     try:
         await _db(lambda sb: sb.table("boveda_tandas").insert({
             "id": tanda_id, "user_id": u.id, "expediente_id": t["expediente_id"], "tipo": "tabla",
