@@ -2207,6 +2207,24 @@ async def nivel_del_usuario(user_id: Optional[str]) -> str:
     _NIVEL_CACHE[user_id] = (nivel, ahora)
     return nivel
 
+
+# Lo que /chat lanza sin esperar (2-nov-2026), con referencia fuerte: asyncio
+# sólo guarda referencias débiles a sus tareas (ver _PREPARANDO). El plan para
+# la memoria sale al entrar y se espera al armar el historial; la corrección
+# del abogado se anota en un hilo que nadie espera.
+_NIVEL_EN_VUELO: set = set()
+_CORRECCIONES_EN_VUELO: set = set()
+
+
+def _anotar_correccion(fila: dict) -> None:
+    """Guarda en `correcciones_usuario` la corrección que detectó /chat. Corre
+    en un hilo (asyncio.to_thread) y nunca lanza: si la base falla, la misma
+    línea que dejaba cuando se hacía dentro de la ruta."""
+    try:
+        supabase_admin.table("correcciones_usuario").insert(fila).execute()
+    except Exception as _e_corr_det:
+        print(f"   ⚠️ No pude anotar la corrección (no fatal): {err(_e_corr_det)}")
+
 # ── LOS MARCADORES NO SON CONVERSACIÓN (3-sep-2026) ───────────────────────
 #
 # El backend emite hacia el navegador cosas que no son texto para el modelo:
@@ -6245,10 +6263,59 @@ _RE_NOM_TEMA = re.compile(
     r"especificaci[oó]n(es)? t[eé]cnica\w*|norma t[eé]cnica)", re.IGNORECASE)
 
 
+class _QdrantPorTurno:
+    """El cliente de Qdrant, pero cada lectura espera su turno en QDRANT_SEM.
+
+    LA COLA SE VOLVIÓ PARALELA (2-nov-2026, ver «LA COLA DE LA BÚSQUEDA, EN
+    PARALELO» en hybrid_search_all_silos). Las NOM, el tratado citado, el
+    código nacional y la normativa procesal federal llamaban a Qdrant sin
+    semáforo; mientras iban una detrás de otra al final de la búsqueda eso
+    sumaba, como mucho, las de una etapa a la vez. Corriendo junto con la
+    búsqueda principal se habrían sumado todas por encima de los 6 por
+    worker que el clúster aguanta (ver QDRANT_SEM). Por aquí piden turno como
+    las demás. Se lee `qdrant_client` en cada llamada —lo crea el arranque y
+    lo cambian las pruebas— y lo que no es `query_points` ni `scroll` pasa tal
+    cual. Acepta un cliente síncrono, como `procesal_federal.buscar`.
+    """
+
+    async def _turno(self, metodo: str, *a, **k):
+        async with QDRANT_SEM:
+            r = getattr(qdrant_client, metodo)(*a, **k)
+            if hasattr(r, "__await__"):
+                r = await r
+            return r
+
+    async def query_points(self, *a, **k):
+        return await self._turno("query_points", *a, **k)
+
+    async def scroll(self, *a, **k):
+        return await self._turno("scroll", *a, **k)
+
+    def __getattr__(self, nombre):
+        return getattr(qdrant_client, nombre)
+
+
+_QDRANT_POR_TURNO = _QdrantPorTurno()
+
+
 async def _traer_normas_oficiales(query, dense_vector, existing_ids, skip=False) -> list:
-    """Las NOM que vienen al caso, como SearchResult. Nunca lanza."""
+    """Las NOM que vienen al caso, como SearchResult. Nunca lanza.
+
+    Desde el 2-nov-2026 en dos tiempos: la búsqueda (`_buscar_normas_oficiales`,
+    que no mira lo ya reunido) y la fusión (`_fusionar_normas_oficiales`, que
+    descarta lo repetido contra `existing_ids` y lo anota). La cola paralela de
+    hybrid_search_all_silos lanza la primera temprano y hace la segunda en su
+    sitio de siempre."""
+    return _fusionar_normas_oficiales(
+        await _buscar_normas_oficiales(query, dense_vector, skip=skip), existing_ids)
+
+
+async def _buscar_normas_oficiales(query, dense_vector, skip=False):
+    """La parte de las NOM que no depende de lo ya reunido: la búsqueda, el
+    umbral y la elección de la norma. None si no entra ninguna; si no,
+    (elegidos, clave, por_tema, segundos)."""
     if skip or not NOM_ACTIVAS or not dense_vector:
-        return []
+        return None
     clave = _RE_NOM_CLAVE.search(query or "")
     # Sin clave ni tema también se busca, pero sólo entra lo MUY parecido: la
     # pregunta por los reductores de velocidad no dice «NOM» y la norma es la
@@ -6257,7 +6324,7 @@ async def _traer_normas_oficiales(query, dense_vector, existing_ids, skip=False)
     try:
         import fuentes_elegidas as _fe_nom
         if not _fe_nom.permitida("normas_oficiales"):
-            return []
+            return None
     except Exception:
         pass
     _t = time.perf_counter()
@@ -6267,19 +6334,19 @@ async def _traer_normas_oficiales(query, dense_vector, existing_ids, skip=False)
         if clave:
             _c = f"NOM-{clave.group(1)}-{clave.group(2).strip('-').upper()}-{clave.group(3)}"
             filtro = Filter(must=[FieldCondition(key="clave", match=MatchValue(value=_c))])
-        res = await qdrant_client.query_points(collection_name="normas_oficiales", query=dense_vector,
-                                               using="dense", query_filter=filtro, limit=60, with_payload=True)
+        res = await _QDRANT_POR_TURNO.query_points(collection_name="normas_oficiales", query=dense_vector,
+                                                   using="dense", query_filter=filtro, limit=60, with_payload=True)
         pts = list(res.points or [])
         if filtro is not None and not pts:
-            res = await qdrant_client.query_points(collection_name="normas_oficiales", query=dense_vector,
-                                                   using="dense", limit=30, with_payload=True)
+            res = await _QDRANT_POR_TURNO.query_points(collection_name="normas_oficiales", query=dense_vector,
+                                                       using="dense", limit=30, with_payload=True)
             pts = list(res.points or [])
     except Exception as e:
         print(f"   ⚠️ NOM: búsqueda falló: {err(e)}")
-        return []
+        return None
     umbral = 0.0 if clave else (0.40 if por_tema else 0.52)
     if not pts or float(pts[0].score or 0) < umbral:
-        return []
+        return None
     # LA NORMA, NO TROZOS SUELTOS (11-oct-2026): con cuatro trozos el numeral que
     # responde —la distancia de una gasolinera, el umbral de un sello— quedaba
     # fuera y el modelo decía «los fragmentos no lo contienen». Se elige la NOM
@@ -6337,6 +6404,15 @@ async def _traer_normas_oficiales(query, dense_vector, existing_ids, skip=False)
     elegidos = sorted(por_clave[claves[0]], key=lambda x: x[0], reverse=True)[:6]
     if len(claves) > 1 and ((len(elegidas_llm) > 1) or (not elegidas_llm and _cos_t(claves[1]) >= _cos_t(claves[0]) - 0.02)):
         elegidos += sorted(por_clave[claves[1]], key=lambda x: x[0], reverse=True)[:2]
+    return elegidos, clave, por_tema, time.perf_counter() - _t
+
+
+def _fusionar_normas_oficiales(prep, existing_ids) -> list:
+    """Lo elegido por `_buscar_normas_oficiales` que no estaba ya, como
+    SearchResult; lo que entra queda anotado en `existing_ids`."""
+    if not prep:
+        return []
+    elegidos, clave, por_tema, _segundos = prep
     fuera = []
     for i, (s, p) in enumerate(elegidos):
         pl = p.payload or {}
@@ -6353,7 +6429,7 @@ async def _traer_normas_oficiales(query, dense_vector, existing_ids, skip=False)
         ))
     if fuera:
         print(f"   📏 NOM: +{len(fuera)} ({', '.join(sorted({(r.ref or '').split(',')[0] for r in fuera}))}) "
-              f"en {time.perf_counter()-_t:.2f}s")
+              f"en {_segundos:.2f}s")
     return fuera
 
 
@@ -6413,14 +6489,30 @@ def _detectar_articulos_tratado(query: str) -> List[tuple]:
 
 
 async def _traer_articulo_tratado(query: str, existing_ids: set) -> list:
-    """Los artículos de tratado citados por número, como SearchResult. Nunca lanza."""
+    """Los artículos de tratado citados por número, como SearchResult. Nunca lanza.
+
+    En dos tiempos desde el 2-nov-2026, como las NOM: `_buscar_articulo_tratado`
+    no mira lo ya reunido (aquí nunca se descartó nada por repetido: el artículo
+    citado entra aunque ya viniera) y `_fusionar_articulo_tratado` anota sus ids."""
+    return _fusionar_articulo_tratado(await _buscar_articulo_tratado(query), existing_ids)
+
+
+def _fusionar_articulo_tratado(fuera: list, existing_ids: set) -> list:
+    """Anota en `existing_ids` los artículos de tratado traídos (lo que antes se
+    hacía punto por punto al traerlos) y los devuelve tal cual."""
+    existing_ids.update(r.id for r in fuera)
+    return fuera
+
+
+async def _buscar_articulo_tratado(query: str) -> list:
+    """La búsqueda de `_traer_articulo_tratado`, sin tocar `existing_ids`."""
     pares = _detectar_articulos_tratado(query)
     if not pares:
         return []
     fuera = []
     for sigla, num in pares:
         try:
-            pts, _ = await qdrant_client.scroll(
+            pts, _ = await _QDRANT_POR_TURNO.scroll(
                 collection_name=FIXED_SILOS["constitucional"], limit=6, with_payload=True,
                 scroll_filter=Filter(must=[FieldCondition(key="instrumento", match=MatchValue(value=sigla)),
                                            FieldCondition(key="articulo_num", match=MatchValue(value=num))]))
@@ -6432,8 +6524,8 @@ async def _traer_articulo_tratado(query: str, existing_ids: set) -> list:
             pl = p.payload or {}
             # Aunque ya venga de la búsqueda por parecido: ahí puede quedar
             # debajo de cuadernillos con más puntuación (medido: el 8 CADH
-            # salía sexto). El artículo citado por número va primero.
-            existing_ids.add(str(p.id))
+            # salía sexto). El artículo citado por número va primero. (Su id
+            # se anota en `existing_ids` al fundirlo: _fusionar_articulo_tratado.)
             fuera.append(SearchResult(
                 id=str(p.id), score=2.0, texto=pl.get("texto_visible") or pl.get("texto") or "",
                 ref=pl.get("ref"), origen=pl.get("origen"), jurisdiccion=pl.get("jurisdiccion"),
@@ -6470,12 +6562,22 @@ async def _traer_procesal_local(clave: str, silo: str, query: str, dense_vector,
     """El código procesal LOCAL que rige, con la misma estrategia que la fuente
     federal (11-oct-2026): 40 candidatos del código por su nombre exacto,
     reordenados por figura, plazo y léxico, y cada parte de una pregunta
-    compuesta buscada con su propia oración. Lugar garantizado (0.90). Nunca lanza."""
+    compuesta buscada con su propia oración. Lugar garantizado (0.90). Nunca lanza.
+
+    En dos tiempos desde el 2-nov-2026: `_buscar_procesal_local` (no mira lo ya
+    reunido) y `_fusionar_procesal_local` (descarta lo repetido y anota)."""
+    return _fusionar_procesal_local(
+        await _buscar_procesal_local(clave, silo, query, dense_vector), existing_ids, nota)
+
+
+async def _buscar_procesal_local(clave: str, silo: str, query: str, dense_vector):
+    """La búsqueda de `_traer_procesal_local`. None si no hay código que buscar;
+    si no, los candidatos puntuados y cuántos entran."""
     import procesal_federal as _pfl
     from qdrant_client.models import FieldCondition, Filter, MatchAny
     _dest = _CODIGOS_DE_LA_MATERIA.get(clave)
     if not _dest or not dense_vector:
-        return []
+        return None
     try:
         nombres = [orig for norm_, orig in await _nombres_de_coleccion(silo)
                    if any(re.search(pt, norm_) for pt in _dest[1])]
@@ -6483,7 +6585,7 @@ async def _traer_procesal_local(clave: str, silo: str, query: str, dense_vector,
         nombres = []
     if not nombres:
         print(f"   ⚠️ PROCESAL LOCAL: {silo} no tiene código para «{clave}»")
-        return []
+        return None
     det = _pfl.detectar(query)
     filtro = Filter(must=[FieldCondition(key="origen", match=MatchAny(any=nombres))])
 
@@ -6539,9 +6641,17 @@ async def _traer_procesal_local(clave: str, silo: str, query: str, dense_vector,
             k = (pl.get("origen"), pl.get("ref"))
             if k not in puntos or puntos[k][1] < s:
                 puntos[k] = (str(p.id), s, pl)
-    n = 8 if focos else 6
+    return {"puntos": puntos, "n": 8 if focos else 6, "clave": clave, "silo": silo}
+
+
+def _fusionar_procesal_local(prep, existing_ids: set, nota: str = "") -> list:
+    """Los mejores candidatos de `_buscar_procesal_local` que no estaban ya, con
+    su lugar garantizado; lo que entra queda anotado en `existing_ids`."""
+    if not prep:
+        return []
+    clave, silo, n = prep["clave"], prep["silo"], prep["n"]
     fuera = []
-    for pid, s, pl in sorted(puntos.values(), key=lambda x: x[1], reverse=True):
+    for pid, s, pl in sorted(prep["puntos"].values(), key=lambda x: x[1], reverse=True):
         if pid in existing_ids:
             continue
         existing_ids.add(pid)
@@ -6565,24 +6675,40 @@ async def _traer_procesal_federal(query, dense_vector, detected_materias, forced
     `top_k`) con piso de 0.87 —por encima del CNPP de antes (0.86) y por debajo
     del código local de la materia (0.90), que debe encabezar—; con señal
     débil, dos. El resto compite con su puntuación. Nunca lanza.
+
+    En dos tiempos desde el 2-nov-2026: `_buscar_procesal_federal` (búsqueda y
+    régimen, sin mirar lo ya reunido) y `_fusionar_procesal_federal` (descarta
+    lo repetido contra `existing_ids` y anota). Devuelve (artículos, regímenes).
     """
+    return _fusionar_procesal_federal(
+        await _buscar_procesal_federal(query, dense_vector, detected_materias, forced_materia,
+                                       skip=skip, estado=estado),
+        top_k, existing_ids)
+
+
+async def _buscar_procesal_federal(query, dense_vector, detected_materias, forced_materia,
+                                   skip=False, estado=None) -> dict:
+    """La parte de `_traer_procesal_federal` que no depende de lo ya reunido:
+    la búsqueda en `procesal_federal` (con turno en QDRANT_SEM) y qué régimen
+    rige. {"det", "hits", "regs", "nota", "segundos"}; sin nada, listas vacías."""
+    vacio = {"det": {}, "hits": [], "regs": [], "nota": "", "segundos": 0.0}
     if skip or not PROCESAL_FEDERAL_ACTIVO or not dense_vector:
-        return [], []
+        return vacio
     try:
         import fuentes_elegidas as _fe_pf
         if not _fe_pf.permitida("procesal_federal"):
-            return [], []
+            return vacio
     except Exception:
         pass
     _t = time.perf_counter()
     try:
         import procesal_federal as _pfm
         pistas = list(detected_materias or []) + ([forced_materia] if forced_materia else [])
-        det, hits = await _pfm.buscar(qdrant_client, query, dense_vector, pistas=pistas, limite=10,
+        det, hits = await _pfm.buscar(_QDRANT_POR_TURNO, query, dense_vector, pistas=pistas, limite=10,
                                       embed=get_dense_embedding)
     except Exception as e:
         print(f"   ⚠️ PROCESAL FEDERAL falló (se sigue con el CNPP de leyes_federales): {err(e)}")
-        return [], []
+        return vacio
     # QUÉ CÓDIGO RIGE (11-oct-2026): lo que no rige en esa entidad, materia o
     # autoridad no entra —el CNPCF en un estado sin declaratoria, la LFPCA ante
     # una multa municipal, la LFTSE para un trabajador del estado—.
@@ -6601,6 +6727,14 @@ async def _traer_procesal_federal(query, dense_vector, detected_materias, forced
             print(f"   🧭 RÉGIMEN {[(r['materia'], r['rige']) for r in regs]}")
     except Exception as e:
         print(f"   ⚠️ RÉGIMEN procesal sin decidir: {err(e)}")
+    return {"det": det, "hits": hits, "regs": regs, "nota": nota,
+            "segundos": time.perf_counter() - _t}
+
+
+def _fusionar_procesal_federal(prep: dict, top_k, existing_ids):
+    """Lo de `_buscar_procesal_federal` que no estaba ya, con su lugar
+    garantizado; anota en `existing_ids`. (artículos, regímenes)."""
+    det, hits, regs, nota = prep["det"], prep["hits"], prep["regs"], prep["nota"]
     if not hits:
         return [], regs
     n_piso = max(2, min(6, top_k // 5)) if det.get("fuerte") else 2
@@ -6630,14 +6764,17 @@ async def _traer_procesal_federal(query, dense_vector, detected_materias, forced
           f"citas={det.get('citas')}: +{len(fuera)} artículos "
           f"({min(n_piso, len(fuera))} con lugar garantizado) "
           + ", ".join(f"{(h[2].get('abreviatura') or '')} {h[2].get('ref') or ''}".strip() for h in hits[:6])
-          + f" en {time.perf_counter()-_t:.2f}s")
+          + f" en {prep['segundos']:.2f}s")
     return fuera, regs
 
 
 async def _traer_codigo_nacional(materia: str, dense_vector, limite: int = 6):
-    """Los artículos del código nacional que corresponden a la consulta."""
+    """Los artículos del código nacional que corresponden a la consulta.
+
+    Con turno en QDRANT_SEM desde el 2-nov-2026: corre junto con la búsqueda
+    principal (ver «LA COLA DE LA BÚSQUEDA, EN PARALELO»)."""
     try:
-        res = await qdrant_client.query_points(
+        res = await _QDRANT_POR_TURNO.query_points(
             collection_name="leyes_federales",
             query=dense_vector,
             using="dense",
@@ -6883,6 +7020,15 @@ async def get_dense_embedding(text: str, modelo: Optional[str] = None) -> List[f
     async with OPENAI_SEM:
         response = await openai_client.embeddings.create(model=modelo or EMBEDDING_MODEL, input=entrada)
     return response.data[0].embedding
+
+
+async def _vectores_en_paralelo(textos: list) -> list:
+    """Los vectores densos de `textos`, pedidos a la vez y en su orden
+    (2-nov-2026, la pasada por concepto del chat). Un fallo vuelve en su lugar
+    como la excepción misma: quien llama la lanza al llegar a ella, que es
+    cuando habría fallado pidiéndolos de uno en uno."""
+    return list(await asyncio.gather(*[get_dense_embedding(t) for t in textos],
+                                     return_exceptions=True))
 
 
 # Los silos se consultan EN PARALELO y varios pueden ser de jurisprudencia, así
@@ -9976,10 +10122,49 @@ async def _fetch_neighbor_chunks(
 # LAW-LEVEL ROUTING: Identifica leyes temáticamente faltantes y las inyecta
 # ══════════════════════════════════════════════════════════════════════════════
 
+def _silo_del_law_routing(estado: Optional[str]) -> Optional[str]:
+    """El silo donde busca Law-Level Routing, o None si no aplica: sólo con
+    estado elegido y con colección propia."""
+    if not estado:
+        return None  # Solo aplica cuando hay estado seleccionado
+    normalized_est = normalize_estado(estado)
+    if not normalized_est:
+        return None
+    return ESTADO_SILO.get(normalized_est) or None
+
+
+async def _pedir_leyes_al_modelo(query: str, estado_display: str):
+    """La llamada al modelo de Law-Level Routing. Sólo lleva la consulta y el
+    estado: por eso hybrid_search_all_silos la ADELANTA al principio y la
+    espera donde se usaba (2-nov-2026). Es `async` a propósito: si el cliente
+    falla —o no existe—, falla dentro de la tarea y lo atrapa el `try` de
+    _law_level_routing, como antes."""
+    return await chat_client.chat.completions.create(
+        model=HYDE_MODEL,
+        messages=[
+            {
+                "role": "system",
+                "content": (
+                    f"Eres un experto en el ordenamiento jurídico del Estado de {estado_display}, México. "
+                    f"Dada una consulta legal, identifica las 3-5 leyes ESTATALES de {estado_display} "
+                    "que son MÁS RELEVANTES para resolver el caso. "
+                    "Responde SOLO con los nombres de las leyes, uno por línea, sin numeración ni explicación. "
+                    f"Usa los nombres oficiales (ej: 'Ley de Tránsito y Seguridad Vial para el Estado de {estado_display}')."
+                )
+            },
+            {"role": "user", "content": query}
+        ],
+        max_completion_tokens=200,
+        temperature=1,
+        **AYUDANTES_KW,
+    )
+
+
 async def _law_level_routing(
     query: str,
     merged: List[SearchResult],
     estado: Optional[str],
+    sugerencia: Optional["asyncio.Future"] = None,
 ) -> List[SearchResult]:
     """
     Law-Level Routing: Usa el LLM para identificar leyes que DEBERÍAN estar
@@ -9989,15 +10174,12 @@ async def _law_level_routing(
     "Ley de Tránsito" debería estar, y si no lo está, busca chunks de esa ley.
     
     SEGURIDAD: Solo busca en el silo del estado seleccionado.
+
+    `sugerencia` (2-nov-2026): la misma llamada al modelo
+    (`_pedir_leyes_al_modelo`), ya lanzada al empezar la búsqueda. Se espera
+    aquí, en el `try` de siempre; sin ella, se hace aquí como antes.
     """
-    if not estado:
-        return []  # Solo aplica cuando hay estado seleccionado
-    
-    normalized_est = normalize_estado(estado)
-    if not normalized_est:
-        return []
-    
-    target_silo = ESTADO_SILO.get(normalized_est)
+    target_silo = _silo_del_law_routing(estado)
     if not target_silo:
         return []
 
@@ -10011,25 +10193,8 @@ async def _law_level_routing(
     
     try:
         # Pedir al LLM que identifique leyes faltantes
-        response = await chat_client.chat.completions.create(
-            model=HYDE_MODEL,
-            messages=[
-                {
-                    "role": "system",
-                    "content": (
-                        f"Eres un experto en el ordenamiento jurídico del Estado de {estado_display}, México. "
-                        f"Dada una consulta legal, identifica las 3-5 leyes ESTATALES de {estado_display} "
-                        "que son MÁS RELEVANTES para resolver el caso. "
-                        "Responde SOLO con los nombres de las leyes, uno por línea, sin numeración ni explicación. "
-                        f"Usa los nombres oficiales (ej: 'Ley de Tránsito y Seguridad Vial para el Estado de {estado_display}')."
-                    )
-                },
-                {"role": "user", "content": query}
-            ],
-            max_completion_tokens=200,
-            temperature=1,
-            **AYUDANTES_KW,
-        )
+        response = await (sugerencia if sugerencia is not None
+                          else _pedir_leyes_al_modelo(query, estado_display))
         suggested_laws = response.choices[0].message.content.strip().split("\n")
         suggested_laws = [l.strip().strip("-•").strip() for l in suggested_laws if l.strip()]
         print(f"   📖 Law-Level Routing: LLM sugiere {len(suggested_laws)} leyes: {suggested_laws}")
@@ -10811,6 +10976,133 @@ async def _articulos_de_la_via(consulta: str, estado: Optional[str], limite: int
         return []
 
 
+# ══════════════════════════════════════════════════════════════════════════════
+# LA COLA DE LA BÚSQUEDA, EN PARALELO (2-nov-2026)
+# ══════════════════════════════════════════════════════════════════════════════
+# Medido en los registros de Render el 2-nov-2026: la primera letra de /chat
+# tarda 16 s de mediana (24 s en el p90), y 10.3 s (15.4 s) son la búsqueda, el
+# 66 %; en /analyze-document el acervo —dos búsquedas en paralelo— se lleva
+# 12.0 s (15.6 s) de 21.5. Dentro de hybrid_search_all_silos todo iba en fila,
+# y las seis etapas del final —sub-consultas, normativa procesal federal,
+# código procesal local, NOM, tratado citado por número y código nacional—
+# sólo necesitan la consulta, el estado, la materia y los vectores, que ya
+# están antes de la búsqueda principal. Esperaban su turno sin necesitarlo.
+#
+# Ahora salen como tareas detrás de la búsqueda principal y se FUNDEN AL FINAL,
+# en el mismo orden y con la misma deduplicación de siempre. Lo que depende de
+# lo ya reunido —`existing_ids`, que cada etapa consulta y llena en orden— se
+# separó en `_fusionar_*` y sigue en serie, donde estaba; en paralelo va sólo
+# la obtención (`_buscar_*`). Las mismas llamadas con las mismas entradas: la
+# lista que sale es la misma, y test_velocidad_busqueda.py lo comprueba contra
+# el código anterior.
+#
+# Dos dependencias de verdad se conservan: el código local que rige sale del
+# régimen que decide la procesal federal (se lanza en cuanto ésta vuelve), y el
+# código nacional sólo se busca si la procesal federal no aportó nada (se
+# adelanta cuando eso ya se sabe; si depende de lo que resulte repetido, se
+# busca al fundir, como antes). Toda lectura de la cola pide turno en
+# QDRANT_SEM (ver _QdrantPorTurno): no hay más búsquedas a la vez por worker.
+import functools as _functools  # noqa: E402
+
+
+def _dar_por_leida(tarea: "asyncio.Future") -> None:
+    # La excepción de una etapa se vuelve a lanzar donde se funde. Si la
+    # búsqueda acabó antes de llegar ahí, que no ensucie el registro con
+    # «Task exception was never retrieved».
+    if not tarea.cancelled():
+        tarea.exception()
+
+
+def _adelantar(coro, adelantadas: list) -> "asyncio.Task":
+    """Lanza `coro` como tarea y la anota en `adelantadas` para soltarla si la
+    búsqueda termina —o se cancela— sin haberla esperado."""
+    tarea = asyncio.ensure_future(coro)
+    tarea.add_done_callback(_dar_por_leida)
+    adelantadas.append(tarea)
+    return tarea
+
+
+def _con_tareas_adelantadas(fn):
+    """Da a `fn` su lista `_adelantadas` y, salga como salga —con resultado,
+    con excepción o cancelada (el plazo de 25 s del acervo de /analyze-document
+    cancela sus búsquedas)—, cancela las que sigan en vuelo. Antes esas etapas
+    no existían todavía cuando la búsqueda moría; ahora existen desde el
+    principio y no deben quedarse gastando Qdrant ni modelo por su cuenta."""
+    @_functools.wraps(fn)
+    async def _envoltura(*args, **kwargs):
+        adelantadas: list = []
+        try:
+            return await fn(*args, _adelantadas=adelantadas, **kwargs)
+        finally:
+            for tarea in adelantadas:
+                if not tarea.done():
+                    tarea.cancel()
+    return _envoltura
+
+
+async def _buscar_sub_consultas(sub_queries: list, silos: list, estado: Optional[str]) -> tuple:
+    """Cada sub-consulta en `silos` (las cuatro primeras colecciones), todas a
+    la vez. (resultados por sub-consulta y por silo, segundos). La fusión
+    —contra `existing_ids`— la hace hybrid_search_all_silos en su sitio."""
+    _t = time.perf_counter()
+
+    async def _search_sub_query(sq: str):
+        """Busca una sub-query en los top 4 silos en paralelo."""
+        try:
+            sq_dense = await get_dense_embedding(sq)
+            sq_sparse = get_sparse_embedding(sq)
+            silo_tasks = [
+                hybrid_search_single_silo(
+                    collection=silo_name,
+                    query=sq,
+                    dense_vector=sq_dense,
+                    sparse_vector=sq_sparse,
+                    filter_=get_filter_for_silo(silo_name, estado),
+                    top_k=5,
+                    alpha=0.7,
+                )
+                for silo_name in silos
+            ]
+            return await asyncio.gather(*silo_tasks)
+        except Exception as e:
+            print(f"   ⚠️ Sub-query búsqueda falló: {err(e)}")
+            return []
+
+    grupos = await asyncio.gather(*[_search_sub_query(sq) for sq in sub_queries])
+    return grupos, time.perf_counter() - _t
+
+
+async def _cola_procesal(query, dense_vector, detected_materias, forced_materia, skip,
+                         estado, silo_estado) -> dict:
+    """La normativa procesal federal y lo que cuelga de ella, en cadena: el
+    código local que rige (uno por régimen que lo pida, todos a la vez) y, si
+    la federal no aportó nada, el código nacional. Nada de esto mira lo ya
+    reunido; las fusiones las hace hybrid_search_all_silos en su orden."""
+    pf = await _buscar_procesal_federal(query, dense_vector, detected_materias, forced_materia,
+                                        skip=skip, estado=estado)
+    # Las mismas condiciones del bucle que funde (`for _rg in _pf_regs`): el
+    # índice del régimen es la llave.
+    pedidos = [(i, rg) for i, rg in enumerate(pf["regs"] or [])
+               if rg.get("inyectar") and estado and silo_estado]
+    locales: dict = {}
+    if pedidos:
+        res = await asyncio.gather(*[_buscar_procesal_local(rg["inyectar"], silo_estado, query, dense_vector)
+                                     for _, rg in pedidos], return_exceptions=True)
+        locales = {i: r for (i, _), r in zip(pedidos, res)}
+    # Sin régimen y sin artículos, la fusión no tendrá procesal federal que
+    # aportar y pedirá el código nacional: se pide ya. Con artículos que luego
+    # resulten todos repetidos no se puede saber aquí; lo pide la fusión.
+    nacional = None
+    if not pf["regs"] and not pf["hits"] and not skip:
+        materia = _detectar_consulta_procesal(query)
+        if materia:
+            _t = time.perf_counter()
+            nacional = (materia, await _traer_codigo_nacional(materia, dense_vector, limite=6),
+                        time.perf_counter() - _t)
+    return {"pf": pf, "locales": locales, "nacional": nacional}
+
+
+@_con_tareas_adelantadas
 async def hybrid_search_all_silos(
     query: str,
     estado: Optional[str],
@@ -10829,6 +11121,9 @@ async def hybrid_search_all_silos(
     # False: la materia no se adivina por palabras clave (ver
     # _MATERIA_ESTRATEGA_EN_FEDERAL). Una materia forzada —la de un Genio— manda igual.
     materia_por_palabras: bool = True,
+    # Lo pone `_con_tareas_adelantadas`: las tareas que esta búsqueda lanza
+    # antes de necesitarlas, para cancelarlas si acaba sin esperarlas.
+    _adelantadas: Optional[list] = None,
 ) -> List[SearchResult]:
     """
     Ejecuta búsqueda híbrida paralela en silos relevantes según fuero.
@@ -10841,6 +11136,28 @@ async def hybrid_search_all_silos(
     
     jurisprudencia_nacional SIEMPRE se incluye.
     """
+    if _adelantadas is None:
+        _adelantadas = []
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    # LAW-LEVEL ROUTING, ADELANTADO (2-nov-2026)
+    # Su llamada al modelo (HYDE_MODEL, ~1-2 s) sólo lleva la consulta y el
+    # estado, y se hacía dentro del post-search: después de la búsqueda
+    # principal, del reordenamiento por modelo y de las inyecciones. Sale aquí y
+    # se espera donde se usaba (`_law_level_routing`, con `sugerencia=`): la
+    # misma llamada, con lo mismo, las mismas veces —sólo cuando hay post-search
+    # y el estado tiene colección propia—. Si algo falla al lanzarla, se hace
+    # allá como antes.
+    # ═══════════════════════════════════════════════════════════════════════════
+    _sugerencia_leyes = None
+    if not skip_post_search:
+        try:
+            if _silo_del_law_routing(estado):
+                _sugerencia_leyes = _adelantar(
+                    _pedir_leyes_al_modelo(query, estado.replace("_", " ").title()), _adelantadas)
+        except Exception:
+            _sugerencia_leyes = None
+
     # ═══════════════════════════════════════════════════════════════════════════
     # PASO -1: RECUPERACIÓN DETERMINISTA POR NÚMERO DE ARTÍCULO (Anti-alucinación)
     # Si la query menciona Art. X, recuperar el texto exacto antes de cualquier semántica
@@ -11207,7 +11524,23 @@ async def hybrid_search_all_silos(
             )
         )
 
-    all_results = await asyncio.gather(*tasks)
+    # LA BÚSQUEDA PRINCIPAL SALE PRIMERO Y LA COLA DETRÁS (2-nov-2026). Así sus
+    # búsquedas piden antes turno en QDRANT_SEM, y la cola —que no hace falta
+    # hasta el final— llena los huecos mientras se reordena con el modelo y
+    # corre el post-search. Ver «LA COLA DE LA BÚSQUEDA, EN PARALELO».
+    _busqueda_principal = asyncio.gather(*tasks)
+    _cola = {}
+    if sub_queries:
+        # `silos_to_search` ya no cambia de aquí al final: son las mismas cuatro.
+        _cola["sub"] = _adelantar(_buscar_sub_consultas(sub_queries, silos_to_search[:4], estado),
+                                  _adelantadas)
+    _cola["procesal"] = _adelantar(_cola_procesal(
+        query, dense_vector, detected_materias, forced_materia, skip_post_search,
+        estado, _selected_state_silo), _adelantadas)
+    _cola["nom"] = _adelantar(_buscar_normas_oficiales(query, dense_vector, skip=skip_post_search),
+                              _adelantadas)
+    _cola["tratado"] = _adelantar(_buscar_articulo_tratado(query), _adelantadas)
+    all_results = await _busqueda_principal
     if _extra_primarias_task:
         try:
             _primarias = await _extra_primarias_task
@@ -11762,7 +12095,9 @@ async def hybrid_search_all_silos(
                 enrichment_results, neighbor_results, law_routing_results = await asyncio.gather(
                     _cross_silo_enrichment(merged, query),
                     _fetch_neighbor_chunks(merged, estado=estado),
-                    _law_level_routing(query, merged, estado),
+                    # La llamada al modelo ya va en vuelo desde el principio
+                    # (ver LAW-LEVEL ROUTING, ADELANTADO).
+                    _law_level_routing(query, merged, estado, sugerencia=_sugerencia_leyes),
                     return_exceptions=True,
                 )
                 new_docs = []
@@ -11807,37 +12142,26 @@ async def hybrid_search_all_silos(
         merged.extend(remaining[:slots_remaining])
     
     # ═══════════════════════════════════════════════════════════════════════════
+    # LA COLA, FUNDIDA EN SU ORDEN (2-nov-2026)
+    # Lo que sigue es la cola de siempre, etapa por etapa y en el mismo orden;
+    # sólo que cada búsqueda ya corrió en paralelo desde que salió la búsqueda
+    # principal (ver «LA COLA DE LA BÚSQUEDA, EN PARALELO») y aquí se espera su
+    # resultado y se funde contra `existing_ids` como antes. `_espera_cola` mide
+    # lo que todavía hubo que esperar: lo que no alcanzó a esconderse.
+    # ═══════════════════════════════════════════════════════════════════════════
+    _espera_cola = 0.0
+
+    # ═══════════════════════════════════════════════════════════════════════════
     # QUERY DECOMPOSITION: Búsqueda PARALELA con sub-queries descompuestas
-    # (Antes: serial por sub-query × silos. Ahora: todas en paralelo)
+    # (Antes: serial por sub-query × silos. Ahora: todas en paralelo, y desde el
+    # 2-nov-2026 en `_buscar_sub_consultas`, lanzada junto con la principal)
     # ═══════════════════════════════════════════════════════════════════════════
     if sub_queries:
         _t_decomp = time.perf_counter()
         existing_ids = {r.id for r in merged}
         decomp_new = 0
-
-        async def _search_sub_query(sq: str):
-            """Busca una sub-query en los top 4 silos en paralelo."""
-            try:
-                sq_dense = await get_dense_embedding(sq)
-                sq_sparse = get_sparse_embedding(sq)
-                silo_tasks = [
-                    hybrid_search_single_silo(
-                        collection=silo_name,
-                        query=sq,
-                        dense_vector=sq_dense,
-                        sparse_vector=sq_sparse,
-                        filter_=get_filter_for_silo(silo_name, estado),
-                        top_k=5,
-                        alpha=0.7,
-                    )
-                    for silo_name in silos_to_search[:4]
-                ]
-                return await asyncio.gather(*silo_tasks)
-            except Exception as e:
-                print(f"   ⚠️ Sub-query búsqueda falló: {err(e)}")
-                return []
-
-        all_sq_results = await asyncio.gather(*[_search_sub_query(sq) for sq in sub_queries])
+        all_sq_results, _seg_sub = await _cola["sub"]
+        _espera_cola += time.perf_counter() - _t_decomp
         for sq_result_groups in all_sq_results:
             for silo_results in sq_result_groups:
                 if isinstance(silo_results, list):
@@ -11848,7 +12172,8 @@ async def hybrid_search_all_silos(
                             decomp_new += 1
         if decomp_new > 0:
             print(f"   🔀 Query Decomposition: +{decomp_new} resultados nuevos de sub-queries")
-        print(f"   ⏱ Sub-queries: {time.perf_counter() - _t_decomp:.2f}s")
+        print(f"   ⏱ Sub-queries: {_seg_sub:.2f}s, en paralelo "
+              f"(al fundir se esperaron {time.perf_counter() - _t_decomp:.2f}s)")
     
     # ═══════════════════════════════════════════════════════════════════════════
     # CÓDIGOS NACIONALES CON LUGAR GARANTIZADO
@@ -11856,10 +12181,12 @@ async def hybrid_search_all_silos(
     # NORMATIVA PROCESAL FEDERAL (11-oct-2026): colección propia, etiquetada
     # por materia, figura, plazo y remisión (ver procesal_federal.py). Si
     # trae algo, sustituye al CNPP de leyes_federales; si falla o está vacía,
-    # se cae al camino de siempre.
-    _pf_hits, _pf_regs = await _traer_procesal_federal(
-        query, dense_vector, detected_materias, forced_materia, top_k, existing_ids,
-        skip=skip_post_search, estado=estado)
+    # se cae al camino de siempre. La búsqueda ya corrió (`_cola_procesal`);
+    # aquí se funde, como hacía `_traer_procesal_federal`.
+    _t_espera = time.perf_counter()
+    _procesal = await _cola["procesal"]
+    _espera_cola += time.perf_counter() - _t_espera
+    _pf_hits, _pf_regs = _fusionar_procesal_federal(_procesal["pf"], top_k, existing_ids)
     if _pf_hits:
         merged.extend(_pf_hits)
     if _pf_regs:
@@ -11877,21 +12204,34 @@ async def hybrid_search_all_silos(
                     print(f"   🧭 RÉGIMEN: fuera {_antes - len(merged)} artículos de {sorted(_quitar)} de leyes_federales")
         except Exception as _e_q:
             print(f"   ⚠️ RÉGIMEN: no se pudo depurar leyes_federales: {err(_e_q)}")
-    for _rg in _pf_regs or []:
+    # El código local que rige, uno por régimen y en su orden. Su búsqueda salió
+    # en cuanto volvió la procesal federal (`_cola_procesal`, por el índice del
+    # régimen); el `try` cubre lo mismo que cubría con `_traer_procesal_local`
+    # —la importación, la nota y la búsqueda—, y en ese orden.
+    for _i_rg, _rg in enumerate(_pf_regs or []):
         if not (_rg.get("inyectar") and estado and _selected_state_silo):
             continue
         try:
             import regimen_procesal as _rp2
-            _locales = await _traer_procesal_local(_rg["inyectar"], _selected_state_silo, query,
-                                                   dense_vector, existing_ids, _rp2.nota_para_modelo(_pf_regs))
+            _nota_rg = _rp2.nota_para_modelo(_pf_regs)
+            _prep_local = _procesal["locales"].get(_i_rg)
+            if isinstance(_prep_local, BaseException):
+                raise _prep_local
+            _locales = _fusionar_procesal_local(_prep_local, existing_ids, _nota_rg)
             if _locales:
                 merged = _locales + merged
         except Exception as _e_rg:
             print(f"   ⚠️ RÉGIMEN: no se pudo inyectar el código local ({_rg.get('inyectar')}): {err(_e_rg)}")
-    _nom_hits = await _traer_normas_oficiales(query, dense_vector, existing_ids, skip=skip_post_search)
+    _t_espera = time.perf_counter()
+    _prep_nom = await _cola["nom"]
+    _espera_cola += time.perf_counter() - _t_espera
+    _nom_hits = _fusionar_normas_oficiales(_prep_nom, existing_ids)
     if _nom_hits:
         merged.extend(_nom_hits)
-    _tratado_hits = await _traer_articulo_tratado(query, existing_ids)
+    _t_espera = time.perf_counter()
+    _prep_tratado = await _cola["tratado"]
+    _espera_cola += time.perf_counter() - _t_espera
+    _tratado_hits = _fusionar_articulo_tratado(_prep_tratado, existing_ids)
     if _tratado_hits:
         _ids_t = {r.id for r in _tratado_hits}
         merged = _tratado_hits + [r for r in merged if r.id not in _ids_t]
@@ -11899,9 +12239,18 @@ async def hybrid_search_all_silos(
     # metería justo lo que el régimen acaba de excluir.
     _materia_procesal = None if (_pf_hits or _pf_regs) else _detectar_consulta_procesal(query)
     if _materia_procesal and not skip_post_search:
-        _t_nac = time.perf_counter()
-        _nacionales = await _traer_codigo_nacional(
-            _materia_procesal, dense_vector, limite=6)
+        _adelantado_nac = _procesal["nacional"]
+        if _adelantado_nac and _adelantado_nac[0] == _materia_procesal:
+            # Ya se pidió en `_cola_procesal`: sin régimen ni artículos se sabía.
+            _nacionales, _seg_nac = _adelantado_nac[1], _adelantado_nac[2]
+        else:
+            # La procesal federal trajo artículos y todos estaban ya: sólo al
+            # fundir se supo que hacía falta, y se pide aquí, como antes.
+            _t_nac = time.perf_counter()
+            _nacionales = await _traer_codigo_nacional(
+                _materia_procesal, dense_vector, limite=6)
+            _seg_nac = time.perf_counter() - _t_nac
+            _espera_cola += _seg_nac
         _nuevos = [r for r in _nacionales if r.id not in existing_ids]
         for r in _nuevos:
             existing_ids.add(r.id)
@@ -11923,7 +12272,9 @@ async def hybrid_search_all_silos(
         merged.extend(_nuevos)
         print(f"   ⚖️ CÓDIGO NACIONAL ({_materia_procesal}): +{len(_nuevos)} "
               f"artículos ({min(_n_nac, len(_nuevos))} con lugar garantizado) "
-              f"en {time.perf_counter()-_t_nac:.2f}s")
+              f"en {_seg_nac:.2f}s")
+    print(f"   ⏱ Cola en paralelo (sub-consultas, procesal, NOM, tratado, nacional): "
+          f"al fundir se esperaron {_espera_cola:.2f}s")
 
     # ═══════════════════════════════════════════════════════════════════════════
     # MATERIA-AWARE RETRIEVAL — Capa 3: Post-Retrieval Threshold
@@ -17417,6 +17768,16 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
     if not request.messages:
         raise HTTPException(status_code=400, detail="Se requiere al menos un mensaje")
 
+    # EL PLAN PARA LA MEMORIA, DESDE LA ENTRADA (2-nov-2026). `nivel_del_usuario`
+    # —una lectura de `user_profiles`, con un minuto de caché— se pedía después
+    # de la búsqueda, justo antes de armar el historial, y su ida a la base se
+    # sumaba a la primera letra. Sale aquí y se espera donde se usaba. Es la
+    # misma lectura con el mismo `user_id` (la ruta no lo cambia); nunca lanza:
+    # si no puede leer, «gratuito», como siempre.
+    _nivel_mem_tarea = asyncio.ensure_future(nivel_del_usuario(request.user_id))
+    _NIVEL_EN_VUELO.add(_nivel_mem_tarea)
+    _nivel_mem_tarea.add_done_callback(_NIVEL_EN_VUELO.discard)
+
     if request.reintento:
         import reintentos_cliente as _rc
         _lr = _rc.linea(request.reintento)
@@ -18010,7 +18371,7 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                         break
                 print(f"   🔔 CORRECCIÓN DEL USUARIO detectada ({_senal}): "
                       f"«{(last_user_message or '')[:90]}»")
-                supabase_admin.table("correcciones_usuario").insert({
+                _fila_corr = {
                     "user_id": request.user_id or None,
                     # correo y plan van vacíos a propósito: este endpoint no los
                     # tiene en memoria y consultarlos aquí añadiría una ida a la
@@ -18021,7 +18382,16 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                     "senal": _senal[:200],
                     "texto": (last_user_message or "")[:2000],
                     "respuesta_previa": _previa or None,
-                }).execute()
+                }
+                # A UN HILO (2-nov-2026). El cliente de Supabase es síncrono y
+                # este `execute()` se hacía aquí, en el bucle de eventos: la
+                # consulta —y todas las del worker— esperaban su ida a la base
+                # antes de seguir. Ahora lo hace `_anotar_correccion` en un
+                # hilo, sin que nadie lo espere; si falla, deja en el registro
+                # la misma línea que dejaba aquí.
+                _t_corr = asyncio.ensure_future(asyncio.to_thread(_anotar_correccion, _fila_corr))
+                _CORRECCIONES_EN_VUELO.add(_t_corr)
+                _t_corr.add_done_callback(_CORRECCIONES_EN_VUELO.discard)
     except Exception as _e_corr_det:
         print(f"   ⚠️ No pude anotar la corrección (no fatal): {err(_e_corr_det)}")
 
@@ -18820,8 +19190,15 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                                 if _silo_est:
                                     _silos_ancla.insert(0, _silo_est)
                                 _tareas_ancla = []
-                                for _etq, _txt in _anclas:
-                                    _dv = await get_dense_embedding(_txt)
+                                # LOS VECTORES DE LAS DOS ANCLAS, A LA VEZ
+                                # (2-nov-2026): se pedían uno detrás del otro y
+                                # cada uno es una ida a OpenAI. Mismos textos,
+                                # mismo orden de búsquedas; un fallo se lanza al
+                                # llegar a su ancla, como antes.
+                                _dvs = await _vectores_en_paralelo([_txt_a for _, _txt_a in _anclas])
+                                for (_etq, _txt), _dv in zip(_anclas, _dvs):
+                                    if isinstance(_dv, BaseException):
+                                        raise _dv
                                     _sv = get_sparse_embedding(_txt)
                                     for _c in _silos_ancla:
                                         # Al silo del estado se le da más cupo:
@@ -20290,7 +20667,9 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                 # y, si el recorte quita algo, la pantalla lo sabe: una
                 # conversación que se abrevia en silencio es una que «se
                 # contradice» sin que nadie sepa por qué.
-                _nivel_mem = await nivel_del_usuario(request.user_id)
+                # Lanzada al entrar en la ruta (ver EL PLAN PARA LA MEMORIA,
+                # DESDE LA ENTRADA): a estas alturas casi siempre ya volvió.
+                _nivel_mem = await _nivel_mem_tarea
                 _tope_mem = tope_de_historial(_nivel_mem)
                 _hist, _hist_antes, _hist_despues = _recortar_historial(request.messages, presupuesto=_tope_mem)
                 if _hist_despues < _hist_antes:
@@ -23055,6 +23434,21 @@ AZURE_DOCINT_KEY = os.getenv("AZURE_DOCINT_KEY", "")
 AZURE_DOCINT_ENDPOINT = os.getenv("AZURE_DOCINT_ENDPOINT", "").rstrip("/")
 
 
+# EL SONDEO DE AZURE, CADA SEGUNDO (2-nov-2026). Se preguntaba cada 2 s y la
+# primera vez a los 2 s: el resultado, ya listo, esperaba de media un segundo a
+# que alguien lo pidiera, y una lectura de un segundo tardaba dos. Medido en
+# Render el 2-nov: el OCR de Azure se lleva 6.7 s de mediana (10.9 s en el
+# p90) en el 33 % de los documentos de /analyze-document. Ahora la primera
+# consulta va al segundo y luego cada segundo, con el MISMO tope total de
+# antes: 120 s de espera (120 sondeos de 1 s en vez de 60 de 2). La factura de
+# Azure es por página leída («S0 Read Pages»), no por consulta de estado; el
+# doble de consultas sólo suma idas a la red, muy lejos del límite de lecturas
+# por segundo del servicio.
+_AZURE_SONDEO_SEG = 1.0
+_AZURE_SONDEO_TOPE_SEG = 120
+_AZURE_SONDEOS = int(_AZURE_SONDEO_TOPE_SEG / _AZURE_SONDEO_SEG)
+
+
 # EL TOPE DE AZURE SON 2.000 PÁGINAS POR PETICIÓN, no por documento. La propia
 # API acepta un parámetro `pages` con el tramo que se quiere, así que lo que
 # falta se pide en otra llamada. Se trocea en mil para no volver a rozar el
@@ -23119,8 +23513,8 @@ async def _ocr_azure(contenido: bytes, paginas_esperadas: int = 0,
         if not operacion:
             return ""
         j = {}
-        for _vuelta in range(60):
-            await asyncio.sleep(2)
+        for _vuelta in range(_AZURE_SONDEOS):
+            await asyncio.sleep(_AZURE_SONDEO_SEG)
             s = await cli.get(operacion, headers={"Ocp-Apim-Subscription-Key": AZURE_DOCINT_KEY})
             # EL JSON DE MIL PÁGINAS PESA 91 MB EN CRUDO y `json.loads` lo
             # expande 7,1 veces: 709 MB de memoria, medido. Se descodifica en un
@@ -23134,8 +23528,8 @@ async def _ocr_azure(contenido: bytes, paginas_esperadas: int = 0,
             # respaldo de Gemini, que es el que mata al trabajador. Una lentitud
             # pasajera no debe desembocar en eso.
             raise RuntimeError(
-                "Azure no terminó el análisis en 120 segundos (60 sondeos). "
-                "No es que no haya texto: es que tardó.")
+                f"Azure no terminó el análisis en {_AZURE_SONDEO_TOPE_SEG} segundos "
+                f"({_AZURE_SONDEOS} sondeos). No es que no haya texto: es que tardó.")
         if j.get("status") != "succeeded":
             raise RuntimeError(f"Azure devolvió estado «{j.get('status')}»")
     res = j.get("analyzeResult", {})
