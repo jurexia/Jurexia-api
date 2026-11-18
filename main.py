@@ -12617,6 +12617,11 @@ app.include_router(_boveda.router)
 # alcanzó a guardarla (14-oct-2026). Ver respuesta_guardada.py.
 import respuesta_guardada as _respaldo  # noqa: E402
 _respaldo.configurar(supabase_admin)
+
+# El chat primero con Claude Haiku mientras dure el saldo del plan de
+# Anthropic; sin saldo, luna (18-nov-2026). Ver chat_claude.py.
+import chat_claude as _claude  # noqa: E402
+_claude.configurar(supabase_admin, lambda: ADMIN_EMAILS)
 app.include_router(_respaldo.router)
 
 # El análisis de documentos late también mientras el modelo piensa (29-oct-2026).
@@ -20717,6 +20722,10 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                 # Se enciende sólo en la rama del chat por defecto (ver abajo).
                 _es_chat_busqueda = False
 
+                # Las rutas que intenta primero Claude Haiku (chat_claude.py):
+                # "buscar", "basico" o "pro". La Redacción Platinum, nunca.
+                _ruta_claude = None
+
                 # Nivel de razonamiento para Redacción Pro/Ultra. None = el que
                 # traiga el modelo por omisión.
                 _esfuerzo_redaccion = None
@@ -20844,6 +20853,7 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                         _esfuerzo_redaccion = REDACTOR_PRO_ESFUERZO
                         _etiqueta_redaccion = "✨ REDACCIÓN PRO"
                         max_tokens = REDACTOR_PRO_MAX_TOKENS
+                        _ruta_claude = "pro"
                     use_thinking = True
                     print(f"   {_etiqueta_redaccion}: {active_model} "
                           f"(razonamiento {_esfuerzo_redaccion}) | "
@@ -20909,6 +20919,7 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                         active_model = DEEPSEEK_OFFICIAL_CHAT_MODEL  # deepseek-v4-flash
                         max_tokens = 32000
                         use_thinking = False
+                        _ruta_claude = "basico"
                         print(f"   ✍️ REDACCIÓN PROFESIONAL → {active_model} "
                               f"(V4 Flash, SIN razonamiento) | max_tokens: {max_tokens}")
                     elif is_drafting or is_chat_drafting:
@@ -20942,6 +20953,7 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                     # razonamiento sí aporta: planifica la estructura del
                     # escrito antes de redactarlo.
                     _es_chat_busqueda = True
+                    _ruta_claude = "buscar"
                     # 30,000 y no 16,384: v4-flash razona aunque Thinking venga
                     # OFF, y sus tokens de razonamiento descuentan del mismo
                     # tope. El 31-jul-2026 una respuesta gastó ~4,300 tokens
@@ -21844,10 +21856,28 @@ Evita contradicciones y estructura la respuesta de forma impecable usando format
                     print(f"   🔌 API CALL: max_tokens={api_kwargs.get('max_tokens', 'N/A')} max_completion_tokens={api_kwargs.get('max_completion_tokens', 'N/A')}")
                     _t_api_call = time.perf_counter()
                     
+                    # CLAUDE PRIMERO MIENTRAS DURE EL SALDO (18-nov-2026). En
+                    # las rutas Buscar, Redacción Profesional y Redacción Pro la
+                    # respuesta la intenta Claude Haiku; se espera su primera
+                    # letra latiendo, y si no llega —sin saldo, error, se negó—
+                    # la consulta sigue aquí abajo con el motor de siempre, con
+                    # el mismo contexto y sin que el abogado lo note. Sus trozos
+                    # tienen la forma de los de OpenAI: el bucle de abajo no
+                    # cambia. Ver chat_claude.py (CHAT_CLAUDE en Render).
+                    stream = None
+                    if _ruta_claude and await _claude.corresponde(_ruta_claude, request.user_id):
+                        _intento_claude = _claude.Intento(
+                            llm_messages, ruta=_ruta_claude, max_tokens=max_tokens,
+                            peticion=request.peticion_id)
+                        async for _ in _intento_claude.esperar():
+                            yield "<!--PING-->"
+                        stream = _intento_claude.flujo()
+
                     # Con respaldo si el filtro de contenido de OpenAI rechaza la
                     # consulta antes de escribir (ver _flujo_con_respaldo_filtro).
                     _uso_flujo: dict = {}
-                    stream = await _flujo_con_respaldo_filtro(active_client, api_kwargs, _uso_flujo)
+                    if stream is None:
+                        stream = await _flujo_con_respaldo_filtro(active_client, api_kwargs, _uso_flujo)
                     print(f"   ⏱ STREAM CREATED: {time.perf_counter() - _t_api_call:.2f}s (connection established)")
                     
                     _chunk_count = 0

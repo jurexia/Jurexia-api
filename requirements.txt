@@ -9,6 +9,10 @@ pydantic>=2.5.0
 qdrant-client>=1.7.0,<1.19
 fastembed>=0.2.0
 openai>=1.10.0
+# El chat con Claude Haiku mientras dure el saldo del plan (chat_claude.py).
+# Con tope, por la misma razón que qdrant-client: una mayor nueva puede
+# cambiar nombres y tumbar el arranque.
+anthropic>=2.10.0,<3
 httpx>=0.26.0
 python-dotenv>=1.0.0
 python-docx>=1.1.0
