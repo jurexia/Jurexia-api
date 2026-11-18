@@ -27,14 +27,15 @@ trata como el de cualquier motor (el aviso de respuesta truncada).
     consulta va a luna.
 
 INTERRUPTOR: CHAT_CLAUDE en Render.
-  · "prueba" (por omisión): sólo los correos de CHAT_CLAUDE_CORREOS, o los
-    administradores si está vacía. Para medir la calidad antes de abrirlo.
-  · "on": todos.   · "off": nadie.
+  · "on" (por omisión desde el 18-nov-2026): todos.
+  · "prueba": sólo los correos de CHAT_CLAUDE_CORREOS, o los administradores
+    si está vacía.   · "off": nadie.
 
-Los escalones de esfuerzo de Haiku (low/medium/high) son variables:
-CLAUDE_ESFUERZO_BUSCAR (medium), CLAUDE_ESFUERZO_BASICO (medium) y
-CLAUDE_ESFUERZO_PRO (high). El razonamiento va APAGADO (CLAUDE_RAZONAR=1 lo
-enciende): con él, la primera letra tardaba el triple que con luna.
+Razonamiento ENCENDIDO con esfuerzo BAJO en las tres rutas (decisión de David,
+18-nov-2026): sin razonar, Haiku dio el pagaré a diez años y contestó una
+consulta laboral con un formato. Los escalones son variables:
+CLAUDE_ESFUERZO_BUSCAR, CLAUDE_ESFUERZO_BASICO y CLAUDE_ESFUERZO_PRO (low);
+CLAUDE_RAZONAR=0 lo apaga.
 
 GASTO. Cada respuesta deja en el registro «🟣 CLAUDE …» sus tokens y su costo
 estimado, y la cuenta del mes en este proceso (no es la factura: hay varios
@@ -62,7 +63,7 @@ _ESCRITURA_CACHE = 1.25   # × la entrada (caché de 5 minutos)
 
 _RUTAS = {"buscar", "basico", "pro"}
 _ESFUERZOS = {"low", "medium", "high", "xhigh", "max"}
-_ESFUERZO_POR_OMISION = {"buscar": "medium", "basico": "medium", "pro": "high"}
+_ESFUERZO_POR_OMISION = {"buscar": "low", "basico": "low", "pro": "low"}
 
 _sb = None
 _admins = lambda: ()   # noqa: E731 — main.py la cambia por la suya
@@ -86,16 +87,17 @@ def configurar(supabase_admin, correos_admin) -> None:
 
 
 def _modo() -> str:
-    m = os.getenv("CHAT_CLAUDE", "prueba").strip().lower()
-    return m if m in ("on", "off", "prueba") else "prueba"
+    m = os.getenv("CHAT_CLAUDE", "on").strip().lower()
+    return m if m in ("on", "off", "prueba") else "on"
 
 
 def razona() -> bool:
-    """SIN RAZONAMIENTO POR OMISIÓN (18-nov-2026). Medido en el /chat real con
-    acervo, 5 materias: con el razonamiento de Haiku la primera letra llegaba a
-    los 33–57 s contra 11–18 s de luna, porque pensaba 25–46 s antes de
-    escribir. CLAUDE_RAZONAR=1 lo vuelve a encender."""
-    return os.getenv("CLAUDE_RAZONAR", "0").strip() == "1"
+    """CON RAZONAMIENTO POR OMISIÓN, esfuerzo bajo (18-nov-2026). Medido en el
+    /chat real con acervo, 5 materias: sin razonar, primera letra en 6–10 s pero
+    dos errores graves (pagaré a diez años; un formato en vez de la respuesta);
+    con razonamiento bajo, 18–45 s, 39 de 45 puntos y ningún error grave.
+    CLAUDE_RAZONAR=0 lo apaga."""
+    return os.getenv("CLAUDE_RAZONAR", "1").strip() != "0"
 
 
 def esfuerzo(ruta: str) -> str:

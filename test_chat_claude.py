@@ -159,10 +159,11 @@ _con(_Cliente([]))
 cc._correos_cache.clear()
 os.environ.pop("CHAT_CLAUDE", None)
 os.environ.pop("CHAT_CLAUDE_CORREOS", None)
+ok(asyncio.run(cc.corresponde("pro", "u-otro")), "por omisión (on): todos")
+os.environ["CHAT_CLAUDE"] = "prueba"
 ok(asyncio.run(cc.corresponde("buscar", "u-admin")) and not asyncio.run(cc.corresponde("buscar", "u-otro")),
-   "por omisión (prueba): sólo los administradores")
+   "prueba: sólo los administradores")
 os.environ["CHAT_CLAUDE"] = "on"
-ok(asyncio.run(cc.corresponde("pro", "u-otro")), "on: todos")
 ok(not asyncio.run(cc.corresponde("platinum", "u-otro")) and not asyncio.run(cc.corresponde(None, "u-otro")),
    "una ruta que no es suya (Platinum, Precedentes…) nunca")
 os.environ["CHAT_CLAUDE"] = "off"
@@ -178,17 +179,19 @@ lat, texto, err = asyncio.run(_correr(cc.Intento(MENSAJES, ruta="buscar", max_to
 ok(lat >= 2 and texto == "## Queja\n\nProcede contra…" and err is None, f"{lat} latidos y el texto entero")
 kw = cli.llamadas[0]
 ok(kw["model"] == "claude-haiku-5-5" and kw["max_tokens"] == 30000
-   and kw["output_config"] == {"effort": "medium"} and "temperature" not in kw,
-   "Haiku 5.5, esfuerzo medium en Buscar, sin temperatura (Haiku la rechaza)")
-ok(kw.get("thinking") == {"type": "disabled"}, "sin razonamiento por omisión (la primera letra tardaba el triple)")
-os.environ["CLAUDE_RAZONAR"] = "1"
-cli = _Cliente([_texto("Con razonamiento")])
+   and kw["output_config"] == {"effort": "low"} and "temperature" not in kw,
+   "Haiku 5.5, esfuerzo low, sin temperatura (Haiku la rechaza)")
+ok("thinking" not in kw, "con razonamiento por omisión (adaptativo, el del modelo)")
+ok(all(cc.esfuerzo(r) == "low" for r in ("buscar", "basico", "pro")), "esfuerzo bajo en las tres rutas")
+os.environ["CLAUDE_RAZONAR"] = "0"
+cli = _Cliente([_texto("Sin razonamiento")])
 _con(cli)
 asyncio.run(_correr(cc.Intento(MENSAJES, ruta="buscar", max_tokens=30000)))
-ok("thinking" not in cli.llamadas[0], "CLAUDE_RAZONAR=1: razonamiento adaptativo (el de omisión del modelo)")
-del os.environ["CLAUDE_RAZONAR"]
+ok(cli.llamadas[0].get("thinking") == {"type": "disabled"}, "CLAUDE_RAZONAR=0: razonamiento apagado")
 os.environ["CLAUDE_ESFUERZO_BUSCAR"] = "xhigh"
 ok(cc.esfuerzo("buscar") == "high", "sin razonamiento, xhigh baja a high (Haiku daría 400)")
+del os.environ["CLAUDE_RAZONAR"]
+ok(cc.esfuerzo("buscar") == "xhigh", "con razonamiento, xhigh se respeta")
 del os.environ["CLAUDE_ESFUERZO_BUSCAR"]
 os.environ["CLAUDE_ESFUERZO_PRO"] = "high"
 cli = _Cliente([_texto("Escrito")])
