@@ -178,8 +178,18 @@ lat, texto, err = asyncio.run(_correr(cc.Intento(MENSAJES, ruta="buscar", max_to
 ok(lat >= 2 and texto == "## Queja\n\nProcede contra…" and err is None, f"{lat} latidos y el texto entero")
 kw = cli.llamadas[0]
 ok(kw["model"] == "claude-haiku-5-5" and kw["max_tokens"] == 30000
-   and kw["output_config"] == {"effort": "medium"} and "temperature" not in kw and "thinking" not in kw,
+   and kw["output_config"] == {"effort": "medium"} and "temperature" not in kw,
    "Haiku 5.5, esfuerzo medium en Buscar, sin temperatura (Haiku la rechaza)")
+ok(kw.get("thinking") == {"type": "disabled"}, "sin razonamiento por omisión (la primera letra tardaba el triple)")
+os.environ["CLAUDE_RAZONAR"] = "1"
+cli = _Cliente([_texto("Con razonamiento")])
+_con(cli)
+asyncio.run(_correr(cc.Intento(MENSAJES, ruta="buscar", max_tokens=30000)))
+ok("thinking" not in cli.llamadas[0], "CLAUDE_RAZONAR=1: razonamiento adaptativo (el de omisión del modelo)")
+del os.environ["CLAUDE_RAZONAR"]
+os.environ["CLAUDE_ESFUERZO_BUSCAR"] = "xhigh"
+ok(cc.esfuerzo("buscar") == "high", "sin razonamiento, xhigh baja a high (Haiku daría 400)")
+del os.environ["CLAUDE_ESFUERZO_BUSCAR"]
 os.environ["CLAUDE_ESFUERZO_PRO"] = "high"
 cli = _Cliente([_texto("Escrito")])
 _con(cli)

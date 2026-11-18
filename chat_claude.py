@@ -33,7 +33,8 @@ INTERRUPTOR: CHAT_CLAUDE en Render.
 
 Los escalones de esfuerzo de Haiku (low/medium/high) son variables:
 CLAUDE_ESFUERZO_BUSCAR (medium), CLAUDE_ESFUERZO_BASICO (medium) y
-CLAUDE_ESFUERZO_PRO (high).
+CLAUDE_ESFUERZO_PRO (high). El razonamiento va APAGADO (CLAUDE_RAZONAR=1 lo
+enciende): con él, la primera letra tardaba el triple que con luna.
 
 GASTO. Cada respuesta deja en el registro «🟣 CLAUDE …» sus tokens y su costo
 estimado, y la cuenta del mes en este proceso (no es la factura: hay varios
@@ -89,9 +90,19 @@ def _modo() -> str:
     return m if m in ("on", "off", "prueba") else "prueba"
 
 
+def razona() -> bool:
+    """SIN RAZONAMIENTO POR OMISIÓN (18-nov-2026). Medido en el /chat real con
+    acervo, 5 materias: con el razonamiento de Haiku la primera letra llegaba a
+    los 33–57 s contra 11–18 s de luna, porque pensaba 25–46 s antes de
+    escribir. CLAUDE_RAZONAR=1 lo vuelve a encender."""
+    return os.getenv("CLAUDE_RAZONAR", "0").strip() == "1"
+
+
 def esfuerzo(ruta: str) -> str:
     e = os.getenv(f"CLAUDE_ESFUERZO_{ruta.upper()}", "").strip().lower()
-    return e if e in _ESFUERZOS else _ESFUERZO_POR_OMISION.get(ruta, "medium")
+    e = e if e in _ESFUERZOS else _ESFUERZO_POR_OMISION.get(ruta, "medium")
+    # Haiku 5.5 rechaza el razonamiento apagado con xhigh o max (400).
+    return "high" if not razona() and e in ("xhigh", "max") else e
 
 
 def _obtener_cliente():
@@ -257,6 +268,7 @@ class Intento:
         self.max_tokens = int(max_tokens or 30000)
         self.peticion = (peticion or "-")[:8]
         self.esfuerzo = esfuerzo(ruta)
+        self.etiqueta = f"{ruta}, {self.esfuerzo}{'' if razona() else ', sin razonar'}"
         self._convertido = convertir(mensajes)
         self._cola: asyncio.Queue = asyncio.Queue()
         self._tarea: Optional[asyncio.Task] = None
@@ -282,7 +294,7 @@ class Intento:
                 item = pendiente.result()
                 if isinstance(item, str):
                     self._primera = item
-                    print(f"   🟣 CLAUDE {MODELO} ({self.ruta}, {self.esfuerzo}): primera letra en "
+                    print(f"   🟣 CLAUDE {MODELO} ({self.etiqueta}): primera letra en "
                           f"{time.perf_counter() - self._t0:.1f}s")
                 elif isinstance(item, BaseException):
                     self.motivo_fallo = f"{type(item).__name__}: {str(item)[:160]}"
@@ -338,6 +350,8 @@ class Intento:
                 messages=mensajes,
                 output_config={"effort": self.esfuerzo},
             )
+            if not razona():
+                kw["thinking"] = {"type": "disabled"}
             if system:
                 kw["system"] = system
             async with cliente.messages.stream(**kw) as s:
@@ -370,7 +384,7 @@ class Intento:
         uso = getattr(final, "usage", None)
         usd = costo(uso)
         mes = _sumar_al_mes(usd)
-        print(f"   🟣 CLAUDE {MODELO} ({self.ruta}, {self.esfuerzo}) terminó en "
+        print(f"   🟣 CLAUDE {MODELO} ({self.etiqueta}) terminó en "
               f"{time.perf_counter() - self._t0:.1f}s · fin {final.stop_reason} · "
               f"entrada {int(getattr(uso, 'input_tokens', 0) or 0):,} "
               f"(caché leída {int(getattr(uso, 'cache_read_input_tokens', 0) or 0):,}, "
