@@ -36,6 +36,18 @@ def _pensando():
     return types.SimpleNamespace(type="content_block_delta", delta=types.SimpleNamespace(type="signature_delta"))
 
 
+def _inicio_razon():
+    return types.SimpleNamespace(type="content_block_start", content_block=types.SimpleNamespace(type="thinking"))
+
+
+def _fin_bloque():
+    return types.SimpleNamespace(type="content_block_stop")
+
+
+def _razon(t):
+    return types.SimpleNamespace(type="content_block_delta", delta=types.SimpleNamespace(type="thinking_delta", thinking=t))
+
+
 class _Flujo:
     def __init__(self, guion, final, registro):
         self.guion, self.final, self.registro = guion, final, registro
@@ -69,18 +81,31 @@ class _Flujo:
 
 
 class _Cliente:
-    def __init__(self, guion, final=None):
-        self.llamadas, self.registro = [], []
+    def __init__(self, guion, final=None, demora_traduccion=0.0, falla_traduccion=False):
+        self.llamadas, self.registro, self.traducciones = [], [], []
         self.guion = guion
+        self.demora, self.falla, self.respuesta = demora_traduccion, falla_traduccion, None
         self.final = final or types.SimpleNamespace(
             stop_reason="end_turn", stop_details=None,
             usage=types.SimpleNamespace(input_tokens=40_000, cache_read_input_tokens=9_000,
                                         cache_creation_input_tokens=0, output_tokens=5_000))
-        self.messages = types.SimpleNamespace(stream=self._stream)
+        self.messages = types.SimpleNamespace(stream=self._stream, create=self._create)
 
     def _stream(self, **kw):
         self.llamadas.append(kw)
         return _Flujo(self.guion, self.final, self.registro)
+
+    async def _create(self, **kw):          # la traducción de un párrafo
+        self.traducciones.append(kw)
+        if self.demora:
+            await asyncio.sleep(self.demora)
+        if self.falla:
+            raise ErrorApi(500, "api_error", "no traduzco")
+        return types.SimpleNamespace(
+            content=[types.SimpleNamespace(type="text", text=self.respuesta or "ES[" + kw["messages"][0]["content"]
+                                           .replace("<fragmento>\n", "").replace("\n</fragmento>", "") + "]")],
+            usage=types.SimpleNamespace(input_tokens=300, cache_read_input_tokens=0,
+                                        cache_creation_input_tokens=0, output_tokens=200))
 
 
 def _con(cliente):
@@ -98,11 +123,11 @@ MENSAJES = [
 ]
 
 
-async def _correr(intento, latido=0.05):
+async def _correr(intento, latido=0.05, respaldo=None, razon=None):
     latidos = 0
     async for _ in intento.esperar(latido=latido):
         latidos += 1
-    flujo = intento.flujo()
+    flujo = intento.flujo(respaldo)
     if flujo is None:
         return latidos, None, None
     texto, error = "", None
@@ -110,9 +135,20 @@ async def _correr(intento, latido=0.05):
         async for trozo in flujo:          # como el bucle de main.py
             if trozo.choices and trozo.choices[0].delta:
                 texto += getattr(trozo.choices[0].delta, "content", None) or ""
+                if razon is not None:
+                    razon.append(getattr(trozo.choices[0].delta, "reasoning_content", None) or "")
     except Exception as e:
         error = e
     return latidos, texto, error
+
+
+def _luna(texto):
+    async def abrir():
+        async def gen():
+            yield types.SimpleNamespace(choices=[types.SimpleNamespace(
+                delta=types.SimpleNamespace(content=texto, reasoning_content=None), finish_reason=None)])
+        return gen()
+    return abrir
 
 
 print("\n1 · los mensajes del chat, en la forma de Anthropic")
@@ -181,7 +217,8 @@ kw = cli.llamadas[0]
 ok(kw["model"] == "claude-haiku-5-5" and kw["max_tokens"] == 30000
    and kw["output_config"] == {"effort": "low"} and "temperature" not in kw,
    "Haiku 5.5, esfuerzo low, sin temperatura (Haiku la rechaza)")
-ok("thinking" not in kw, "con razonamiento por omisión (adaptativo, el del modelo)")
+ok(kw.get("thinking") == {"type": "adaptive", "display": "summarized"},
+   "con razonamiento por omisión, y pidiendo su resumen (Haiku 5.5 lo omite si no)")
 ok(all(cc.esfuerzo(r) == "low" for r in ("buscar", "basico", "pro")), "esfuerzo bajo en las tres rutas")
 os.environ["CLAUDE_RAZONAR"] = "0"
 cli = _Cliente([_texto("Sin razonamiento")])
@@ -242,6 +279,120 @@ async def _detener():
 
 
 ok(asyncio.run(_detener()) == ["cancelado"], "la petición a Anthropic se cancela")
+
+print("\n8 · el razonamiento se ve desde el primer momento (sin traducir)")
+os.environ["CLAUDE_TRADUCIR_RAZONAMIENTO"] = "0"
+cli = _Cliente([_inicio_razon(), _razon("Analizo el art. 165 "), _razon("de la LGTOC."), _inicio_razon(),
+                _razon("Plazo: tres años."), 0.2, _texto("## Respuesta\n\n"), _texto("Tres años.")])
+_con(cli)
+razon = []
+it = cc.Intento(MENSAJES, ruta="buscar", max_tokens=30000)
+lat, texto, err = asyncio.run(_correr(it, latido=0.05, razon=razon))
+ok(lat == 0, "sin latidos: el razonamiento llega antes que el primer latido")
+ok("".join(razon) == "Analizo el art. 165 de la LGTOC.\n\nPlazo: tres años.",
+   "el resumen del razonamiento va en reasoning_content, con los bloques separados")
+ok(texto == "## Respuesta\n\nTres años." and err is None, "la respuesta, entera y aparte")
+
+_con(_Cliente([_inicio_razon(), _razon("Pienso…")], types.SimpleNamespace(
+    stop_reason="refusal", stop_details=types.SimpleNamespace(category="general_harms"),
+    usage=types.SimpleNamespace(input_tokens=1000, output_tokens=10))))
+razon = []
+it = cc.Intento(MENSAJES, ruta="buscar", max_tokens=30000)
+lat, texto, err = asyncio.run(_correr(it, respaldo=_luna("Respuesta de luna."), razon=razon))
+ok("".join(razon) == "Pienso…" and texto == "Respuesta de luna." and err is None,
+   "razonó y se negó sin escribir → la respuesta la escribe luna")
+
+_con(_Cliente([_inicio_razon(), _razon("Pienso…"), ErrorApi(500, "api_error", "se cayó")]))
+lat, texto, err = asyncio.run(_correr(cc.Intento(MENSAJES, ruta="buscar", max_tokens=30000),
+                                      respaldo=_luna("Respuesta de luna.")))
+ok(texto == "Respuesta de luna." and err is None, "razonó y se cayó sin escribir → luna")
+_con(_Cliente([_inicio_razon(), _razon("Pienso…"), ErrorApi(500, "api_error", "se cayó")]))
+lat, texto, err = asyncio.run(_correr(cc.Intento(MENSAJES, ruta="buscar", max_tokens=30000)))
+ok(texto == "" and isinstance(err, ErrorApi), "sin respaldo, el error sube al chat")
+_con(_Cliente([_inicio_razon(), _razon("Pienso…"), _texto("Parte "), ErrorApi(500, "api_error", "se cayó")]))
+lat, texto, err = asyncio.run(_correr(cc.Intento(MENSAJES, ruta="buscar", max_tokens=30000),
+                                      respaldo=_luna("NO")))
+ok(texto == "Parte " and isinstance(err, ErrorApi), "con texto ya escrito no se mezcla luna: el error de siempre")
+
+os.environ["CLAUDE_RAZONAMIENTO_VISIBLE"] = "0"
+cli = _Cliente([_razon("oculto"), _texto("Visible")])
+_con(cli)
+razon = []
+lat, texto, err = asyncio.run(_correr(cc.Intento(MENSAJES, ruta="buscar", max_tokens=30000), razon=razon))
+ok("thinking" not in cli.llamadas[0] and "".join(razon) == "" and texto == "Visible",
+   "CLAUDE_RAZONAMIENTO_VISIBLE=0: piensa igual pero no se pide ni se manda el resumen")
+del os.environ["CLAUDE_RAZONAMIENTO_VISIBLE"]
+
+cli = _Cliente([_inicio_razon(), _razon("oculto"), 0.2, _texto("Visible")])
+_con(cli)
+razon = []
+lat, texto, err = asyncio.run(_correr(cc.Intento(MENSAJES, ruta="buscar", max_tokens=30000,
+                                                 ver_razonamiento=False), razon=razon))
+ok("thinking" not in cli.llamadas[0] and "".join(razon) == "" and texto == "Visible" and lat >= 2,
+   "la app móvil (sin razonamiento en vivo): no se pide el resumen y se late hasta la primera letra")
+
+del os.environ["CLAUDE_TRADUCIR_RAZONAMIENTO"]
+
+
+async def _en_orden(intento):
+    """Qué llega al bucle del chat y en qué orden: ('r', razón) o ('t', texto)."""
+    async for _ in intento.esperar(latido=0.05):
+        pass
+    orden = []
+    async for trozo in intento.flujo():
+        d = trozo.choices[0].delta
+        if d.reasoning_content:
+            orden.append(("r", d.reasoning_content))
+        if d.content:
+            orden.append(("t", d.content))
+    return orden
+
+
+print("\n9 · el razonamiento llega traducido al español, párrafo por párrafo")
+cli = _Cliente([_inicio_razon(), _razon("I'm checking "), _razon("art. 165.\n\nThree"), _razon(" years apply."),
+                _fin_bloque(), 0.2, _texto("Tres "), _texto("años.")])
+_con(cli)
+orden = asyncio.run(_en_orden(cc.Intento(MENSAJES, ruta="buscar", max_tokens=30000)))
+ok(orden == [("r", "ES[I'm checking art. 165.]"), ("r", "\n\nES[Three years apply.]"), ("t", "Tres "), ("t", "años.")],
+   "cada párrafo, entero y traducido, antes de la respuesta")
+tr = cli.traducciones[0]
+ok(tr["model"] == "claude-haiku-5-5" and tr["thinking"] == {"type": "disabled"} and "español de México" in tr["system"],
+   "traduce el mismo Haiku, sin razonar")
+
+cli = _Cliente([_inicio_razon(), _razon("First idea."), _fin_bloque(), _texto("Respuesta")], demora_traduccion=0.3)
+_con(cli)
+orden = asyncio.run(_en_orden(cc.Intento(MENSAJES, ruta="buscar", max_tokens=30000)))
+ok(orden == [("t", "Respuesta")], "si la respuesta empieza antes que la traducción, el párrafo se descarta")
+
+cli = _Cliente([_inicio_razon(), _razon("Idea.\n\n"), 0.1, _texto("Respuesta")], falla_traduccion=True)
+_con(cli)
+orden = asyncio.run(_en_orden(cc.Intento(MENSAJES, ruta="buscar", max_tokens=30000)))
+ok(orden == [("t", "Respuesta")], "si la traducción falla, no se pinta en inglés y la respuesta sigue")
+
+_con(_Cliente([_inicio_razon(), _razon("Thinking…"), _fin_bloque(), 0.1], types.SimpleNamespace(
+    stop_reason="refusal", stop_details=types.SimpleNamespace(category="general_harms"),
+    usage=types.SimpleNamespace(input_tokens=1000, output_tokens=10))))
+razon = []
+lat, texto, err = asyncio.run(_correr(cc.Intento(MENSAJES, ruta="buscar", max_tokens=30000),
+                                      respaldo=_luna("Respuesta de luna."), razon=razon))
+ok("".join(razon) == "ES[Thinking…]" and texto == "Respuesta de luna.", "razonó, se negó → luna, con el razonamiento traducido")
+
+cc._cliente = None
+print("   ·", end="")
+for crudo, util in [("Estoy revisando el art. 165.", True), ("(nada)", False),
+                    ("No voy a traducir ese párrafo: no reproduzco mi razonamiento interno.", False),
+                    ("No hay párrafo de razonamiento que traducir aquí.", False),
+                    ("Estoy revisando el art. 165. Mientras tanto, te comento que el artículo 362 del Código de "
+                     "Comercio regula los intereses moratorios y el 1084 establece los requisitos de la demanda "
+                     "ejecutiva, así que conviene revisar ambos en el texto vigente antes de citarlos.", False)]:
+    ok((cc._traduccion_util("I'm checking art. 165.", crudo) is not None) == util,
+       f"traducción {'útil' if util else 'descartada'}: {crudo[:50]!r}")
+cli = _Cliente([_inicio_razon(), _razon("Idea one.\n\n"), 0.1, _texto("Respuesta")])
+cli.respuesta = "No voy a traducir ese párrafo: no reproduzco mi razonamiento."
+_con(cli)
+orden = asyncio.run(_en_orden(cc.Intento(MENSAJES, ruta="buscar", max_tokens=30000)))
+ok(orden == [("t", "Respuesta")] and "<fragmento>" in cli.traducciones[0]["messages"][0]["content"],
+   "el párrafo va entre delimitadores, y una negativa del traductor no se pinta")
 
 print()
 if FALLOS:

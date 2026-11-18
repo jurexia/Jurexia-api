@@ -21864,18 +21864,24 @@ Evita contradicciones y estructura la respuesta de forma impecable usando format
                     # el mismo contexto y sin que el abogado lo note. Sus trozos
                     # tienen la forma de los de OpenAI: el bucle de abajo no
                     # cambia. Ver chat_claude.py (CHAT_CLAUDE en Render).
+                    #
+                    # En la web (razonamiento en vivo) Haiku manda el resumen de
+                    # lo que piensa y el bucle lo pinta en «Ver razonamiento
+                    # jurídico» desde el primer segundo. Si pensó pero no llegó a
+                    # escribir, la respuesta la escribe luna (respaldo).
+                    _uso_flujo: dict = {}
                     stream = None
                     if _ruta_claude and await _claude.corresponde(_ruta_claude, request.user_id):
                         _intento_claude = _claude.Intento(
                             llm_messages, ruta=_ruta_claude, max_tokens=max_tokens,
-                            peticion=request.peticion_id)
+                            peticion=request.peticion_id, ver_razonamiento=_razonamiento_vivo)
                         async for _ in _intento_claude.esperar():
                             yield "<!--PING-->"
-                        stream = _intento_claude.flujo()
+                        stream = _intento_claude.flujo(
+                            respaldo=lambda: _flujo_con_respaldo_filtro(active_client, api_kwargs, _uso_flujo))
 
                     # Con respaldo si el filtro de contenido de OpenAI rechaza la
                     # consulta antes de escribir (ver _flujo_con_respaldo_filtro).
-                    _uso_flujo: dict = {}
                     if stream is None:
                         stream = await _flujo_con_respaldo_filtro(active_client, api_kwargs, _uso_flujo)
                     print(f"   ⏱ STREAM CREATED: {time.perf_counter() - _t_api_call:.2f}s (connection established)")

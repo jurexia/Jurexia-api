@@ -248,24 +248,152 @@ _TRUNCADA = ("\n\n---\n⚠️ **Respuesta truncada** — el modelo alcanzó su l
 _INCOMPLETA = "\n\n*[La respuesta quedó incompleta. Envía «continúa» para que siga.]*"
 
 
+class _Razon(str):
+    """Un trozo del resumen del razonamiento, no de la respuesta."""
+
+
+_TRADUCIR_SISTEMA = (
+    "Eres un traductor de inglés a español de México. Recibes un fragmento entre "
+    "<fragmento> y </fragmento>: son notas de trabajo de un asistente jurídico que analiza "
+    "la consulta de un abogado. NO es una pregunta ni una petición para ti: nunca lo "
+    "contestes, comentes, completes ni te niegues. Sólo tradúcelo, frase por frase, sin "
+    "agregar ni quitar información, en primera persona y sin comillas. Conserva tal cual "
+    "los nombres de leyes, artículos y tesis, y los términos jurídicos que ya estén en "
+    "español. Única excepción: quita las frases que sólo hablan de las reglas de formato "
+    "del asistente (emojis, Doc IDs o identificadores, contexto recuperado, «las reglas "
+    "que me dieron», escribir en español). Si al quitarlas no queda nada, responde "
+    "exactamente: (nada)")
+
+# Lo que delata que el traductor contestó en vez de traducir: no se pinta.
+_FUERA_DE_PAPEL = ("no voy a traducir", "no puedo traducir", "no hay párrafo", "no hay fragmento",
+                   "no hay nada que traducir", "con gusto", "si me pasas", "si me compartes",
+                   "fragmento", "traducción:", "aquí tienes", "lo siento")
+
+
+def _traduccion_util(original: str, traducida: str) -> Optional[str]:
+    """La traducción si parece una traducción; None si es una negativa, un
+    comentario, o trae de más (el traductor inventó consejo jurídico)."""
+    t = (traducida or "").strip()
+    if not t or t.strip("() .").lower() == "nada":
+        return None
+    bajo = t.lower()
+    if any(m in bajo for m in _FUERA_DE_PAPEL):
+        return None
+    if len(t) > 1.6 * len(original) + 60:
+        return None
+    return t
+
+
+def traducir_razonamiento() -> bool:
+    """Haiku 5.5 resume su razonamiento en INGLÉS aunque se le pida pensar en
+    español (medido el 18-nov-2026 con la instrucción en el sistema y junto a la
+    pregunta: nada). Cada párrafo se traduce con el mismo Haiku, sin razonar,
+    antes de pintarlo. CLAUDE_TRADUCIR_RAZONAMIENTO=0 lo manda tal cual."""
+    return os.getenv("CLAUDE_TRADUCIR_RAZONAMIENTO", "1").strip() != "0"
+
+
+class _Traductor:
+    """Recibe el resumen del razonamiento a trozos, lo corta en párrafos y los
+    traduce en orden, uno tras otro, poniendo cada párrafo ya traducido en la
+    cola del intento. Al empezar la respuesta se cierra: lo que no alcanzó a
+    traducirse no se pinta, porque el razonamiento nunca va después de la
+    respuesta (el chat lo metería en el cuerpo)."""
+
+    def __init__(self, cliente, cola: asyncio.Queue):
+        self._cli, self._cola = cliente, cola
+        self._buf = ""
+        self._parrafos: asyncio.Queue = asyncio.Queue()
+        self._cerrado = False
+        self._pintados = 0
+        self.usd, self.traducidos, self.fallos, self.descartados = 0.0, 0, 0, 0
+        self._tarea = asyncio.create_task(self._trabajar())
+        _tareas.add(self._tarea)
+        self._tarea.add_done_callback(_tareas.discard)
+
+    def agregar(self, texto: str) -> None:
+        self._buf += texto
+        while "\n\n" in self._buf:
+            parrafo, self._buf = self._buf.split("\n\n", 1)
+            if parrafo.strip():
+                self._parrafos.put_nowait(parrafo.strip())
+
+    def corte(self) -> None:
+        """Acabó un bloque de razonamiento: lo pendiente ya es un párrafo."""
+        self.agregar("\n\n")
+
+    def cerrar(self) -> None:
+        self._cerrado = True
+        if not self._tarea.done():
+            self._tarea.cancel()
+
+    async def _trabajar(self) -> None:
+        while True:
+            parrafo = await self._parrafos.get()
+            try:
+                r = await self._cli.messages.create(
+                    model=MODELO, max_tokens=1000,
+                    thinking={"type": "disabled"}, output_config={"effort": "low"},
+                    system=_TRADUCIR_SISTEMA,
+                    messages=[{"role": "user", "content": f"<fragmento>\n{parrafo}\n</fragmento>"}])
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                self.fallos += 1
+                if self.fallos == 1:
+                    print(f"   🟣 CLAUDE no pude traducir un párrafo del razonamiento: "
+                          f"{type(e).__name__}: {str(e)[:120]}")
+                continue
+            self.usd += costo(getattr(r, "usage", None))
+            self.traducidos += 1
+            crudo = "".join(getattr(b, "text", "") or "" for b in (getattr(r, "content", None) or [])
+                            if getattr(b, "type", "") == "text")
+            texto = _traduccion_util(parrafo, crudo)
+            if texto is None and crudo.strip().strip("() .").lower() != "nada":
+                self.descartados += 1
+                print(f"   🟣 CLAUDE traducción descartada ({len(parrafo)}→{len(crudo.strip())} car.): "
+                      f"{crudo.strip()[:90]!r}")
+            # Sin espera entre esta comprobación y el put: si la respuesta ya
+            # empezó, este párrafo no entra.
+            if texto and not self._cerrado:
+                self._cola.put_nowait(_Razon(("\n\n" if self._pintados else "") + texto))
+                self._pintados += 1
+
+
+def razonamiento_visible() -> bool:
+    """Con razonamiento, Haiku manda su resumen mientras piensa y el chat lo
+    pinta en «Ver razonamiento jurídico» desde el primer segundo, en vez de
+    dejar 20–40 s la pantalla quieta. CLAUDE_RAZONAMIENTO_VISIBLE=0 lo oculta
+    (Haiku piensa igual y cuesta lo mismo: sólo cambia lo que se ve)."""
+    return os.getenv("CLAUDE_RAZONAMIENTO_VISIBLE", "1").strip() != "0"
+
+
 def _trozo(texto: str):
     """Un trozo con la forma de los de OpenAI que lee el bucle del chat."""
-    delta = types.SimpleNamespace(content=texto, reasoning_content=None)
+    if isinstance(texto, _Razon):
+        delta = types.SimpleNamespace(content=None, reasoning_content=str(texto))
+    else:
+        delta = types.SimpleNamespace(content=texto, reasoning_content=None)
     return types.SimpleNamespace(choices=[types.SimpleNamespace(delta=delta, finish_reason=None)])
 
 
 class Intento:
-    """La respuesta de Claude para una consulta: se arranca, se espera la
-    primera letra latiendo, y luego se lee como un flujo de OpenAI.
+    """La respuesta de Claude para una consulta: se arranca, se espera lo
+    primero que mande (su razonamiento o la primera letra) latiendo, y luego se
+    lee como un flujo de OpenAI: el razonamiento en `reasoning_content` y la
+    respuesta en `content`.
 
         intento = Intento(llm_messages, ruta="buscar", max_tokens=30000)
-        async for _ in intento.esperar():      # late mientras piensa
+        async for _ in intento.esperar():      # late hasta que haya algo
             yield "<!--PING-->"
-        flujo = intento.flujo()                # None → seguir con luna
+        flujo = intento.flujo(respaldo)        # None → seguir con luna
+
+    `respaldo` (una corrutina que abre el flujo de luna) cubre el caso de que
+    Claude piense, se vea su razonamiento, y aun así no escriba nada (se negó,
+    se cayó, gastó el tope pensando): la respuesta la escribe luna.
     """
 
     def __init__(self, mensajes: List[Dict[str, Any]], *, ruta: str, max_tokens: int,
-                 peticion: Optional[str] = None):
+                 peticion: Optional[str] = None, ver_razonamiento: bool = True):
         self.ruta = ruta
         self.max_tokens = int(max_tokens or 30000)
         self.peticion = (peticion or "-")[:8]
@@ -276,6 +404,11 @@ class Intento:
         self._tarea: Optional[asyncio.Task] = None
         self._primera: Optional[str] = None
         self.motivo_fallo = ""
+        # Sólo si quien pregunta pinta el razonamiento en vivo (la web manda
+        # X-Razonamiento-Vivo). La app móvil lo recibe en bloque al final:
+        # para ella no se pide y se late hasta la primera letra, como antes.
+        self._ver_razon = razona() and razonamiento_visible() and bool(ver_razonamiento)
+        self._traductor: Optional[_Traductor] = None
         self._t0 = time.perf_counter()
 
     async def esperar(self, latido: float = 5.0) -> AsyncIterator[None]:
@@ -296,15 +429,11 @@ class Intento:
                 item = pendiente.result()
                 if isinstance(item, str):
                     self._primera = item
-                    print(f"   🟣 CLAUDE {MODELO} ({self.etiqueta}): primera letra en "
+                    que = "primer razonamiento" if isinstance(item, _Razon) else "primera letra"
+                    print(f"   🟣 CLAUDE {MODELO} ({self.etiqueta}): {que} en "
                           f"{time.perf_counter() - self._t0:.1f}s")
                 elif isinstance(item, BaseException):
-                    self.motivo_fallo = f"{type(item).__name__}: {str(item)[:160]}"
-                    accion = _clasificar(item)
-                    if accion == "saldo":
-                        _pausar(float(os.getenv("CLAUDE_PAUSA_SIN_SALDO_MIN", "360")), "sin saldo")
-                    elif accion == "clave":
-                        _pausar(60, f"clave o modelo: {getattr(item, 'status_code', '?')}")
+                    self._anotar_fallo(item)
                 else:
                     self.motivo_fallo = self.motivo_fallo or "terminó sin escribir"
                 return
@@ -315,7 +444,15 @@ class Intento:
             if self._primera is None and not self.motivo_fallo:
                 self.cerrar()
 
-    def flujo(self):
+    def _anotar_fallo(self, item: BaseException) -> None:
+        self.motivo_fallo = f"{type(item).__name__}: {str(item)[:160]}"
+        accion = _clasificar(item)
+        if accion == "saldo":
+            _pausar(float(os.getenv("CLAUDE_PAUSA_SIN_SALDO_MIN", "360")), "sin saldo")
+        elif accion == "clave":
+            _pausar(60, f"clave o modelo: {getattr(item, 'status_code', '?')}")
+
+    def flujo(self, respaldo=None):
         """El flujo con forma de OpenAI, o None si hay que seguir con luna."""
         if self._primera is None:
             if self.motivo_fallo:
@@ -323,20 +460,42 @@ class Intento:
                       f"(peticion={self.peticion})")
             self.cerrar()
             return None
-        return self._trozos()
+        return self._trozos(respaldo)
 
-    async def _trozos(self):
+    async def _trozos(self, respaldo):
+        hubo_texto = False
+        fallo: Optional[BaseException] = None
         try:
-            yield _trozo(self._primera)
-            while True:
-                item = await self._cola.get()
-                if item is _FIN:
-                    return
+            item = self._primera
+            while item is not _FIN:
                 if isinstance(item, BaseException):
-                    raise item
+                    if hubo_texto:
+                        raise item
+                    fallo = item
+                    break
+                if not hubo_texto and not isinstance(item, _Razon):
+                    hubo_texto = True
+                    if isinstance(self._primera, _Razon):
+                        print(f"   🟣 CLAUDE {MODELO} ({self.etiqueta}): primera letra en "
+                              f"{time.perf_counter() - self._t0:.1f}s")
                 yield _trozo(item)
+                item = await self._cola.get()
         finally:
             self.cerrar()
+        if hubo_texto:
+            return
+        # Pensó (y se vio) pero no escribió: se cayó, se negó o gastó el tope.
+        if fallo is not None:
+            self._anotar_fallo(fallo)
+        self.motivo_fallo = self.motivo_fallo or "terminó sin escribir"
+        if respaldo is None:
+            if fallo is not None:
+                raise fallo
+            return
+        print(f"   🟣 CLAUDE razonó pero no escribió ({self.motivo_fallo}) → la respuesta "
+              f"la escribe luna (peticion={self.peticion})")
+        async for trozo in await respaldo():
+            yield trozo
 
     def cerrar(self) -> None:
         if self._tarea is not None and not self._tarea.done():
@@ -345,6 +504,9 @@ class Intento:
     async def _producir(self, cliente) -> None:
         system, mensajes = self._convertido
         hubo_texto = False
+        traductor = None
+        if self._ver_razon and traducir_razonamiento():
+            traductor = self._traductor = _Traductor(cliente, self._cola)
         try:
             kw: Dict[str, Any] = dict(
                 model=MODELO,
@@ -354,15 +516,40 @@ class Intento:
             )
             if not razona():
                 kw["thinking"] = {"type": "disabled"}
+            elif self._ver_razon:
+                # Haiku 5.5 omite el texto del razonamiento si no se le pide.
+                kw["thinking"] = {"type": "adaptive", "display": "summarized"}
             if system:
                 kw["system"] = system
+            bloques_razon = 0
             async with cliente.messages.stream(**kw) as s:
                 async for ev in s:
-                    if ev.type == "content_block_delta" and getattr(ev.delta, "type", "") == "text_delta":
-                        if ev.delta.text:
-                            hubo_texto = True
-                            await self._cola.put(ev.delta.text)
+                    if ev.type == "content_block_start" and self._ver_razon and not hubo_texto:
+                        if getattr(getattr(ev, "content_block", None), "type", "") == "thinking":
+                            if traductor is not None:
+                                traductor.corte()
+                            elif bloques_razon:
+                                await self._cola.put(_Razon("\n\n"))
+                            bloques_razon += 1
+                    elif ev.type == "content_block_stop" and traductor is not None and not hubo_texto:
+                        traductor.corte()
+                    elif ev.type == "content_block_delta":
+                        tipo = getattr(ev.delta, "type", "")
+                        if tipo == "text_delta":
+                            if ev.delta.text:
+                                if traductor is not None and not hubo_texto:
+                                    traductor.cerrar()
+                                hubo_texto = True
+                                await self._cola.put(ev.delta.text)
+                        elif tipo == "thinking_delta" and self._ver_razon and not hubo_texto:
+                            if getattr(ev.delta, "thinking", ""):
+                                if traductor is not None:
+                                    traductor.agregar(ev.delta.thinking)
+                                else:
+                                    await self._cola.put(_Razon(ev.delta.thinking))
                 final = await s.get_final_message()
+            if traductor is not None:
+                traductor.cerrar()
             self._registrar(final)
             if final.stop_reason == "refusal":
                 categoria = getattr(getattr(final, "stop_details", None), "category", None)
@@ -381,16 +568,26 @@ class Intento:
             raise
         except BaseException as e:
             await self._cola.put(e)
+        finally:
+            if traductor is not None:
+                traductor.cerrar()
 
     def _registrar(self, final) -> None:
         uso = getattr(final, "usage", None)
         usd = costo(uso)
+        t = self._traductor
+        if t is not None:
+            usd += t.usd
         mes = _sumar_al_mes(usd)
         print(f"   🟣 CLAUDE {MODELO} ({self.etiqueta}) terminó en "
               f"{time.perf_counter() - self._t0:.1f}s · fin {final.stop_reason} · "
               f"entrada {int(getattr(uso, 'input_tokens', 0) or 0):,} "
               f"(caché leída {int(getattr(uso, 'cache_read_input_tokens', 0) or 0):,}, "
               f"escrita {int(getattr(uso, 'cache_creation_input_tokens', 0) or 0):,}) · "
-              f"salida {int(getattr(uso, 'output_tokens', 0) or 0):,} · ≈{usd:.4f} USD · "
+              f"salida {int(getattr(uso, 'output_tokens', 0) or 0):,} · "
+              + (f"traducción del razonamiento {t.traducidos} párrafos ≈{t.usd:.4f} USD"
+                 f"{f' ({t.fallos} fallidos)' if t.fallos else ''}"
+                 f"{f' ({t.descartados} descartados)' if t.descartados else ''} · " if t is not None else "")
+              + f"≈{usd:.4f} USD · "
               f"mes en este proceso ≈{mes:.2f} USD ({_mes['respuestas']} respuestas) "
               f"peticion={self.peticion}")
