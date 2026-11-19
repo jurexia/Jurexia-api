@@ -172,8 +172,16 @@ ok(abs(cc.costo(u2) - (120_000 * 0.50 + 5_000 * 2.50) / 1e6) < 1e-12, f">100K: {
 print("\n3 · quién va con Claude (CHAT_CLAUDE)")
 
 
+FILAS = []        # lo que se anota en claude_uso
+
+
 class _Perfiles:
-    def table(self, _):
+    def table(self, nombre):
+        self.tabla = nombre
+        return self
+
+    def insert(self, fila):
+        FILAS.append((self.tabla, fila))
         return self
 
     def select(self, *_):
@@ -376,6 +384,61 @@ razon = []
 lat, texto, err = asyncio.run(_correr(cc.Intento(MENSAJES, ruta="buscar", max_tokens=30000),
                                       respaldo=_luna("Respuesta de luna."), razon=razon))
 ok("".join(razon) == "ES[Thinking…]" and texto == "Respuesta de luna.", "razonó, se negó → luna, con el razonamiento traducido")
+
+print("\n10 · el crédito se renueva el 17 a las 15:00 (México); sin saldo, luna hasta entonces")
+import time  # noqa: E402
+from datetime import datetime, timezone  # noqa: E402
+
+
+def _u(*a):
+    return datetime(*a, tzinfo=timezone.utc)
+
+
+ok(cc.inicio_del_ciclo(_u(2026, 11, 18, 16, 0)).isoformat() == "2026-11-17T15:00:00-06:00",
+   "18-nov: el ciclo empezó el 17-nov a las 15:00")
+ok(cc.proxima_renovacion(_u(2026, 11, 18, 16, 0)).isoformat() == "2026-12-17T15:00:00-06:00",
+   "y se renueva el 17-dic a las 15:00")
+ok(cc.inicio_del_ciclo(_u(2026, 12, 17, 20, 59)).date().isoformat() == "2026-11-17",
+   "17-dic a las 14:59 (México): todavía el ciclo de noviembre")
+ok(cc.inicio_del_ciclo(_u(2026, 12, 17, 21, 0)).date().isoformat() == "2026-12-17",
+   "17-dic a las 15:00 (México): ciclo nuevo")
+ok(cc.proxima_renovacion(_u(2026, 12, 20)).isoformat() == "2027-01-17T15:00:00-06:00"
+   and cc.inicio_del_ciclo(_u(2027, 1, 5)).date().isoformat() == "2026-12-17", "de diciembre a enero")
+
+
+async def _y_anotar(coro):
+    r = await coro
+    pendientes = [t for t in list(cc._tareas) if not t.done()]
+    if pendientes:
+        await asyncio.wait(pendientes, timeout=2)
+    return r
+
+
+ciclo = cc.inicio_del_ciclo().date().isoformat()
+FILAS.clear()
+cc._agotado_anotado = ""
+_con(_Cliente(ErrorApi(402, "billing_error", "Your credit balance is too low")))
+lat, texto, err = asyncio.run(_y_anotar(_correr(cc.Intento(MENSAJES, ruta="buscar", max_tokens=30000))))
+ok(texto is None and abs(cc._pausa_hasta - (time.time() + 24 * 3600)) < 60,
+   "sin saldo: la consulta va a luna y Claude sólo se vuelve a probar en 24 h")
+ok(FILAS == [("claude_uso", {"ciclo": ciclo, "tipo": "agotado"})], "se anota cuándo se agotó el ciclo")
+_con(_Cliente(ErrorApi(402, "billing_error", "Your credit balance is too low")))
+asyncio.run(_y_anotar(_correr(cc.Intento(MENSAJES, ruta="buscar", max_tokens=30000))))
+ok(len(FILAS) == 1, "la prueba del día siguiente que falla no vuelve a anotar el agotado")
+os.environ["CLAUDE_SONDEO_SIN_SALDO_H"] = "0"
+_con(_Cliente(ErrorApi(402, "billing_error", "Your credit balance is too low")))
+asyncio.run(_y_anotar(_correr(cc.Intento(MENSAJES, ruta="buscar", max_tokens=30000))))
+ok(abs(cc._pausa_hasta - cc.proxima_renovacion().timestamp()) < 1,
+   "CLAUDE_SONDEO_SIN_SALDO_H=0: luna hasta el 17 a las 15:00, sin pruebas")
+del os.environ["CLAUDE_SONDEO_SIN_SALDO_H"]
+
+FILAS.clear()
+_con(_Cliente([_texto("Respuesta")]))
+asyncio.run(_y_anotar(_correr(cc.Intento(MENSAJES, ruta="pro", max_tokens=30000, peticion="abc12345"))))
+f = FILAS[0][1] if FILAS else {}
+ok(FILAS and FILAS[0][0] == "claude_uso" and f["tipo"] == "respuesta" and f["ciclo"] == ciclo
+   and f["ruta"] == "pro" and f["usd"] > 0 and f["entrada"] == 49_000 and f["salida"] == 5_000
+   and f["peticion"] == "abc12345", "cada respuesta se anota con su ciclo, ruta, tokens y costo")
 
 cc._cliente = None
 print("   ·", end="")

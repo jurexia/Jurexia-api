@@ -20,8 +20,10 @@ siempre, sin que el abogado vea nada. Una vez que escribió, un fallo se
 trata como el de cualquier motor (el aviso de respuesta truncada).
 
   · Sin saldo (402 `billing_error`, o el 400 «credit balance is too low»):
-    Claude se aparta CLAUDE_PAUSA_SIN_SALDO_MIN minutos (360) y luego se
-    vuelve a probar: el saldo se renueva cada mes.
+    Claude se aparta HASTA QUE SE RENUEVA EL CRÉDITO —el día 17 de cada mes
+    a las 15:00, hora de México (CLAUDE_RENUEVA_DIA, CLAUDE_RENUEVA_HORA)—,
+    con una sola prueba cada 24 h por si vuelve antes (CLAUDE_SONDEO_SIN_SALDO_H;
+    0 = ninguna). La prueba que falla la contesta luna, sin que se note.
   · Clave o modelo que no sirven (401/403/404): se aparta 60 minutos.
   · Lo demás (429, 529, 5xx, red, una petición que no le gustó): sólo esa
     consulta va a luna.
@@ -37,9 +39,12 @@ consulta laboral con un formato. Los escalones son variables:
 CLAUDE_ESFUERZO_BUSCAR, CLAUDE_ESFUERZO_BASICO y CLAUDE_ESFUERZO_PRO (low);
 CLAUDE_RAZONAR=0 lo apaga.
 
-GASTO. Cada respuesta deja en el registro «🟣 CLAUDE …» sus tokens y su costo
-estimado, y la cuenta del mes en este proceso (no es la factura: hay varios
-procesos y se reinician). El tope real lo pone Anthropic: al acabarse el saldo
+GASTO Y CICLOS. Cada respuesta deja en el registro «🟣 CLAUDE …» sus tokens y
+su costo estimado, y una fila en la tabla `claude_uso` de Supabase con su
+ciclo (el 17 en que empezó); el primer «sin saldo» de cada ciclo deja otra
+fila (tipo «agotado»). La vista `claude_ciclos` da por ciclo la primera y la
+última respuesta, cuándo se agotó, cuántas respuestas y cuánto costaron
+(estimado con la tarifa, no es la factura). El tope real lo pone Anthropic: al acabarse el saldo
 contesta 402 y aquí se cae a luna. Si la organización tuviera recarga
 automática con tarjeta, ese 402 no llegaría: conviene fijar el límite de gasto
 mensual en la consola de Anthropic.
@@ -50,7 +55,7 @@ import asyncio
 import os
 import time
 import types
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, AsyncIterator, Dict, List, Optional
 
 MODELO = os.getenv("CLAUDE_CHAT_MODELO", "claude-haiku-5-5").strip() or "claude-haiku-5-5"
@@ -72,6 +77,8 @@ _pausa_hasta = 0.0
 _pausa_motivo = ""
 _correos_cache: Dict[str, tuple] = {}     # user_id -> (correo, cuándo)
 _mes: Dict[str, Any] = {"clave": "", "usd": 0.0, "respuestas": 0}
+_agotado_anotado = ""            # el ciclo cuyo «agotado» ya se anotó en este proceso
+_tabla_falta_hasta = 0.0         # sin la tabla claude_uso, no se insiste durante 1 h
 
 # Las tareas en segundo plano se guardan: una sin referencia la puede recoger
 # el recolector de basura antes de terminar.
@@ -131,6 +138,80 @@ def _pausar(minutos: float, motivo: str) -> None:
     _pausa_hasta = time.time() + minutos * 60
     _pausa_motivo = motivo
     print(f"   🟣 CLAUDE apartado {minutos:.0f} min ({motivo}): el chat sigue con luna")
+
+
+# ── El ciclo del crédito: 200 USD que se renuevan el 17 a las 15:00 (México) ──
+# Ciudad de México no tiene horario de verano desde 2022: UTC−6 todo el año.
+_MX = timezone(timedelta(hours=-6))
+
+
+def _dia_hora() -> tuple:
+    try:
+        dia = min(max(int(os.getenv("CLAUDE_RENUEVA_DIA", "17")), 1), 28)
+        hora = min(max(int(os.getenv("CLAUDE_RENUEVA_HORA", "15")), 0), 23)
+    except ValueError:
+        dia, hora = 17, 15
+    return dia, hora
+
+
+def inicio_del_ciclo(ahora: Optional[datetime] = None) -> datetime:
+    """La última renovación que ya pasó (hora de México)."""
+    ahora = (ahora or datetime.now(timezone.utc)).astimezone(_MX)
+    dia, hora = _dia_hora()
+    c = ahora.replace(day=dia, hour=hora, minute=0, second=0, microsecond=0)
+    if c > ahora:
+        c = c.replace(year=c.year - 1, month=12) if c.month == 1 else c.replace(month=c.month - 1)
+    return c
+
+
+def proxima_renovacion(ahora: Optional[datetime] = None) -> datetime:
+    c = inicio_del_ciclo(ahora)
+    return c.replace(year=c.year + 1, month=1) if c.month == 12 else c.replace(month=c.month + 1)
+
+
+def _sin_saldo() -> None:
+    """Se acabó el crédito: luna hasta la renovación, con una prueba al día."""
+    global _pausa_hasta, _pausa_motivo, _agotado_anotado
+    renueva = proxima_renovacion()
+    try:
+        sondeo_h = max(float(os.getenv("CLAUDE_SONDEO_SIN_SALDO_H", "24")), 0.0)
+    except ValueError:
+        sondeo_h = 24.0
+    hasta = renueva.timestamp()
+    if sondeo_h:
+        hasta = min(hasta, time.time() + sondeo_h * 3600)
+    _pausa_hasta, _pausa_motivo = hasta, "sin saldo"
+    print(f"   🟣 CLAUDE sin saldo: el chat sigue con luna hasta {renueva:%d-%m-%Y %H:%M} "
+          f"(hora de México), cuando se renueva el crédito"
+          + (f"; una prueba cada {sondeo_h:g} h por si vuelve antes" if sondeo_h else ""))
+    ciclo = inicio_del_ciclo().date().isoformat()
+    if _agotado_anotado != ciclo:
+        _agotado_anotado = ciclo
+        _guardar({"ciclo": ciclo, "tipo": "agotado"})
+
+
+def _guardar(fila: Dict[str, Any]) -> None:
+    """Una fila en `claude_uso`, en segundo plano: nunca frena el chat. Sin
+    Supabase o sin la tabla, no pasa nada (se avisa una vez por hora)."""
+    if _sb is None or time.time() < _tabla_falta_hasta:
+        return
+
+    async def _escribir():
+        global _tabla_falta_hasta
+        try:
+            await asyncio.to_thread(lambda: _sb.table("claude_uso").insert(fila).execute())
+        except Exception as e:
+            texto = str(e)
+            if any(m in texto for m in ("PGRST205", "42P01", "does not exist", "Could not find the table")):
+                _tabla_falta_hasta = time.time() + 3600
+            print(f"   🟣 CLAUDE no pude anotar en claude_uso: {type(e).__name__}: {texto[:140]}")
+
+    try:
+        tarea = asyncio.get_running_loop().create_task(_escribir())
+    except RuntimeError:
+        return
+    _tareas.add(tarea)
+    tarea.add_done_callback(_tareas.discard)
 
 
 async def _correo_de(user_id: str) -> str:
@@ -219,7 +300,7 @@ def costo(uso: Any) -> float:
 
 
 def _sumar_al_mes(usd: float) -> float:
-    clave = datetime.now(timezone.utc).strftime("%Y-%m")
+    clave = inicio_del_ciclo().date().isoformat()
     if _mes["clave"] != clave:
         _mes.update(clave=clave, usd=0.0, respuestas=0)
     _mes["usd"] += usd
@@ -448,7 +529,7 @@ class Intento:
         self.motivo_fallo = f"{type(item).__name__}: {str(item)[:160]}"
         accion = _clasificar(item)
         if accion == "saldo":
-            _pausar(float(os.getenv("CLAUDE_PAUSA_SIN_SALDO_MIN", "360")), "sin saldo")
+            _sin_saldo()
         elif accion == "clave":
             _pausar(60, f"clave o modelo: {getattr(item, 'status_code', '?')}")
 
@@ -589,5 +670,15 @@ class Intento:
                  f"{f' ({t.fallos} fallidos)' if t.fallos else ''}"
                  f"{f' ({t.descartados} descartados)' if t.descartados else ''} · " if t is not None else "")
               + f"≈{usd:.4f} USD · "
-              f"mes en este proceso ≈{mes:.2f} USD ({_mes['respuestas']} respuestas) "
+              f"ciclo del {_mes['clave']} en este proceso ≈{mes:.2f} USD ({_mes['respuestas']} respuestas) "
               f"peticion={self.peticion}")
+        _guardar({
+            "ciclo": _mes["clave"], "tipo": "respuesta", "ruta": self.ruta, "esfuerzo": self.esfuerzo,
+            "fin": str(final.stop_reason or ""), "usd": round(usd, 5),
+            "entrada": int(getattr(uso, "input_tokens", 0) or 0)
+            + int(getattr(uso, "cache_read_input_tokens", 0) or 0)
+            + int(getattr(uso, "cache_creation_input_tokens", 0) or 0),
+            "salida": int(getattr(uso, "output_tokens", 0) or 0),
+            "segundos": round(time.perf_counter() - self._t0, 1),
+            "peticion": None if self.peticion == "-" else self.peticion,
+        })
