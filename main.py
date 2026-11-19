@@ -29232,7 +29232,8 @@ def _can_access_redactor_tcc(user_email: str) -> bool:
     if supabase_admin:
         try:
             result = supabase_admin.table('user_profiles') \
-                .select('subscription_type, can_access_sentencia, proyectos_prueba_usados') \
+                .select('subscription_type, can_access_sentencia, proyectos_prueba_usados, '
+                        'proyectos_recargados, proyectos_mes_limite, proyectos_mes_usados') \
                 .eq('email', email_lower) \
                 .limit(1) \
                 .execute()
@@ -29264,6 +29265,15 @@ def _can_access_redactor_tcc(user_email: str) -> bool:
                 # VIDA, no por mes. Así conoce la herramienta —que es el
                 # objetivo— sin que sea un proyecto gratis cada treinta días.
                 if int(row.get('proyectos_prueba_usados') or 0) < TALLER_PROYECTOS_GRATIS:
+                    return True
+                # ── QUIEN TIENE PROYECTOS PAGADOS, ENTRA (18-nov-2026) ────
+                # Un Pro con la prueba gastada compró una recarga (10 proyectos)
+                # y la puerta seguía cerrada: sólo miraba plan, bandera, piloto
+                # y prueba, nunca la bolsa. Lo recargado o lo que queda del mes
+                # es un derecho pagado; con eso basta para entrar.
+                if int(row.get('proyectos_recargados') or 0) > 0:
+                    return True
+                if int(row.get('proyectos_mes_limite') or 0) > int(row.get('proyectos_mes_usados') or 0):
                     return True
         except Exception as e:
             print(f"   ⚠️ Error checking redactor TCC access for {correo_opaco(email_lower)}: {err(e)}")
