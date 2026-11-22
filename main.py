@@ -219,7 +219,11 @@ GENIOS_ACTIVOS = os.getenv("GENIOS_ACTIVOS", "0").strip() == "1"
 # Lo más que se acepta del historial adjunto: el frontend ya le quita los
 # marcadores pesados; más allá de esto, algo raro viene en la petición.
 HISTORIAL_ARCHIVO_MAX_BYTES = int(os.getenv("HISTORIAL_ARCHIVO_MAX_BYTES", str(12 * 1024 * 1024)))
-GEMINI_LITE_MODEL = os.getenv("GEMINI_LITE_MODEL", "gemini-3.1-flash-lite-preview")  # Chat normal sin genio vía Gemini API directa — Flash Lite, latencia mínima
+# 22-nov-2026: `gemini-3.1-flash-lite-preview` salió de la API v1 el 18-nov (13:16 UTC) y desde entonces HyDE y la
+# reescritura del HILO fallaban en silencio (404, ~300 veces en 39 h). La versión estable vive en v1.
+GEMINI_LITE_MODEL = os.getenv("GEMINI_LITE_MODEL", "gemini-3.1-flash-lite")  # Chat normal sin genio vía Gemini API directa — Flash Lite, latencia mínima
+if GEMINI_LITE_MODEL.endswith("-preview") and GEMINI_LITE_MODEL.startswith("gemini-3.1-flash-lite"):
+    GEMINI_LITE_MODEL = "gemini-3.1-flash-lite"
 
 # Consulta rápida (el rayo). Elegido midiendo seis candidatos sobre contexto
 # real del RAG el 1-ago-2026: 1.7 s hasta la respuesta completa, 2.7 artículos
@@ -243,6 +247,48 @@ def get_deepseek_official_client() -> 'AsyncOpenAI':
     idx = _deepseek_pool_counter % len(_deepseek_pool)
     _deepseek_pool_counter += 1
     return _deepseek_pool[idx]
+
+
+# ── DEEPSEEK SIN SALDO → LUNA (22-nov-2026) ─────────────────────────────────
+# El 22-nov la cuenta de DeepSeek quedó en −0.01 USD (`is_available: false`) y
+# toda llamada contestaba 402 «Insufficient Balance»: la redacción con
+# documento, el análisis Centinela, Sálvame y el respaldo de Redacción
+# Profesional morían sin escribir. Ahora se mira el saldo (GET /user/balance,
+# gratis) cada diez minutos como mucho y, si la cuenta no está disponible —o un
+# 402 lo acaba de decir—, esas rutas las escribe luna por OpenAI. Al recargar,
+# vuelven solas a DeepSeek en la siguiente revisión. DEEPSEEK_OFICIAL=0 en
+# Render lo apaga a mano; DEEPSEEK_RESPALDO_MODELO elige el sustituto.
+DEEPSEEK_RESPALDO_MODELO = os.getenv("DEEPSEEK_RESPALDO_MODELO", "gpt-6-luna").strip() or "gpt-6-luna"
+_DS_SALDO = {"disponible": True, "visto": 0.0}
+
+
+async def deepseek_disponible() -> bool:
+    if os.getenv("DEEPSEEK_OFICIAL", "1").strip() == "0":
+        return False
+    if time.time() - _DS_SALDO["visto"] > 600:
+        _DS_SALDO["visto"] = time.time()
+        try:
+            async with httpx.AsyncClient(timeout=3.0) as _c:
+                _r = await _c.get("https://api.deepseek.com/user/balance",
+                                  headers={"Authorization": f"Bearer {DEEPSEEK_OFFICIAL_API_KEY}"})
+            if _r.status_code == 200:
+                _antes = _DS_SALDO["disponible"]
+                _DS_SALDO["disponible"] = bool(_r.json().get("is_available", True))
+                if _antes != _DS_SALDO["disponible"]:
+                    print(f"   💳 DeepSeek {'con' if _DS_SALDO['disponible'] else 'SIN'} saldo → "
+                          f"{'vuelve a DeepSeek' if _DS_SALDO['disponible'] else DEEPSEEK_RESPALDO_MODELO}")
+        except Exception as _e:
+            print(f"   💳 saldo de DeepSeek sin leer ({type(_e).__name__}): se queda lo último sabido")
+    return _DS_SALDO["disponible"]
+
+
+def deepseek_sin_saldo(e: BaseException) -> bool:
+    """Si `e` es el 402 de saldo, lo anota para que la siguiente consulta ya vaya por luna."""
+    s = str(e)
+    if "402" in s and "Insufficient Balance" in s:
+        _DS_SALDO.update(disponible=False, visto=time.time())
+        return True
+    return False
 
 # Module-level client (fallback, overridden in lifespan)
 deepseek_official_client = AsyncOpenAI(
@@ -20980,6 +21026,16 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                     if llm_messages and llm_messages[0].get("role") == "system":
                         llm_messages[0]["content"] = llm_messages[0]["content"] + "\n\n" + _lite_depth_boost
 
+                # DeepSeek sin saldo → luna (ver `deepseek_disponible`). Sin razonar:
+                # así luna lleva `max_completion_tokens`, como en Buscar.
+                if (not use_gemini and not use_gemini_lite
+                        and (active_client in _deepseek_pool or active_client is deepseek_official_client)
+                        and not await deepseek_disponible()):
+                    print(f"   🔁 DeepSeek sin saldo: {active_model} → {DEEPSEEK_RESPALDO_MODELO} (OpenAI)")
+                    active_client = chat_client
+                    active_model = DEEPSEEK_RESPALDO_MODELO
+                    use_thinking = False
+
                 _client_name = 'gemini' if use_gemini else ('gemini_lite' if use_gemini_lite else ('deepseek_official' if (active_client in _deepseek_pool or active_client is deepseek_official_client) else ('deepseek_openrouter' if active_client is deepseek_client else ('openai' if active_client is chat_client else 'unknown'))))
                 print(f"   Modelo: {active_model} | Cliente: {_client_name} | Thinking: {'ON' if use_thinking else 'OFF'} | Docs: {len(search_results)} | Messages: {len(llm_messages)}")
 
@@ -22449,6 +22505,8 @@ Evita contradicciones y estructura la respuesta de forma impecable usando format
 
                 error_msg = str(e).strip()
                 print(f"   ❌ Fallo del stream: {type(e).__name__}: {error_msg[:400]}")
+                if deepseek_sin_saldo(e):
+                    print(f"   💳 DeepSeek sin saldo: lo siguiente va por {DEEPSEEK_RESPALDO_MODELO}")
 
                 if content_buffer:
                     # Hubo texto: se avisa que quedó a medias y se ofrece seguir.
@@ -32516,8 +32574,13 @@ IMPORTANTE: El encabezado del escrito SIEMPRE dice 'C. {turno_name} / P R E S E 
     # ── Stream from DeepSeek ─────────────────────────────────────────────
     async def stream_response():
         try:
-            response = await deepseek_official_client.chat.completions.create(
-                model=DEEPSEEK_OFFICIAL_CHAT_MODEL,
+            # Sin saldo en DeepSeek (22-nov-2026), la demanda de salud la escribe luna.
+            _ds = await deepseek_disponible()
+            _salvame_motor = ({"model": DEEPSEEK_OFFICIAL_CHAT_MODEL, "max_tokens": SALVAME_MAX_TOKENS, **SALVAME_RAZONAMIENTO}
+                              if _ds else {"model": DEEPSEEK_RESPALDO_MODELO, "max_completion_tokens": SALVAME_MAX_TOKENS})
+            if not _ds:
+                print(f"   🔁 SALVAME: DeepSeek sin saldo → {DEEPSEEK_RESPALDO_MODELO}")
+            response = await (deepseek_official_client if _ds else chat_client).chat.completions.create(
                 messages=[
                     {"role": "system", "content": SALVAME_SYSTEM_PROMPT},
                     {"role": "user", "content": user_prompt}
@@ -32541,9 +32604,8 @@ IMPORTANTE: El encabezado del escrito SIEMPRE dice 'C. {turno_name} / P R E S E 
                 # midieron 3 de 3 corridas completas en 12,000, 24,000 y 32,000;
                 # sólo 32,000 deja margen para la cola larga. No encarece nada:
                 # se pagan los tokens generados, no el tope.
-                max_tokens=SALVAME_MAX_TOKENS,
                 stream=True,
-                **SALVAME_RAZONAMIENTO,
+                **_salvame_motor,
             )
 
             _escrito = 0
