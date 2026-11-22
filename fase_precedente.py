@@ -825,7 +825,10 @@ _CUBO = {
     "niega": "NIEGA", "infundado": "NIEGA", "confirma": "NIEGA",
     "inoperante": "NIEGA", "ineficaz": "NIEGA",
     "sobresee": "SOBRESEE", "desecha": "SOBRESEE", "sin_materia": "SOBRESEE",
-    "incompetencia": "SOBRESEE", "modifica": "SOBRESEE",
+    "incompetencia": "SOBRESEE",
+    # MODIFICAR ES QUE PROSPERA EN PARTE, no que no se entró al fondo (22-nov-2026, censo de la jurimetría):
+    # 5,988 sentencias de holdings se pintaban como «Sobreseer». Igual que `jurimetria_v2.LEGADO`.
+    "modifica": "CONCEDE",
 }
 _NOMBRE_CUBO = {"CONCEDE": "Conceder", "NIEGA": "Negar",
                 "SOBRESEE": "Sobreseer"}

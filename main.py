@@ -23509,80 +23509,8 @@ def _can_access_jurisconsulto(user_email: str) -> bool:
     return False
 
 
-_SENTIDO_NORM = {
-    "concede":              "CONCEDE",
-    "parcialmente_concede": "CONCEDE",
-    "fundado":              "CONCEDE",
-    "revoca":               "CONCEDE",   # revoca sentencia impugnada = favorable
-    "niega":                "NIEGA",
-    "infundado":            "NIEGA",
-    "confirma":             "NIEGA",     # confirma sentencia impugnada = desfavorable
-    "sobresee":             "SOBRESEE",
-    "desecha":              "SOBRESEE",
-    "sin_materia":          "SOBRESEE",
-    "incompetencia":        "SOBRESEE",
-    "modifica":             "SOBRESEE",
-}
-
-def _aggregate_jurimetria(points: list) -> dict:
-    from collections import Counter, defaultdict
-    sentido_counts: Counter = Counter()
-    circ_sentidos: dict = defaultdict(Counter)
-    factores: Counter = Counter()
-    magistrados: Counter = Counter()
-    ratio_sum = 0.0
-    ratio_n   = 0
-
-    for pt in points:
-        pay = pt.payload or {}
-        raw = (pay.get("sentido") or "").lower().strip()
-        norm = _SENTIDO_NORM.get(raw, "OTRO")
-        sentido_counts[norm] += 1
-
-        circ = str(pay.get("circuito") or "")
-        if circ:
-            circ_sentidos[circ][norm] += 1
-
-        f = (pay.get("factor_determinante_sentido") or "").strip()
-        if f and f not in ("null", "None"):
-            factores[f] += 1
-
-        m = (pay.get("magistrado_ponente") or "").strip()
-        if m and m not in ("null", "None"):
-            magistrados[m] += 1
-
-        r = pay.get("ratio_inoperantes")
-        if r is not None:
-            try:
-                ratio_sum += float(r)
-                ratio_n   += 1
-            except (TypeError, ValueError):
-                pass
-
-    total = sum(sentido_counts.values()) or 1
-    prob  = {k: round(v / total, 3) for k, v in sentido_counts.most_common()}
-
-    core = {k: prob.get(k, 0) for k in ("CONCEDE", "NIEGA", "SOBRESEE")}
-    sentido_probable = max(core, key=core.get) if any(core.values()) else "NIEGA"
-
-    por_circuito: dict = {}
-    for circ, cnt in circ_sentidos.items():
-        ct = sum(cnt.values()) or 1
-        por_circuito[circ] = {k: round(v / ct, 3) for k, v in cnt.items()}
-
-    n = len(points)
-    confianza = "alta" if n >= 40 else "media" if n >= 15 else "baja"
-
-    return {
-        "sentido_probable":           sentido_probable,
-        "probabilidades":             prob,
-        "n_base":                     n,
-        "por_circuito":               por_circuito,
-        "factor_dominante":           factores.most_common(1)[0][0] if factores else None,
-        "magistrados_frecuentes":     [m for m, _ in magistrados.most_common(5)],
-        "ratio_inoperantes_historico": round(ratio_sum / ratio_n, 3) if ratio_n else None,
-        "confianza":                  confianza,
-    }
+# La agregación de /api/jurimetria vive en `jurimetria_v2.py` desde el 22-nov-2026. La de aquí contestaba «NIEGA»
+# con 0 resultados, mezclaba tipos de asunto, contaba los 80 más parecidos y llevaba «modifica» a SOBRESEE.
 
 
 AZURE_DOCINT_KEY = os.getenv("AZURE_DOCINT_KEY", "")
@@ -24207,9 +24135,14 @@ async def jurimetria_endpoint(
     ratio_decidendi: Optional[UploadFile] = File(None),
     causa_petendi:   Optional[UploadFile] = File(None),
     authorization:   Optional[str] = Header(None),
+    estado:          Optional[str] = Form(None),
+    tipo_asunto:     Optional[str] = Form(None),
 ):
     """
     Predice el sentido probable de un asunto basándose en el corpus de precedentes.
+
+    22-nov-2026: `estado` (en vez del número de circuito) y `tipo_asunto` («Amparo directo», «AR», «queja»…) son
+    opcionales; la materia y el circuito pasan por `jurimetria_canon`, y la estadística es la de `jurimetria_v2`.
 
     Modo básico  → sólo descripcion + filtros opcionales.
     Modo secretario → adjunta ratio_decidendi (sentencia/acto reclamado) y/o
@@ -24302,54 +24235,87 @@ async def jurimetria_endpoint(
     if not query_base:
         raise HTTPException(400, "Proporciona una descripción del asunto o adjunta los documentos del caso.")
 
-    # ── Búsqueda semántica en sentencias_holdings (global o filtrada) ───
-    filter_conditions = []
-    if circuito:
-        filter_conditions.append(FieldCondition(key="circuito", match=MatchValue(value=str(circuito))))
+    # ── Búsqueda en sentencias_holdings con los campos canónicos `j_*` (22-nov-2026) ──
+    #
+    # ANTES: la web manda «administrativo» y lo guardado es «administrativa» (72,584 sentencias): 0 resultados,
+    # y con 0 la respuesta era «NIEGA». El filtro de «Tipo de acto» iba contra `acto_reclamado_tipo`, que no está
+    # indexado: el modo estricto de Qdrant lo rechaza con 400 y aquí salía un 500 —y en modo secretario Gemini lo
+    # rellenaba solo, así que con documentos adjuntos fallaba siempre—. Ahora:
+    #   · materia, tipo y circuito pasan por `jurimetria_canon` y se filtra por `j_materia` / `j_tipo` / `circuito`;
+    #   · el tipo de acto NO filtra (sólo lo tiene el 2% del acervo): queda en la extracción y en la narrativa;
+    #   · se busca en el circuito y en todo el país, y `jurimetria_v2.agregar` hace el resto (una sentencia un
+    #     voto, el mismo problema, por tipo de asunto, el circuito apoyado en lo nacional, sin base no hay sentido).
+    import jurimetria_canon as _jc
+    import jurimetria_v2 as _jv2
+    _circ = _jc.circuito_de_consulta(circuito, estado)
+    _mat = _jc.materia_de_consulta(materia) if materia else None
+    _tipo = _jc.tipo_de_consulta(tipo_asunto) if tipo_asunto else None
+    _trib = None
     if tribunal:
-        filter_conditions.append(FieldCondition(key="tribunal", match=MatchValue(value=tribunal)))
-    if acto_tipo:
-        filter_conditions.append(FieldCondition(key="acto_reclamado_tipo", match=MatchValue(value=acto_tipo)))
-    if materia:
-        filter_conditions.append(FieldCondition(key="materia", match=MatchValue(value=materia)))
+        _t = _jc.tribunal(tribunal, _circ) or _jc.tribunal_de_nombre(tribunal, _circ)
+        _trib = _t["id"] if _t else (tribunal if ":" in str(tribunal) else None)
+    if materia and not _mat:
+        print(f"   ⚖️ Jurimetria: materia «{materia}» no reconocida; no se filtra por materia")
 
-    qdrant_filter = Filter(must=filter_conditions) if filter_conditions else None
+    def _filtro(con_circuito: bool):
+        conds = []
+        if con_circuito and _circ:
+            conds.append(FieldCondition(key="circuito", match=MatchValue(value=_circ)))
+        if con_circuito and _trib:
+            conds.append(FieldCondition(key="j_tribunal", match=MatchValue(value=_trib)))
+        if _mat:
+            conds.append(FieldCondition(key="j_materia", match=MatchValue(value=_mat)))
+        if _tipo:
+            conds.append(FieldCondition(key="j_tipo", match=MatchValue(value=_tipo)))
+        return Filter(must=conds) if conds else None
+
+    async def _buscar(flt):
+        r = await qdrant_client.query_points(
+            collection_name="sentencias_holdings", query=dense_vec, using="dense",
+            limit=150, query_filter=flt, with_payload=True)
+        return r.points
 
     try:
         dense_vec = await get_dense_embedding(query_base)
-        response = await qdrant_client.query_points(
-            collection_name="sentencias_holdings",
-            query=dense_vec,
-            using="dense",
-            limit=80,
-            query_filter=qdrant_filter,
-            with_payload=True,
-        )
-        points = response.points
-        print(f"   ⚖️ Jurimetria search: {len(points)} precedentes (filtro: circuito={circuito or 'global'}, acto={acto_tipo or '-'})")
+        if _circ or _trib:
+            puntos_local, puntos_nac = await asyncio.gather(_buscar(_filtro(True)), _buscar(_filtro(False)))
+        else:
+            puntos_local = puntos_nac = await _buscar(_filtro(False))
+        print(f"   ⚖️ Jurimetria search: {len(puntos_local)} del circuito {_circ or 'global'} · "
+              f"{len(puntos_nac)} nacionales (materia={_mat or '-'}, tipo={_tipo or '-'}, tribunal={_trib or '-'})")
     except Exception as e:
         print(f"   ⚠️ Jurimetria Qdrant error: {err(e)}")
-        raise HTTPException(500, f"Error en búsqueda de precedentes: {e}")
+        raise HTTPException(503, "No se pudo consultar el acervo de sentencias en este momento. Vuelve a intentarlo.")
 
     # ── Agregación estadística ─────────────────────────────────────────────
-    estadistica = _aggregate_jurimetria(points)
+    _a = lambda p: {"id": p.id, "score": p.score, "payload": p.payload or {}}
+    estadistica = _jv2.agregar([_a(p) for p in puntos_local], [_a(p) for p in puntos_nac],
+                               tipo=_tipo, circuito=_circ)
+    estadistica["circuito"] = _circ
+    estadistica["estado"] = _jc.estado_de_circuito(_circ) if _circ else None
+    estadistica["materia"] = _mat
 
-    # ── Top precedentes análogos (top 5 por score) ─────────────────────────
+    # ── Top precedentes análogos: los 5 más parecidos de la base, una sentencia cada uno ──
     precedentes_analogos = []
-    for pt in points[:5]:
-        pay = pt.payload or {}
-        trib  = pay.get("tribunal") or ""
+    _base_pa = _jv2.una_por_sentencia([_a(p) for p in puntos_local])
+    if estadistica.get("tipo_asunto"):
+        _base_pa = [p for p in _base_pa if p["payload"].get("j_tipo") == estadistica["tipo_asunto"]] or _base_pa
+    for pt in _base_pa[:5]:
+        pay = pt["payload"]
+        trib  = pay.get("j_tribunal_nombre") or pay.get("tribunal") or ""
         exp   = pay.get("expediente") or ""
         sent  = (pay.get("sentido") or "").capitalize()
-        fecha = (pay.get("fecha_sentencia") or "")[:4]
+        fecha = str(pay.get("j_fecha") or pay.get("fecha_sentencia") or "")[:10]
         circ  = pay.get("circuito") or ""
         ref_parts = [x for x in [trib, exp, sent, fecha] if x]
         precedentes_analogos.append({
             "ref":     " · ".join(ref_parts),
             "circuito": circ,
             "holding": (pay.get("holding") or "")[:400],
-            "score":   round(pt.score or 0, 3),
+            "score":   round(pt["score"] or 0, 3),
             "pdf_url": pay.get("pdf_url"),
+            "prospera": pay.get("j_prospera"),
+            "sintesis_oficial": pay.get("j_sintesis_oficial"),
         })
 
     # ── Síntesis narrativa con Gemini Flash ───────────────────────────────
@@ -24380,6 +24346,11 @@ async def jurimetria_endpoint(
             for i, p in enumerate(precedentes_analogos)
         )
 
+        # LA PREGUNTA ES DE QUIEN PROMUEVE (22-nov-2026). «CONCEDE / NIEGA» se leía como si el quejoso fuera
+        # siempre el que pregunta; en revisión fiscal recurre la autoridad y «NIEGA» era que ganaba el particular.
+        # Y sin base no hay predicción: el modelo no debe fabricarla.
+        _sin_base = estadistica.get("sentido_probable") == _jv2.SIN_BASE
+        _quejoso = estadistica.get("quejoso") or {}
         sinth_prompt = (
             "Eres un analista de jurimetría judicial mexicana. "
             "Con base en los datos estadísticos y los precedentes recuperados, "
@@ -24387,10 +24358,26 @@ async def jurimetria_endpoint(
             "1) Predicción y fundamento estadístico\n"
             "2) Factores críticos que inclinan el resultado\n"
             "3) Orientación práctica para el secretario/litigante\n\n"
-            f"Asunto: {query_base[:500]}\n"
-            f"Precedentes analizados: {estadistica['n_base']} (confianza: {estadistica['confianza']})\n"
-            f"Distribución sentido: {prob_str}\n"
-            f"Factor dominante histórico: {estadistica.get('factor_dominante') or 'N/D'}\n"
+            "Cómo leer los números: «CONCEDE» = prosperó lo que pidió QUIEN PROMOVIÓ (el quejoso en amparo directo; "
+            "el recurrente, sea quejoso o autoridad, en un recurso); «NIEGA» = no prosperó; «SOBRESEE» = no se "
+            "entró al fondo. Dilo así, desde quien promueve, y no lo traduzcas a «se concede el amparo» salvo en "
+            "amparo directo. No inventes porcentajes que no estén aquí.\n"
+            + ("NO HAY BASE SUFICIENTE para predecir: dilo en el primer párrafo, sin dar un sentido probable, y "
+               "usa los precedentes sólo como orientación.\n" if _sin_base else "")
+            + f"\nAsunto: {query_base[:500]}\n"
+            f"Tipo de asunto de la base: {estadistica.get('tipo_asunto_nombre') or 'mixto'}\n"
+            f"Circuito: {estadistica.get('circuito') or 'todo el país'}"
+            f"{' (' + estadistica['estado'] + ')' if estadistica.get('estado') else ''}\n"
+            f"Sentencias en la base: {estadistica['n_base']} (confianza: {estadistica['confianza']}; "
+            f"{estadistica.get('aviso') or ''})\n"
+            f"Resumen: {_jv2.frase(estadistica)}\n"
+            f"Distribución: {prob_str or 'sin datos'}\n"
+            + (f"Cómo quedó el quejoso o el particular ({estadistica.get('quejoso_n')} sentencias): "
+               + ", ".join(f"{k} {int(v * 100)}%" for k, v in _quejoso.items()) + "\n" if _quejoso else "")
+            + (f"Antes y después de la nueva integración de los tribunales (1-sep-2025): "
+               f"{json.dumps(estadistica.get('por_periodo'), ensure_ascii=False)}\n"
+               if estadistica.get("por_periodo") else "")
+            + f"Factor dominante histórico: {estadistica.get('factor_dominante') or 'N/D'}\n"
             f"Ratio inoperantes histórico: {estadistica.get('ratio_inoperantes_historico') or 'N/D'}\n"
             f"{circ_str}\n"
             f"{conceptos_str}\n\n"
