@@ -49,6 +49,15 @@ igual("11TCC_CIV nombre", (jc.tribunal("11TCC_CIV", "1") or {}).get("nombre"),
 igual("2TCC_LAB c6", (jc.tribunal("2TCC_LAB", "6") or {}).get("id"), "6:2:LAB")
 igual("c16 escrito", (jc.tribunal("Primer Tribunal Colegiado en Materia de Trabajo del Decimosexto Circuito con "
                                   "residencia en Guanajuato Gto", "16") or {}).get("id"), "16:1:LAB")
+# 23-nov-2026: «en Materia DE Trabajo del Primer Circuito» se tragaba «trabajo del» como circuito (salía x:4:LAB).
+for n, i in [("Cuarto Tribunal Colegiado en Materia de Trabajo del Primer Circuito", "1:4:LAB"),
+             ("Segundo Tribunal Colegiado en Materia de Trabajo del Sexto Circuito, con residencia en Puebla, Puebla", "6:2:LAB"),
+             ("Primer Tribunal Colegiado en Materias Civil y de Trabajo del Décimo Sexto Circuito", "16:1:CIV-LAB"),
+             ("Primer Tribunal Colegiado en Materias Administrativa y de Trabajo del Decimosexto Circuito", "16:1:ADM-LAB"),
+             ("Primer Tribunal Colegiado de Circuito en Materia Administrativa, Especializado en Competencia Económica, "
+              "Radiodifusión y Telecomunicaciones", "x:1:ADM-ESP"),
+             ("Primer Tribunal Colegiado en Materia Administrativa del Primer Circuito", "1:1:ADM")]:
+    igual(f"circuito tras «de trabajo»: {n[:45]}", (jc.tribunal_de_nombre(n) or {}).get("id"), i)
 igual("c16 oficial", (jc.tribunal_de_nombre("Primer Tribunal Colegiado en Materia de Trabajo del Décimo Sexto "
                                             "Circuito, con residencia en Guanajuato, Guanajuato") or {}).get("id"),
       "16:1:LAB")

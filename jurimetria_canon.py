@@ -147,8 +147,10 @@ _ORGANOS_22 = {
     "TCC_ADM": "Tribunal Colegiado en Materias Administrativa y de Trabajo del Vigésimo Segundo Circuito",
 }
 _RX_CABEZA = re.compile(r"^(?P<ord>(?:[a-z]+ ){0,2}?)tribunal(?:es)? colegiados?\b")
-_RX_MATERIAS = re.compile(r"\bmaterias? (?P<mat>.+?)(?= del? (?:[a-z]+ ){0,2}?[a-z]+ circuito\b| con (?:residencia|sede) en\b|$)")
-_RX_CIRC = re.compile(r"\bdel? (?P<circ>(?:[a-z]+ ){0,2}?[a-z]+) circuito\b")
+_RX_MATERIAS = re.compile(r"\bmaterias? (?P<mat>.+?)(?= del? (?:(?!del?\b)[a-z]+ ){0,2}?(?!del?\b)[a-z]+ circuito\b"
+                          r"| con (?:residencia|sede) en\b|$)")
+# El circuito es el ÚLTIMO «del … circuito»: en «materia de trabajo del primer circuito» no puede tragarse «trabajo del».
+_RX_CIRC = re.compile(r"\bdel? (?P<circ>(?:(?!del?\b)[a-z]+ ){0,2}?(?!del?\b)[a-z]+) circuito\b")
 _RX_CLAVE = re.compile(r"^(\d{1,2})?TCC(?:_([A-Z]+))?$")
 
 
@@ -182,6 +184,8 @@ def tribunal_de_nombre(nombre, circuito=None) -> dict | None:
     partes = re.split(r"[\s,]+con\s+(?:residencia|sede)\s+en\s+", original, maxsplit=1, flags=re.I)
     corto = partes[0].strip(" ,;.")
     sede = partes[1].strip(" ,;.") if len(partes) > 1 else None
+    if "especializad" in p and "ESP" not in mats:
+        mats.append("ESP")       # el especializado en competencia económica no es el administrativo ordinario
     mats = sorted(mats)          # «Penal y Administrativa» y «Administrativa y Penal» son la misma clave
     return {"id": f"{c or 'x'}:{n}:{'-'.join(mats) or 'SIN'}", "n": n, "circuito": c,
             "materias": "-".join(mats) or None, "nombre": corto, "sede": sede}
