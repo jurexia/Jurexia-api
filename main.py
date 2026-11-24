@@ -2217,6 +2217,39 @@ def tope_de_historial(nivel: str) -> int:
     return min(HISTORIAL_TOPE_POR_PLAN.get(nivel, HISTORIAL_TOPE_POR_PLAN["gratuito"]), HISTORIAL_MAX_CHARS)
 
 
+# ── EL DOCUMENTO EN LA CONVERSACIÓN, POR PLAN (23-nov-2026) ───────────────
+#
+# El texto leído del documento viaja oculto en el mensaje del abogado y entra
+# en cada pregunta de seguimiento. Tenía UN tope para todos, 120 mil
+# caracteres, y un expediente de Platinum lo rebasa de largo: el del 23-nov
+# leído entero da ~300 mil, y el seguimiento veía el 40%. El análisis
+# contestaba bien y la pregunta siguiente ya no encontraba lo de la hoja 200.
+#
+# Ahora el tope es del plan, y nunca más de la mitad de su memoria: el resto
+# de la conversación tiene que seguir cabiendo. El techo de lo que viaja al
+# motor no cambia —lo sigue poniendo HISTORIAL_TOPE_POR_PLAN—; el documento
+# sólo puede ocupar más de ese mismo espacio.
+#
+# EL COSTO, MEDIDO (23-nov): un seguimiento con documento de ese abogado
+# entra al motor con 90-168 mil tokens (el acervo pesa más que el documento)
+# y cuesta ~0.06-0.10 USD. 180 mil caracteres más son ~50 mil tokens:
+# ~0.025 USD más por pregunta, y sólo cuando el documento pasa de 120 mil.
+DOCUMENTO_EN_HISTORIAL_MAX = int(os.getenv("DOCUMENTO_EN_HISTORIAL_MAX", "120000"))
+DOCUMENTO_EN_HISTORIAL_POR_PLAN = {
+    "gratuito": DOCUMENTO_EN_HISTORIAL_MAX,
+    "basico": DOCUMENTO_EN_HISTORIAL_MAX,
+    "pro": int(os.getenv("DOCUMENTO_EN_HISTORIAL_PRO", "200000")),
+    "platinum": int(os.getenv("DOCUMENTO_EN_HISTORIAL_PLATINUM", "300000")),
+}
+
+
+def tope_documento_en_historial(nivel: str) -> int:
+    """Cuánto del documento viaja con la conversación, según el plan. Nunca
+    menos que el tope de siempre ni más de la mitad de la memoria del plan."""
+    tope = DOCUMENTO_EN_HISTORIAL_POR_PLAN.get(nivel, DOCUMENTO_EN_HISTORIAL_MAX)
+    return max(DOCUMENTO_EN_HISTORIAL_MAX, min(tope, tope_de_historial(nivel) // 2))
+
+
 def marcador_memoria_llena(nivel: str, tope: int, usado: int) -> str:
     """El aviso para la pantalla. Se emite UNA vez por respuesta, al principio,
     y sólo cuando el recorte de verdad quitó algo."""
@@ -2420,7 +2453,8 @@ def _cabeza(texto: str, tope: int) -> str:
     return texto[:max(tope, 0)]
 
 
-def _recortar_historial(mensajes: list, presupuesto: int = 0, turnos_intactos: int = 0):
+def _recortar_historial(mensajes: list, presupuesto: int = 0, turnos_intactos: int = 0,
+                        ancla_max: int = 0):
     """Acorta el historial para que quepa en la ventana del modelo.
 
     Devuelve `(mensajes, chars_antes, chars_después)`. Si el historial ya cabe,
@@ -2429,9 +2463,14 @@ def _recortar_historial(mensajes: list, presupuesto: int = 0, turnos_intactos: i
 
     Nunca deja un `content` vacío: hay proveedores que rechazan el turno vacío,
     y un hueco silencioso en la conversación es peor que un marcador visible.
+
+    `ancla_max`: el tope del primer mensaje, si no es el de siempre (el
+    documento que abre la conversación de un Platinum, ver
+    `tope_documento_en_historial`).
     """
     presupuesto = presupuesto or HISTORIAL_MAX_CHARS
     turnos_intactos = turnos_intactos or HISTORIAL_TURNOS_INTACTOS
+    ancla_max = ancla_max or HISTORIAL_ANCLA_MAX
 
     # Primero fuera lo que no es conversación: medir con los marcadores dentro
     # era medir el envoltorio. Ver `_limpiar_historial`.
@@ -2510,7 +2549,7 @@ def _recortar_historial(mensajes: list, presupuesto: int = 0, turnos_intactos: i
     #    venir el documento o el planteamiento del caso.
     if ancla is not None:
         c = mensajes[ancla].content or ""
-        tope = max(0, min(HISTORIAL_ANCLA_MAX, presupuesto - gastado))
+        tope = max(0, min(ancla_max, presupuesto - gastado))
         nuevos[ancla] = _cabeza(c, tope)
         gastado += len(nuevos[ancla])
 
@@ -2526,7 +2565,14 @@ def _recortar_historial(mensajes: list, presupuesto: int = 0, turnos_intactos: i
         cabeza = (HISTORIAL_CABEZA_ASISTENTE if mensajes[i].role == "assistant"
                   else HISTORIAL_CABEZA_USUARIO)
         recorte = _cabeza(c, cabeza)
-        for candidato in (c, recorte):
+        candidatos = [c, recorte]
+        # EL DOCUMENTO NO SE QUEDA EN 3 MIL (23-nov-2026). Un turno de en medio
+        # que no cabe entero bajaba a su cabeza de 3,000 caracteres, y el de un
+        # documento de 300 mil es justo el que no cabe: de todo el expediente
+        # quedaba la pregunta y media hoja. El del documento toma lo que quede.
+        if mensajes[i].role == "user" and "<!-- DOCUMENTO_INICIO -->" in c:
+            candidatos.insert(1, _cabeza(c, presupuesto - gastado + actual))
+        for candidato in candidatos:
             if len(candidato) > actual and gastado - actual + len(candidato) <= presupuesto:
                 gastado += len(candidato) - actual
                 nuevos[i] = candidato
@@ -15122,10 +15168,13 @@ async def analyze_document(
             # escáner de seguridad los salta. Con tope, porque viaja en cada
             # turno siguiente.
             try:
-                _tope_hist = int(os.getenv("DOCUMENTO_EN_HISTORIAL_MAX", "120000"))
+                _tope_hist = tope_documento_en_historial(nivel_de_plan(plan_actual, es_admin))
                 _texto_hist = (_p.get("extracted_text") or "").strip()
                 if _texto_hist:
                     _cortado = len(_texto_hist) > _tope_hist
+                    if _cortado:
+                        print(f"   📎 Documento a la conversación: {_tope_hist:,} de "
+                              f"{len(_texto_hist):,} chars (tope del plan {plan_actual})")
                     yield "data: " + json.dumps({"documento": {
                         "nombre": filename,
                         "texto": _texto_hist[:_tope_hist],
@@ -15188,7 +15237,9 @@ async def analyze_document(
                     _memoria_doc.update(antes=_antes, despues=0, tope=max(_presupuesto, 0))
                     print(f"   ✂️ DOCUMENTO SIN HISTORIAL: el documento llena la ventana de {_modelo}")
                     return []
-                _h, _antes, _despues = _recortar_historial(_previos_doc, presupuesto=_presupuesto)
+                _h, _antes, _despues = _recortar_historial(
+                    _previos_doc, presupuesto=_presupuesto,
+                    ancla_max=tope_documento_en_historial(_nivel_doc))
                 _memoria_doc.update(antes=_antes, despues=_despues, tope=_presupuesto)
                 if _despues < _antes:
                     print(f"   ✂️ HISTORIAL DEL DOCUMENTO RECORTADO: {_antes:,} → {_despues:,} chars "
@@ -20730,7 +20781,9 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                 # DESDE LA ENTRADA): a estas alturas casi siempre ya volvió.
                 _nivel_mem = await _nivel_mem_tarea
                 _tope_mem = tope_de_historial(_nivel_mem)
-                _hist, _hist_antes, _hist_despues = _recortar_historial(request.messages, presupuesto=_tope_mem)
+                _hist, _hist_antes, _hist_despues = _recortar_historial(
+                    request.messages, presupuesto=_tope_mem,
+                    ancla_max=tope_documento_en_historial(_nivel_mem))
                 if _hist_despues < _hist_antes:
                     print(f"   ✂️ HISTORIAL RECORTADO: {_hist_antes:,} → {_hist_despues:,} chars "
                           f"en {len(_hist)} mensajes (tope {_tope_mem:,}, plan {_nivel_mem})")
