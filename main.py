@@ -14694,13 +14694,7 @@ async def analyze_document(
                     # rápido, pero dentro de la ruta async congela al trabajador
                     # entero mientras dura: ver `lectura_docx`, que nació del
                     # reinicio por memoria del 25-sep.
-                    def _leer_pdf_nativo(_c):
-                        _d = fitz.open(stream=_c, filetype="pdf")
-                        try:
-                            return [pg.get_text() for pg in _d]
-                        finally:
-                            _d.close()
-                    pages_text = await asyncio.to_thread(_leer_pdf_nativo, content)
+                    pages_text, _con_imagen = await asyncio.to_thread(_leer_pdf_paginas, content)
                     extracted_text = "\n\n".join(pages_text)
 
                     # ¿ES ESTO UN DOCUMENTO, O SON LOS SELLOS? (21-sep-2026)
@@ -14738,7 +14732,21 @@ async def analyze_document(
                     else:
                         t_extract = _time.time()
                         print(f"   📝 PDF con texto seleccionable ({total_pages} páginas, {len(extracted_text):,} chars) — {t_extract - t_read:.2f}s")
-                        _paso(f"Documento leído: {total_pages} páginas con texto.")
+                        # ¿Y cada hoja? Un PDF unido —escrito + expediente
+                        # escaneado— pasa este juez y deja sin leer las hojas
+                        # que son imagen (ver EL PDF MIXTO, 23-nov-2026).
+                        _faltan = _hojas_sin_texto(pages_text, _con_imagen)
+                        if _faltan:
+                            print(f"   🧩 PDF mixto: {len(_faltan)} de {total_pages} hojas escaneadas "
+                                  f"sin texto — se leen con OCR")
+                            _paso(f"Reconociendo el texto de {len(_faltan)} páginas escaneadas…")
+                            _t_mixto = _time.time()
+                            extracted_text, _n_ocr = await _completar_hojas_escaneadas(
+                                content, pages_text, _faltan, permitir_ocr=not _freno_doc)
+                            print(f"   🔍 OCR completado: {len(extracted_text or ''):,} chars "
+                                  f"en {_time.time() - _t_mixto:.1f}s ({total_pages} pág, "
+                                  f"{_n_ocr} por OCR)")
+                        _paso(f"Documento leído: {total_pages} páginas.")
                 except ImportError:
                     # PyMuPDF not available, treat as scanned
                     is_scanned_pdf = True
@@ -23585,13 +23593,17 @@ class _OCRIncompleto(Exception):
 
 
 async def _ocr_azure(contenido: bytes, paginas_esperadas: int = 0,
-                     rango: str = "") -> str:
+                     rango: str = "", por_pagina: bool = False):
     """Azure AI Document Intelligence, modelo `prebuilt-read`.
 
     Se eligió midiendo, no por catálogo: 8 segundos para 42 páginas escaneadas
     de un expediente real frente a los 88 de Gemini, con la misma cobertura del
     texto literal. Y da confianza por palabra, que es lo que permitirá marcar
     páginas dudosas cuando se enganche la segunda opinión.
+
+    `por_pagina=True` devuelve {número de página del PDF: texto} en vez del
+    texto rotulado: es lo que necesita el PDF mixto para coser cada hoja
+    escaneada en su lugar (ver `_completar_hojas_escaneadas`).
     """
     import httpx
 
@@ -23628,10 +23640,18 @@ async def _ocr_azure(contenido: bytes, paginas_esperadas: int = 0,
             raise RuntimeError(f"Azure devolvió estado «{j.get('status')}»")
     res = j.get("analyzeResult", {})
     partes = []
+    hojas = {}
+    # EL NÚMERO DE PÁGINA LO DA AZURE (23-nov-2026). Se rotulaba con la
+    # posición en la respuesta, y con `pages=2001-2100` la página 2001 salía
+    # como «PÁGINA 1». `pageNumber` es el número de la hoja en el PDF.
     for i, pg in enumerate(res.get("pages", []), 1):
+        n_pg = pg.get("pageNumber") or i
         lineas = [l.get("content", "") for l in pg.get("lines", [])]
         if lineas:
-            partes.append(f"[[PÁGINA {i}]]\n" + "\n".join(lineas))
+            partes.append(f"[[PÁGINA {n_pg}]]\n" + "\n".join(lineas))
+            hojas[int(n_pg)] = "\n".join(lineas)
+    if por_pagina:
+        return hojas
     # AZURE RECORTA EN 2.000 PÁGINAS Y DICE «SUCCEEDED». Medido: un PDF de 2.100
     # páginas vuelve con 2.000 y sin un solo error. El documento se habría
     # leído a medias y firmado entero, que es exactamente la trampa que
@@ -23658,19 +23678,193 @@ def _texto_nativo_sirve(texto: str, paginas: int) -> bool:
 
     Se mide la RIQUEZA, no la longitud: un sello repetido tiene poquísimas
     palabras distintas, y un documento judicial ronda el 20-40% de únicas.
+
+    LA RIQUEZA SE MIDE POR TRAMOS (23-nov-2026). Sobre el documento entero la
+    razón de únicas baja sola con el largo —el vocabulario crece mucho más
+    despacio que el texto—, y un documento bueno y largo pasaba por sello. El
+    Código Penal del DF que subió un abogado Platinum: 240 páginas con capa de
+    texto buena, 73,552 palabras, razón 0.081 → «capa inútil» → 240 páginas
+    de OCR pagadas y 25 segundos de espera. Por tramos de 2,000 palabras da
+    0.286 (el expediente escaneado de 94 páginas, 0.348), y los sellos siguen
+    en 0.000-0.005: la vara separa igual y ya no castiga el largo.
     """
     if not texto or len(texto) < 200:
         return False
     palabras = re.findall(r"[A-Za-zÁÉÍÓÚÑáéíóúñ]{3,}", texto)
     if len(palabras) < 120:
         return False
-    unicas = {w.lower() for w in palabras}
-    if len(unicas) / len(palabras) < 0.12:      # sellos: 0.03 · documento: 0.2-0.4
+    if _riqueza_de_palabras(palabras) < 0.12:   # sellos: 0.00-0.05 · documento: 0.2-0.4
+        return False
+    # El largo que sólo pasa POR TRAMOS tiene que leerse además como español:
+    # antes iba al OCR, y así no se cuela una capa de texto rota (fuentes mal
+    # codificadas, «Ã©±…») que por azar tenga muchas palabras distintas.
+    # Medido: el Código Penal 0.17, el expediente escaneado 0.21, basura 0.00.
+    if (len(palabras) >= 2 * _TRAMO_RIQUEZA
+            and len({w.lower() for w in palabras}) / len(palabras) < 0.12
+            and _parte_funcional(palabras) < 0.06):
         return False
     # Y un documento de verdad tiene cuerpo en cada página, no una línea.
     if paginas > 3 and len(texto) / paginas < 250:
         return False
     return True
+
+
+_TRAMO_RIQUEZA = 2000
+
+
+def _riqueza_de_palabras(palabras: list) -> float:
+    """Razón de palabras distintas, media de tramos de `_TRAMO_RIQUEZA`.
+
+    Un texto corto se mide entero, como siempre. Uno largo, por tramos
+    consecutivos (el último, si es muy corto, no cuenta): así la razón no
+    depende de cuánto mide el documento sino de cómo está escrito."""
+    if len(palabras) < 2 * _TRAMO_RIQUEZA:
+        return len({w.lower() for w in palabras}) / max(len(palabras), 1)
+    razones = []
+    for i in range(0, len(palabras), _TRAMO_RIQUEZA):
+        tramo = palabras[i:i + _TRAMO_RIQUEZA]
+        if len(tramo) >= _TRAMO_RIQUEZA // 4:
+            razones.append(len({w.lower() for w in tramo}) / len(tramo))
+    return sum(razones) / len(razones) if razones else 0.0
+
+
+_PALABRAS_FUNCIONALES = frozenset((
+    "que", "los", "del", "las", "por", "con", "una", "para", "como", "sus", "este",
+    "esta", "ese", "esa", "fue", "sin", "ser", "son", "entre", "sobre", "cual", "pero",
+    "dicho", "dicha", "conforme", "mediante", "todo", "toda", "han", "hay", "así", "sea",
+    "más", "también", "cuando", "donde", "dichos", "dichas", "esto", "eso", "ante",
+    "desde", "hasta", "según", "quien", "cuyo", "cuya", "tal"))
+
+
+def _parte_funcional(palabras: list) -> float:
+    """Qué parte de las palabras son nexos del español («que», «los», «por»…).
+    Un texto en español ronda 0.15-0.25; una capa rota, cero."""
+    return sum(w.lower() in _PALABRAS_FUNCIONALES for w in palabras) / max(len(palabras), 1)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# EL PDF MIXTO: HOJAS CON TEXTO Y HOJAS ESCANEADAS (23-nov-2026)
+# ═══════════════════════════════════════════════════════════════════════════
+# El juez de arriba mira el documento ENTERO y contesta sí o no: o todo va
+# por su capa de texto, o todo al OCR. Un PDF hecho uniendo un escrito de
+# Word con un expediente escaneado tiene las dos cosas, y el sí ganaba.
+#
+# Medido el 23-nov con un Platinum (penal, CDMX): «DOCUMENTOS_UNIDOS_
+# COMPLETO.pdf», 129 páginas y 40 MB. Su capa de texto: 95,669 caracteres,
+# 741 por página → «texto seleccionable», sin OCR. Eran ~35 hojas de
+# transcripción de audiencias con texto, y las 94 hojas escaneadas que esa
+# misma mañana, subidas solas, dieron 210,339 caracteres por OCR —entre ellas
+# la resolución del no ejercicio de la acción penal, en 10 páginas—. El
+# análisis contestó «el documento compartido no contiene la resolución
+# ministerial de NEAP», y el abogado escribió que «dice que no está algo que
+# sí está». Tenía razón: dos tercios del archivo nunca se leyeron.
+#
+# Ahora se mira HOJA POR HOJA. La que trae una imagen y casi nada de texto es
+# una hoja escaneada (o un escaneo con el sello de la FIREL encima), y esas
+# —sólo esas— pasan por Azure con su parámetro `pages`; luego cada una vuelve
+# a su lugar. Lo que ya tenía texto no se paga dos veces.
+PAGINA_CON_CUERPO = 200     # menos que esto, con una imagen, es hoja escaneada
+
+
+def _leer_pdf_paginas(contenido: bytes) -> tuple:
+    """(texto de cada página, ¿la página trae alguna imagen?). Síncrona:
+    quien la llama la corre en un hilo."""
+    import fitz
+    d = fitz.open(stream=contenido, filetype="pdf")
+    try:
+        textos, con_imagen = [], []
+        for pg in d:
+            textos.append(pg.get_text())
+            try:
+                con_imagen.append(bool(pg.get_images(full=False)))
+            except Exception:
+                con_imagen.append(False)
+        return textos, con_imagen
+    finally:
+        d.close()
+
+
+def _hojas_sin_texto(textos: list, con_imagen: list) -> list:
+    """Números de página (desde 1) que son imagen con casi nada de texto.
+
+    Una hoja en blanco o la última de un escrito, cortas pero sin imagen, no
+    cuentan: ahí no hay nada que leer y el OCR sólo costaría."""
+    return [i for i, (t, img) in enumerate(zip(textos, con_imagen), 1)
+            if img and len((t or "").strip()) < PAGINA_CON_CUERPO]
+
+
+def _rango_azure(numeros: list) -> str:
+    """[1, 2, 3, 7, 9, 10] → «1-3,7,9-10», que es como Azure pide las hojas."""
+    tramos, ini, prev = [], None, None
+    for n in sorted(set(numeros)):
+        if ini is None:
+            ini = prev = n
+        elif n == prev + 1:
+            prev = n
+        else:
+            tramos.append(f"{ini}-{prev}" if prev > ini else f"{ini}")
+            ini = prev = n
+    if ini is not None:
+        tramos.append(f"{ini}-{prev}" if prev > ini else f"{ini}")
+    return ",".join(tramos)
+
+
+async def _completar_hojas_escaneadas(contenido: bytes, textos: list, faltan: list,
+                                      permitir_ocr: bool = True) -> tuple:
+    """(texto del PDF entero, cuántas hojas se leyeron por OCR).
+
+    Cada página va rotulada con `[[PÁGINA n]]`, como el OCR: así el modelo
+    puede citar la hoja y `_paginas_de_bytes` sabe partirlo. Si el OCR no se
+    puede (sin Azure, plan Estudio con el freno, Azure caído), se devuelve la
+    capa de texto como antes: el arreglo no puede dejar peor a nadie.
+    """
+    def _coser(hojas: dict) -> str:
+        partes = []
+        for i, t in enumerate(textos, 1):
+            t = (t or "").strip()
+            o = (hojas.get(i) or "").strip()
+            if i in hojas and len(o) > len(t):
+                t = o
+            if t:
+                partes.append(f"[[PÁGINA {i}]]\n{t}")
+        return "\n\n".join(partes)
+
+    n_pages = len(textos)
+    nativo = "\n\n".join(textos).strip()
+    _huella = await asyncio.to_thread(cache_ocr.huella, contenido)
+    _guardado = await cache_ocr.leer(supabase_admin, _huella)
+    if _guardado:
+        print(f"   💾 OCR de caché (PDF mixto): {len(_guardado)} chars ({n_pages} pág) — "
+              f"Azure no se vuelve a pagar (huella {_huella[:12]})")
+        return _guardado, 0
+    if not permitir_ocr:
+        print(f"   🧭 PDF mixto sin OCR (Estudio tras el freno): {len(faltan)} hojas escaneadas sin leer")
+        return nativo, 0
+    if not (AZURE_DOCINT_KEY and AZURE_DOCINT_ENDPOINT):
+        print(f"   ⚠️ PDF mixto: {len(faltan)} hojas escaneadas y Azure sin configurar — sólo la capa de texto")
+        return nativo, 0
+
+    t0 = time.time()
+    hojas, completo = {}, True
+    for k in range(0, len(faltan), _TRAMO_AZURE):
+        grupo = faltan[k:k + _TRAMO_AZURE]
+        try:
+            leidas = await _ocr_azure(contenido, rango=_rango_azure(grupo), por_pagina=True)
+            hojas.update({n: t for n, t in (leidas or {}).items() if n in grupo})
+        except Exception as e:
+            completo = False
+            print(f"   ⚠️ PDF mixto: Azure falló en las hojas {_rango_azure(grupo)[:60]} ({err(e)})")
+    if not hojas:
+        print(f"   ⚠️ PDF mixto: el OCR no devolvió texto de las {len(faltan)} hojas escaneadas — "
+              f"sólo la capa de texto")
+        return nativo, 0
+    texto = _coser(hojas)
+    print(f"   ⚡ PDF mixto: {len(hojas)} de {len(faltan)} hojas escaneadas leídas por OCR en "
+          f"{time.time() - t0:.0f}s — {len(nativo):,} → {len(texto):,} chars ({n_pages} pág)")
+    # Sólo lo leído ENTERO entra en la caché, como en el OCR completo.
+    if completo:
+        cache_ocr.guardar_en_segundo_plano(supabase_admin, _huella, texto, n_pages)
+    return texto, len(hojas)
 
 
 async def _extract_text_from_upload(file: UploadFile, permitir_ocr: bool = True) -> str:
@@ -23700,22 +23894,29 @@ async def _extract_text_from_upload(file: UploadFile, permitir_ocr: bool = True)
             # coste no es el tiempo sino que se sume al de todo lo demás: el
             # plazo del latido no distingue entre una llamada larga y veinte
             # cortas seguidas.
-            def _leer_nativo(_c):
-                d = fitz.open(stream=_c, filetype="pdf")
-                try:
-                    return [p.get_text() for p in d], len(d)
-                finally:
-                    d.close()
-            pages, n_pages = await asyncio.to_thread(_leer_nativo, content)
+            pages, con_imagen = await asyncio.to_thread(_leer_pdf_paginas, content)
+            n_pages = len(pages)
             text = "\n\n".join(pages).strip()
-            if _texto_nativo_sirve(text, n_pages):
-                print(f"   📄 PDF native text: {len(text)} chars, {n_pages} pages")
-                return text
-            print(f"   📷 PDF escaneado o con capa inútil ({n_pages} pág, "
-                  f"{len(text)} chars) — se pasa al OCR")
+            _nativo_sirve = _texto_nativo_sirve(text, n_pages)
+            if not _nativo_sirve:
+                print(f"   📷 PDF escaneado o con capa inútil ({n_pages} pág, "
+                      f"{len(text)} chars) — se pasa al OCR")
         except Exception as e:
             print(f"   ⚠️ PyMuPDF error: {err(e)}")
             n_pages = 0
+            _nativo_sirve = False
+
+        if _nativo_sirve:
+            # El documento tiene texto; ¿lo tiene CADA hoja? (ver EL PDF MIXTO)
+            _faltan = _hojas_sin_texto(pages, con_imagen)
+            if not _faltan:
+                print(f"   📄 PDF native text: {len(text)} chars, {n_pages} pages")
+                return text
+            print(f"   🧩 PDF mixto: {len(_faltan)} de {n_pages} hojas escaneadas sin texto — "
+                  f"se leen con OCR")
+            texto_mixto, _ = await _completar_hojas_escaneadas(
+                content, pages, _faltan, permitir_ocr=permitir_ocr)
+            return texto_mixto
 
         # ── 1b. ¿Este mismo PDF ya se leyó? ──────────────────────
         #
